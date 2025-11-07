@@ -1,0 +1,37 @@
+project_id = "rekkdwpkzkhgnejgzhac"
+
+[functions.payvessel-webhook]
+verify_jwt = false
+
+[functions.fetch-payvessel-balance]
+verify_jwt = true
+
+[functions.fetch-payvessel-transactions]
+verify_jwt = true
+
+[functions.fetch-cable-packages]
+verify_jwt = true
+
+[functions.fetch-electricity-packages]
+verify_jwt = true
+
+[functions.fetch-mobilenig-balance]
+verify_jwt = true
+
+[functions.fetch-smeplug-networks]
+verify_jwt = true
+
+[functions.fetch-smeplug-data-plans]
+verify_jwt = true
+
+[functions.purchase-smeplug-airtime]
+verify_jwt = true
+
+[functions.purchase-smeplug-data]
+verify_jwt = true
+
+[functions.validate-cable-customer]
+verify_jwt = true
+
+[functions.withdraw-referral-earnings]
+verify_jwt = true
