@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { supabase } from '@/lib/supabase';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -17,10 +18,63 @@ export default function SignupScreen() {
   const [referralCode, setReferralCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleCreateAccount = () => {
-    // Handle account creation
-    router.push('/email-verification');
+  const handleCreateAccount = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedReferral = referralCode.trim();
+
+    if (!trimmedFirstName || !trimmedLastName) {
+      Alert.alert('Sign Up', 'Please provide your first and last name.');
+      return;
+    }
+
+    if (!trimmedEmail) {
+      Alert.alert('Sign Up', 'Please enter a valid email address.');
+      return;
+    }
+
+    if (!password || password.length < 6) {
+      Alert.alert('Sign Up', 'Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Sign Up', 'Passwords do not match.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: {
+          data: {
+            first_name: trimmedFirstName,
+            last_name: trimmedLastName,
+            phone: trimmedPhone || null,
+            referral_code: trimmedReferral || null,
+          },
+        },
+      });
+
+      setLoading(false);
+
+      if (error) {
+        Alert.alert('Sign Up Failed', error.message || 'We could not create your account.');
+        return;
+      }
+
+      Alert.alert('Verify Your Email', 'We have sent a verification code to your email address. Enter it to complete your registration.');
+      router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Sign Up Error', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
   return (
@@ -162,8 +216,15 @@ export default function SignupScreen() {
           </View>
 
           {/* Create Account Button */}
-          <TouchableOpacity style={styles.createButton} onPress={handleCreateAccount}>
-            <ThemedText style={styles.createButtonText}>Create Account</ThemedText>
+          <TouchableOpacity
+            style={[styles.createButton, loading && { opacity: 0.7 }]}
+            onPress={handleCreateAccount}
+            disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.createButtonText}>Create Account</ThemedText>
+            )}
           </TouchableOpacity>
 
           {/* Sign In Link */}

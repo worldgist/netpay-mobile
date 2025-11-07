@@ -9,18 +9,25 @@ import {
   ScrollView,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { supabase } from '@/lib/supabase';
 
 const CODE_LENGTH = 6;
 
 export default function EmailVerificationScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
   const [token, setToken] = useState(Array(CODE_LENGTH).fill(''));
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const inputRefs = useRef<Array<TextInput | null>>([]);
+
+  const email = typeof params.email === 'string' ? params.email : undefined;
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -54,19 +61,73 @@ export default function EmailVerificationScreen() {
     }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
+    if (!email) {
+      Alert.alert('Verification', 'Missing email context. Please return to the signup screen and try again.');
+      return;
+    }
+
     if (!token.every((digit) => digit)) {
       Alert.alert('Verification', 'Enter the 6-digit code sent to your email.');
       return;
     }
 
-    setShowSuccessModal(true);
+    try {
+      setVerifying(true);
+      const otpToken = token.join('');
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: otpToken,
+        type: 'signup',
+      });
+
+      setVerifying(false);
+
+      if (error) {
+        Alert.alert('Verification Failed', error.message || 'Invalid verification code. Please try again.');
+        return;
+      }
+
+      if (!data.session) {
+        Alert.alert('Verification', 'Your email was verified. Please sign in to continue.');
+        router.replace('/auth/login');
+        return;
+      }
+
+      setShowSuccessModal(true);
+    } catch (err) {
+      setVerifying(false);
+      Alert.alert('Verification Error', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
-  const handleResendCode = () => {
-    Alert.alert('Verification', 'A new verification code has been sent to your email.');
-    setToken(Array(CODE_LENGTH).fill(''));
-    inputRefs.current[0]?.focus();
+  const handleResendCode = async () => {
+    if (!email) {
+      Alert.alert('Verification', 'Missing email context. Please return to the signup screen and try again.');
+      return;
+    }
+
+    try {
+      setResending(true);
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      });
+
+      setResending(false);
+
+      if (error) {
+        Alert.alert('Resend Failed', error.message || 'Unable to resend the verification code.');
+        return;
+      }
+
+      Alert.alert('Verification', 'A new verification code has been sent to your email.');
+      setToken(Array(CODE_LENGTH).fill(''));
+      inputRefs.current[0]?.focus();
+    } catch (err) {
+      setResending(false);
+      Alert.alert('Resend Error', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
   const handleCloseModal = () => {
@@ -83,7 +144,9 @@ export default function EmailVerificationScreen() {
           <View style={styles.header}>
             <ThemedText style={styles.title}>Verify Your Email</ThemedText>
             <ThemedText style={styles.subtitle}>
-              Enter the 6-digit verification code we sent to your email address.
+              {email
+                ? `Enter the 6-digit verification code we sent to ${email}.`
+                : 'Enter the 6-digit verification code we sent to your email address.'}
             </ThemedText>
           </View>
 
@@ -109,12 +172,26 @@ export default function EmailVerificationScreen() {
             ))}
           </View>
 
-          <TouchableOpacity style={styles.verifyButton} onPress={handleVerify}>
-            <ThemedText style={styles.verifyButtonText}>Verify Email</ThemedText>
+          <TouchableOpacity
+            style={[styles.verifyButton, verifying && { opacity: 0.7 }]}
+            onPress={handleVerify}
+            disabled={verifying}>
+            {verifying ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.verifyButtonText}>Verify Email</ThemedText>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.resendButton} onPress={handleResendCode}>
-            <ThemedText style={styles.resendButtonText}>Resend Code</ThemedText>
+          <TouchableOpacity
+            style={styles.resendButton}
+            onPress={handleResendCode}
+            disabled={resending}>
+            {resending ? (
+              <ActivityIndicator color="#FF7F00" />
+            ) : (
+              <ThemedText style={styles.resendButtonText}>Resend Code</ThemedText>
+            )}
           </TouchableOpacity>
         </ThemedView>
       </ScrollView>

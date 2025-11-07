@@ -6,10 +6,19 @@
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "netpay",
+    "deepLinks": ["netpay://reset-password"],
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.netpay.mobile",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["netpay"]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -17,7 +26,23 @@
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "netpay",
+              "host": "reset-password"
+            }
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",

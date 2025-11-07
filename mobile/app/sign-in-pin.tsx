@@ -9,20 +9,25 @@ import {
   ScrollView,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
+import { supabase } from '@/lib/supabase';
 
 const PIN_LENGTH = 4;
-const PIN_STORAGE_KEY = '@netpay_pin';
+const PIN_STORAGE_KEY = 'supabase_pin_hash';
+const SESSION_KEY = 'supabase_session';
 
 export default function SignInPinScreen() {
   const router = useRouter();
   const [pin, setPin] = useState(Array(PIN_LENGTH).fill(''));
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const [loading, setLoading] = useState(false);
   const inputRefs = useRef<Array<TextInput | null>>([]);
 
   useEffect(() => {
@@ -66,14 +71,52 @@ export default function SignInPinScreen() {
     const enteredPin = pin.join('');
 
     try {
-      const storedPin = (await AsyncStorage.getItem(PIN_STORAGE_KEY)) || '0000';
-      if (enteredPin === storedPin) {
-        setShowSuccessModal(true);
-      } else {
+      setLoading(true);
+      const storedHash = await SecureStore.getItemAsync(PIN_STORAGE_KEY);
+
+      if (!storedHash) {
+        setLoading(false);
+        Alert.alert('PIN Login', 'No saved PIN found. Please set up your PIN first.');
+        return;
+      }
+
+      const enteredHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, enteredPin);
+
+      if (enteredHash !== storedHash) {
+        setLoading(false);
         setPin(Array(PIN_LENGTH).fill(''));
         setShowErrorModal(true);
+        return;
       }
+
+      const sessionPayload = await SecureStore.getItemAsync(SESSION_KEY);
+      if (!sessionPayload) {
+        setLoading(false);
+        Alert.alert('PIN Login', 'No saved session found. Please sign in with your email and password first.');
+        return;
+      }
+
+      let session;
+      try {
+        session = JSON.parse(sessionPayload);
+      } catch (parseError) {
+        setLoading(false);
+        Alert.alert('PIN Login', 'Saved session is invalid. Please sign in again.');
+        return;
+      }
+
+      const { data, error } = await supabase.auth.setSession(session);
+
+      setLoading(false);
+
+      if (error || !data.session) {
+        Alert.alert('PIN Login', error?.message || 'Unable to restore your session. Please sign in manually.');
+        return;
+      }
+
+      setShowSuccessModal(true);
     } catch (error) {
+      setLoading(false);
       Alert.alert('PIN Login', 'Unable to verify your PIN. Please try again.');
     }
   };
@@ -130,8 +173,15 @@ export default function SignInPinScreen() {
             ))}
           </View>
 
-          <TouchableOpacity style={styles.signInButton} onPress={handleSignIn}>
-            <ThemedText style={styles.signInButtonText}>Sign In</ThemedText>
+          <TouchableOpacity
+            style={[styles.signInButton, loading && { opacity: 0.7 }]}
+            onPress={handleSignIn}
+            disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.signInButtonText}>Sign In</ThemedText>
+            )}
           </TouchableOpacity>
         </ThemedView>
       </ScrollView>

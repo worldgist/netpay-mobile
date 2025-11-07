@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,21 +9,52 @@ import {
   ScrollView,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { supabase } from '@/lib/supabase';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ access_token?: string; refresh_token?: string; type?: string }>();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
-  const handleResetPassword = () => {
+  useEffect(() => {
+    const restoreSession = async () => {
+      if (sessionReady || sessionError) return;
+
+      const accessToken = typeof params.access_token === 'string' ? params.access_token : undefined;
+      const refreshToken = typeof params.refresh_token === 'string' ? params.refresh_token : undefined;
+
+      if (!accessToken || !refreshToken) {
+        setSessionError('Reset link is missing required information. Please request a new password reset email.');
+        return;
+      }
+
+      const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+
+      if (error) {
+        setSessionError(error.message || 'Unable to restore your session. Please request a new password reset email.');
+        return;
+      }
+
+      setSessionReady(true);
+    };
+
+    restoreSession();
+  }, [params.access_token, params.refresh_token, sessionReady, sessionError]);
+
+  const handleResetPassword = async () => {
     if (!password || !confirmPassword) {
       Alert.alert('Reset Password', 'Please complete both fields.');
       return;
@@ -39,7 +70,31 @@ export default function ResetPasswordScreen() {
       return;
     }
 
-    setShowSuccessModal(true);
+    try {
+      setLoading(true);
+      if (!sessionReady) {
+        setLoading(false);
+        Alert.alert('Reset Password', sessionError || 'Session not ready. Please use the password reset email again.');
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password });
+      setLoading(false);
+
+      if (error) {
+        if (error.message?.toLowerCase().includes('session not found')) {
+          Alert.alert('Reset Password', 'This reset link is no longer valid. Please request a new password reset email.');
+        } else {
+          Alert.alert('Reset Password', error.message || 'Unable to update your password.');
+        }
+        return;
+      }
+
+      setShowSuccessModal(true);
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Reset Password', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
   const handleCloseModal = () => {
@@ -62,6 +117,9 @@ export default function ResetPasswordScreen() {
             <ThemedText style={styles.subtitle}>
               Choose a new password that is different from the previous one.
             </ThemedText>
+            {sessionError ? (
+              <ThemedText style={styles.sessionError}>{sessionError}</ThemedText>
+            ) : null}
           </View>
 
           <View style={styles.inputContainer}>
@@ -96,8 +154,15 @@ export default function ResetPasswordScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.resetButton} onPress={handleResetPassword}>
-            <ThemedText style={styles.resetButtonText}>Reset Password</ThemedText>
+          <TouchableOpacity
+            style={[styles.resetButton, loading && { opacity: 0.7 }]}
+            onPress={handleResetPassword}
+            disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.resetButtonText}>Reset Password</ThemedText>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.backToLoginButton} onPress={() => router.replace('/auth/login')}>
@@ -171,6 +236,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     lineHeight: 22,
+  },
+  sessionError: {
+    marginTop: 12,
+    color: '#F44336',
+    textAlign: 'center',
   },
   inputContainer: {
     flexDirection: 'row',

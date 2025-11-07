@@ -9,24 +9,46 @@ import {
   ScrollView,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { supabase } from '@/lib/supabase';
 
 export default function ForgetPasswordScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSendResetLink = () => {
-    if (!email.trim()) {
+  const handleSendResetLink = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail) {
       Alert.alert('Forgot Password', 'Please enter the email associated with your account.');
       return;
     }
 
-    setShowSuccessModal(true);
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: 'netpay://reset-password',
+      });
+
+      setLoading(false);
+
+      if (error) {
+        Alert.alert('Forgot Password', error.message || 'Unable to send reset instructions. Please try again.');
+        return;
+      }
+
+      setShowSuccessModal(true);
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Forgot Password', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
   const handleCloseModal = () => {
@@ -69,8 +91,15 @@ export default function ForgetPasswordScreen() {
             />
           </View>
 
-          <TouchableOpacity style={styles.sendButton} onPress={handleSendResetLink}>
-            <ThemedText style={styles.sendButtonText}>Send Reset Link</ThemedText>
+          <TouchableOpacity
+            style={[styles.sendButton, loading && { opacity: 0.7 }]}
+            onPress={handleSendResetLink}
+            disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.sendButtonText}>Send Reset Link</ThemedText>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.backToLoginButton} onPress={handleBackToLogin}>

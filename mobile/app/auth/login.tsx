@@ -1,48 +1,136 @@
 import { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { supabase } from '@/lib/supabase';
+import * as SecureStore from 'expo-secure-store';
+
+const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
+const SESSION_KEY = 'supabase_session';
+const EMAIL_KEY = 'supabase_email';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
 
-  const handleSignIn = () => {
-    // Navigate to home after login
-    router.replace('/(tabs)');
+  const handleSignIn = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail || !password) {
+      Alert.alert('Sign In', 'Please enter both email and password.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (error) {
+        setLoading(false);
+
+        const message = error.message || 'Unable to sign in. Please try again.';
+        if (message.toLowerCase().includes('email not confirmed')) {
+          Alert.alert('Email Not Verified', 'Please verify your email to continue. We will redirect you to the verification screen.');
+          router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
+          return;
+        }
+
+        Alert.alert('Sign In Failed', message);
+        return;
+      }
+
+      setLoading(false);
+
+      if (!data.session) {
+        Alert.alert('Sign In', 'No active session was returned. Please verify your email and try again.');
+        router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
+        return;
+      }
+
+      try {
+        await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        }));
+        await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
+      } catch (storageError) {
+        console.warn('Unable to persist Supabase session for biometrics:', storageError);
+      }
+
+      router.replace('/(tabs)');
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Sign In Error', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    }
   };
 
   const handleBiometric = async () => {
     try {
+      setBiometricLoading(true);
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       if (!hasHardware) {
         Alert.alert('Biometric Login', 'Biometric authentication is not available on this device.');
+        setBiometricLoading(false);
         return;
       }
 
       const enrolled = await LocalAuthentication.isEnrolledAsync();
       if (!enrolled) {
         Alert.alert('Biometric Login', 'No biometric data found. Please register in your device settings.');
+        setBiometricLoading(false);
+        return;
+      }
+
+      const sessionPayload = await SecureStore.getItemAsync(SESSION_KEY);
+      if (!sessionPayload) {
+        Alert.alert('Biometric Login', 'No saved session found. Please sign in with your email and password first.');
+        setBiometricLoading(false);
         return;
       }
 
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Sign in with Biometrics',
+        promptMessage: BIOMETRIC_PROMPT,
         cancelLabel: 'Cancel',
       });
 
-      if (result.success) {
-        router.replace('/(tabs)');
-      } else {
+      if (!result.success) {
         Alert.alert('Biometric Login', result.error || 'Biometric authentication was cancelled.');
+        setBiometricLoading(false);
+        return;
       }
+
+      let session;
+      try {
+        session = JSON.parse(sessionPayload);
+      } catch (parseError) {
+        Alert.alert('Biometric Login', 'Saved session is invalid. Please sign in again.');
+        setBiometricLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase.auth.setSession(session);
+
+      if (error || !data.session) {
+        Alert.alert('Biometric Login', error?.message || 'Unable to restore session. Please sign in manually.');
+        setBiometricLoading(false);
+        return;
+      }
+
+      setBiometricLoading(false);
+      router.replace('/(tabs)');
     } catch (error) {
+      setBiometricLoading(false);
       Alert.alert('Biometric Login', 'Unable to authenticate with biometrics.');
     }
   };
@@ -107,13 +195,27 @@ export default function LoginScreen() {
           </View>
 
           {/* Sign In Button */}
-          <TouchableOpacity style={styles.signInButton} onPress={handleSignIn}>
-            <ThemedText style={styles.signInButtonText}>Sign In</ThemedText>
+          <TouchableOpacity
+            style={[styles.signInButton, loading && { opacity: 0.7 }]}
+            onPress={handleSignIn}
+            disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.signInButtonText}>Sign In</ThemedText>
+            )}
           </TouchableOpacity>
 
           {/* Biometric Button */}
-          <TouchableOpacity style={styles.biometricButton} onPress={handleBiometric}>
-            <MaterialIcons name="fingerprint" size={20} color="#FF7F00" style={styles.biometricIcon} />
+          <TouchableOpacity
+            style={[styles.biometricButton, (loading || biometricLoading) && { opacity: 0.7 }]}
+            onPress={handleBiometric}
+            disabled={loading || biometricLoading}>
+            {biometricLoading ? (
+              <ActivityIndicator color="#FF7F00" style={styles.biometricIcon} />
+            ) : (
+              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" style={styles.biometricIcon} />
+            )}
             <ThemedText style={styles.biometricButtonText}>Sign in with Biometric</ThemedText>
           </TouchableOpacity>
 

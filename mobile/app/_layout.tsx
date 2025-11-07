@@ -1,6 +1,8 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import * as Linking from 'expo-linking';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -9,8 +11,42 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+const handleDeepLink = (url: string) => {
+  if (!url) return;
+  const parsed = Linking.parse(url);
+  const path = parsed.path || parsed.hostname;
+
+  if (!path) return;
+
+  const query = parsed.queryParams ?? {};
+
+  if (path === 'reset-password') {
+    router.push({
+      pathname: '/reset-password',
+      params: {
+        access_token: typeof query.access_token === 'string' ? query.access_token : undefined,
+        refresh_token: typeof query.refresh_token === 'string' ? query.refresh_token : undefined,
+        type: typeof query.type === 'string' ? query.type : undefined,
+      },
+    });
+  }
+};
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
+
+    (async () => {
+      const initialUrl = await Linking.getInitialURL();
+      if (initialUrl) {
+        handleDeepLink(initialUrl);
+      }
+    })();
+
+    return () => subscription.remove();
+  }, []);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

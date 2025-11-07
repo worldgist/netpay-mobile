@@ -9,20 +9,24 @@ import {
   ScrollView,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
+import { supabase } from '@/lib/supabase';
 
 const PIN_LENGTH = 4;
-const PIN_STORAGE_KEY = '@netpay_pin';
+const PIN_STORAGE_KEY = 'supabase_pin_hash';
 
 export default function SetupPinScreen() {
   const router = useRouter();
   const [pin, setPin] = useState(Array(PIN_LENGTH).fill(''));
   const [confirmPin, setConfirmPin] = useState(Array(PIN_LENGTH).fill(''));
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const pinRefs = useRef<Array<TextInput | null>>([]);
   const confirmRefs = useRef<Array<TextInput | null>>([]);
@@ -89,10 +93,34 @@ export default function SetupPinScreen() {
     }
 
     try {
-      await AsyncStorage.setItem(PIN_STORAGE_KEY, newPin);
+      setLoading(true);
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setLoading(false);
+        Alert.alert('Setup PIN', userError?.message || 'You must be signed in to set a PIN.');
+        return;
+      }
+
+      const pinHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, newPin);
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ pin_hash: pinHash, pin_enabled: true })
+        .eq('id', user.id);
+
+      if (error) {
+        setLoading(false);
+        Alert.alert('Setup PIN', error.message || 'Failed to save your PIN. Please try again.');
+        return;
+      }
+
+      await SecureStore.setItemAsync(PIN_STORAGE_KEY, pinHash);
+      setLoading(false);
       setShowSuccessModal(true);
-    } catch (error) {
-      Alert.alert('Setup PIN', 'Failed to save your PIN. Please try again.');
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Setup PIN', err instanceof Error ? err.message : 'Failed to save your PIN. Please try again.');
     }
   };
 
@@ -148,8 +176,15 @@ export default function SetupPinScreen() {
           {renderInputs(pin, pinRefs.current, 'Enter New PIN', 'pin')}
           {renderInputs(confirmPin, confirmRefs.current, 'Confirm PIN', 'confirm')}
 
-          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-            <ThemedText style={styles.continueButtonText}>Save PIN</ThemedText>
+          <TouchableOpacity
+            style={[styles.continueButton, loading && { opacity: 0.7 }]}
+            onPress={handleContinue}
+            disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.continueButtonText}>Save PIN</ThemedText>
+            )}
           </TouchableOpacity>
         </ThemedView>
       </ScrollView>
