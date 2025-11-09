@@ -171,7 +171,7 @@ export default function UserReferrals() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#FF6B00]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
       </div>
     );
   }
@@ -201,7 +201,7 @@ export default function UserReferrals() {
 
       <div className="p-4 space-y-4">
         {/* Referral Code Card */}
-        <Card className="bg-gradient-to-br from-[#FF6B00] to-[#FF8533]">
+        <Card className="bg-gradient-to-br from-brand to-brand-light">
           <CardHeader>
             <CardTitle className="text-white">Your Referral Code</CardTitle>
             <CardDescription className="text-white/80">
@@ -260,7 +260,7 @@ export default function UserReferrals() {
         <div className="grid grid-cols-2 gap-3">
           <Card>
             <CardContent className="p-4 text-center">
-              <Users className="h-8 w-8 mx-auto text-[#FF6B00] mb-2" />
+              <Users className="h-8 w-8 mx-auto text-brand mb-2" />
               <p className="text-2xl font-bold">{stats.totalReferrals}</p>
               <p className="text-xs text-muted-foreground">Total Referrals</p>
             </CardContent>
@@ -345,7 +345,7 @@ export default function UserReferrals() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#FF6B00] text-white flex items-center justify-center text-xs font-bold">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-xs font-bold">
                 1
               </div>
               <div>
@@ -356,7 +356,7 @@ export default function UserReferrals() {
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#FF6B00] text-white flex items-center justify-center text-xs font-bold">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-xs font-bold">
                 2
               </div>
               <div>
@@ -367,7 +367,7 @@ export default function UserReferrals() {
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#FF6B00] text-white flex items-center justify-center text-xs font-bold">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center text-xs font-bold">
                 3
               </div>
               <div>

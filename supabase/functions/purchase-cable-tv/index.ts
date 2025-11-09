@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { debitUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -147,35 +148,22 @@ serve(async (req) => {
       );
     }
 
-    const newBalance = profile.balance - effectivePrice;
+    const formattedAmount = `₦${effectivePrice.toFixed(2)}`;
 
-    // Update user balance
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ balance: newBalance })
-      .eq('id', user.id);
-
-    if (updateError) {
-      console.error('Error updating balance:', updateError);
-      throw new Error('Failed to update balance');
-    }
-
-    // Create transaction record
-    const { error: transactionError } = await supabase
-      .from('user_transactions')
-      .insert({
-        user_id: user.id,
-        transaction_type: 'cable_tv',
-        amount: effectivePrice,
-        balance_before: profile.balance,
-        balance_after: newBalance,
-        description: `${provider} - ${plan.package_name} - ${card_number}`,
-        reference: reference,
-      });
-
-    if (transactionError) {
-      console.error('Error creating transaction:', transactionError);
-    }
+    const debitResult = await debitUserWallet({
+      supabase,
+      userId: user.id,
+      amount: effectivePrice,
+      transactionType: 'cable_tv',
+      description: `${provider} - ${plan.package_name} - ${card_number}`,
+      reference,
+      performedBy: user.id,
+      balanceBefore: Number(profile.balance) || 0,
+      notification: {
+        title: 'Cable TV purchase successful',
+        message: `${formattedAmount} paid for ${provider} (${plan.package_name}) smart card ${card_number}. Reference: ${reference}.`,
+      },
+    });
 
     return new Response(
       JSON.stringify({ 
@@ -183,7 +171,7 @@ serve(async (req) => {
         data: {
           reference: reference,
           amount: effectivePrice,
-          balance_after: newBalance,
+          balance_after: debitResult.balanceAfter,
           provider: provider,
           package: plan.package_name,
           card_number: card_number,

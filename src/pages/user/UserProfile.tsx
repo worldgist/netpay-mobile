@@ -84,19 +84,19 @@ export default function UserProfile() {
   };
 
   const menuItems = [
-    { icon: Edit, label: "Edit Profile", onClick: () => navigate("/user/edit-profile"), color: "text-[#FF6B00]" },
-    { icon: Bell, label: "Notifications", onClick: () => navigate("/user/notifications"), color: "text-[#FF6B00]" },
-    { icon: Users, label: "Referral", onClick: () => navigate("/user/referrals"), color: "text-[#FF6B00]" },
-    { icon: Mail, label: "Contact us", onClick: () => navigate("/user/contact"), color: "text-[#FF6B00]" },
-    { icon: FileText, label: "Terms & Conditions", onClick: () => navigate("/user/terms"), color: "text-[#FF6B00]" },
-    { icon: Shield, label: "Privacy Policy", onClick: () => navigate("/user/privacy"), color: "text-[#FF6B00]" },
+    { icon: Edit, label: "Edit Profile", onClick: () => navigate("/user/edit-profile"), color: "text-brand" },
+    { icon: Bell, label: "Notifications", onClick: () => navigate("/user/notifications"), color: "text-brand" },
+    { icon: Users, label: "Referral", onClick: () => navigate("/user/referrals"), color: "text-brand" },
+    { icon: Mail, label: "Contact us", onClick: () => navigate("/user/contact"), color: "text-brand" },
+    { icon: FileText, label: "Terms & Conditions", onClick: () => navigate("/user/terms"), color: "text-brand" },
+    { icon: Shield, label: "Privacy Policy", onClick: () => navigate("/user/privacy"), color: "text-brand" },
   ];
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Profile Header */}
       <div className="bg-white px-6 pt-8 pb-6 text-center">
-        <div className="w-24 h-24 bg-[#FF6B00] rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="w-24 h-24 bg-brand rounded-full flex items-center justify-center mx-auto mb-4">
           <User className="w-12 h-12 text-white" />
         </div>
         <h2 className="text-2xl font-bold text-gray-900 mb-1">{userName}</h2>
@@ -110,7 +110,7 @@ export default function UserProfile() {
           {/* Biometric Toggle */}
           <div className="px-4 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Fingerprint className="w-5 h-5 text-[#FF6B00]" />
+              <Fingerprint className="w-5 h-5 text-brand" />
               <div>
                 <span className="font-medium text-gray-900 block">Biometric Login</span>
                 <span className="text-xs text-gray-500">Use fingerprint or face ID</span>
@@ -128,7 +128,7 @@ export default function UserProfile() {
             className="w-full px-4 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <Lock className="w-5 h-5 text-[#FF6B00]" />
+              <Lock className="w-5 h-5 text-brand" />
               <div className="text-left">
                 <span className="font-medium text-gray-900 block">PIN Code</span>
                 <span className="text-xs text-gray-500">

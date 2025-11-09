@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { useState, useCallback, useMemo } from 'react';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
+import { supabase } from '@/lib/supabase';
 
 export default function TransferScreen() {
   const router = useRouter();
@@ -12,48 +14,191 @@ export default function TransferScreen() {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const availableBalance = 500;
+  const [recipientDetails, setRecipientDetails] = useState<{ id?: string; full_name?: string | null; email: string } | null>(null);
+  const [balance, setBalance] = useState(0);
+  const [loadingBalance, setLoadingBalance] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
 
-  const handleVerify = () => {
-    if (!recipientEmail.trim()) {
-      Alert.alert('Error', 'Please enter recipient email address');
+  const amountValue = useMemo(() => parseFloat(amount) || 0, [amount]);
+  const canTransfer = !!recipientDetails && amountValue > 0 && amountValue <= balance && !transferLoading;
+
+  const fetchBalance = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoadingBalance(true);
+      }
+      setError(null);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
+      }
+
+      setCurrentUserEmail(session.user.email || '');
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      setBalance(Number(profileData?.balance) || 0);
+    } catch (err) {
+      console.error('Failed to load balance:', err);
+      const message = err instanceof Error ? err.message : 'Unable to load balance. Please try again later.';
+      setError(message);
+    } finally {
+      setLoadingBalance(false);
+      setRefreshing(false);
+    }
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchBalance();
+    }, [fetchBalance])
+  );
+
+  const handleRefresh = useCallback(() => {
+    fetchBalance(true);
+  }, [fetchBalance]);
+
+  const handleVerify = async () => {
+    const trimmedEmail = recipientEmail.trim().toLowerCase();
+
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      Alert.alert('Invalid Email', 'Please enter a valid recipient email address.');
       return;
     }
-    // In a real app, verify the email with backend
-    Alert.alert('Verified', `Recipient ${recipientEmail} verified successfully`);
+
+    if (trimmedEmail === currentUserEmail.toLowerCase()) {
+      Alert.alert('Not Allowed', 'You cannot transfer to your own account.');
+      return;
+    }
+
+    try {
+      setVerifying(true);
+      setError(null);
+
+      const { data, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .ilike('email', trimmedEmail)
+        .maybeSingle();
+
+      if (profileError || !data) {
+        Alert.alert('Recipient Not Found', 'No user found with the provided email address.');
+        setRecipientDetails(null);
+        return;
+      }
+
+      setRecipientDetails({
+        id: data.id,
+        full_name: data.full_name,
+        email: data.email,
+      });
+      Alert.alert('Verified', `${data.full_name || 'Recipient'} verified successfully.`);
+    } catch (err) {
+      console.error('Verify recipient error:', err);
+      Alert.alert('Verification Failed', 'Unable to verify recipient. Please try again later.');
+      setRecipientDetails(null);
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const handleTransfer = () => {
-    if (!recipientEmail.trim()) {
-      Alert.alert('Error', 'Please enter recipient email address');
-      return;
-    }
-    const transferAmount = parseFloat(amount);
-    if (isNaN(transferAmount) || transferAmount <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
-      return;
-    }
-    if (transferAmount > availableBalance) {
-      Alert.alert('Error', 'Insufficient balance');
+    if (!recipientDetails) {
+      Alert.alert('Verification Required', 'Please verify the recipient before transferring.');
       return;
     }
 
-    // Show confirmation modal
+    if (amountValue <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid transfer amount.');
+      return;
+    }
+
+    if (amountValue > balance) {
+      Alert.alert('Insufficient Balance', 'Your wallet balance is insufficient for this transfer.');
+      return;
+    }
+
     setShowConfirmModal(true);
   };
 
-  const handleConfirmTransfer = () => {
-    setShowConfirmModal(false);
-    const transferAmount = parseFloat(amount || '0');
-    
-    router.push({
-      pathname: '/transfer-success',
-      params: {
-        amount: transferAmount.toString(),
-        recipientEmail: recipientEmail,
-        description: description || '',
-      },
-    });
+  const handleConfirmTransfer = async () => {
+    if (!recipientDetails) return;
+
+    try {
+      setTransferLoading(true);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
+      }
+
+      const { data, error: transferError } = await supabase.functions.invoke('transfer-funds', {
+        body: {
+          recipientEmail: recipientDetails.email.toLowerCase(),
+          amount: amountValue,
+          description: description.trim() || undefined,
+        },
+      });
+
+      if (transferError) throw transferError;
+
+      if (!data?.success) {
+        const message = data?.error || 'Transfer failed. Please try again later.';
+        Alert.alert('Transfer Failed', message);
+        return;
+      }
+
+      const newBalance = data.data?.senderBalanceAfter ?? balance - amountValue;
+      setBalance(Number(newBalance));
+
+      setShowConfirmModal(false);
+      const transferDescription = description.trim();
+
+      setRecipientEmail('');
+      setAmount('');
+      setDescription('');
+      setRecipientDetails(null);
+
+      router.push({
+        pathname: '/transfer-success',
+        params: {
+          amount: amountValue.toString(),
+          recipientEmail: data.data?.recipientEmail || '',
+          recipientName: data.data?.recipientName || '',
+          reference: data.data?.reference || '',
+          description: transferDescription,
+        },
+      });
+    } catch (err) {
+      console.error('Transfer error:', err);
+      const message = err instanceof Error ? err.message : 'Transfer failed. Please try again later.';
+      Alert.alert('Transfer Failed', message);
+    } finally {
+      setTransferLoading(false);
+    }
   };
 
   return (
@@ -70,18 +215,39 @@ export default function TransferScreen() {
           <View style={styles.placeholder} />
         </View>
 
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          {/* Available Balance Card */}
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#FF7F00"
+              colors={["#FF7F00"]}
+            />
+          }
+        >
+          {error && (
+            <View style={styles.errorBanner}>
+              <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
+              <ThemedText style={styles.errorText}>{error}</ThemedText>
+            </View>
+          )}
+
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
-              <ThemedText style={styles.balanceAmount}>₦{availableBalance.toLocaleString()}</ThemedText>
+              {loadingBalance ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <ThemedText style={styles.balanceAmount}>
+                  ₦{Number(balance).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </ThemedText>
+              )}
             </View>
           </View>
 
-          {/* Input Fields Section */}
           <View style={styles.inputSection}>
-            {/* Recipient Email */}
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Recipient Email Address</ThemedText>
               <View style={styles.inputRow}>
@@ -91,18 +257,43 @@ export default function TransferScreen() {
                   placeholder="Enter recipient's email"
                   placeholderTextColor="#999"
                   value={recipientEmail}
-                  onChangeText={setRecipientEmail}
+                  onChangeText={(value) => {
+                    setRecipientEmail(value);
+                    setRecipientDetails(null);
+                  }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
-                <TouchableOpacity style={styles.verifyButton} onPress={handleVerify}>
-                  <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
+                <TouchableOpacity
+                  style={[styles.verifyButton, verifying && styles.verifyButtonDisabled]}
+                  onPress={handleVerify}
+                  disabled={verifying || !recipientEmail.trim()}
+                >
+                  {verifying ? (
+                    <ActivityIndicator size="small" color="#333" />
+                  ) : (
+                    <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Amount */}
+            {recipientDetails && (
+              <View style={styles.recipientCard}>
+                <MaterialIcons name="verified" size={20} color="#4CAF50" style={styles.recipientIcon} />
+                <View style={styles.recipientInfo}>
+                  <ThemedText style={styles.recipientTitle}>Recipient Verified</ThemedText>
+                  <ThemedText style={styles.recipientName} numberOfLines={1}>
+                    {recipientDetails.full_name || 'NetPay User'}
+                  </ThemedText>
+                  <ThemedText style={styles.recipientEmail} numberOfLines={1}>
+                    {recipientDetails.email}
+                  </ThemedText>
+                </View>
+              </View>
+            )}
+
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Amount</ThemedText>
               <View style={styles.inputRow}>
@@ -116,9 +307,14 @@ export default function TransferScreen() {
                   keyboardType="numeric"
                 />
               </View>
+              {amountValue > balance && (
+                <View style={styles.inlineError}>
+                  <MaterialIcons name="error" size={16} color="#d32f2f" style={styles.inlineErrorIcon} />
+                  <ThemedText style={styles.inlineErrorText}>Insufficient balance</ThemedText>
+                </View>
+              )}
             </View>
 
-            {/* Description */}
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Description (Optional)</ThemedText>
               <View style={styles.inputRow}>
@@ -134,15 +330,23 @@ export default function TransferScreen() {
             </View>
           </View>
 
-          {/* Transfer Button */}
-          <TouchableOpacity style={styles.transferButton} onPress={handleTransfer}>
-            <MaterialIcons name="send" size={20} color="#fff" style={styles.transferIcon} />
-            <ThemedText style={styles.transferButtonText}>
-              Transfer ₦{parseFloat(amount || '0').toLocaleString()}
-            </ThemedText>
+          <TouchableOpacity
+            style={[styles.transferButton, (!canTransfer) && styles.transferButtonDisabled]}
+            onPress={handleTransfer}
+            disabled={!canTransfer}
+          >
+            {transferLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <MaterialIcons name="send" size={20} color="#fff" style={styles.transferIcon} />
+                <ThemedText style={styles.transferButtonText}>
+                  Transfer ₦{amountValue > 0 ? amountValue.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                </ThemedText>
+              </>
+            )}
           </TouchableOpacity>
 
-          {/* Note */}
           <View style={styles.noteContainer}>
             <ThemedText style={styles.noteText}>
               <ThemedText style={styles.noteBold}>Note:</ThemedText> Transfers are instant and cannot be reversed. Please verify recipient details before confirming.
@@ -151,14 +355,17 @@ export default function TransferScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Confirm Transfer Modal */}
       <ConfirmTransferModal
         visible={showConfirmModal}
-        onClose={() => setShowConfirmModal(false)}
+        onClose={() => {
+          if (!transferLoading) {
+            setShowConfirmModal(false);
+          }
+        }}
         onConfirm={handleConfirmTransfer}
-        amount={parseFloat(amount || '0')}
-        recipientEmail={recipientEmail}
-        description={description}
+        amount={amountValue}
+        recipientEmail={recipientDetails?.email || recipientEmail}
+        description={description.trim() || undefined}
       />
     </ThemedView>
   );
@@ -197,6 +404,24 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fdecea',
+    borderRadius: 10,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  errorIcon: {
+    marginRight: 8,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#d32f2f',
+  },
   balanceCard: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
@@ -232,7 +457,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
   },
@@ -270,11 +495,57 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     marginLeft: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  verifyButtonDisabled: {
+    opacity: 0.6,
   },
   verifyButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
+  },
+  recipientCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 20,
+  },
+  recipientIcon: {
+    marginRight: 12,
+  },
+  recipientInfo: {
+    flex: 1,
+  },
+  recipientTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2E7D32',
+    marginBottom: 4,
+  },
+  recipientName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1B5E20',
+  },
+  recipientEmail: {
+    fontSize: 13,
+    color: '#2E7D32',
+  },
+  inlineError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  inlineErrorIcon: {
+    marginRight: 6,
+  },
+  inlineErrorText: {
+    fontSize: 13,
+    color: '#d32f2f',
   },
   transferButton: {
     backgroundColor: '#FF7F00',
@@ -285,6 +556,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 20,
     marginBottom: 20,
+  },
+  transferButtonDisabled: {
+    opacity: 0.6,
   },
   transferIcon: {
     marginRight: 8,

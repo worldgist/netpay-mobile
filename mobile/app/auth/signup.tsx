@@ -26,6 +26,7 @@ export default function SignupScreen() {
     const trimmedLastName = lastName.trim();
     const trimmedPhone = phone.trim();
     const trimmedReferral = referralCode.trim();
+    const sanitizedPhone = trimmedPhone ? trimmedPhone.replace(/[^0-9]/g, '') : '';
 
     if (!trimmedFirstName || !trimmedLastName) {
       Alert.alert('Sign Up', 'Please provide your first and last name.');
@@ -49,26 +50,82 @@ export default function SignupScreen() {
 
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signUp({
+
+      const { data: availability, error: availabilityError } = await supabase.functions.invoke(
+        'check-signup-availability',
+        {
+          body: {
+            email: trimmedEmail,
+            phone: sanitizedPhone || null,
+          },
+        }
+      );
+
+      if (availabilityError) {
+        throw availabilityError;
+      }
+
+      if (availability?.emailExists) {
+        setLoading(false);
+        Alert.alert('Sign Up', 'An account with this email already exists. Please sign in instead.');
+        return;
+      }
+
+      if (sanitizedPhone && availability?.phoneExists) {
+        setLoading(false);
+        Alert.alert('Sign Up', 'This phone number is already linked to an account.');
+        return;
+      }
+
+      const { data: signUpData, error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
         options: {
           data: {
             first_name: trimmedFirstName,
             last_name: trimmedLastName,
-            phone: trimmedPhone || null,
+            phone: sanitizedPhone || null,
             referral_code: trimmedReferral || null,
           },
         },
       });
 
-      setLoading(false);
-
       if (error) {
+        setLoading(false);
         Alert.alert('Sign Up Failed', error.message || 'We could not create your account.');
         return;
       }
 
+      const createdUserId = signUpData?.user?.id || null;
+
+      if (trimmedReferral && createdUserId) {
+        try {
+          const { data: referralResponse, error: referralError } = await supabase.functions.invoke(
+            'apply-referral-code',
+            {
+              body: {
+                referral_code: trimmedReferral,
+                referred_user_id: createdUserId,
+                referred_email: trimmedEmail,
+                referred_phone: sanitizedPhone || null,
+              },
+            }
+          );
+
+          if (referralError || referralResponse?.success === false) {
+            const message =
+              (referralResponse && 'error' in referralResponse && typeof referralResponse.error === 'string'
+                ? referralResponse.error
+                : referralError?.message) || 'Unable to apply referral code.';
+            Alert.alert('Referral Code', message);
+          }
+        } catch (referralException) {
+          console.error('Failed to apply referral code:', referralException);
+          Alert.alert('Referral Code', 'Unable to apply referral code. Please try again later.');
+        }
+      }
+
+      setLoading(false);
       Alert.alert('Verify Your Email', 'We have sent a verification code to your email address. Enter it to complete your registration.');
       router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
     } catch (err) {

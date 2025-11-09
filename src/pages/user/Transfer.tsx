@@ -156,7 +156,7 @@ export default function Transfer() {
 
       <div className="px-6 py-6 space-y-6">
         {/* Balance Card */}
-        <div className="bg-gradient-to-r from-[#FF6B00] to-[#FF8533] rounded-2xl p-6 text-white">
+        <div className="bg-gradient-to-r from-brand to-brand-light rounded-2xl p-6 text-white">
           <p className="text-white/90 text-sm mb-2">Available Balance</p>
           <p className="text-3xl font-bold">₦{currentBalance.toLocaleString()}</p>
         </div>
@@ -291,7 +291,7 @@ export default function Transfer() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-fade-in">
           <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl animate-scale-in">
             {/* Header */}
-            <div className="bg-gradient-to-r from-[#FF6B00] to-[#FF8533] rounded-t-3xl p-6 relative">
+            <div className="bg-gradient-to-r from-brand to-brand-light rounded-t-3xl p-6 relative">
               <button
                 onClick={() => setShowConfirmation(false)}
                 className="absolute top-4 right-4 text-white/80 hover:text-white transition-colors"
@@ -323,7 +323,7 @@ export default function Transfer() {
                 </div>
                 <div className="flex items-center justify-between py-2 border-t border-gray-200">
                   <span className="text-gray-600 text-sm">Amount</span>
-                  <span className="font-bold text-[#FF6B00] text-xl">₦{Number(amount).toLocaleString()}</span>
+                  <span className="font-bold text-brand text-xl">₦{Number(amount).toLocaleString()}</span>
                 </div>
                 {description && (
                   <div className="flex items-start justify-between py-2 border-t border-gray-200">
@@ -352,7 +352,7 @@ export default function Transfer() {
               </Button>
               <Button
                 onClick={confirmTransfer}
-                className="flex-1 h-12 bg-gradient-to-r from-[#FF6B00] to-[#FF8533] hover:from-[#FF7A1A] hover:to-[#FF9044]"
+                className="flex-1 h-12 bg-gradient-to-r from-brand to-brand-light hover:from-brand-dark hover:to-brand-light"
                 disabled={loading}
               >
                 {loading ? (
@@ -391,7 +391,7 @@ export default function Transfer() {
               <div className="space-y-3">
                 <div className="flex justify-between py-2">
                   <span className="text-gray-600">Amount Sent</span>
-                  <span className="font-bold text-2xl text-[#FF6B00]">₦{Number(transferData.amount).toLocaleString()}</span>
+                  <span className="font-bold text-2xl text-brand">₦{Number(transferData.amount).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between py-2 border-t border-gray-200">
                   <span className="text-gray-600">Recipient</span>
@@ -423,7 +423,7 @@ export default function Transfer() {
                   setRecipientDetails(null);
                   setTransferData(null);
                 }}
-                className="w-full h-12 bg-gradient-to-r from-[#FF6B00] to-[#FF8533] hover:from-[#FF7A1A] hover:to-[#FF9044]"
+                className="w-full h-12 bg-gradient-to-r from-brand to-brand-light hover:from-brand-dark hover:to-brand-light"
               >
                 Make Another Transfer
               </Button>

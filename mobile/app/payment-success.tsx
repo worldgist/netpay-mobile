@@ -3,16 +3,21 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
+import { sendPushNotification } from '@/utils/push-notifications';
 import { TransactionStorage, generateTransactionId, generateReference } from '@/utils/transactionStorage';
 
 export default function PaymentSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const amount = params.amount as string || '0';
-  const network = params.network as string || '';
-  const recipient = params.recipient as string || '';
-  const serviceType = params.serviceType as string || '';
+  const amount = (params.amount as string) || '0';
+  const network = (params.network as string) || '';
+  const recipient = (params.recipient as string) || '';
+  const serviceType = (params.serviceType as string) || '';
+  const token = (params.token as string) || '';
+  const meterType = (params.meterType as string) || '';
+  const customerName = (params.customerName as string) || '';
 
   // Save transaction when screen loads
   useEffect(() => {
@@ -38,12 +43,56 @@ export default function PaymentSuccessScreen() {
         recipient: recipient || '',
         serviceType: serviceType || '',
         network: network || '',
+        metadata: {
+          token: token || undefined,
+          meterType: meterType || undefined,
+          customerName: customerName || undefined,
+        },
       };
       await TransactionStorage.addTransaction(transaction);
     };
 
     saveTransaction();
-  }, [amount, network, recipient, serviceType]);
+  }, [amount, network, recipient, serviceType, token, meterType, customerName]);
+
+  const pushSentRef = useRef(false);
+
+  useEffect(() => {
+    if (pushSentRef.current) return;
+
+    const notify = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const userId = data.session?.user.id;
+        if (!userId) return;
+
+        const amountValue = Number(amount);
+        const formattedAmount = Number.isFinite(amountValue) ? amountValue.toFixed(2) : amount;
+        const title = 'Payment Successful';
+        const bodyParts = [`₦${formattedAmount}`];
+        if (serviceType) bodyParts.push(serviceType);
+        bodyParts.push('completed');
+
+        await sendPushNotification({
+          user_id: userId,
+          title,
+          body: bodyParts.join(' '),
+          data: {
+            amount,
+            network,
+            serviceType,
+            recipient,
+            token,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send push notification:', error);
+      }
+    };
+
+    pushSentRef.current = true;
+    notify();
+  }, [amount, network, recipient, serviceType, token]);
 
   const handleDone = () => {
     // Navigate back to home or pay bills
@@ -84,6 +133,24 @@ export default function PaymentSuccessScreen() {
               <ThemedText style={styles.detailValue}>{recipient}</ThemedText>
             </View>
           )}
+          {meterType ? (
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Meter Type</ThemedText>
+              <ThemedText style={styles.detailValue}>{meterType.toUpperCase()}</ThemedText>
+            </View>
+          ) : null}
+          {customerName ? (
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Customer</ThemedText>
+              <ThemedText style={styles.detailValue}>{customerName}</ThemedText>
+            </View>
+          ) : null}
+          {token ? (
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Token</ThemedText>
+              <ThemedText style={styles.detailValue}>{token}</ThemedText>
+            </View>
+          ) : null}
           <View style={styles.detailRow}>
             <ThemedText style={styles.detailLabel}>Status</ThemedText>
             <ThemedText style={styles.statusValue}>Completed</ThemedText>

@@ -1,51 +1,218 @@
-import { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
+import { Image, ImageSource } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { supabase } from '@/lib/supabase';
+
+const PROVIDER_LOGOS: Record<string, ImageSource<any>> = {
+  DSTV: require('@/assets/images/dstv.png'),
+  GOTV: require('@/assets/images/gotv.png'),
+  STARTIMES: require('@/assets/images/startimes.png'),
+};
+
+const fallbackLogo = require('@/assets/images/logo.png');
+
+type CableProvider = {
+  name: string;
+  logo: ImageSource<any>;
+};
+
+type CablePlan = {
+  id: string;
+  packageName: string;
+  price: number;
+};
 
 export default function CableTVScreen() {
   const router = useRouter();
-  const [selectedProvider, setSelectedProvider] = useState<string | null>('DSTV');
+  const isMounted = useRef(true);
+  const [providers, setProviders] = useState<CableProvider[]>([]);
+  const [plansByProvider, setPlansByProvider] = useState<Record<string, CablePlan[]>>({});
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [smartCardNumber, setSmartCardNumber] = useState('');
   const [packagePlan, setPackagePlan] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const availableBalance = 500.00;
+  const [loading, setLoading] = useState(true);
+  const [refreshingPlans, setRefreshingPlans] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifiedName, setVerifiedName] = useState<string | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
 
-  const providers = [
-    { id: '1', name: 'DSTV', logo: require('@/assets/images/dstv.png') },
-    { id: '2', name: 'GOTV', logo: require('@/assets/images/gotv.png') },
-    { id: '3', name: 'Startimes', logo: require('@/assets/images/startimes.png') },
-  ];
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
-  const packagePlans = [
-    { id: '1', name: 'Compact', amount: 7900 },
-    { id: '2', name: 'Compact Plus', amount: 12400 },
-    { id: '3', name: 'Premium', amount: 24500 },
-    { id: '4', name: 'Confam', amount: 5200 },
-  ];
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        if (isMounted.current) {
+          setLoading(true);
+          setFetchError(null);
+          setBalanceLoading(true);
+        }
 
-  const handleVerifySmartCard = () => {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session) {
+          if (isMounted.current) {
+            setLoading(false);
+            setBalanceLoading(false);
+          }
+          router.replace('/auth/login');
+          return;
+        }
+
+        const userId = session.user.id;
+
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('balance')
+          .eq('id', userId)
+          .single();
+
+        if (profileError) throw profileError;
+
+        const userBalance = Number(profile?.balance) || 0;
+        if (isMounted.current) {
+          setBalance(userBalance);
+        }
+
+        const { data, error } = await supabase
+          .from('cable_tv_plans')
+          .select('id, provider, package_name, price, custom_price, is_active')
+          .eq('is_active', true)
+          .order('provider', { ascending: true })
+          .order('package_name', { ascending: true });
+
+        if (error) throw error;
+
+        if (!data) {
+          if (isMounted.current) {
+            setPlansByProvider({});
+            setProviders([]);
+            setSelectedProvider(null);
+          }
+        } else {
+          const grouped: Record<string, CablePlan[]> = {};
+          data.forEach((plan) => {
+            const providerName = (plan.provider || 'Unknown').trim();
+            if (!grouped[providerName]) grouped[providerName] = [];
+            grouped[providerName].push({
+              id: plan.id,
+              packageName: plan.package_name,
+              price: plan.custom_price ?? plan.price ?? 0,
+            });
+          });
+
+          const providerList: CableProvider[] = Object.keys(grouped).map((name) => {
+            const upper = name.toUpperCase();
+            return {
+              name,
+              logo: PROVIDER_LOGOS[upper] || fallbackLogo,
+            };
+          });
+
+          if (isMounted.current) {
+            setPlansByProvider(grouped);
+            setProviders(providerList);
+            if (providerList.length > 0) {
+              setSelectedProvider((prev) => prev ?? providerList[0].name);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load cable plans:', error);
+        if (isMounted.current) {
+          setFetchError(error instanceof Error ? error.message : 'Unable to fetch cable TV plans');
+          setPlansByProvider({});
+          setProviders([]);
+          setSelectedProvider(null);
+        }
+      } finally {
+        if (isMounted.current) {
+          setLoading(false);
+          setRefreshingPlans(false);
+          setBalanceLoading(false);
+        }
+      }
+    };
+
+    loadData();
+  }, [router]);
+
+  useEffect(() => {
+    // reset plan when provider changes
+    setPackagePlan('');
+  }, [selectedProvider]);
+
+  const currentPlans: CablePlan[] = useMemo(() => {
+    if (!selectedProvider) return [];
+    return plansByProvider[selectedProvider] || [];
+  }, [selectedProvider, plansByProvider]);
+
+  const availableBalance = balance ?? 0;
+
+  const handleVerifySmartCard = async () => {
     if (!selectedProvider) {
       Alert.alert('Error', 'Please select a cable TV provider first');
-      return;
-    }
-    const selectedProviderObj = providers.find(p => p.name === selectedProvider);
-    if (!selectedProviderObj) {
-      Alert.alert('Error', 'Please select a valid cable TV provider');
       return;
     }
     if (!smartCardNumber.trim() || smartCardNumber.length < 10) {
       Alert.alert('Error', 'Please enter a valid smart card number');
       return;
     }
-    // In a real app, verify the smart card with backend
-    Alert.alert('Verified', `Smart card ${smartCardNumber} verified successfully for ${selectedProviderObj.name}`);
+    if (verifying) return;
+
+    try {
+      setVerifying(true);
+      const { data, error } = await supabase.functions.invoke('validate-cable-customer', {
+        body: {
+          card_number: smartCardNumber.trim(),
+          provider: selectedProvider.toUpperCase(),
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        setVerifiedName(null);
+        Alert.alert('Verification Failed', data?.error || 'Smart card not found.');
+        return;
+      }
+
+      const name = data.data?.customer_name || selectedProvider;
+      setVerifiedName(name);
+    } catch (error) {
+      console.error('Smart card verification failed:', error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'object' && error !== null && 'message' in error
+          ? // @ts-ignore
+            error.message
+          : 'Unable to verify smart card. Please try again later.';
+      setVerifiedName(null);
+      Alert.alert('Verification Failed', message);
+    } finally {
+      setVerifying(false);
+    }
   };
+
+  const selectedPlan = useMemo(() => currentPlans.find((p) => p.id === packagePlan), [currentPlans, packagePlan]);
 
   const handleContinue = () => {
     if (!selectedProvider) {
@@ -56,46 +223,44 @@ export default function CableTVScreen() {
       Alert.alert('Error', 'Please enter a valid smart card number');
       return;
     }
-    if (!packagePlan) {
+    if (!selectedPlan) {
       Alert.alert('Error', 'Please select a package plan');
       return;
     }
-    const selectedPlan = packagePlans.find(p => p.id === packagePlan);
-    if (!selectedPlan) {
-      Alert.alert('Error', 'Please select a valid package plan');
+    if (balance === null) {
+      Alert.alert('Balance Unavailable', 'Unable to load wallet balance. Please try again.');
       return;
     }
-    if (selectedPlan.amount > availableBalance) {
+    if (selectedPlan.price > availableBalance) {
       Alert.alert('Error', 'Insufficient balance');
       return;
     }
 
-    // Show confirmation modal
     setShowConfirmModal(true);
   };
 
   const handleConfirmPayment = () => {
+    if (!selectedPlan || !selectedProvider) return;
     setShowConfirmModal(false);
-    const selectedPlan = packagePlans.find(p => p.id === packagePlan);
-    if (!selectedPlan) return;
-    
+
     router.push({
       pathname: '/payment-success',
       params: {
-        amount: selectedPlan.amount.toString(),
-        network: selectedProvider || '',
+        amount: selectedPlan.price.toString(),
+        network: selectedProvider,
         recipient: smartCardNumber,
         serviceType: 'Cable TV',
       },
     });
   };
 
-  const getProviderLogo = (providerName: string) => {
-    const provider = providers.find(p => p.name === providerName);
-    return provider?.logo;
+  const getProviderLogo = (providerName: string | null) => {
+    if (!providerName) return fallbackLogo;
+    const match = providers.find((provider) => provider.name === providerName);
+    return match?.logo || fallbackLogo;
   };
 
-  const selectedProviderLogo = selectedProvider ? getProviderLogo(selectedProvider) : null;
+  const selectedProviderLogo = getProviderLogo(selectedProvider);
 
   return (
     <ThemedView style={styles.container}>
@@ -110,98 +275,143 @@ export default function CableTVScreen() {
           <View style={styles.placeholder} />
         </View>
 
-        <ScrollView 
-          style={styles.scrollView} 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={true}
-          bounces={true}>
-          {/* Available Balance Card */}
-          <View style={styles.balanceCard}>
-            <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
-            <View style={styles.balanceAmountContainer}>
-              <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
-            </View>
+        {loading ? (
+          <View style={styles.loaderContainer}>
+            <ActivityIndicator color="#FF7F00" size="large" />
+            <ThemedText style={styles.loaderText}>Loading cable packages…</ThemedText>
           </View>
+        ) : (
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator
+            bounces>
+            <View style={styles.balanceCard}>
+              <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
+              <View style={styles.balanceAmountContainer}>
+                {balanceLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
+                )}
+              </View>
+            </View>
 
-          {/* Select Service Provider */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
-            <View style={styles.networkContainer}>
-              {providers.map((provider) => (
+            {fetchError ? (
+              <View style={styles.errorBanner}>
+                <MaterialIcons name="error-outline" size={20} color="#B3261E" />
+                <ThemedText style={styles.errorText}>{fetchError}</ThemedText>
+              </View>
+            ) : null}
+
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
                 <TouchableOpacity
-                  key={provider.id}
-                  style={styles.networkItem}
-                  onPress={() => setSelectedProvider(provider.name)}
-                  activeOpacity={0.7}>
-                  <View
-                    style={[
-                      styles.networkLogoContainer,
-                      {
-                        borderWidth: selectedProvider === provider.name ? 2.5 : 1,
-                        borderColor: selectedProvider === provider.name ? '#FF7F00' : '#E0E0E0',
-                      },
-                    ]}>
-                    <Image
-                      source={provider.logo}
-                      style={styles.networkLogoImage}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <ThemedText style={styles.networkName}>{provider.name}</ThemedText>
+                  onPress={() => {
+                    setRefreshingPlans(true);
+                    setLoading(true);
+                    setTimeout(() => {
+                      setLoading(false);
+                      setRefreshingPlans(false);
+                    }, 300);
+                  }}
+                >
+                  {refreshingPlans ? (
+                    <ActivityIndicator size="small" color="#FF7F00" />
+                  ) : (
+                    <MaterialIcons name="refresh" size={20} color="#666" />
+                  )}
                 </TouchableOpacity>
-              ))}
+              </View>
+              <View style={styles.networkContainer}>
+                {providers.map((provider) => (
+                  <TouchableOpacity
+                    key={provider.name}
+                    style={styles.networkItem}
+                    onPress={() => setSelectedProvider(provider.name)}
+                    activeOpacity={0.7}>
+                    <View
+                      style={[
+                        styles.networkLogoContainer,
+                        {
+                          borderWidth: selectedProvider === provider.name ? 2.5 : 1,
+                          borderColor: selectedProvider === provider.name ? '#FF7F00' : '#E0E0E0',
+                        },
+                      ]}>
+                      <Image
+                        source={provider.logo}
+                        style={styles.networkLogoImage}
+                        contentFit="contain"
+                      />
+                    </View>
+                    <ThemedText style={styles.networkName}>{provider.name}</ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </View>
 
-          {/* Smart Card Number Input */}
-          <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Smart Card Number</ThemedText>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter smart card number"
-                placeholderTextColor="#999"
-                value={smartCardNumber}
-                onChangeText={setSmartCardNumber}
-                keyboardType="numeric"
+            <View style={styles.section}>
+              <ThemedText style={styles.inputLabel}>Smart Card Number</ThemedText>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter smart card number"
+                  placeholderTextColor="#999"
+                  value={smartCardNumber}
+                  onChangeText={setSmartCardNumber}
+                  keyboardType="numeric"
+                />
+                <TouchableOpacity style={styles.verifyButton} onPress={handleVerifySmartCard}>
+                  {verifying ? (
+                    <ActivityIndicator size="small" color="#FF7F00" />
+                  ) : (
+                    <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
+                  )}
+                </TouchableOpacity>
+              </View>
+              {verifiedName ? (
+                <View style={styles.verifiedBanner}>
+                  <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
+                  <ThemedText style={styles.verifiedText}>{verifiedName}</ThemedText>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.section}>
+              <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
+              <Dropdown
+                options={currentPlans.map((plan) => ({
+                  id: plan.id,
+                  name: plan.packageName,
+                  amount: plan.price,
+                }))}
+                selectedId={packagePlan}
+                onSelect={setPackagePlan}
+                placeholder={currentPlans.length ? 'Select a package plan' : 'No plans available'}
+                disabled={currentPlans.length === 0}
               />
-              <TouchableOpacity style={styles.verifyButton} onPress={handleVerifySmartCard}>
-                <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
-              </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
+        )}
 
-          {/* Package Plan Selection */}
-          <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
-            <Dropdown
-              options={packagePlans.map(plan => ({ id: plan.id, name: plan.name, amount: plan.amount }))}
-              selectedId={packagePlan}
-              onSelect={setPackagePlan}
-              placeholder="Select a package plan"
-            />
-          </View>
-        </ScrollView>
-
-        {/* Continue Button */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+          <TouchableOpacity style={styles.continueButton} onPress={handleContinue} disabled={loading || balanceLoading}>
             <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* Confirm Payment Modal */}
-      {selectedProviderLogo && (
+      {selectedProvider && selectedPlan && (
         <ConfirmPaymentModal
           visible={showConfirmModal}
           onClose={() => setShowConfirmModal(false)}
           onConfirm={handleConfirmPayment}
-          amount={packagePlans.find(p => p.id === packagePlan)?.amount || 0}
-          network={selectedProvider || ''}
+          amount={selectedPlan.price}
+          network={selectedProvider}
           networkLogo={selectedProviderLogo}
           recipient={smartCardNumber}
-          serviceType="Cable TV"
+          serviceType={`Cable TV • ${selectedPlan.packageName}`}
         />
       )}
     </ThemedView>
@@ -239,6 +449,16 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 40,
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loaderText: {
+    fontSize: 14,
+    color: '#666',
   },
   scrollView: {
     flex: 1,
@@ -278,11 +498,16 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 24,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
-    marginBottom: 16,
   },
   networkContainer: {
     flexDirection: 'row',
@@ -318,14 +543,6 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: 8,
   },
-  inputContainer: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    minHeight: 50,
-  },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -348,6 +565,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     marginLeft: 8,
+    minHeight: 36,
+    minWidth: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   verifyButtonText: {
     fontSize: 14,
@@ -369,6 +590,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFE2E2',
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#8B1D1D',
+    flex: 1,
+  },
+  verifiedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 6,
+  },
+  verifiedText: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: '600',
   },
 });
 

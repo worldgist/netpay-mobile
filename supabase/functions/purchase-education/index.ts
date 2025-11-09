@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { debitUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -123,41 +124,34 @@ serve(async (req) => {
       );
     }
 
-    const balanceAfter = balanceBefore - purchaseAmount;
+    const formattedAmount = `₦${purchaseAmount.toFixed(2)}`;
 
-    // Update user balance
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ balance: balanceAfter })
-      .eq('id', user.id);
+    const debitResult = await debitUserWallet({
+      supabase,
+      userId: user.id,
+      amount: purchaseAmount,
+      transactionType: 'education_purchase',
+      description: `Education service purchase - ${exam_type}`,
+      reference,
+      performedBy: user.id,
+      balanceBefore,
+      notification: {
+        title: 'Education purchase successful',
+        message: `${formattedAmount} paid for ${exam_type} education service using phone ${phone_number}. Reference: ${reference}.`,
+      },
+    });
 
-    if (updateError) {
-      console.error('Error updating balance:', updateError);
-    }
-
-    // Log transaction
     await supabase.from('education_transactions').insert({
       user_id: user.id,
       phone_number,
       exam_type,
       service_id,
       amount: purchaseAmount,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
+      balance_before: debitResult.balanceBefore,
+      balance_after: debitResult.balanceAfter,
       status: 'success',
       reference,
       api_response: apiResponse,
-      performed_by: user.id
-    });
-
-    await supabase.from('user_transactions').insert({
-      user_id: user.id,
-      transaction_type: 'purchase',
-      amount: purchaseAmount,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
-      reference,
-      description: `Education service purchase - ${exam_type}`,
       performed_by: user.id
     });
 
@@ -170,8 +164,8 @@ serve(async (req) => {
           amount: purchaseAmount,
           phone_number,
           exam_type,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter
+          balance_before: debitResult.balanceBefore,
+          balance_after: debitResult.balanceAfter
         }
       }),
       { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }

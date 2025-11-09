@@ -27,12 +27,12 @@ export default function BottomNav() {
             >
               <Icon
                 className={`w-6 h-6 mb-1 ${
-                  isActive ? "text-[#FF6B00]" : "text-gray-400"
+                  isActive ? "text-brand" : "text-gray-400"
                 }`}
               />
               <span
                 className={`text-xs ${
-                  isActive ? "text-[#FF6B00] font-medium" : "text-gray-600"
+                  isActive ? "text-brand font-medium" : "text-gray-600"
                 }`}
               >
                 {item.label}

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { debitUserWallet } from "../_shared/wallet.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,16 +49,54 @@ serve(async (req) => {
       );
     }
 
-    const { meter_number, provider, meter_type, amount, phone } = await req.json();
+    const rawBody = await req.json();
+    const { meter_number, provider, meter_type, amount, phone } = rawBody ?? {};
 
-    if (!meter_number || !provider || !meter_type || !amount || !phone) {
+    console.log('Incoming electricity purchase payload:', JSON.stringify(rawBody, null, 2));
+
+    const sanitizedMeter =
+      typeof meter_number === 'string' ? meter_number.replace(/\s+/g, '').trim() : '';
+    const sanitizedPhone =
+      typeof phone === 'string' ? phone.replace(/\s+/g, '').trim() : '';
+    const providerCode = typeof provider === 'string' ? provider.trim().toUpperCase() : '';
+    const meterKind = typeof meter_type === 'string' ? meter_type.trim().toLowerCase() : '';
+    const purchaseAmount = Number(amount);
+    const requestedCustomerName =
+      typeof customer_name === 'string' ? customer_name.trim() : '';
+    const requestedCustomerAddress =
+      typeof customer_address === 'string' ? customer_address.trim() : '';
+
+    if (!sanitizedMeter || !providerCode || !meterKind || !sanitizedPhone || !Number.isFinite(purchaseAmount)) {
       return new Response(
-        JSON.stringify({ error: 'All fields are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: 'meter_number, provider, meter_type, phone, and amount are required',
+          details: {
+            meter_number: Boolean(sanitizedMeter),
+            provider: providerCode,
+            meter_type: meterKind,
+            phone: Boolean(sanitizedPhone),
+            amount: purchaseAmount,
+          },
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Processing electricity purchase:', { user_id: user.id, meter_number, provider, meter_type, amount });
+    if (purchaseAmount <= 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid amount' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Processing electricity purchase:', {
+      user_id: user.id,
+      meter_number: sanitizedMeter,
+      provider: providerCode,
+      meter_type: meterKind,
+      amount: purchaseAmount,
+    });
 
     // Get user balance
     const { data: profile, error: profileError } = await supabase
@@ -70,86 +109,151 @@ serve(async (req) => {
       throw new Error('Failed to fetch user profile');
     }
 
-    if (profile.balance < amount) {
+    if (Number(profile.balance) < purchaseAmount) {
       return new Response(
-        JSON.stringify({ error: 'Insufficient balance' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: 'Insufficient balance' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // Map provider to service IDs
     const providerServiceMap: { [key: string]: { prepaid: string; postpaid: string } } = {
-      'IKEDC': { prepaid: 'AMA', postpaid: 'AMB' },
-      'EKEDC': { prepaid: 'ANA', postpaid: 'ANB' },
-      'AEDC': { prepaid: 'AHB', postpaid: 'AHA' },
-      'KAEDCO': { prepaid: 'AGB', postpaid: 'AGA' },
-      'IBEDC': { prepaid: 'AEA', postpaid: 'AEB' },
-      'KEDCO': { prepaid: 'AFA', postpaid: 'AFB' },
-      'PHEDC': { prepaid: 'ADB', postpaid: 'ADA' },
-      'JED': { prepaid: 'ACB', postpaid: 'ACA' },
-      'BEDC': { prepaid: 'ADA', postpaid: 'ADB' },
-      'YEDC': { prepaid: 'ALA', postpaid: 'ALB' },
+      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
+      IKEDC: { prepaid: 'AMA', postpaid: 'AMB' },
+      EKO: { prepaid: 'ANA', postpaid: 'ANB' },
+      EKEDC: { prepaid: 'ANA', postpaid: 'ANB' },
+      ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
+      AEDC: { prepaid: 'AHB', postpaid: 'AHA' },
+      KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
+      KAEDCO: { prepaid: 'AGB', postpaid: 'AGA' },
+      IBADAN: { prepaid: 'AEA', postpaid: 'AEB' },
+      IBEDC: { prepaid: 'AEA', postpaid: 'AEB' },
+      KANO: { prepaid: 'AFA', postpaid: 'AFB' },
+      KEDCO: { prepaid: 'AFA', postpaid: 'AFB' },
+      PORTHARCOURT: { prepaid: 'ADB', postpaid: 'ADA' },
+      PHEDC: { prepaid: 'ADB', postpaid: 'ADA' },
+      JOS: { prepaid: 'ACB', postpaid: 'ACA' },
+      JED: { prepaid: 'ACB', postpaid: 'ACA' },
     };
 
-    const serviceIds = providerServiceMap[provider.toUpperCase()];
+    const serviceIds = providerServiceMap[providerCode];
     if (!serviceIds) {
       return new Response(
-        JSON.stringify({ error: 'Invalid provider' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: 'Invalid provider',
+          details: { provider: providerCode },
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const serviceId = meter_type === 'prepaid' ? serviceIds.prepaid : serviceIds.postpaid;
+    const serviceId = meterKind === 'postpaid' ? serviceIds.postpaid : serviceIds.prepaid;
     const reference = `ELEC-${Date.now()}-${user.id.substring(0, 8)}`;
 
     // Purchase electricity via MobileNig
-    const purchaseResponse = await fetch('https://enterprise.mobilenig.com/api/v2/services/purchase', {
+    const transId = Date.now().toString();
+
+    const purchasePayload: Record<string, unknown> = {
+      service_id: serviceId,
+      trans_id: Number(transId),
+      customerReference: sanitizedMeter,
+      amount: purchaseAmount,
+      customerName: requestedCustomerName || sanitizedMeter,
+      customerAddress: requestedCustomerAddress || 'Not Provided',
+    };
+
+    if (sanitizedPhone) {
+      purchasePayload.phone = sanitizedPhone;
+    }
+
+    const purchaseResponse = await fetch('https://enterprise.mobilenig.com/api/v2/services/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${mobilenigSecretKey}`,
       },
-      body: JSON.stringify({
-        service_id: serviceId,
-        account_number: meter_number,
-        amount: amount,
-        phone: phone,
-        reference: reference,
-      }),
+      body: JSON.stringify(purchasePayload),
     });
 
-    const purchaseData = await purchaseResponse.json();
-    console.log('Purchase response:', purchaseData);
+    const purchaseText = await purchaseResponse.text();
+    let purchaseData;
+    try {
+      purchaseData = JSON.parse(purchaseText);
+    } catch (parseError) {
+      console.error('Failed to parse MobileNig response:', purchaseText);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Invalid response from electricity provider: ${purchaseText.substring(0, 120)}`,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    console.log('Purchase response:', JSON.stringify(purchaseData, null, 2));
 
     if (!purchaseResponse.ok || purchaseData.statusCode !== '200') {
-      throw new Error(purchaseData.message || 'Purchase failed');
+      const providerError =
+        purchaseData.message ||
+        purchaseData.error ||
+        purchaseData.details?.message ||
+        'Purchase failed';
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: providerError,
+          details: purchaseData,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Debit user balance
-    const newBalance = profile.balance - amount;
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ balance: newBalance })
-      .eq('id', user.id);
+    const providerCustomerAddress =
+      purchaseData.details?.details?.customerAddress ||
+      purchaseData.details?.customerAddress ||
+      requestedCustomerAddress ||
+      '';
 
-    if (updateError) {
-      console.error('Failed to update balance:', updateError);
-      throw new Error('Failed to update balance');
-    }
+    const formattedAmount = `₦${purchaseAmount.toFixed(2)}`;
+    const meterLabel = meterKind ? meterKind.toUpperCase() : 'METER';
+
+    const debitResult = await debitUserWallet({
+      supabase,
+      userId: user.id,
+      amount: purchaseAmount,
+      transactionType: 'electricity',
+      description: `Electricity purchase - ${providerCode} (${meterKind}) - ${sanitizedMeter}`,
+      reference,
+      performedBy: user.id,
+      balanceBefore: Number(profile.balance) || 0,
+      notification: {
+        title: 'Electricity purchase successful',
+        message: `${formattedAmount} electricity token purchased for meter ${sanitizedMeter} (${meterLabel}) on ${providerCode}. Reference: ${reference}.`,
+      },
+    });
 
     // Record transaction in electricity_transactions
     const { error: elecTxnError } = await supabase
       .from('electricity_transactions')
       .insert({
         user_id: user.id,
-        amount: amount,
-        balance_before: profile.balance,
-        balance_after: newBalance,
-        meter_number: meter_number,
-        provider: provider,
-        meter_type: meter_type,
-        customer_name: purchaseData.data?.customerName || '',
-        token: purchaseData.data?.token || purchaseData.details?.creditToken || null,
+        amount: purchaseAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        meter_number: sanitizedMeter,
+        provider: providerCode,
+        meter_type: meterKind,
+        customer_name:
+          purchaseData.details?.customerName ||
+          purchaseData.data?.customerName ||
+          requestedCustomerName ||
+          '',
+        token:
+          purchaseData.details?.details?.token ||
+          purchaseData.details?.details?.energyToken ||
+          purchaseData.data?.token ||
+          purchaseData.details?.creditToken ||
+          null,
         status: 'completed',
         reference: reference,
         api_response: purchaseData,
@@ -159,35 +263,29 @@ serve(async (req) => {
       console.error('Failed to record electricity transaction:', elecTxnError);
     }
 
-    // Record transaction in user_transactions for history
-    const { error: txnError } = await supabase
-      .from('user_transactions')
-      .insert({
-        user_id: user.id,
-        transaction_type: 'electricity',
-        amount: -amount,
-        balance_before: profile.balance,
-        balance_after: newBalance,
-        reference: reference,
-        description: `Electricity purchase - ${provider} (${meter_type}) - ${meter_number}`,
-      });
-
-    if (txnError) {
-      console.error('Failed to record transaction:', txnError);
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
         data: {
           reference: reference,
-          amount: amount,
-          balance_after: newBalance,
-          token: purchaseData.data?.token || purchaseData.details?.creditToken || null,
-          meter_number: meter_number,
-          provider: provider,
-          meter_type: meter_type,
-          customer_name: purchaseData.data?.customerName || '',
+          amount: purchaseAmount,
+          balance_after: debitResult.balanceAfter,
+          trans_id: purchaseData.details?.trans_id || transId,
+          token:
+            purchaseData.details?.details?.token ||
+            purchaseData.details?.details?.energyToken ||
+            purchaseData.data?.token ||
+            purchaseData.details?.creditToken ||
+            null,
+          meter_number: sanitizedMeter,
+          provider: providerCode,
+          meter_type: meterKind,
+          customer_name:
+            purchaseData.details?.customerName ||
+            purchaseData.data?.customerName ||
+            requestedCustomerName ||
+            '',
+          customer_address: providerCustomerAddress,
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -197,10 +295,11 @@ serve(async (req) => {
     console.error('Error in purchase-electricity function:', error);
     return new Response(
       JSON.stringify({
+        success: false,
         error: 'Purchase failed',
         details: error instanceof Error ? error.message : 'Unknown error'
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

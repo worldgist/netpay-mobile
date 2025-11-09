@@ -25,7 +25,7 @@ Signup is not sending verification tokens/emails.
 2. Under "User Management" → "Email Auth"
 3. Enable "Enable email confirmations"
 4. Choose one:
-   - **OTP Codes**: For 6-digit codes (current implementation)
+   - **OTP Codes**: For 8-digit codes (current implementation)
    - **Email Links**: For clickable links in emails
 
 ### Step 4: Configure SMTP (Optional but Recommended)
@@ -40,5 +40,5 @@ If you want to disable email confirmation temporarily:
 3. Users will be automatically confirmed on signup
 
 ## Current Implementation
-The app expects **6-digit OTP codes**. Make sure your Supabase project is configured to send OTP codes, not email links.
+The app expects **8-digit OTP codes**. Make sure your Supabase project is configured to send OTP codes, not email links.
 

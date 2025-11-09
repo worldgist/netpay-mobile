@@ -126,8 +126,8 @@ export default function UserAuth() {
       const validation = signUpSchema.safeParse({
         firstName,
         lastName,
-        email,
-        phone: signUpPhone,
+        email: email.trim().toLowerCase(),
+        phone: signUpPhone.replace(/[^0-9]/g, ""),
         password: signUpPassword,
         confirmPassword,
         referralCode,
@@ -138,15 +138,42 @@ export default function UserAuth() {
         return;
       }
 
+      const normalizedEmail = email.trim().toLowerCase();
+      const sanitizedPhone = signUpPhone.replace(/[^0-9]/g, "");
+
+      const { data: availability, error: availabilityError } = await supabase.functions.invoke(
+        'check-signup-availability',
+        {
+          body: {
+            email: normalizedEmail,
+            phone: sanitizedPhone || null,
+          },
+        }
+      );
+
+      if (availabilityError) {
+        throw availabilityError;
+      }
+
+      if (availability?.emailExists) {
+        toast.error("An account with this email already exists. Please sign in instead.");
+        return;
+      }
+
+      if (sanitizedPhone && availability?.phoneExists) {
+        toast.error("This phone number is already linked to an account.");
+        return;
+      }
+
       const { data: signUpData, error } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password: signUpPassword,
         options: {
-          emailRedirectTo: `${window.location.origin}/user/verify-email?email=${encodeURIComponent(email)}`,
+          emailRedirectTo: `${window.location.origin}/user/verify-email?email=${encodeURIComponent(normalizedEmail)}`,
           data: {
             first_name: firstName,
             last_name: lastName,
-            phone: signUpPhone,
+            phone: sanitizedPhone,
             referral_code: referralCode || null,
           },
         },
@@ -170,9 +197,9 @@ export default function UserAuth() {
             .from('profiles')
             .upsert({
               id: signUpData.user.id,
-              email: email,
+              email: normalizedEmail,
               full_name: `${firstName} ${lastName}`.trim(),
-              phone: signUpPhone || null,
+              phone: sanitizedPhone || null,
               balance: 0,
               status: 'active'
             }, {
@@ -190,7 +217,7 @@ export default function UserAuth() {
       }
       
       toast.success("Account created! Please check your email for verification code.");
-      navigate(`/user/verify-email?email=${encodeURIComponent(email)}`);
+      navigate(`/user/verify-email?email=${encodeURIComponent(normalizedEmail)}`);
     } catch (error: any) {
       toast.error(error.message || "Failed to create account");
     } finally {
@@ -288,7 +315,7 @@ export default function UserAuth() {
           <div className="text-center mb-8">
             <div className="mb-4">
               <svg viewBox="0 0 100 40" className="h-10 mx-auto">
-                <text x="50" y="28" textAnchor="middle" className="font-bold text-2xl fill-[#FF6B00]">
+                <text x="50" y="28" textAnchor="middle" className="font-bold text-2xl fill-brand">
                   NETPAY
                 </text>
               </svg>
@@ -401,7 +428,7 @@ export default function UserAuth() {
 
             <Button
               type="submit"
-              className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-12 rounded-lg font-medium"
+              className="w-full bg-brand hover:bg-brand-light text-white h-12 rounded-lg font-medium"
               disabled={loading}
             >
               {loading ? (
@@ -416,7 +443,7 @@ export default function UserAuth() {
               <button
                 type="button"
                 onClick={() => setIsSignUp(false)}
-                className="text-[#FF6B00] font-medium hover:underline"
+                className="text-brand font-medium hover:underline"
               >
                 Sign in
               </button>
@@ -432,7 +459,7 @@ export default function UserAuth() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <svg viewBox="0 0 100 40" className="h-12 mx-auto mb-8">
-            <text x="50" y="28" textAnchor="middle" className="font-bold text-2xl fill-[#FF6B00]">
+            <text x="50" y="28" textAnchor="middle" className="font-bold text-2xl fill-brand">
               NETPAY
             </text>
           </svg>
@@ -474,7 +501,7 @@ export default function UserAuth() {
 
           <Button
             type="submit"
-            className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-14 rounded-lg font-medium text-lg"
+            className="w-full bg-brand hover:bg-brand-light text-white h-14 rounded-lg font-medium text-lg"
             disabled={loading}
           >
             {loading ? (
@@ -487,7 +514,7 @@ export default function UserAuth() {
           <Button
             type="button"
             variant="outline"
-            className="w-full h-14 rounded-lg font-medium border-2 border-[#FF6B00] text-[#FF6B00] hover:bg-[#FF6B00]/5"
+            className="w-full h-14 rounded-lg font-medium border-2 border-brand text-brand hover:bg-brand/5"
             disabled={loading}
           >
             <Fingerprint className="w-5 h-5 mr-2" />
@@ -497,7 +524,7 @@ export default function UserAuth() {
           <button
             type="button"
             onClick={() => navigate("/user/forgot-password")}
-            className="w-full text-center text-[#FF6B00] font-medium hover:underline"
+            className="w-full text-center text-brand font-medium hover:underline"
           >
             Forgot Password?
           </button>
@@ -516,7 +543,7 @@ export default function UserAuth() {
             <button
               type="button"
               onClick={() => setIsSignUp(true)}
-              className="text-[#FF6B00] font-medium hover:underline"
+              className="text-brand font-medium hover:underline"
             >
               Sign Up
             </button>
@@ -554,7 +581,7 @@ export default function UserAuth() {
                   maxLength={1}
                   value={digit}
                   onChange={(e) => handlePinInput(index, e.target.value)}
-                  className="w-12 h-12 text-center text-xl font-bold border-2 border-gray-300 rounded-lg focus:border-[#FF6B00] focus:outline-none bg-gray-100"
+                  className="w-12 h-12 text-center text-xl font-bold border-2 border-gray-300 rounded-lg focus:border-brand focus:outline-none bg-gray-100"
                   autoFocus={index === 0}
                 />
               ))}
@@ -562,7 +589,7 @@ export default function UserAuth() {
 
             <Button
               type="submit"
-              className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-12"
+              className="w-full bg-brand hover:bg-brand-light text-white h-12"
               disabled={loading || pinDigits.some(d => !d)}
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign In"}

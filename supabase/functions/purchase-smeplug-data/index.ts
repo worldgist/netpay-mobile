@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { debitUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -40,12 +41,72 @@ serve(async (req) => {
       );
     }
 
-    const { phone_number, plan_id, network_id } = await req.json();
+    const rawBody = await req.json();
+    const { phone_number, plan_id, network_id, network_name } = rawBody ?? {};
 
-    if (!phone_number || !plan_id || !network_id) {
+    console.log('Incoming data purchase payload:', JSON.stringify(rawBody, null, 2));
+
+    const resolveNetworkId = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (/^\d+$/.test(trimmed)) {
+          return Number(trimmed);
+        }
+
+        const normalized = trimmed.toUpperCase();
+        const mapping: Record<string, number> = {
+          MTN: 1,
+          'MTN NIGERIA': 1,
+          AIRTEL: 2,
+          'AIRTEL NIGERIA': 2,
+          '9MOBILE': 3,
+          '9 MOBILE': 3,
+          ETISALAT: 3,
+          GLO: 4,
+          GLOBACOM: 4,
+        };
+
+        if (mapping[normalized]) {
+          return mapping[normalized];
+        }
+      }
+
+      return null;
+    };
+
+    const sanitizedPhone =
+      typeof phone_number === 'string' ? phone_number.replace(/\s+/g, '').trim() : '';
+    const smeplugNetworkId = resolveNetworkId(network_id);
+    const resolvedNetworkName =
+      typeof network_name === 'string' && network_name.trim().length > 0
+        ? network_name.trim()
+        : typeof network_id === 'string'
+        ? network_id.trim()
+        : '';
+
+    if (!sanitizedPhone || !plan_id || smeplugNetworkId === null) {
+      console.error('Invalid data purchase payload:', {
+        phone_number: sanitizedPhone ? '***hidden***' : sanitizedPhone,
+        plan_id,
+        network_id,
+        resolvedNetworkId: smeplugNetworkId,
+      });
       return new Response(
-        JSON.stringify({ success: false, error: 'phone_number, plan_id, and network_id are required' }),
-        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: 'phone_number, plan_id, and a valid network_id are required',
+          details: {
+            phone_number: Boolean(sanitizedPhone),
+            plan_id,
+            network_id,
+            resolvedNetworkId: smeplugNetworkId,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -91,7 +152,9 @@ serve(async (req) => {
 
     const reference = `DATA-${Date.now()}-${user.id.slice(0, 8)}`;
 
-    console.log(`Purchasing data: ${dataPlan.plan_name} for ${phone_number}`);
+    console.log(
+      `Purchasing data: ${dataPlan.plan_name} for ${sanitizedPhone} on network ${smeplugNetworkId}`
+    );
 
     // Purchase data via SMEPLUG API
     const response = await fetch('https://smeplug.ng/api/v1/data/purchase', {
@@ -101,62 +164,83 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        network_id: parseInt(network_id),
+        network_id: smeplugNetworkId,
         plan_id: parseInt(dataPlan.api_code),
-        phone: phone_number,
+        phone: sanitizedPhone,
         customer_reference: reference
       }),
     });
 
-    const apiResponse = await response.json();
+    const responseText = await response.text();
+    let apiResponse;
+    try {
+      apiResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse SMEPLUG response:', responseText);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Invalid response from data provider: ${responseText.substring(0, 120)}`,
+        }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
     console.log('SMEPLUG data purchase response:', JSON.stringify(apiResponse, null, 2));
 
-    if (!response.ok || !apiResponse.success) {
+    const apiStatus =
+      apiResponse?.success === true ||
+      apiResponse?.status === true ||
+      apiResponse?.data?.status === true ||
+      apiResponse?.data?.success === true ||
+      apiResponse?.status === 'success';
+
+    if (!response.ok || !apiStatus) {
+      const errorMessage =
+        apiResponse.message ||
+        apiResponse.error ||
+        apiResponse.data?.message ||
+        apiResponse.data?.error ||
+        'Data purchase failed';
+      console.error('SMEPLUG data API error:', errorMessage, 'Full response:', apiResponse);
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: apiResponse.message || 'Data purchase failed'
+          error: errorMessage,
+          details: apiResponse,
         }),
-        { status: response.status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
-    const balanceAfter = balanceBefore - planPrice;
+    const formattedAmount = `₦${planPrice.toFixed(2)}`;
 
-    // Update user balance
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ balance: balanceAfter })
-      .eq('id', user.id);
+    const debitResult = await debitUserWallet({
+      supabase,
+      userId: user.id,
+      amount: planPrice,
+      transactionType: 'data_purchase',
+      description: `Data purchase - ${dataPlan.plan_name} for ${sanitizedPhone}`,
+      reference,
+      performedBy: user.id,
+      balanceBefore,
+      notification: {
+        title: 'Data purchase successful',
+        message: `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Reference: ${reference}.`,
+      },
+    });
 
-    if (updateError) {
-      console.error('Error updating balance:', updateError);
-    }
-
-    // Log transaction
     await supabase.from('data_transactions').insert({
       user_id: user.id,
-      phone_number,
-      network: network_id,
+      phone_number: sanitizedPhone,
+      network: dataPlan.network || String(network_id),
       plan_name: dataPlan.plan_name,
       plan_validity: dataPlan.validity,
       amount: planPrice,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
+      balance_before: debitResult.balanceBefore,
+      balance_after: debitResult.balanceAfter,
       status: 'success',
       reference,
       api_response: apiResponse,
-      performed_by: user.id
-    });
-
-    await supabase.from('user_transactions').insert({
-      user_id: user.id,
-      transaction_type: 'data_purchase',
-      amount: planPrice,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
-      reference,
-      description: `Data purchase - ${dataPlan.plan_name} for ${phone_number}`,
       performed_by: user.id
     });
 
@@ -168,11 +252,11 @@ serve(async (req) => {
           reference,
           plan_name: dataPlan.plan_name,
           amount: planPrice,
-          phone_number,
-          network: network_id,
+        phone_number: sanitizedPhone,
+        network: resolvedNetworkName || dataPlan.network || String(network_id),
           validity: dataPlan.validity,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter
+          balance_before: debitResult.balanceBefore,
+          balance_after: debitResult.balanceAfter
         }
       }),
       { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }

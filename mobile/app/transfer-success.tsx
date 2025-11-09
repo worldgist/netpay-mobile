@@ -9,9 +9,13 @@ import { TransactionStorage, generateTransactionId, generateReference } from '@/
 export default function TransferSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const amount = params.amount as string || '0';
-  const recipientEmail = params.recipientEmail as string || '';
-  const description = params.description as string || '';
+  const amount = (params.amount as string) || '0';
+  const recipientEmail = (params.recipientEmail as string) || '';
+  const recipientName = (params.recipientName as string) || '';
+  const description = (params.description as string) || '';
+  const referenceParam = (params.reference as string) || '';
+
+  const transactionReference = referenceParam || generateReference('TRANSFER');
 
   // Save transaction when screen loads
   useEffect(() => {
@@ -31,10 +35,10 @@ export default function TransferSuccessScreen() {
           minute: '2-digit',
           hour12: true,
         }),
-        reference: generateReference('TRANSFER'),
+        reference: transactionReference,
         status: 'Completed',
         description: description || 'Money Transfer',
-        recipient: recipientEmail || '',
+        recipient: recipientEmail || recipientName || '',
         serviceType: 'Money Transfer',
         network: '',
       };
@@ -42,7 +46,7 @@ export default function TransferSuccessScreen() {
     };
 
     saveTransaction();
-  }, [amount, recipientEmail, description]);
+  }, [amount, recipientEmail, description, recipientName, transactionReference]);
 
   const handleDone = () => {
     // Navigate back to home
@@ -85,8 +89,14 @@ export default function TransferSuccessScreen() {
           {/* Transaction Details */}
           <View style={styles.detailsCard}>
             <ThemedText style={styles.detailsTitle}>Transaction Details</ThemedText>
+            {recipientName ? (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
+                <ThemedText style={styles.detailValue} numberOfLines={1}>{recipientName}</ThemedText>
+              </View>
+            ) : null}
             <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
+              <ThemedText style={styles.detailLabel}>Recipient Email</ThemedText>
               <ThemedText style={styles.detailValue} numberOfLines={1}>{recipientEmail}</ThemedText>
             </View>
             {description && (
@@ -98,6 +108,10 @@ export default function TransferSuccessScreen() {
             <View style={styles.detailRow}>
               <ThemedText style={styles.detailLabel}>Status</ThemedText>
               <ThemedText style={styles.statusValue}>Completed</ThemedText>
+            </View>
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Reference</ThemedText>
+              <ThemedText style={styles.detailValue} numberOfLines={1}>{transactionReference}</ThemedText>
             </View>
             <View style={styles.detailRow}>
               <ThemedText style={styles.detailLabel}>Date</ThemedText>

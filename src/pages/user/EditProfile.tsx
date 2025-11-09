@@ -126,7 +126,7 @@ export default function EditProfile() {
           <div className="bg-white rounded-2xl p-6 space-y-6">
             {/* Profile Picture Placeholder */}
             <div className="flex justify-center">
-              <div className="w-24 h-24 bg-[#FF6B00] rounded-full flex items-center justify-center">
+              <div className="w-24 h-24 bg-brand rounded-full flex items-center justify-center">
                 <User className="w-12 h-12 text-white" />
               </div>
             </div>
@@ -193,7 +193,7 @@ export default function EditProfile() {
           {/* Save Button */}
           <Button
             type="submit"
-            className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-12 rounded-xl font-medium"
+            className="w-full bg-brand hover:bg-brand-light text-white h-12 rounded-xl font-medium"
             disabled={loading}
           >
             {loading ? (

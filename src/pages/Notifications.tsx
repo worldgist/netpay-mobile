@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
+const LOGO_SRC = "/logo.png";
+
 interface UserProfile {
   id: string;
   full_name: string | null;
@@ -48,6 +50,7 @@ export default function Notifications() {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [logoFailed, setLogoFailed] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -207,6 +210,22 @@ export default function Notifications() {
         }
       }
 
+      try {
+        await supabase.functions.invoke('admin-send-push-notification', {
+          body: {
+            title,
+            body: message,
+            user_ids: recipientType === 'all' ? undefined : recipientsToNotify,
+            data: {
+              notification_id: notification.id,
+              type: 'admin_notification',
+            },
+          },
+        });
+      } catch (pushError) {
+        console.error('Error sending push notification:', pushError);
+      }
+
       toast({
         title: "Success",
         description: `Notification sent to ${recipientsToNotify.length} user(s)`,
@@ -286,6 +305,35 @@ export default function Notifications() {
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
                     />
+                  </div>
+
+                  <div className="rounded-2xl border bg-white shadow-sm p-5 max-w-md">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="h-12 w-12 rounded-full bg-muted overflow-hidden flex items-center justify-center">
+                        {logoFailed ? (
+                          <span className="text-sm font-semibold text-primary">NP</span>
+                        ) : (
+                          <img
+                            src={LOGO_SRC}
+                            alt="NetPay logo"
+                            className="h-full w-full object-cover"
+                            onError={() => setLogoFailed(true)}
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">NetPay Alerts</p>
+                        <p className="text-xs text-muted-foreground">Just now</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">
+                        {title.trim() || "Upcoming Event"}
+                      </p>
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        {message.trim() || "A new event is coming soon! Stay tuned for more details and be sure not to miss out."}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="grid gap-2">

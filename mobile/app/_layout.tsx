@@ -70,6 +70,7 @@ export default function RootLayout() {
         <Stack.Screen name="edit-profile" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="referral" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="contact-us" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="change-pin" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="terms-and-conditions" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: 'card' }} />

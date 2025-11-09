@@ -44,13 +44,13 @@ const Index = () => {
       <header className="border-b border-border/40 bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-[#FF6B35] p-2 rounded-lg">
+            <div className="bg-brand p-2 rounded-lg">
               <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
             </div>
             <span className="text-2xl font-bold">
-              <span className="text-[#FF6B35]">NET</span>PAY
+              <span className="text-brand">NET</span>PAY
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -63,7 +63,7 @@ const Index = () => {
             </Button>
             <Button 
               onClick={() => navigate("/user/auth")}
-              className="bg-[#FF6B35] hover:bg-[#FF6B35]/90 text-white"
+              className="bg-brand hover:bg-brand/90 text-white"
             >
               Get Started
             </Button>
@@ -87,7 +87,7 @@ const Index = () => {
             <Button 
               onClick={() => navigate("/user/auth")}
               size="lg"
-              className="bg-[#FF6B35] hover:bg-[#FF6B35]/90 text-white h-12 px-8 text-base"
+              className="bg-brand hover:bg-brand/90 text-white h-12 px-8 text-base"
             >
               Create Free Account
             </Button>
@@ -96,15 +96,15 @@ const Index = () => {
           {/* Stats */}
           <div className="grid grid-cols-3 gap-6 pt-12 max-w-2xl mx-auto">
             <div className="text-center">
-              <div className="text-3xl font-bold text-[#FF6B35]">99.9%</div>
+              <div className="text-3xl font-bold text-brand">99.9%</div>
               <div className="text-sm text-muted-foreground">Uptime</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-[#FF6B35]">50k+</div>
+              <div className="text-3xl font-bold text-brand">50k+</div>
               <div className="text-sm text-muted-foreground">Users</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-[#FF6B35]">24/7</div>
+              <div className="text-3xl font-bold text-brand">24/7</div>
               <div className="text-sm text-muted-foreground">Support</div>
             </div>
           </div>
@@ -125,10 +125,10 @@ const Index = () => {
             {features.map((feature, index) => (
               <div
                 key={index}
-                className="bg-card p-6 rounded-2xl border border-border/50 hover:border-[#FF6B35]/30 transition-all hover:shadow-lg"
+                className="bg-card p-6 rounded-2xl border border-border/50 hover:border-brand/30 transition-all hover:shadow-lg"
               >
-                <div className="bg-[#FF6B35]/10 w-14 h-14 rounded-full flex items-center justify-center mb-4">
-                  <feature.icon className="w-7 h-7 text-[#FF6B35]" />
+                <div className="bg-brand/10 w-14 h-14 rounded-full flex items-center justify-center mb-4">
+                  <feature.icon className="w-7 h-7 text-brand" />
                 </div>
                 <h3 className="font-bold text-lg mb-2">{feature.title}</h3>
                 <p className="text-muted-foreground text-sm">{feature.description}</p>
@@ -148,8 +148,8 @@ const Index = () => {
 
             <div className="grid md:grid-cols-3 gap-8">
               <div className="text-center">
-                <div className="bg-[#FF6B35]/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Clock className="w-8 h-8 text-[#FF6B35]" />
+                <div className="bg-brand/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-8 h-8 text-brand" />
                 </div>
                 <h3 className="font-bold text-lg mb-2">Instant Processing</h3>
                 <p className="text-muted-foreground text-sm">
@@ -158,8 +158,8 @@ const Index = () => {
               </div>
 
               <div className="text-center">
-                <div className="bg-[#FF6B35]/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Shield className="w-8 h-8 text-[#FF6B35]" />
+                <div className="bg-brand/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Shield className="w-8 h-8 text-brand" />
                 </div>
                 <h3 className="font-bold text-lg mb-2">100% Secure</h3>
                 <p className="text-muted-foreground text-sm">
@@ -168,8 +168,8 @@ const Index = () => {
               </div>
 
               <div className="text-center">
-                <div className="bg-[#FF6B35]/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <TrendingUp className="w-8 h-8 text-[#FF6B35]" />
+                <div className="bg-brand/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <TrendingUp className="w-8 h-8 text-brand" />
                 </div>
                 <h3 className="font-bold text-lg mb-2">Best Rates</h3>
                 <p className="text-muted-foreground text-sm">
@@ -182,7 +182,7 @@ const Index = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="bg-[#FF6B35] py-16">
+      <section className="bg-brand py-16">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
             Ready to Get Started?
@@ -193,7 +193,7 @@ const Index = () => {
           <Button 
             onClick={() => navigate("/user/auth")}
             size="lg"
-            className="bg-white text-[#FF6B35] hover:bg-white/90 h-12 px-8"
+            className="bg-white text-brand hover:bg-white/90 h-12 px-8"
           >
             Create Your Free Account
           </Button>
@@ -205,13 +205,13 @@ const Index = () => {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="bg-[#FF6B35] p-2 rounded-lg">
+              <div className="bg-brand p-2 rounded-lg">
                 <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                 </svg>
               </div>
               <span className="text-xl font-bold">
-                <span className="text-[#FF6B35]">NET</span>PAY
+                <span className="text-brand">NET</span>PAY
               </span>
             </div>
             <div className="flex gap-6 text-sm text-muted-foreground">

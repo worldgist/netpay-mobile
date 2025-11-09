@@ -60,16 +60,22 @@ serve(async (req) => {
 
     // Map provider to service IDs
     const providerServiceMap: { [key: string]: { prepaid: string; postpaid: string } } = {
-      'IKEDC': { prepaid: 'AMA', postpaid: 'AMB' },
-      'EKEDC': { prepaid: 'ANA', postpaid: 'ANB' },
-      'AEDC': { prepaid: 'AHB', postpaid: 'AHA' },
-      'KAEDCO': { prepaid: 'AGB', postpaid: 'AGA' },
-      'IBEDC': { prepaid: 'AEA', postpaid: 'AEB' },
-      'KEDCO': { prepaid: 'AFA', postpaid: 'AFB' },
-      'PHEDC': { prepaid: 'ADB', postpaid: 'ADA' },
-      'JED': { prepaid: 'ACB', postpaid: 'ACA' },
-      'BEDC': { prepaid: 'AAB', postpaid: 'AAA' },
-      'YEDC': { prepaid: 'ALA', postpaid: 'ALB' },
+      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
+      IKEDC: { prepaid: 'AMA', postpaid: 'AMB' },
+      EKO: { prepaid: 'ANA', postpaid: 'ANB' },
+      EKEDC: { prepaid: 'ANA', postpaid: 'ANB' },
+      ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
+      AEDC: { prepaid: 'AHB', postpaid: 'AHA' },
+      KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
+      KAEDCO: { prepaid: 'AGB', postpaid: 'AGA' },
+      IBADAN: { prepaid: 'AEA', postpaid: 'AEB' },
+      IBEDC: { prepaid: 'AEA', postpaid: 'AEB' },
+      KANO: { prepaid: 'AFA', postpaid: 'AFB' },
+      KEDCO: { prepaid: 'AFA', postpaid: 'AFB' },
+      PORTHARCOURT: { prepaid: 'ADB', postpaid: 'ADA' },
+      PHEDC: { prepaid: 'ADB', postpaid: 'ADA' },
+      JOS: { prepaid: 'ACB', postpaid: 'ACA' },
+      JED: { prepaid: 'ACB', postpaid: 'ACA' },
     };
 
     const serviceIds = providerServiceMap[provider.toUpperCase()];

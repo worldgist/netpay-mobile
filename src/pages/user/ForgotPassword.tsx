@@ -58,7 +58,7 @@ export default function ForgotPassword() {
             
             <Button
               onClick={() => navigate("/user/auth")}
-              className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-14 rounded-lg font-medium"
+            className="w-full bg-brand hover:bg-brand-light text-white h-14 rounded-lg font-medium"
             >
               Back to Sign In
             </Button>
@@ -90,7 +90,7 @@ export default function ForgotPassword() {
 
         <div className="text-center">
           <svg viewBox="0 0 100 40" className="h-12 mx-auto mb-8">
-            <text x="50" y="28" textAnchor="middle" className="font-bold text-2xl fill-[#FF6B00]">
+            <text x="50" y="28" textAnchor="middle" className="font-bold text-2xl fill-brand">
               NETPAY
             </text>
           </svg>
@@ -115,7 +115,7 @@ export default function ForgotPassword() {
 
           <Button
             type="submit"
-            className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-14 rounded-lg font-medium text-lg"
+            className="w-full bg-brand hover:bg-brand-light text-white h-14 rounded-lg font-medium text-lg"
             disabled={loading}
           >
             {loading ? (

@@ -249,7 +249,7 @@ export default function TransactionDetails() {
         </div>
 
         {/* Amount Card */}
-        <div className="bg-gradient-to-r from-[#FF6B00] to-[#FF8533] rounded-2xl p-6 text-white text-center">
+        <div className="bg-gradient-to-r from-brand to-brand-light rounded-2xl p-6 text-white text-center">
           <p className="text-white/90 text-sm mb-2">Amount</p>
           <p className="text-4xl font-bold">
             {isCredit ? '+' : '-'}₦{Math.abs(Number(transaction.amount)).toLocaleString()}

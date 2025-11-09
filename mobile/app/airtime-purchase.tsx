@@ -1,71 +1,421 @@
-import { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ImageSourcePropType } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { supabase } from '@/lib/supabase';
+import { validateNigerianPhoneNumber } from '@/utils/phone';
+import { createTransactionNotification } from '@/utils/notifications';
+
+const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
+  MTN: require('@/assets/images/mtn.png'),
+  AIRTEL: require('@/assets/images/airtel.png'),
+  GLO: require('@/assets/images/glo.png'),
+  '9MOBILE': require('@/assets/images/9mobile.png'),
+  '9 MOBILE': require('@/assets/images/9mobile.png'),
+};
+
+const DEFAULT_NETWORK_LOGO = require('@/assets/images/logo.png');
+
+const NETWORK_KEY_MAP: Record<string, string> = {
+  MTN: 'MTN',
+  'MTN NIGERIA': 'MTN',
+  AIRTEL: 'AIRTEL',
+  'AIRTEL NIGERIA': 'AIRTEL',
+  GLO: 'GLO',
+  GLOBACOM: 'GLO',
+  '9MOBILE': '9MOBILE',
+  '9 MOBILE': '9MOBILE',
+  ETISALAT: '9MOBILE',
+};
+
+const NETWORK_DISPLAY_NAMES: Record<string, string> = {
+  MTN: 'MTN',
+  AIRTEL: 'Airtel',
+  GLO: 'Glo',
+  '9MOBILE': '9Mobile',
+};
+
+const SMEPLUG_NETWORK_IDS: Record<string, string> = {
+  MTN: '1',
+  AIRTEL: '2',
+  '9MOBILE': '3',
+  GLO: '4',
+};
+
+const normalizeNetwork = (value?: string | null) => {
+  if (!value) return null;
+  const upper = value.toUpperCase().trim();
+  return NETWORK_KEY_MAP[upper] || upper;
+};
+
+const getNetworkDisplayName = (networkId: string) =>
+  NETWORK_DISPLAY_NAMES[networkId] || networkId.replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+
+const formatCurrency = (amount?: number | null) => {
+  if (amount === null || amount === undefined || Number.isNaN(amount)) {
+    return '₦0.00';
+  }
+  return `₦${Number(amount).toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+type ProviderDetails = {
+  id: string;
+  network: string;
+  displayName: string;
+  minAmount: number;
+  maxAmount: number;
+  apiCode: string;
+  logo?: ImageSourcePropType;
+};
 
 export default function AirtimePurchaseScreen() {
   const router = useRouter();
-  const [selectedNetwork, setSelectedNetwork] = useState<string | null>('MTN');
-  const [phoneNumber, setPhoneNumber] = useState('08012345678');
-  const [amount, setAmount] = useState('100');
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [amount, setAmount] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const availableBalance = 500.00;
+  const [balance, setBalance] = useState(0);
+  const [providers, setProviders] = useState<ProviderDetails[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const networks = [
-    { id: '1', name: 'MTN', logo: require('@/assets/images/mtn.png') },
-    { id: '2', name: 'Airtel', logo: require('@/assets/images/airtel.png') },
-    { id: '3', name: '9Mobile', logo: require('@/assets/images/9mobile.png') },
-    { id: '4', name: 'Glo', logo: require('@/assets/images/glo.png') },
-  ];
+  const isMounted = useRef(true);
+  const providerRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    providerRef.current = selectedProvider;
+  }, [selectedProvider]);
+
+  const handleAmountChange = useCallback((value: string) => {
+    let sanitized = value.replace(/[^0-9.]/g, '');
+    const parts = sanitized.split('.');
+    if (parts.length > 2) {
+      sanitized = `${parts[0]}.${parts.slice(1).join('')}`;
+    }
+    if (sanitized.startsWith('.')) {
+      sanitized = `0${sanitized}`;
+    }
+    setAmount(sanitized);
+  }, []);
+
+  const fetchProviders = useCallback(async () => {
+    try {
+      if (isMounted.current) {
+        setLoading(true);
+        setError(null);
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
+      }
+
+      const userId = session.user.id;
+
+      const [profileRes, providersRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('balance')
+          .eq('id', userId)
+          .single(),
+        supabase
+          .from('airtime_providers')
+          .select('id, network_name, min_amount, max_amount, api_code, is_active')
+          .eq('is_active', true)
+          .order('network_name', { ascending: true }),
+      ]);
+
+      if (profileRes.error && profileRes.error.code !== 'PGRST116') {
+        throw profileRes.error;
+      }
+
+      if (providersRes.error) {
+        throw providersRes.error;
+      }
+
+      const balanceValue = profileRes.data ? Number(profileRes.data.balance) : 0;
+
+      const mappedProviders: ProviderDetails[] = (providersRes.data || [])
+        .map((provider) => {
+          const normalized = normalizeNetwork(provider.network_name);
+          if (!normalized) return null;
+          const displayName = getNetworkDisplayName(normalized);
+          return {
+            id: provider.id,
+            network: normalized,
+            displayName,
+            minAmount: Number(provider.min_amount) || 0,
+            maxAmount: Number(provider.max_amount) || 0,
+            apiCode: provider.api_code && /^\d+$/.test(String(provider.api_code))
+              ? String(provider.api_code)
+              : SMEPLUG_NETWORK_IDS[normalized] || '1',
+            logo: NETWORK_LOGOS[normalized] || DEFAULT_NETWORK_LOGO,
+          } as ProviderDetails;
+        })
+        .filter((item): item is ProviderDetails => Boolean(item));
+
+      const order: Record<string, number> = { MTN: 0, AIRTEL: 1, '9MOBILE': 2, GLO: 3 };
+      const sortedProviders = mappedProviders.sort((a, b) => {
+        const orderA = order[a.network] ?? 99;
+        const orderB = order[b.network] ?? 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.displayName.localeCompare(b.displayName);
+      });
+
+      const previousProvider = providerRef.current;
+      const effectiveProvider =
+        previousProvider && sortedProviders.some((provider) => provider.id === previousProvider)
+          ? previousProvider
+          : sortedProviders[0]?.id ?? null;
+
+      if (isMounted.current) {
+        setBalance(balanceValue);
+        setProviders(sortedProviders);
+        setSelectedProvider(effectiveProvider);
+      }
+    } catch (err) {
+      console.error('Failed to fetch airtime providers:', err);
+      if (isMounted.current) {
+        setError(err instanceof Error ? err.message : 'Unable to load airtime providers.');
+        setProviders([]);
+        setSelectedProvider(null);
+        setBalance(0);
+      }
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchProviders();
+    }, [fetchProviders])
+  );
 
   const handleContinue = () => {
-    if (!selectedNetwork) {
+    if (!selectedProviderDetails) {
       Alert.alert('Error', 'Please select a network provider');
       return;
     }
-    if (!phoneNumber.trim() || phoneNumber.length < 10) {
-      Alert.alert('Error', 'Please enter a valid phone number');
-      return;
-    }
-    const purchaseAmount = parseFloat(amount);
-    if (isNaN(purchaseAmount) || purchaseAmount <= 0) {
+
+    if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       Alert.alert('Error', 'Please enter a valid amount');
       return;
     }
-    if (purchaseAmount > availableBalance) {
-      Alert.alert('Error', 'Insufficient balance');
+
+    const validation = validateNigerianPhoneNumber(phoneNumber, selectedProviderDetails.network);
+    if (!validation.isMatch || validation.message) {
+      Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
       return;
     }
 
-    // Show confirmation modal
+    const normalizedPhone = validation.normalized;
+    if (normalizedPhone !== phoneNumber) {
+      setPhoneNumber(normalizedPhone);
+    }
+
+    const effectiveAmount = parsedAmount;
+
+    if (effectiveAmount < minAmount) {
+      Alert.alert('Error', `Minimum amount for ${selectedProviderName} is ${formatCurrency(minAmount)}`);
+      return;
+    }
+
+    if (effectiveAmount > maxAmount) {
+      Alert.alert('Error', `Maximum amount for ${selectedProviderName} is ${formatCurrency(maxAmount)}`);
+      return;
+    }
+
+    if (effectiveAmount > balance) {
+      Alert.alert(
+        'Insufficient Balance',
+        `Your wallet balance is ${formatCurrency(balance)}. Please fund your wallet to continue.`
+      );
+      return;
+    }
+
     setShowConfirmModal(true);
   };
 
-  const handleConfirmPayment = () => {
-    setShowConfirmModal(false);
-    // Navigate to success screen with transaction details
-    const purchaseAmount = parseFloat(amount || '0');
-    router.push({
-      pathname: '/payment-success',
-      params: {
-        amount: purchaseAmount.toString(),
-        network: selectedNetwork || '',
-        recipient: phoneNumber,
-        serviceType: 'Airtime VTU',
-      },
-    });
-  };
+  const handleConfirmPayment = useCallback(async () => {
+    if (!selectedProviderDetails) return;
+
+    try {
+      const rawNetworkId =
+        selectedProviderDetails.apiCode ||
+        (selectedProviderDetails.network ? SMEPLUG_NETWORK_IDS[selectedProviderDetails.network] : null);
+      const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
+
+      if (!normalizedNetworkId || !/^\d+$/.test(normalizedNetworkId)) {
+        Alert.alert('Airtime Purchase', 'Unable to determine the network ID for this provider. Please try again.');
+        return;
+      }
+
+    const sanitizedPhoneNumber = phoneNumber.replace(/\s+/g, '').trim();
+    const submissionAmount = Number.parseFloat(amount.replace(/,/g, '').trim());
+
+    if (!Number.isFinite(submissionAmount) || submissionAmount <= 0) {
+      Alert.alert('Airtime Purchase', 'Unable to determine the amount to charge. Please re-enter the amount.');
+      return;
+    }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      const { data, error } = await supabase.functions.invoke('purchase-smeplug-airtime', {
+        body: {
+          phone_number: sanitizedPhoneNumber,
+          amount: submissionAmount,
+          network_id: normalizedNetworkId,
+          network_name: selectedProviderDetails.network,
+        },
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        const detailMessage =
+          data?.details?.message ||
+          data?.details?.error ||
+          data?.details?.response_description ||
+          data?.details?.data?.message ||
+          data?.details?.data?.error;
+        const message = detailMessage || data?.error || 'Unable to complete airtime purchase.';
+        const detailString = data?.details ? JSON.stringify(data.details, null, 2) : null;
+        console.error('Airtime purchase response (failure):', JSON.stringify(data, null, 2));
+        throw new Error(detailString ? `${message}\n\nDetails: ${detailString}` : message);
+      }
+
+      setShowConfirmModal(false);
+
+      const reference = data?.data?.reference || '';
+
+      await createTransactionNotification({
+        title: 'Airtime Purchase Successful',
+        message: `${formatCurrency(amountValue)} airtime sent to ${phoneNumber} on ${selectedProviderName}${reference ? ` (ref: ${reference})` : ''}.`,
+      });
+
+      router.push({
+        pathname: '/payment-success',
+        params: {
+          amount: amountValue.toString(),
+          network: selectedProviderName,
+          recipient: phoneNumber,
+          serviceType: 'Airtime VTU',
+          reference,
+        },
+      });
+    } catch (purchaseError) {
+      console.error('Airtime purchase failed:', purchaseError);
+      let message = 'Unable to complete airtime purchase. Please try again.';
+
+      if (purchaseError instanceof Error) {
+        message = purchaseError.message || message;
+        const extendedDetails =
+          (purchaseError as any)?.details ||
+          (purchaseError as any)?.context?.details ||
+          (purchaseError as any)?.context?.body;
+        if (extendedDetails) {
+          try {
+            const parsed =
+              typeof extendedDetails === 'string' ? JSON.parse(extendedDetails) : extendedDetails;
+            const nestedMessage =
+              parsed?.message ||
+              parsed?.error ||
+              parsed?.details?.message ||
+              parsed?.details?.error ||
+              parsed?.details?.response_description;
+            if (nestedMessage) {
+              message = `${message}\n\nDetails: ${nestedMessage}`;
+            } else {
+              message = `${message}\n\nDetails: ${JSON.stringify(parsed, null, 2)}`;
+            }
+          } catch {
+            message = `${message}\n\nDetails: ${String(extendedDetails)}`;
+          }
+        }
+      }
+
+      const context = (purchaseError as any)?.context;
+      if (context?.body) {
+        try {
+          const body = typeof context.body === 'string' ? JSON.parse(context.body) : context.body;
+          const bodyMessage = body?.error || body?.message || body?.details?.error || body?.details?.message;
+          if (bodyMessage) {
+            message = bodyMessage;
+          }
+        } catch (_parseError) {
+          // ignore json parse failures
+        }
+      }
+
+      Alert.alert('Airtime Purchase', message);
+    }
+  }, [amount, amountValue, phoneNumber, router, selectedProviderDetails, selectedProviderName]);
 
   const getNetworkLogo = (networkName: string) => {
-    const network = networks.find(n => n.name === networkName);
+    const network = providers.find(n => n.network === networkName);
     return network?.logo;
   };
 
-  const selectedNetworkLogo = selectedNetwork ? getNetworkLogo(selectedNetwork) : null;
+  const selectedNetworkLogo = selectedProvider ? getNetworkLogo(selectedProvider) : null;
+
+  const selectedProviderDetails = useMemo(() => {
+    return selectedProvider ? providers.find((provider) => provider.id === selectedProvider) : undefined;
+  }, [providers, selectedProvider]);
+
+  const selectedProviderName = selectedProviderDetails?.displayName || '';
+  const minAmount = selectedProviderDetails?.minAmount ?? 0;
+  const maxAmount = selectedProviderDetails?.maxAmount ?? 0;
+  const selectedProviderNetworkId = selectedProviderDetails?.apiCode;
+
+  const parsedAmount = useMemo(() => {
+    if (!amount) return NaN;
+    const sanitized = amount.replace(/,/g, '');
+    const parsed = Number.parseFloat(sanitized);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }, [amount]);
+
+  const amountValue = Number.isNaN(parsedAmount) ? 0 : parsedAmount;
+
+  const amountHint = selectedProviderDetails
+    ? `Min: ${formatCurrency(minAmount)} • Max: ${formatCurrency(maxAmount)}`
+    : 'Select a network to view limits';
+
+  const isContinueDisabled =
+    loading ||
+    !selectedProviderDetails ||
+    !amount.trim() ||
+    Number.isNaN(parsedAmount) ||
+    amountValue <= 0;
 
   return (
     <ThemedView style={styles.container}>
@@ -89,38 +439,69 @@ export default function AirtimePurchaseScreen() {
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
-              <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
+              )}
             </View>
           </View>
+
+          {error && !loading && (
+            <View style={styles.errorBanner}>
+              <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
+              <ThemedText style={styles.errorText}>{error}</ThemedText>
+            </View>
+          )}
 
           {/* Select Service Provider */}
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
-            <View style={styles.networkContainer}>
-              {networks.map((network) => (
-                <TouchableOpacity
-                  key={network.id}
-                  style={styles.networkItem}
-                  onPress={() => setSelectedNetwork(network.name)}
-                  activeOpacity={0.7}>
-                  <View
-                    style={[
-                      styles.networkLogoContainer,
-                      {
-                        borderWidth: selectedNetwork === network.name ? 2.5 : 1,
-                        borderColor: selectedNetwork === network.name ? '#FF7F00' : '#E0E0E0',
-                      },
-                    ]}>
-                    <Image
-                      source={network.logo}
-                      style={styles.networkLogoImage}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <ThemedText style={styles.networkName}>{network.name}</ThemedText>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {providers.length > 0 ? (
+              <View style={styles.networkContainer}>
+                {providers.map((provider) => (
+                  <TouchableOpacity
+                    key={provider.id}
+                    style={styles.networkItem}
+                    onPress={() => setSelectedProvider(provider.id)}
+                    activeOpacity={0.7}>
+                    <View
+                      style={[
+                        styles.networkLogoContainer,
+                        {
+                          borderWidth: selectedProvider === provider.id ? 2.5 : 1,
+                          borderColor: selectedProvider === provider.id ? '#FF7F00' : '#E0E0E0',
+                        },
+                      ]}>
+                      {provider.logo ? (
+                        <Image
+                          source={provider.logo}
+                          style={styles.networkLogoImage}
+                          contentFit="contain"
+                        />
+                      ) : (
+                        <MaterialIcons name="signal-cellular-alt" size={28} color="#FF7F00" />
+                      )}
+                    </View>
+                    <ThemedText style={styles.networkName}>{provider.displayName}</ThemedText>
+                    <ThemedText style={styles.networkIdText}>{`ID: ${provider.apiCode}`}</ThemedText>
+                    <ThemedText style={styles.networkHint}>
+                      {`Min ${formatCurrency(provider.minAmount)}`}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.networkPlaceholder}>
+                {loading ? (
+                  <ActivityIndicator color="#FF7F00" />
+                ) : (
+                  <ThemedText style={styles.emptyPlansText}>
+                    No airtime providers available. Please try again later.
+                  </ThemedText>
+                )}
+              </View>
+            )}
           </View>
 
           {/* Phone Number Input */}
@@ -138,41 +519,44 @@ export default function AirtimePurchaseScreen() {
             </View>
           </View>
 
-          {/* Amount Input */}
+          {/* Data Plan/Amount */}
           <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Amount (N)</ThemedText>
+            <ThemedText style={styles.inputLabel}>Amount (₦)</ThemedText>
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
-                placeholder="100"
+                placeholder="Enter amount"
                 placeholderTextColor="#999"
                 value={amount}
-                onChangeText={setAmount}
+                onChangeText={handleAmountChange}
                 keyboardType="numeric"
               />
             </View>
+            <ThemedText style={styles.helperText}>{amountHint}</ThemedText>
           </View>
         </ScrollView>
 
         {/* Continue Button */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+          <TouchableOpacity
+            style={[styles.continueButton, (isContinueDisabled) && styles.continueButtonDisabled]}
+            onPress={handleContinue}
+            disabled={isContinueDisabled}>
             <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* Confirm Payment Modal */}
-      {selectedNetworkLogo && (
+      {selectedProviderDetails && (
         <ConfirmPaymentModal
           visible={showConfirmModal}
           onClose={() => setShowConfirmModal(false)}
           onConfirm={handleConfirmPayment}
-          amount={parseFloat(amount || '0')}
-          network={selectedNetwork || ''}
+          amount={amountValue}
+          network={selectedProviderName}
           networkLogo={selectedNetworkLogo}
           recipient={phoneNumber}
-          serviceType="Airtime VTU"
+          serviceType={`Airtime VTU • Network ID ${selectedProviderNetworkId || ''}`}
         />
       )}
     </ThemedView>
@@ -223,7 +607,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 20,
     marginHorizontal: 20,
-    marginBottom: 24,
+    marginBottom: 16,
     alignItems: 'center',
     minHeight: 100,
     justifyContent: 'center',
@@ -257,12 +641,14 @@ const styles = StyleSheet.create({
   },
   networkContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
   networkItem: {
     alignItems: 'center',
-    flex: 1,
+    width: '23%',
+    marginBottom: 16,
   },
   networkLogoContainer: {
     width: 70,
@@ -282,6 +668,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
+    textAlign: 'center',
+  },
+  networkIdText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  networkHint: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  networkPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+  },
+  emptyPlansText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
   inputLabel: {
     fontSize: 16,
@@ -302,6 +709,11 @@ const styles = StyleSheet.create({
     color: '#333',
     paddingVertical: 12,
   },
+  helperText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#666',
+  },
   buttonContainer: {
     paddingHorizontal: 20,
     paddingBottom: 30,
@@ -318,5 +730,27 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
+  continueButtonDisabled: {
+    opacity: 0.6,
+  },
+  errorText: {
+    color: '#d32f2f',
+    fontSize: 13,
+    flex: 1,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#fdecea',
+  },
+  errorIcon: {
+    marginRight: 8,
+  },
 });
+
 

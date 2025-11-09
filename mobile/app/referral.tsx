@@ -1,26 +1,211 @@
-import { StyleSheet, View, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  ActivityIndicator,
+  RefreshControl,
+  Share,
+  Alert,
+} from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function ReferralScreen() {
   const router = useRouter();
-  const referralCode = 'REF-2C8B22E8';
+  const [referralCode, setReferralCode] = useState('');
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState({
+    totalReferrals: 0,
+    completedReferrals: 0,
+    pendingReferrals: 0,
+    totalEarnings: 0,
+    paidEarnings: 0,
+    pendingEarnings: 0,
+  });
+  const [recentReferrals, setRecentReferrals] = useState<
+    Array<{
+      id: string;
+      referred_email: string | null;
+      status: string;
+      reward_amount: number | null;
+      created_at: string;
+      referrer_reward_paid: boolean;
+    }>
+  >([]);
+  const [referrerReward, setReferrerReward] = useState<number | null>(null);
+  const [referredReward, setReferredReward] = useState<number | null>(null);
+  const isMounted = useRef(true);
+
+  const formatCurrency = useCallback((value: number | null | undefined) => {
+    const amount = Number(value || 0);
+    return `₦${amount.toLocaleString('en-NG', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }, []);
+
+  const fetchReferralData = useCallback(
+    async ({ isRefresh = false }: { isRefresh?: boolean } = {}) => {
+      if (isRefresh) {
+        if (isMounted.current) setRefreshing(true);
+      } else {
+        if (isMounted.current) setLoading(true);
+      }
+
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session) {
+          router.replace('/auth/login');
+          return;
+        }
+
+        const userId = session.user.id;
+        const generatedCode = `REF-${userId.slice(0, 8).toUpperCase()}`;
+        if (isMounted.current) {
+          setReferralCode(generatedCode);
+        }
+
+        const { data: referralRows, error: referralError } = await supabase
+          .from('referrals')
+          .select('*')
+          .eq('referrer_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (referralError) throw referralError;
+
+        if (isMounted.current) {
+          const rows = referralRows || [];
+          setRecentReferrals(rows.slice(0, 5));
+
+          const completed = rows.filter((r) => r.status === 'completed');
+          const pending = rows.filter((r) => r.status === 'pending');
+          const totalEarnings = rows.reduce((sum, r) => sum + Number(r.reward_amount || 0), 0);
+          const paidEarnings = rows
+            .filter((r) => r.referrer_reward_paid)
+            .reduce((sum, r) => sum + Number(r.reward_amount || 0), 0);
+          const pendingEarnings = completed
+            .filter((r) => !r.referrer_reward_paid)
+            .reduce((sum, r) => sum + Number(r.reward_amount || 0), 0);
+
+          setStats({
+            totalReferrals: rows.length,
+            completedReferrals: completed.length,
+            pendingReferrals: pending.length,
+            totalEarnings,
+            paidEarnings,
+            pendingEarnings,
+          });
+        }
+
+        const { data: settingsRow, error: settingsError } = await supabase
+          .from('referral_settings')
+          .select('referrer_reward, referred_reward')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (settingsError && settingsError.code !== 'PGRST116') {
+          throw settingsError;
+        }
+
+        if (isMounted.current && settingsRow) {
+          setReferrerReward(Number(settingsRow.referrer_reward || 0));
+          setReferredReward(Number(settingsRow.referred_reward || 0));
+        }
+      } catch (error) {
+        console.error('Failed to load referral data:', error);
+        if (isMounted.current) {
+          const message = error instanceof Error ? error.message : 'Unable to load referral data. Please try again.';
+          Alert.alert('Referral Program', message);
+        }
+      } finally {
+        if (isMounted.current) {
+          if (isRefresh) {
+            setRefreshing(false);
+          } else {
+            setLoading(false);
+          }
+        }
+      }
+    },
+    [router]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      isMounted.current = true;
+      fetchReferralData();
+
+      return () => {
+        isMounted.current = false;
+      };
+    }, [fetchReferralData])
+  );
+
+  const handleRefresh = useCallback(() => {
+    fetchReferralData({ isRefresh: true });
+  }, [fetchReferralData]);
 
   const handleCopyCode = async () => {
+    if (!referralCode) return;
     await Clipboard.setStringAsync(referralCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleShareLink = () => {
-    // Implement sharing functionality here
-    console.log('Sharing referral link...');
+    if (!referralCode) return;
+
+    const message = `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Download the app and enter the code during signup.`;
+
+    Share.share({
+      message,
+      title: 'Invite to NetPay',
+    }).catch((error) => {
+      console.error('Failed to share referral link:', error);
+      Alert.alert('Referral', 'Unable to share right now. Please try again.');
+    });
   };
+
+  const rewardSummary = useMemo(() => {
+    if (referrerReward === null && referredReward === null) return '';
+
+    if (referrerReward !== null && referredReward !== null) {
+      return `Earn ${formatCurrency(referrerReward)} and your friend gets ${formatCurrency(referredReward)} after their first transaction.`;
+    }
+
+    if (referrerReward !== null) {
+      return `Earn ${formatCurrency(referrerReward)} when your friend completes their first transaction.`;
+    }
+
+    if (referredReward !== null) {
+      return `Your friend receives ${formatCurrency(referredReward)} after their first transaction.`;
+    }
+
+    return '';
+  }, [formatCurrency, referrerReward, referredReward]);
+
+  if (loading) {
+    return (
+      <ThemedView style={styles.loadingContainer}>
+        <ActivityIndicator color="#FF7F00" size="large" />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -33,10 +218,11 @@ export default function ReferralScreen() {
       </View>
       <ThemedText style={styles.headerSubtitle}>Invite friends and earn rewards</ThemedText>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}>
         
         {/* Your Referral Code Section */}
         <View style={styles.referralCard}>
@@ -44,47 +230,103 @@ export default function ReferralScreen() {
           <ThemedText style={styles.referralCardSubtitle}>Share this code with friends to earn rewards</ThemedText>
 
           <View style={styles.codeContainer}>
-            <ThemedText style={styles.referralCode}>{referralCode}</ThemedText>
-            <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode}>
+            <ThemedText style={styles.referralCode}>{referralCode || 'Generating...'}</ThemedText>
+            <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode} disabled={!referralCode}>
               <MaterialIcons name={copied ? "check" : "content-copy"} size={20} color="#fff" />
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.shareButton} onPress={handleShareLink}>
+          <TouchableOpacity style={[styles.shareButton, !referralCode && styles.shareButtonDisabled]} onPress={handleShareLink} disabled={!referralCode}>
             <MaterialIcons name="share" size={20} color="#333" style={styles.shareIcon} />
             <ThemedText style={styles.shareButtonText}>Share Referral Link</ThemedText>
           </TouchableOpacity>
+
+          {!!rewardSummary && (
+            <ThemedText style={styles.rewardSummary}>{rewardSummary}</ThemedText>
+          )}
         </View>
 
         {/* Statistics Grid */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <MaterialIcons name="people" size={36} color="#FF7F00" />
-            <ThemedText style={styles.statValue}>0</ThemedText>
+            <ThemedText style={styles.statValue}>{stats.totalReferrals}</ThemedText>
             <ThemedText style={styles.statLabel}>Total Referrals</ThemedText>
           </View>
           <View style={styles.statCard}>
             <MaterialIcons name="check-circle" size={36} color="#4CAF50" />
-            <ThemedText style={styles.statValue}>0</ThemedText>
+            <ThemedText style={styles.statValue}>{stats.completedReferrals}</ThemedText>
             <ThemedText style={styles.statLabel}>Completed</ThemedText>
           </View>
           <View style={styles.statCard}>
             <MaterialIcons name="card-giftcard" size={36} color="#9C27B0" />
-            <ThemedText style={styles.statValue}>₦0.00</ThemedText>
+            <ThemedText style={styles.statValue}>{formatCurrency(stats.totalEarnings)}</ThemedText>
             <ThemedText style={styles.statLabel}>Total Earnings</ThemedText>
           </View>
           <View style={styles.statCard}>
             <MaterialIcons name="card-giftcard" size={36} color="#4CAF50" />
-            <ThemedText style={styles.statValue}>₦0.00</ThemedText>
-            <ThemedText style={styles.statLabel}>Withdrawn</ThemedText>
+            <ThemedText style={styles.statValue}>{formatCurrency(stats.paidEarnings)}</ThemedText>
+            <ThemedText style={styles.statLabel}>Paid Out</ThemedText>
           </View>
         </View>
 
-        {/* No Referrals Card */}
-        <View style={styles.noReferralsCard}>
-          <MaterialIcons name="people-outline" size={48} color="#999" />
-          <ThemedText style={styles.noReferralsTitle}>No referrals yet</ThemedText>
-          <ThemedText style={styles.noReferralsSubtitle}>Start sharing your code to earn rewards!</ThemedText>
+        {/* Recent Referrals */}
+        <View style={styles.referralsCard}>
+          <View style={styles.referralsHeader}>
+            <ThemedText style={styles.referralsTitle}>Recent Referrals</ThemedText>
+            <ThemedText style={styles.referralsSubtitle}>
+              {stats.pendingReferrals > 0
+                ? `${stats.pendingReferrals} pending reward${stats.pendingReferrals === 1 ? '' : 's'}`
+                : 'All rewards paid'}
+            </ThemedText>
+          </View>
+
+          {recentReferrals.length === 0 ? (
+            <View style={styles.noReferralsCard}>
+              <MaterialIcons name="people-outline" size={48} color="#999" />
+              <ThemedText style={styles.noReferralsTitle}>No referrals yet</ThemedText>
+              <ThemedText style={styles.noReferralsSubtitle}>Start sharing your code to earn rewards!</ThemedText>
+            </View>
+          ) : (
+            recentReferrals.map((referral) => (
+              <View key={referral.id} style={styles.referralRow}>
+                <View style={styles.referralRowIcon}>
+                  <MaterialIcons name="person-add" size={20} color="#FF7F00" />
+                </View>
+                <View style={styles.referralRowContent}>
+                  <ThemedText style={styles.referralRowEmail}>
+                    {referral.referred_email || 'Pending sign up'}
+                  </ThemedText>
+                  <ThemedText style={styles.referralRowMeta}>
+                    {new Date(referral.created_at).toLocaleDateString('en-NG', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {' • '}
+                    {referral.status === 'completed' ? 'Completed' : 'Pending'}
+                  </ThemedText>
+                </View>
+                <View style={styles.referralRowStatus}>
+                  <ThemedText
+                    style={[
+                      styles.referralRowStatusText,
+                      referral.status === 'completed' ? styles.statusCompleted : styles.statusPending,
+                    ]}
+                  >
+                    {referral.status === 'completed'
+                      ? referral.referrer_reward_paid
+                        ? 'Paid'
+                        : 'Reward Pending'
+                      : 'In Progress'}
+                  </ThemedText>
+                  <ThemedText style={styles.referralRowAmount}>
+                    {formatCurrency(referral.reward_amount)}
+                  </ThemedText>
+                </View>
+              </View>
+            ))
+          )}
         </View>
 
         {/* How It Works Card */}
@@ -129,6 +371,12 @@ export default function ReferralScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#F5F5F5',
   },
   header: {
@@ -232,6 +480,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  shareButtonDisabled: {
+    opacity: 0.6,
+  },
   shareIcon: {
     marginRight: 10,
   },
@@ -239,6 +490,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+  },
+  rewardSummary: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#fff',
+    textAlign: 'center',
+    lineHeight: 20,
+    opacity: 0.95,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -272,18 +531,38 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
-  noReferralsCard: {
+  referralsCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
     marginHorizontal: 20,
-    padding: 32,
+    padding: 24,
     marginBottom: 24,
-    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 3,
+  },
+  referralsHeader: {
+    marginBottom: 16,
+  },
+  referralsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  referralsSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+  },
+  noReferralsCard: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#eee',
   },
   noReferralsTitle: {
     fontSize: 18,
@@ -296,6 +575,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
+  },
+  referralRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  referralRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF1E6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  referralRowContent: {
+    flex: 1,
+  },
+  referralRowEmail: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  referralRowMeta: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 4,
+  },
+  referralRowStatus: {
+    alignItems: 'flex-end',
+    minWidth: 110,
+  },
+  referralRowStatusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  statusCompleted: {
+    color: '#4CAF50',
+  },
+  statusPending: {
+    color: '#FF9800',
+  },
+  referralRowAmount: {
+    fontSize: 12,
+    color: '#666',
   },
   howItWorksCard: {
     backgroundColor: '#fff',

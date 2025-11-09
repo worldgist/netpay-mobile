@@ -21,17 +21,45 @@ import { supabase } from '@/lib/supabase';
 const PIN_LENGTH = 4;
 const PIN_STORAGE_KEY = 'supabase_pin_hash';
 const SESSION_KEY = 'supabase_session';
+const EMAIL_KEY = 'supabase_email';
 
 export default function SignInPinScreen() {
   const router = useRouter();
+  const [email, setEmail] = useState('');
   const [pin, setPin] = useState(Array(PIN_LENGTH).fill(''));
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [showErrorModal, setShowErrorModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const inputRefs = useRef<Array<TextInput | null>>([]);
+  const emailInputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
-    inputRefs.current[0]?.focus();
+    let isMounted = true;
+
+    const hydrateEmail = async () => {
+      try {
+        const storedEmail = await SecureStore.getItemAsync(EMAIL_KEY);
+        if (storedEmail && isMounted) {
+          setEmail(storedEmail);
+        }
+      } catch (error) {
+        console.warn('Failed to load stored email for PIN login:', error);
+      }
+    };
+
+    hydrateEmail();
+
+    const focusTimeout = setTimeout(() => {
+      if (emailInputRef.current) {
+        emailInputRef.current.focus();
+      } else {
+        inputRefs.current[0]?.focus();
+      }
+    }, 150);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(focusTimeout);
+    };
   }, []);
 
   const handlePinChange = (value: string, index: number) => {
@@ -63,6 +91,14 @@ export default function SignInPinScreen() {
   };
 
   const handleSignIn = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      Alert.alert('PIN Login', 'Enter the email associated with your account.');
+      emailInputRef.current?.focus();
+      return;
+    }
+
     if (!pin.every((digit) => digit)) {
       Alert.alert('PIN Login', 'Enter your 4-digit PIN to continue.');
       return;
@@ -72,63 +108,69 @@ export default function SignInPinScreen() {
 
     try {
       setLoading(true);
-      const storedHash = await SecureStore.getItemAsync(PIN_STORAGE_KEY);
-
-      if (!storedHash) {
-        setLoading(false);
-        Alert.alert('PIN Login', 'No saved PIN found. Please set up your PIN first.');
-        return;
-      }
-
       const enteredHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, enteredPin);
 
-      if (enteredHash !== storedHash) {
+      const { data, error } = await supabase.functions.invoke('sign-in-with-pin', {
+        body: {
+          email: trimmedEmail,
+          pin: enteredPin,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
         setLoading(false);
         setPin(Array(PIN_LENGTH).fill(''));
-        setShowErrorModal(true);
+        Alert.alert('PIN Login', data?.error || 'Unable to verify your PIN. Please try again.');
         return;
       }
 
-      const sessionPayload = await SecureStore.getItemAsync(SESSION_KEY);
-      if (!sessionPayload) {
+      const token: string | undefined = data?.token;
+      const otpType: 'email' | 'magiclink' = data?.otpType === 'magiclink' ? 'magiclink' : 'email';
+
+      if (!token) {
         setLoading(false);
-        Alert.alert('PIN Login', 'No saved session found. Please sign in with your email and password first.');
+        Alert.alert('PIN Login', 'Invalid response from authentication service. Please try again.');
         return;
       }
 
-      let session;
-      try {
-        session = JSON.parse(sessionPayload);
-      } catch (parseError) {
+      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+        email: trimmedEmail,
+        token,
+        type: otpType,
+      });
+
+      if (verifyError || !verifyData?.session) {
         setLoading(false);
-        Alert.alert('PIN Login', 'Saved session is invalid. Please sign in again.');
+        Alert.alert('PIN Login', verifyError?.message || 'Unable to sign you in with PIN. Please try again.');
         return;
       }
 
-      const { data, error } = await supabase.auth.setSession(session);
+      await SecureStore.setItemAsync(PIN_STORAGE_KEY, enteredHash);
+      await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
 
       setLoading(false);
 
-      if (error || !data.session) {
-        Alert.alert('PIN Login', error?.message || 'Unable to restore your session. Please sign in manually.');
-        return;
-      }
-
+      setPin(Array(PIN_LENGTH).fill(''));
       setShowSuccessModal(true);
-    } catch (error) {
+    } catch (invokeError) {
+      console.error('PIN login failed:', invokeError);
       setLoading(false);
-      Alert.alert('PIN Login', 'Unable to verify your PIN. Please try again.');
+
+      if (invokeError instanceof Error) {
+        Alert.alert('PIN Login', invokeError.message || 'Unable to verify your PIN. Please try again.');
+      } else {
+        Alert.alert('PIN Login', 'Unable to verify your PIN. Please try again.');
+      }
     }
   };
 
   const handleCloseSuccess = () => {
     setShowSuccessModal(false);
     router.replace('/(tabs)');
-  };
-
-  const handleCloseError = () => {
-    setShowErrorModal(false);
-    inputRefs.current[0]?.focus();
   };
 
   const handleBackToPassword = () => {
@@ -150,6 +192,23 @@ export default function SignInPinScreen() {
             <ThemedText style={styles.subtitle}>
               Enter the 4-digit PIN you created to quickly access your account.
             </ThemedText>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <ThemedText style={styles.inputLabel}>Email Address</ThemedText>
+            <TextInput
+              ref={emailInputRef}
+              style={styles.emailInput}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="your@email.com"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              returnKeyType="next"
+              onSubmitEditing={() => inputRefs.current[0]?.focus()}
+            />
           </View>
 
           <View style={styles.pinRow}>
@@ -207,26 +266,6 @@ export default function SignInPinScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={showErrorModal}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCloseError}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={[styles.modalIconCircle, { backgroundColor: '#F44336' }]}>    
-              <ThemedText style={styles.modalIconTick}>!</ThemedText>
-            </View>
-            <ThemedText style={styles.modalTitle}>Incorrect PIN</ThemedText>
-            <ThemedText style={styles.modalMessage}>
-              The PIN you entered is incorrect. Please try again.
-            </ThemedText>
-            <TouchableOpacity style={styles.modalPrimaryButton} onPress={handleCloseError}>
-              <ThemedText style={styles.modalPrimaryButtonText}>Try Again</ThemedText>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -281,6 +320,27 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 22,
+  },
+  inputGroup: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 15,
+    color: '#555',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  emailInput: {
+    width: '100%',
+    height: 54,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#333',
   },
   pinRow: {
     flexDirection: 'row',

@@ -59,10 +59,13 @@ export default function LoginScreen() {
       }
 
       try {
-        await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        }));
+        await SecureStore.setItemAsync(
+          SESSION_KEY,
+          JSON.stringify({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          })
+        );
         await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
       } catch (storageError) {
         console.warn('Unable to persist Supabase session for biometrics:', storageError);
@@ -92,9 +95,10 @@ export default function LoginScreen() {
         return;
       }
 
-      const sessionPayload = await SecureStore.getItemAsync(SESSION_KEY);
-      if (!sessionPayload) {
-        Alert.alert('Biometric Login', 'No saved session found. Please sign in with your email and password first.');
+      const storedEmailRaw = await SecureStore.getItemAsync(EMAIL_KEY);
+      const storedEmail = storedEmailRaw?.trim().toLowerCase();
+      if (!storedEmail) {
+        Alert.alert('Biometric Login', 'No saved email found. Please sign in with your email and password first.');
         setBiometricLoading(false);
         return;
       }
@@ -110,28 +114,76 @@ export default function LoginScreen() {
         return;
       }
 
-      let session;
-      try {
-        session = JSON.parse(sessionPayload);
-      } catch (parseError) {
-        Alert.alert('Biometric Login', 'Saved session is invalid. Please sign in again.');
+      const { data: pinData, error: pinError } = await supabase.functions.invoke('sign-in-with-biometric', {
+        body: {
+          email: storedEmail,
+        },
+      });
+
+      if (pinError) {
+        throw pinError;
+      }
+
+      if (!pinData?.success) {
+        console.error('Biometric sign-in function responded with error:', pinData);
+        Alert.alert(
+          'Biometric Login',
+          typeof pinData?.error === 'string' && pinData.error.trim().length > 0
+            ? pinData.error
+            : 'Unable to authenticate with biometrics. Please sign in manually.'
+        );
         setBiometricLoading(false);
         return;
       }
 
-      const { data, error } = await supabase.auth.setSession(session);
+      console.log('Biometric sign-in response:', pinData);
+
+      const token: string | undefined = pinData?.token;
+      const otpType: 'email' | 'magiclink' = pinData?.otpType === 'magiclink' ? 'magiclink' : 'email';
+
+      if (!token) {
+        Alert.alert('Biometric Login', 'Invalid response from authentication service. Please sign in manually.');
+        setBiometricLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: storedEmail,
+        token,
+        type: otpType,
+      });
 
       if (error || !data.session) {
+        console.error('Biometric verifyOtp failed:', error);
         Alert.alert('Biometric Login', error?.message || 'Unable to restore session. Please sign in manually.');
         setBiometricLoading(false);
         return;
       }
 
+      try {
+        await SecureStore.setItemAsync(
+          SESSION_KEY,
+          JSON.stringify({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          })
+        );
+        await SecureStore.setItemAsync(EMAIL_KEY, storedEmail);
+      } catch (storageError) {
+        console.warn('Unable to persist session after biometric login:', storageError);
+      }
+
       setBiometricLoading(false);
       router.replace('/(tabs)');
     } catch (error) {
+      console.error('Biometric login unexpected error:', error);
       setBiometricLoading(false);
-      Alert.alert('Biometric Login', 'Unable to authenticate with biometrics.');
+      Alert.alert(
+        'Biometric Login',
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Unable to authenticate with biometrics.'
+      );
     }
   };
 
@@ -222,10 +274,6 @@ export default function LoginScreen() {
           {/* Links */}
           <TouchableOpacity style={styles.linkContainer} onPress={() => router.push('/forget-password')}>
             <ThemedText style={styles.linkText}>Forgot Password?</ThemedText>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.linkContainer} onPress={() => router.push('/sign-in-pin')}>
-            <ThemedText style={styles.secondaryLinkText}>Sign in with PIN instead</ThemedText>
           </TouchableOpacity>
 
           {/* Sign Up Link */}

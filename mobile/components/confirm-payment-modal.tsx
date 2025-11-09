@@ -1,4 +1,5 @@
-import { StyleSheet, View, TouchableOpacity, Modal, Platform } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -12,6 +13,7 @@ interface ConfirmPaymentModalProps {
   networkLogo: any;
   recipient: string;
   serviceType?: string;
+  planDetails?: string;
 }
 
 export function ConfirmPaymentModal({
@@ -23,6 +25,7 @@ export function ConfirmPaymentModal({
   networkLogo,
   recipient,
   serviceType = 'Airtime VTU',
+  planDetails,
 }: ConfirmPaymentModalProps) {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-GB', {
@@ -35,6 +38,18 @@ export function ConfirmPaymentModal({
     minute: '2-digit',
     hour12: true,
   });
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
+    if (submitting) return;
+
+    try {
+      setSubmitting(true);
+      await onConfirm();
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Modal
@@ -43,59 +58,78 @@ export function ConfirmPaymentModal({
       animationType="slide"
       onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          {/* Header */}
-          <View style={styles.header}>
-            <ThemedText style={styles.headerTitle}>Confirm Payment</ThemedText>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <MaterialIcons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalBackground}>
+            <View style={styles.modalContent}>
+              <View style={styles.headerRow}>
+                <ThemedText style={styles.headerTitle}>Payment</ThemedText>
+                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                  <MaterialIcons name="close" size={22} color="#333" />
+                </TouchableOpacity>
+              </View>
 
-          {/* Amount Display */}
-          <View style={styles.amountContainer}>
-            <ThemedText style={styles.amountText}>₦{amount.toFixed(2)}</ThemedText>
-          </View>
+              <View style={styles.amountCard}>
+                <View style={styles.amountBadge}>
+                  <ThemedText style={styles.amountDisplay}>₦{amount.toFixed(2)}</ThemedText>
+                </View>
+                <View style={styles.headerProviderGroup}>
+                  <Image source={networkLogo} style={styles.headerProviderLogo} contentFit="contain" />
+                  <ThemedText style={styles.headerProviderName}>{network}</ThemedText>
+                </View>
+              </View>
 
-          {/* Service Provider */}
-          <View style={styles.providerContainer}>
-            <View style={styles.providerLogoContainer}>
-              <Image
-                source={networkLogo}
-                style={styles.providerLogo}
-                contentFit="contain"
-              />
-            </View>
-            <ThemedText style={styles.providerName}>{network}</ThemedText>
-            <ThemedText style={styles.serviceType}>{serviceType}</ThemedText>
-          </View>
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryRow}>
+                  <ThemedText style={styles.summaryLabel}>Amount</ThemedText>
+                  <ThemedText style={styles.summaryValue}>₦{amount.toFixed(2)}</ThemedText>
+                </View>
+                <View style={styles.summaryRow}>
+                  <ThemedText style={styles.summaryLabel}>Recipient</ThemedText>
+                  <ThemedText style={styles.summaryValue}>{recipient}</ThemedText>
+                </View>
+                <View style={[styles.summaryRow, styles.providerRow]}>
+                  <ThemedText style={styles.summaryLabel}>Provider</ThemedText>
+                  <View style={styles.providerInfo}>
+                    <Image source={networkLogo} style={styles.providerLogo} contentFit="contain" />
+                    <ThemedText style={styles.providerName}>{network}</ThemedText>
+                  </View>
+                </View>
+                {serviceType ? (
+                  <View style={styles.summaryRow}>
+                    <ThemedText style={styles.summaryLabel}>Service</ThemedText>
+                    <ThemedText style={styles.summaryValue}>{serviceType}</ThemedText>
+                  </View>
+                ) : null}
+                {planDetails ? (
+                  <View style={styles.summaryRow}>
+                    <ThemedText style={styles.summaryLabel}>Plan Details</ThemedText>
+                    <ThemedText style={styles.summaryValue}>{planDetails}</ThemedText>
+                  </View>
+                ) : null}
+              </View>
 
-          {/* Transaction Summary */}
-          <View style={styles.summaryContainer}>
-            <View style={styles.summaryRow}>
-              <ThemedText style={styles.summaryLabel}>Amount</ThemedText>
-              <ThemedText style={styles.summaryValue}>₦{amount.toFixed(2)}</ThemedText>
-            </View>
-            <View style={styles.summaryRow}>
-              <ThemedText style={styles.summaryLabel}>Recipient</ThemedText>
-              <ThemedText style={styles.summaryValue}>{recipient}</ThemedText>
-            </View>
-            <View style={styles.summaryRow}>
-              <ThemedText style={styles.summaryLabel}>Date</ThemedText>
-              <ThemedText style={styles.summaryValue}>
-                {formattedDate}, {formattedTime}
-              </ThemedText>
-            </View>
-            <View style={styles.summaryRow}>
-              <ThemedText style={styles.summaryLabel}>Status</ThemedText>
-              <ThemedText style={styles.statusValue}>Ready</ThemedText>
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryRow}>
+                  <ThemedText style={styles.summaryLabel}>Date</ThemedText>
+                  <ThemedText style={styles.summaryValue}>
+                    {formattedDate}, {formattedTime}
+                  </ThemedText>
+                </View>
+                <View style={styles.summaryRow}>
+                  <ThemedText style={styles.summaryLabel}>Status</ThemedText>
+                  <ThemedText style={[styles.summaryValue, styles.statusValue]}>Processing</ThemedText>
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm} disabled={submitting}>
+                {submitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <ThemedText style={styles.confirmButtonText}>Confirm to Pay</ThemedText>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
-
-          {/* Confirm Button */}
-          <TouchableOpacity style={styles.confirmButton} onPress={onConfirm}>
-            <ThemedText style={styles.confirmButtonText}>Confirm Payment</ThemedText>
-          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -105,103 +139,134 @@ export function ConfirmPaymentModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  modalBackground: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 20,
+    paddingTop: 16,
+    paddingHorizontal: 3,
   },
   modalContent: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 30,
-    paddingHorizontal: 20,
-    maxHeight: '90%',
+    paddingHorizontal: 18,
+    paddingBottom: 20,
+    paddingTop: 16,
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 12,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#222',
   },
   closeButton: {
     padding: 4,
   },
-  amountContainer: {
+  amountCard: {
     alignItems: 'center',
-    marginBottom: 24,
+    paddingVertical: 14,
+    marginBottom: 14,
+    gap: 10,
   },
-  amountText: {
-    fontSize: 48,
-    fontWeight: 'bold',
+  amountBadge: {
+    backgroundColor: '#FFF6ED',
+    borderRadius: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#FFD9B3',
+  },
+  amountDisplay: {
+    fontSize: 24,
+    fontWeight: '800',
     color: '#000',
   },
-  providerContainer: {
+  headerProviderGroup: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 32,
+    gap: 8,
+    marginBottom: 8,
   },
-  providerLogoContainer: {
-    width: 90,
-    height: 90,
-    borderRadius: 12,
-    backgroundColor: '#FFD700',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    padding: 16,
+  headerProviderLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
-  providerLogo: {
-    width: '100%',
-    height: '100%',
-  },
-  providerName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 4,
-  },
-  serviceType: {
+  headerProviderName: {
     fontSize: 14,
-    color: '#666',
+    fontWeight: '600',
+    color: '#444',
   },
-  summaryContainer: {
-    marginBottom: 32,
+  summaryCard: {
+    backgroundColor: '#F8F8F8',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 14,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    paddingVertical: 6,
   },
   summaryLabel: {
-    fontSize: 16,
-    color: '#666',
+    fontSize: 14,
+    color: '#7A7A7A',
+    fontWeight: '500',
   },
   summaryValue: {
-    fontSize: 16,
+    fontSize: 14,
+    color: '#101010',
     fontWeight: '600',
-    color: '#000',
+  },
+  providerRow: {
+    alignItems: 'flex-start',
+  },
+  providerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  providerLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  providerName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#101010',
   },
   statusValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2196F3',
+    color: '#2666CF',
   },
   confirmButton: {
+    marginTop: 6,
     backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: 22,
+    paddingVertical: 12,
     alignItems: 'center',
   },
   confirmButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#fff',
   },
 });

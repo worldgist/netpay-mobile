@@ -1,15 +1,142 @@
-import { useState } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import { supabase } from '@/lib/supabase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const [biometricEnabled, setBiometricEnabled] = useState(true);
+  const insets = useSafeAreaInsets();
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricUpdating, setBiometricUpdating] = useState(false);
+  const [pinEnabled, setPinEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const isMounted = useRef(true);
 
-  const handleLogout = () => {
+  const fetchProfile = useCallback(
+    async ({ isRefresh = false }: { isRefresh?: boolean } = {}) => {
+      if (isRefresh) {
+        if (isMounted.current) setRefreshing(true);
+      } else {
+        if (isMounted.current) setLoading(true);
+      }
+
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session) {
+          router.replace('/auth/login');
+          return;
+        }
+
+        const sessionEmail = session.user.email || '';
+        const fallbackName = sessionEmail.split('@')[0] || 'User';
+
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('full_name, email, biometric_enabled, pin_enabled')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (!isMounted.current) return;
+
+        setUserId(session.user.id);
+        setUserName(profile?.full_name || fallbackName);
+        const profileEmail = profile?.email || '';
+        const displayEmail = sessionEmail || profileEmail;
+        setUserEmail(displayEmail);
+        setBiometricEnabled(Boolean(profile?.biometric_enabled));
+        setPinEnabled(Boolean(profile?.pin_enabled));
+
+        if (profile && sessionEmail && profileEmail !== sessionEmail) {
+          supabase
+            .from('profiles')
+            .update({ email: sessionEmail, updated_at: new Date().toISOString() })
+            .eq('id', session.user.id)
+            .catch((syncError) => {
+              console.warn('Failed to sync profile email:', syncError);
+            });
+        }
+      } catch (error) {
+        console.error('Failed to load profile:', error);
+        if (!isMounted.current) return;
+        const message = error instanceof Error ? error.message : 'Unable to load your profile. Please try again.';
+        Alert.alert('Profile', message);
+      } finally {
+        if (!isMounted.current) return;
+        if (isRefresh) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [router]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      isMounted.current = true;
+      fetchProfile();
+
+      return () => {
+        isMounted.current = false;
+      };
+    }, [fetchProfile])
+  );
+
+  const handleRefresh = useCallback(() => {
+    fetchProfile({ isRefresh: true });
+  }, [fetchProfile]);
+
+  const handleToggleBiometric = useCallback(
+    async (enabled: boolean) => {
+      if (!userId) return;
+
+      if (!isMounted.current) return;
+
+      setBiometricUpdating(true);
+      const previousValue = biometricEnabled;
+      setBiometricEnabled(enabled);
+
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ biometric_enabled: enabled })
+          .eq('id', userId);
+
+        if (error) {
+          throw error;
+        }
+      } catch (error) {
+        console.error('Failed to update biometric setting:', error);
+        if (isMounted.current) {
+          setBiometricEnabled(previousValue);
+          const message = error instanceof Error ? error.message : 'Unable to update biometric setting. Please try again.';
+          Alert.alert('Biometric Login', message);
+        }
+      } finally {
+        if (isMounted.current) {
+          setBiometricUpdating(false);
+        }
+      }
+    },
+    [userId, biometricEnabled]
+  );
+
+  const handleLogout = useCallback(() => {
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -18,84 +145,71 @@ export default function ProfileScreen() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: () => router.replace('/auth/login'),
+          onPress: async () => {
+            try {
+              await supabase.auth.signOut();
+              router.replace('/auth/login');
+            } catch (error) {
+              console.error('Failed to logout:', error);
+              const message = error instanceof Error ? error.message : 'Unable to log out. Please try again.';
+              Alert.alert('Logout', message);
+            }
+          },
         },
       ]
     );
-  };
+  }, [router]);
 
-  const handlePINCode = () => {
-    router.push('/change-pin');
-  };
+  const handlePINCode = useCallback(() => {
+    if (pinEnabled) {
+      router.push('/change-pin');
+    } else {
+      router.push('/setup-pin');
+    }
+  }, [pinEnabled, router]);
 
-  const handleEditProfile = () => {
+  const handleEditProfile = useCallback(() => {
     router.push('/edit-profile');
-  };
+  }, [router]);
 
-  const handleNotifications = () => {
-    Alert.alert('Notifications', 'Notifications screen coming soon');
-  };
+  const handleNotifications = useCallback(() => {
+    router.push('/notifications');
+  }, [router]);
 
-  const handleReferral = () => {
+  const handleReferral = useCallback(() => {
     router.push('/referral');
-  };
+  }, [router]);
 
-  const handleContactUs = () => {
+  const handleContactUs = useCallback(() => {
     router.push('/contact-us');
-  };
+  }, [router]);
 
-  const handleTerms = () => {
+  const handleTerms = useCallback(() => {
     router.push('/terms-and-conditions');
-  };
+  }, [router]);
 
-  const handlePrivacy = () => {
+  const handlePrivacy = useCallback(() => {
     router.push('/privacy-policy');
-  };
+  }, [router]);
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}>
         {/* User Profile Section */}
-        <View style={styles.profileSection}>
+        <View style={[styles.profileSection, { paddingTop: Math.max(insets.top + 20, 60) }]}>
           <View style={styles.avatarContainer}>
             <MaterialIcons name="person" size={48} color="#FF7F00" />
           </View>
-          <ThemedText style={styles.userName}>Mustapha Suleiman</ThemedText>
-          <ThemedText style={styles.userEmail}>netpay0147@gmail.com</ThemedText>
-        </View>
-
-        {/* Security Section */}
-        <View style={styles.section}>
-          <ThemedText style={styles.sectionHeader}>SECURITY</ThemedText>
-
-          {/* Biometric Login */}
-          <TouchableOpacity style={styles.optionCard} activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="fingerprint" size={24} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
-                <ThemedText style={styles.optionDescription}>Use fingerprint or face ID</ThemedText>
-              </View>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              onValueChange={setBiometricEnabled}
-              trackColor={{ false: '#E0E0E0', true: '#FFB366' }}
-              thumbColor={biometricEnabled ? '#FF7F00' : '#f4f3f4'}
-            />
-          </TouchableOpacity>
-
-          {/* PIN Code */}
-          <TouchableOpacity style={styles.optionCard} onPress={handlePINCode} activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="lock" size={24} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>PIN Code</ThemedText>
-                <ThemedText style={styles.optionDescription}>Change your PIN</ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
-          </TouchableOpacity>
+          <ThemedText style={styles.userName}>
+            {userName || (loading ? 'Loading...' : 'User')}
+          </ThemedText>
+          <ThemedText style={styles.userEmail}>
+            {userEmail || (loading ? 'Loading...' : '')}
+          </ThemedText>
         </View>
 
         {/* Account Section */}
@@ -106,7 +220,9 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.optionCard} onPress={handleEditProfile} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="edit" size={24} color="#FF7F00" />
-              <ThemedText style={styles.optionTitle}>Edit Profile</ThemedText>
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Edit Profile</ThemedText>
+              </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
@@ -115,7 +231,9 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.optionCard} onPress={handleNotifications} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="notifications" size={24} color="#FF7F00" />
-              <ThemedText style={styles.optionTitle}>Notifications</ThemedText>
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Notifications</ThemedText>
+              </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
@@ -124,7 +242,9 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.optionCard} onPress={handleReferral} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="people" size={24} color="#FF7F00" />
-              <ThemedText style={styles.optionTitle}>Referral</ThemedText>
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Referral</ThemedText>
+              </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
@@ -133,7 +253,54 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.optionCard} onPress={handleContactUs} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="email" size={24} color="#FF7F00" />
-              <ThemedText style={styles.optionTitle}>Contact us</ThemedText>
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Contact us</ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#999" />
+          </TouchableOpacity>
+
+          {/* Biometric Login */}
+          <TouchableOpacity
+            style={[
+              styles.optionCard,
+              styles.optionCardWithSwitch,
+              (loading || biometricUpdating || !userId) && styles.optionCardDisabled,
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (loading || biometricUpdating || !userId) return;
+              handleToggleBiometric(!biometricEnabled);
+            }}
+            disabled={loading || biometricUpdating || !userId}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="fingerprint" size={24} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  {biometricEnabled ? 'Biometric login is enabled' : 'Enable biometric login for quick access'}
+                </ThemedText>
+              </View>
+            </View>
+            <Switch
+              value={biometricEnabled}
+              onValueChange={handleToggleBiometric}
+              trackColor={{ false: '#E0E0E0', true: '#FFE0BF' }}
+              thumbColor={biometricEnabled ? '#FF7F00' : '#FF7F00'}
+              disabled={loading || biometricUpdating || !userId}
+            />
+          </TouchableOpacity>
+
+          {/* PIN Code */}
+          <TouchableOpacity style={styles.optionCard} onPress={handlePINCode} activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="lock" size={24} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>{pinEnabled ? 'Change PIN' : 'Set Up PIN'}</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  {pinEnabled ? 'Change your PIN' : 'Set up PIN'}
+                </ThemedText>
+              </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
@@ -145,7 +312,9 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.optionCard} onPress={handleTerms} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="description" size={24} color="#FF7F00" />
-              <ThemedText style={styles.optionTitle}>Terms & Conditions</ThemedText>
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Terms & Conditions</ThemedText>
+              </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
@@ -154,7 +323,9 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.optionCard} onPress={handlePrivacy} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="security" size={24} color="#FF7F00" />
-              <ThemedText style={styles.optionTitle}>Privacy Policy</ThemedText>
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Privacy Policy</ThemedText>
+              </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
@@ -166,7 +337,7 @@ export default function ProfileScreen() {
           <ThemedText style={styles.logoutText}>Logout</ThemedText>
         </TouchableOpacity>
 
-        <View style={styles.bottomSpacer} />
+        <View style={{ height: 16 }} />
       </ScrollView>
     </ThemedView>
   );
@@ -180,9 +351,11 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 80,
+  },
   profileSection: {
     alignItems: 'center',
-    paddingTop: 60,
     paddingBottom: 32,
     paddingHorizontal: 20,
   },
@@ -227,6 +400,12 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  optionCardWithSwitch: {
+    paddingRight: 12,
+  },
+  optionCardDisabled: {
+    opacity: 0.6,
+  },
   optionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -240,13 +419,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#333',
-    marginLeft: 12,
   },
   optionDescription: {
     fontSize: 14,
     color: '#666',
     marginTop: 2,
-    marginLeft: 12,
   },
   logoutButton: {
     flexDirection: 'row',
@@ -264,9 +441,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FF3B30',
-  },
-  bottomSpacer: {
-    height: 20,
   },
 });
 

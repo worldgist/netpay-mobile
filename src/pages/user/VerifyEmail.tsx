@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2, Mail, ArrowLeft } from "lucide-react";
 
+const CODE_LENGTH = 8;
+
 export default function VerifyEmail() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
+  const [code, setCode] = useState(Array(CODE_LENGTH).fill(""));
   const [email, setEmail] = useState("");
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export default function VerifyEmail() {
     setCode(newCode);
 
     // Auto-focus next input
-    if (value && index < 5) {
+    if (value && index < CODE_LENGTH - 1) {
       const nextInput = document.getElementById(`code-${index + 1}`);
       nextInput?.focus();
     }
@@ -65,8 +67,8 @@ export default function VerifyEmail() {
     e.preventDefault();
     const verificationCode = code.join("");
 
-    if (verificationCode.length !== 6) {
-      toast.error("Please enter the complete 6-digit code");
+    if (verificationCode.length !== CODE_LENGTH) {
+      toast.error(`Please enter the complete ${CODE_LENGTH}-digit code`);
       return;
     }
 
@@ -145,6 +147,7 @@ export default function VerifyEmail() {
         throw new Error(`${errorMsg}. Please ensure email confirmation is enabled in Supabase settings.`);
       }
       
+      setCode(Array(CODE_LENGTH).fill(""));
       toast.success("Verification code sent! Please check your email inbox and spam folder.");
     } catch (error: any) {
       console.error('Resend error:', error);
@@ -166,18 +169,18 @@ export default function VerifyEmail() {
         </button>
 
         <div className="text-center">
-          <div className="bg-[#FF6B00]/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Mail className="w-10 h-10 text-[#FF6B00]" />
+          <div className="bg-brand/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Mail className="w-10 h-10 text-brand" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Verify Your Email</h1>
           <p className="text-gray-600 mb-2">
-            We've sent a 6-digit verification code to
+            We've sent a {CODE_LENGTH}-digit verification code to
           </p>
           <p className="font-semibold text-gray-900">{email}</p>
         </div>
 
         <form onSubmit={handleVerify} className="space-y-6">
-          {/* 6-Digit Code Input */}
+          {/* Verification Code Input */}
           <div className="flex gap-2 justify-center">
             {code.map((digit, index) => (
               <input
@@ -189,7 +192,7 @@ export default function VerifyEmail() {
                 value={digit}
                 onChange={(e) => handleCodeInput(index, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(index, e)}
-                className="w-12 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-[#FF6B00] focus:outline-none bg-gray-50"
+                className="w-12 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-brand focus:outline-none bg-gray-50"
                 autoFocus={index === 0}
               />
             ))}
@@ -197,7 +200,7 @@ export default function VerifyEmail() {
 
           <Button
             type="submit"
-            className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-14 rounded-lg font-medium text-lg"
+            className="w-full bg-brand hover:bg-brand-light text-white h-14 rounded-lg font-medium text-lg"
             disabled={loading || code.some(d => !d)}
           >
             {loading ? (
@@ -214,7 +217,7 @@ export default function VerifyEmail() {
               variant="ghost"
               onClick={handleResend}
               disabled={resending}
-              className="text-[#FF6B00] hover:text-[#FF8533] font-medium"
+              className="text-brand hover:text-brand-light font-medium"
             >
               {resending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

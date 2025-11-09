@@ -1,70 +1,102 @@
-import { StyleSheet, View, TouchableOpacity, TextInput, Platform, Modal, Alert } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, TextInput, Platform, Modal, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useRef, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
+import { supabase } from '@/lib/supabase';
 
-const PIN_STORAGE_KEY = '@netpay_pin';
+const PIN_LENGTH = 4;
 
 export default function ChangePinScreen() {
   const router = useRouter();
-  const [currentPin, setCurrentPin] = useState(['', '', '', '']);
-  const [newPin, setNewPin] = useState(['', '', '', '']);
-  const [confirmPin, setConfirmPin] = useState(['', '', '', '']);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [currentPin, setCurrentPin] = useState(Array(PIN_LENGTH).fill(''));
+  const [newPin, setNewPin] = useState(Array(PIN_LENGTH).fill(''));
+  const [confirmPin, setConfirmPin] = useState(Array(PIN_LENGTH).fill(''));
   const [activeSection, setActiveSection] = useState<'current' | 'new' | 'confirm'>('current');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showWrongPinModal, setShowWrongPinModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
 
-  // Refs for input fields
-  const currentPinRefs = [useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null)];
-  const newPinRefs = [useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null)];
-  const confirmPinRefs = [useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null)];
+  const currentPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<TextInput>(null));
+  const newPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<TextInput>(null));
+  const confirmPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<TextInput>(null));
 
-  // Load stored PIN on mount
   useEffect(() => {
-    const loadStoredPin = async () => {
+    const loadPinState = async () => {
       try {
-        const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
-        if (!storedPin) {
-          // If no PIN exists, set a default one (for first-time setup)
-          await AsyncStorage.setItem(PIN_STORAGE_KEY, '0000');
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session) {
+          router.replace('/auth/login');
+          return;
+        }
+
+        setUserId(session.user.id);
+
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('pin_hash')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (!profile?.pin_hash) {
+          Alert.alert(
+            'Set Up PIN',
+            'You do not have a PIN yet. Please create one first.',
+            [
+              {
+                text: 'Set Up PIN',
+                onPress: () => router.replace('/setup-pin'),
+              },
+            ],
+          );
         }
       } catch (error) {
-        console.error('Error loading PIN:', error);
+        console.error('Failed to load PIN info:', error);
+        Alert.alert(
+          'Unable to load PIN',
+          error instanceof Error ? error.message : 'Please try again later.',
+          [{ text: 'OK', onPress: () => router.back() }],
+        );
+      } finally {
+        setLoading(false);
       }
     };
-    loadStoredPin();
-  }, []);
+
+    loadPinState();
+  }, [router]);
 
   const handlePinChange = (value: string, index: number, type: 'current' | 'new' | 'confirm') => {
-    // Only allow digits
     if (value && !/^\d$/.test(value)) return;
 
     const pinArray = type === 'current' ? currentPin : type === 'new' ? newPin : confirmPin;
     const setPin = type === 'current' ? setCurrentPin : type === 'new' ? setNewPin : setConfirmPin;
     const refs = type === 'current' ? currentPinRefs : type === 'new' ? newPinRefs : confirmPinRefs;
 
-    const newPinArray = [...pinArray];
-    newPinArray[index] = value;
-    setPin(newPinArray);
+    const next = [...pinArray];
+    next[index] = value;
+    setPin(next);
 
-    // Auto-focus next input
-    if (value && index < 3) {
+    if (value && index < PIN_LENGTH - 1) {
       refs[index + 1].current?.focus();
     }
 
-    // Auto-advance to next section when current PIN is complete
-    if (type === 'current' && newPinArray.every(digit => digit !== '') && index === 3) {
+    if (type === 'current' && next.every((digit) => digit) && index === PIN_LENGTH - 1) {
       setTimeout(() => {
         setActiveSection('new');
         newPinRefs[0].current?.focus();
       }, 100);
     }
 
-    // Auto-advance to confirm section when new PIN is complete
-    if (type === 'new' && newPinArray.every(digit => digit !== '') && index === 3) {
+    if (type === 'new' && next.every((digit) => digit) && index === PIN_LENGTH - 1) {
       setTimeout(() => {
         setActiveSection('confirm');
         confirmPinRefs[0].current?.focus();
@@ -77,86 +109,131 @@ export default function ChangePinScreen() {
     const setPin = type === 'current' ? setCurrentPin : type === 'new' ? setNewPin : setConfirmPin;
     const refs = type === 'current' ? currentPinRefs : type === 'new' ? newPinRefs : confirmPinRefs;
 
-    const newPinArray = [...pinArray];
-    
-    if (newPinArray[index]) {
-      // Clear current digit
-      newPinArray[index] = '';
-    } else if (index > 0) {
-      // Move to previous input and clear it
-      newPinArray[index - 1] = '';
+    const next = [...pinArray];
+
+    if (next[index]) {
+      next[index] = '';
+      setPin(next);
+      return;
+    }
+
+    if (index > 0) {
+      next[index - 1] = '';
+      setPin(next);
       refs[index - 1].current?.focus();
     }
-    
-    setPin(newPinArray);
   };
 
   const handleChangePin = async () => {
-    // Validate current PIN
+    if (loading || updating) return;
+
+    if (!userId) {
+      Alert.alert('Change PIN', 'Please sign in again to change your PIN.');
+      return;
+    }
+
     const currentPinString = currentPin.join('');
-    if (currentPinString.length !== 4) {
+    if (currentPinString.length !== PIN_LENGTH) {
       Alert.alert('Error', 'Please enter your current PIN');
       setActiveSection('current');
       currentPinRefs[0].current?.focus();
       return;
     }
 
-    // Check if current PIN is correct
     try {
-      const storedPin = await AsyncStorage.getItem(PIN_STORAGE_KEY);
-      if (currentPinString !== storedPin) {
+      setUpdating(true);
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('pin_hash')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const storedHash = profile?.pin_hash || '';
+      const currentHash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        currentPinString,
+      );
+
+      if (!storedHash || storedHash !== currentHash) {
         setShowWrongPinModal(true);
-        setCurrentPin(['', '', '', '']);
+        setCurrentPin(Array(PIN_LENGTH).fill(''));
         setActiveSection('current');
+        setUpdating(false);
         return;
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to verify PIN');
+      console.error('Failed to verify PIN:', error);
+      setUpdating(false);
+      Alert.alert('Error', 'Failed to verify PIN. Please try again.');
       return;
     }
 
-    // Validate new PIN
     const newPinString = newPin.join('');
-    if (newPinString.length !== 4) {
+    if (newPinString.length !== PIN_LENGTH) {
       Alert.alert('Error', 'Please enter a new 4-digit PIN');
       setActiveSection('new');
       newPinRefs[0].current?.focus();
+      setUpdating(false);
       return;
     }
 
-    // Check if new PIN is different from current PIN
     if (newPinString === currentPinString) {
       Alert.alert('Error', 'New PIN must be different from current PIN');
-      setNewPin(['', '', '', '']);
+      setNewPin(Array(PIN_LENGTH).fill(''));
       setActiveSection('new');
       newPinRefs[0].current?.focus();
+      setUpdating(false);
       return;
     }
 
-    // Validate confirm PIN
     const confirmPinString = confirmPin.join('');
-    if (confirmPinString.length !== 4) {
+    if (confirmPinString.length !== PIN_LENGTH) {
       Alert.alert('Error', 'Please confirm your new PIN');
       setActiveSection('confirm');
       confirmPinRefs[0].current?.focus();
+      setUpdating(false);
       return;
     }
 
-    // Check if new PIN and confirm PIN match
     if (newPinString !== confirmPinString) {
       Alert.alert('Error', 'New PIN and confirm PIN do not match');
-      setConfirmPin(['', '', '', '']);
+      setConfirmPin(Array(PIN_LENGTH).fill(''));
       setActiveSection('confirm');
       confirmPinRefs[0].current?.focus();
+      setUpdating(false);
       return;
     }
 
-    // Save new PIN
     try {
-      await AsyncStorage.setItem(PIN_STORAGE_KEY, newPinString);
+      const newHash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        newPinString,
+      );
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          pin_hash: newHash,
+          pin_enabled: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+
       setShowSuccessModal(true);
+      setNewPin(Array(PIN_LENGTH).fill(''));
+      setConfirmPin(Array(PIN_LENGTH).fill(''));
+      setCurrentPin(Array(PIN_LENGTH).fill(''));
+      setActiveSection('current');
     } catch (error) {
-      Alert.alert('Error', 'Failed to save new PIN');
+      console.error('Failed to save new PIN:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save new PIN');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -167,7 +244,7 @@ export default function ChangePinScreen() {
 
   const handleCloseWrongPinModal = () => {
     setShowWrongPinModal(false);
-    setCurrentPin(['', '', '', '']);
+    setCurrentPin(Array(PIN_LENGTH).fill(''));
     setActiveSection('current');
     setTimeout(() => {
       currentPinRefs[0].current?.focus();
@@ -202,12 +279,21 @@ export default function ChangePinScreen() {
               maxLength={1}
               secureTextEntry
               selectTextOnFocus
+              editable={!loading && !updating}
             />
           ))}
         </View>
       </View>
     );
   };
+
+  if (loading) {
+    return (
+      <ThemedView style={styles.loadingContainer}>
+        <ActivityIndicator color="#FF7F00" size="large" />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -219,32 +305,49 @@ export default function ChangePinScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <View style={styles.content}>
-        <ThemedText style={styles.description}>
-          Enter your current PIN and create a new 4-digit PIN
-        </ThemedText>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.content}>
+          <ThemedText style={styles.description}>
+            Enter your current PIN and create a new 4-digit PIN
+          </ThemedText>
 
-        {renderPinInputs(currentPin, currentPinRefs, 'current')}
-        {renderPinInputs(newPin, newPinRefs, 'new')}
-        {renderPinInputs(confirmPin, confirmPinRefs, 'confirm')}
+          {renderPinInputs(currentPin, currentPinRefs, 'current')}
+          {renderPinInputs(newPin, newPinRefs, 'new')}
+          {renderPinInputs(confirmPin, confirmPinRefs, 'confirm')}
 
-        <TouchableOpacity 
-          style={[
-            styles.changeButton,
-            (!currentPin.every(d => d) || !newPin.every(d => d) || !confirmPin.every(d => d)) && styles.changeButtonDisabled
-          ]} 
-          onPress={handleChangePin}
-          disabled={!currentPin.every(d => d) || !newPin.every(d => d) || !confirmPin.every(d => d)}>
-          <ThemedText style={styles.changeButtonText}>Change PIN</ThemedText>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[
+              styles.changeButton,
+              ((!currentPin.every((digit) => digit) || !newPin.every((digit) => digit) || !confirmPin.every((digit) => digit)) || updating) && styles.changeButtonDisabled,
+            ]}
+            onPress={handleChangePin}
+            disabled={
+              updating ||
+              !currentPin.every((digit) => digit) ||
+              !newPin.every((digit) => digit) ||
+              !confirmPin.every((digit) => digit)
+            }
+          >
+            {updating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.changeButtonText}>Change PIN</ThemedText>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
-      {/* Success Modal */}
       <Modal
         visible={showSuccessModal}
         transparent={true}
         animationType="fade"
-        onRequestClose={handleCloseSuccessModal}>
+        onRequestClose={handleCloseSuccessModal}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.successIconContainer}>
@@ -263,12 +366,12 @@ export default function ChangePinScreen() {
         </View>
       </Modal>
 
-      {/* Wrong PIN Modal */}
       <Modal
         visible={showWrongPinModal}
         transparent={true}
         animationType="fade"
-        onRequestClose={handleCloseWrongPinModal}>
+        onRequestClose={handleCloseWrongPinModal}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.errorIconContainer}>
@@ -295,6 +398,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -317,10 +426,16 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
-  content: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 32,
+    paddingBottom: 48,
+  },
+  content: {
+    flex: 1,
   },
   description: {
     fontSize: 16,

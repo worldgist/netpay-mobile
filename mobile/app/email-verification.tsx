@@ -16,7 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 
-const CODE_LENGTH = 6;
+const CODE_LENGTH = 8;
 
 export default function EmailVerificationScreen() {
   const router = useRouter();
@@ -68,7 +68,7 @@ export default function EmailVerificationScreen() {
     }
 
     if (!token.every((digit) => digit)) {
-      Alert.alert('Verification', 'Enter the 6-digit code sent to your email.');
+      Alert.alert('Verification', `Enter the ${CODE_LENGTH}-digit code sent to your email.`);
       return;
     }
 
@@ -121,7 +121,7 @@ export default function EmailVerificationScreen() {
         return;
       }
 
-      Alert.alert('Verification', 'A new verification code has been sent to your email.');
+      Alert.alert('Verification', `A new ${CODE_LENGTH}-digit verification code has been sent to your email.`);
       setToken(Array(CODE_LENGTH).fill(''));
       inputRefs.current[0]?.focus();
     } catch (err) {
@@ -145,8 +145,8 @@ export default function EmailVerificationScreen() {
             <ThemedText style={styles.title}>Verify Your Email</ThemedText>
             <ThemedText style={styles.subtitle}>
               {email
-                ? `Enter the 6-digit verification code we sent to ${email}.`
-                : 'Enter the 6-digit verification code we sent to your email address.'}
+                ? `Enter the ${CODE_LENGTH}-digit verification code we sent to ${email}.`
+                : `Enter the ${CODE_LENGTH}-digit verification code we sent to your email address.`}
             </ThemedText>
           </View>
 

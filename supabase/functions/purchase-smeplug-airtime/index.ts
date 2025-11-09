@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { debitUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -40,12 +41,84 @@ serve(async (req) => {
       );
     }
 
-    const { phone_number, amount, network_id } = await req.json();
+    const rawBody = await req.json();
+    const { phone_number, amount, network_id, network_name } = rawBody ?? {};
 
-    if (!phone_number || !amount || !network_id) {
+    console.log('Incoming airtime purchase payload:', JSON.stringify(rawBody, null, 2));
+
+    const resolveNetworkId = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (/^\d+$/.test(trimmed)) {
+          return Number(trimmed);
+        }
+
+        const normalized = trimmed.toUpperCase();
+        const mapping: Record<string, number> = {
+          MTN: 1,
+          'MTN NIGERIA': 1,
+          AIRTEL: 2,
+          'AIRTEL NIGERIA': 2,
+          '9MOBILE': 3,
+          '9 MOBILE': 3,
+          ETISALAT: 3,
+          GLO: 4,
+          GLOBACOM: 4,
+        };
+
+        if (mapping[normalized]) {
+          return mapping[normalized];
+        }
+      }
+
+      return null;
+    };
+
+    const smeplugNetworkId = resolveNetworkId(network_id);
+    const providedNetworkName =
+      typeof network_name === 'string' && network_name.trim().length > 0
+        ? network_name.trim()
+        : null;
+
+    const resolveNetworkName = (id: number | null, fallback?: string | null) => {
+      if (fallback) return fallback;
+      if (id === null) return null;
+      const NAME_MAP: Record<number, string> = {
+        1: 'MTN',
+        2: 'Airtel',
+        3: '9Mobile',
+        4: 'Glo',
+      };
+      return NAME_MAP[id] || null;
+    };
+    const sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim() : '';
+    const normalizedAmount = Number(amount);
+
+    if (!sanitizedPhone || !Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || smeplugNetworkId === null) {
+      console.error('Invalid airtime purchase payload:', {
+        phone_number: sanitizedPhone ? '***hidden***' : sanitizedPhone,
+        amount,
+        parsedAmount: normalizedAmount,
+        network_id,
+        resolvedNetworkId: smeplugNetworkId,
+      });
       return new Response(
-        JSON.stringify({ success: false, error: 'phone_number, amount, and network_id are required' }),
-        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: 'phone_number, amount, and a valid network_id are required',
+          details: {
+            phone_number: Boolean(sanitizedPhone),
+            amount,
+            parsedAmount: normalizedAmount,
+            network_id,
+            resolvedNetworkId: smeplugNetworkId,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -60,23 +133,27 @@ serve(async (req) => {
       console.error('Error fetching user profile:', profileError);
       return new Response(
         JSON.stringify({ success: false, error: 'Failed to fetch user profile' }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
     const balanceBefore = Number(profile.balance) || 0;
-    const purchaseAmount = Number(amount);
 
-    if (balanceBefore < purchaseAmount) {
+    if (balanceBefore < normalizedAmount) {
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient balance' }),
-        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
     const reference = `AIRTIME-${Date.now()}-${user.id.slice(0, 8)}`;
 
-    console.log(`Purchasing airtime: ${amount} for ${phone_number} on network ${network_id}`);
+    const normalizedNetworkName = resolveNetworkName(smeplugNetworkId, providedNetworkName);
+    const normalizedServiceId = smeplugNetworkId !== null ? String(smeplugNetworkId) : String(network_id ?? '');
+
+    console.log(
+      `Purchasing airtime: ${normalizedAmount} for ${sanitizedPhone} on network ${smeplugNetworkId} (${normalizedNetworkName ?? 'UNKNOWN'})`
+    );
 
     // Purchase airtime via SMEPLUG API
     const response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
@@ -86,9 +163,9 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        network_id: parseInt(network_id),
-        phone: phone_number,
-        amount: purchaseAmount,
+        network_id: smeplugNetworkId,
+        phone: sanitizedPhone,
+        amount: normalizedAmount,
         customer_reference: reference
       }),
     });
@@ -110,8 +187,24 @@ serve(async (req) => {
     
     console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
 
-    if (!response.ok || !apiResponse.success) {
-      const errorMessage = apiResponse.message || apiResponse.error || apiResponse.data?.message || 'Airtime purchase failed';
+    const apiStatus =
+      apiResponse?.success === true ||
+      apiResponse?.status === true ||
+      apiResponse?.data?.status === true ||
+      apiResponse?.data?.success === true;
+
+    const normalizedStatus =
+      apiStatus ||
+      (apiResponse?.status === 'success') ||
+      (apiResponse?.data && typeof apiResponse.data === 'object' && !apiResponse.data.error);
+
+    if (!response.ok || !normalizedStatus) {
+      const errorMessage =
+        apiResponse.message ||
+        apiResponse.error ||
+        apiResponse.data?.message ||
+        apiResponse.data?.error ||
+        'Airtime purchase failed';
       console.error('SMEPLUG API error:', errorMessage, 'Full response:', apiResponse);
       return new Response(
         JSON.stringify({ 
@@ -119,44 +212,44 @@ serve(async (req) => {
           error: errorMessage,
           details: apiResponse
         }),
-        { status: response.status || 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
-    const balanceAfter = balanceBefore - purchaseAmount;
+    const fallbackNetworkId = network_id ?? smeplugNetworkId;
+    const displayNetwork =
+      normalizedNetworkName ||
+      (fallbackNetworkId !== null && fallbackNetworkId !== undefined && fallbackNetworkId !== ''
+        ? `Network ${fallbackNetworkId}`
+        : 'the selected network');
+    const formattedAmount = `₦${normalizedAmount.toFixed(2)}`;
 
-    // Update user balance
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ balance: balanceAfter })
-      .eq('id', user.id);
+    const debitResult = await debitUserWallet({
+      supabase,
+      userId: user.id,
+      amount: normalizedAmount,
+      transactionType: 'airtime_purchase',
+      description: `Airtime purchase - ${sanitizedPhone}`,
+      reference,
+      performedBy: user.id,
+      balanceBefore,
+      notification: {
+        title: 'Airtime purchase successful',
+        message: `${formattedAmount} airtime purchased for ${sanitizedPhone} on ${displayNetwork}. Reference: ${reference}.`,
+      },
+    });
 
-    if (updateError) {
-      console.error('Error updating balance:', updateError);
-    }
-
-    // Log transaction
     await supabase.from('airtime_transactions').insert({
       user_id: user.id,
-      phone_number,
-      network: network_id,
-      amount: purchaseAmount,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
+      phone_number: sanitizedPhone,
+      network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
+      service_id: normalizedServiceId,
+      amount: normalizedAmount,
+      balance_before: debitResult.balanceBefore,
+      balance_after: debitResult.balanceAfter,
       status: 'success',
       reference,
       api_response: apiResponse,
-      performed_by: user.id
-    });
-
-    await supabase.from('user_transactions').insert({
-      user_id: user.id,
-      transaction_type: 'airtime_purchase',
-      amount: purchaseAmount,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
-      reference,
-      description: `Airtime purchase - ${phone_number}`,
       performed_by: user.id
     });
 
@@ -166,11 +259,11 @@ serve(async (req) => {
         message: 'Airtime purchased successfully',
         data: {
           reference,
-          amount: purchaseAmount,
-          phone_number,
-          network: network_id,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter
+          amount: normalizedAmount,
+          phone_number: sanitizedPhone,
+          network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
+          balance_before: debitResult.balanceBefore,
+          balance_after: debitResult.balanceAfter
         }
       }),
       { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -185,7 +278,7 @@ serve(async (req) => {
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       }),
       { 
-        status: 500, 
+        status: 200, 
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
       }
     );

@@ -1,38 +1,119 @@
-import { StyleSheet, View, TouchableOpacity, TextInput, ScrollView, Platform, Modal } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, TextInput, ScrollView, Platform, Modal, ActivityIndicator, Alert } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
-import { UserStorage } from '@/utils/userStorage';
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  const [fullName, setFullName] = useState('Mustapha Suleiman');
-  const [email, setEmail] = useState('netpay0147@gmail.com');
-  const [phoneNumber, setPhoneNumber] = useState('08105393046');
+  const [userId, setUserId] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const isMounted = useRef(true);
 
   // Load user data when screen loads
   useEffect(() => {
     const loadUserData = async () => {
-      const userData = await UserStorage.getUserData();
-      setFullName(userData.fullName);
-      setEmail(userData.email);
-      setPhoneNumber(userData.phoneNumber);
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session) {
+          router.replace('/auth/login');
+          return;
+        }
+
+        if (!isMounted.current) return;
+
+        setUserId(session.user.id);
+        const emailValue = session.user.email || '';
+        setSessionEmail(emailValue);
+        setEmail(emailValue);
+
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('full_name, phone')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (!isMounted.current) return;
+
+        setFullName(profile?.full_name || (emailValue ? emailValue.split('@')[0] : ''));
+        setPhoneNumber(profile?.phone || '');
+      } catch (error) {
+        console.error('Failed to load profile for editing:', error);
+        if (!isMounted.current) return;
+        const message = error instanceof Error ? error.message : 'Unable to load your profile information. Please try again later.';
+        Alert.alert('Edit Profile', message, [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]);
+      } finally {
+        if (isMounted.current) setLoadingProfile(false);
+      }
     };
+
+    isMounted.current = true;
     loadUserData();
-  }, []);
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, [router]);
 
   const handleSaveChanges = async () => {
-    // Save user data to storage
-    await UserStorage.saveUserData({
-      fullName,
-      email,
-      phoneNumber,
-    });
-    // Show success modal
-    setShowSuccessModal(true);
+    if (!userId) return;
+
+    const trimmedName = fullName.trim();
+    const trimmedPhone = phoneNumber.trim();
+
+    if (!trimmedName) {
+      Alert.alert('Edit Profile', 'Please enter your full name.');
+      return;
+    }
+
+    if (trimmedPhone && trimmedPhone.length !== 11) {
+      Alert.alert('Edit Profile', 'Phone number must be 11 digits.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        id: userId,
+        full_name: trimmedName,
+        phone: trimmedPhone || null,
+        email: sessionEmail,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert(payload, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error('Failed to save profile changes:', error);
+      const message = error instanceof Error ? error.message : 'Unable to save your profile changes. Please try again.';
+      Alert.alert('Edit Profile', message);
+    } finally {
+      if (isMounted.current) setSaving(false);
+    }
   };
 
   const handleCloseModal = () => {
@@ -75,6 +156,7 @@ export default function EditProfileScreen() {
                 onChangeText={setFullName}
                 placeholder="Enter your full name"
                 placeholderTextColor="#999"
+                editable={!loadingProfile && !saving}
               />
             </View>
           </View>
@@ -108,6 +190,7 @@ export default function EditProfileScreen() {
                 placeholderTextColor="#999"
                 keyboardType="phone-pad"
                 maxLength={11}
+                editable={!loadingProfile && !saving}
               />
             </View>
             <ThemedText style={styles.hintText}>Enter 11-digit phone number</ThemedText>
@@ -115,8 +198,15 @@ export default function EditProfileScreen() {
         </View>
 
         {/* Save Changes Button */}
-        <TouchableOpacity style={styles.saveButton} onPress={handleSaveChanges}>
-          <ThemedText style={styles.saveButtonText}>Save Changes</ThemedText>
+        <TouchableOpacity
+          style={[styles.saveButton, (loadingProfile || saving) && styles.saveButtonDisabled]}
+          onPress={handleSaveChanges}
+          disabled={loadingProfile || saving}>
+          {saving ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.saveButtonText}>Save Changes</ThemedText>
+          )}
         </TouchableOpacity>
       </ScrollView>
 
@@ -254,6 +344,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
   saveButtonText: {
     fontSize: 18,

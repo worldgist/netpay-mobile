@@ -186,11 +186,15 @@ const styles = StyleSheet.create({
   skipButton: {
     paddingVertical: 12,
     paddingHorizontal: 20,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    alignItems: 'center',
   },
   skipButtonText: {
     fontSize: 16,
-    color: '#fff',
-    opacity: 0.8,
+    color: '#FF7F00',
+    fontWeight: '600',
   },
   nextButton: {
     backgroundColor: '#FF7F00',

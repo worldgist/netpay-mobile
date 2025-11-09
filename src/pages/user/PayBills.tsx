@@ -22,7 +22,7 @@ export default function PayBills() {
 
       {/* Content */}
       <div className="px-6 pt-6">
-        <h2 className="text-2xl font-bold text-[#FF6B00] mb-2">Pay Bills</h2>
+        <h2 className="text-2xl font-bold text-brand mb-2">Pay Bills</h2>
         <p className="text-gray-600 mb-6">Select a service to continue</p>
 
         <div className="grid grid-cols-3 gap-4">
@@ -35,7 +35,7 @@ export default function PayBills() {
                 className="bg-white rounded-2xl p-6 flex flex-col items-center justify-center hover:shadow-lg transition-shadow"
               >
                 <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-3">
-                  <Icon className="w-8 h-8 text-[#FF6B00]" />
+                  <Icon className="w-8 h-8 text-brand" />
                 </div>
                 <span className="text-sm font-medium text-gray-900 text-center">
                   {service.name}

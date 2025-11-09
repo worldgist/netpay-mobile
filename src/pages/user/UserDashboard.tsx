@@ -116,7 +116,7 @@ export default function UserDashboard() {
 
       {/* Balance Card */}
       <div className="px-6 -mt-2">
-        <div className="bg-gradient-to-r from-[#FF6B00] to-[#FF8533] rounded-2xl p-6 text-white">
+        <div className="bg-gradient-to-r from-brand to-brand-light rounded-2xl p-6 text-white">
           <div className="flex items-center justify-between mb-4">
             <span className="text-white/90 text-sm">Available Balance</span>
             <button
@@ -140,7 +140,7 @@ export default function UserDashboard() {
             </Button>
             <Button
               onClick={() => navigate("/user/transfer")}
-              className="bg-white hover:bg-white/90 text-[#FF6B00] border-0 h-12"
+              className="bg-white hover:bg-white/90 text-brand border-0 h-12"
             >
               Transfer
             </Button>
@@ -154,7 +154,7 @@ export default function UserDashboard() {
           <h3 className="text-xl font-bold text-gray-900">Recent Transactions</h3>
           <button
             onClick={() => navigate("/user/transactions")}
-            className="text-[#FF6B00] text-sm font-medium hover:underline"
+            className="text-brand text-sm font-medium hover:underline"
           >
             See All
           </button>

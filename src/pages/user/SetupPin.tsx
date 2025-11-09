@@ -125,7 +125,7 @@ export default function SetupPin() {
             value={digit}
             onChange={(e) => handlePinInput(index, e.target.value, isConfirm)}
             onKeyDown={(e) => handleKeyDown(index, e, isConfirm)}
-            className="w-16 h-16 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-[#FF6B00] focus:outline-none bg-gray-100"
+            className="w-16 h-16 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-brand focus:outline-none bg-gray-100"
             autoFocus={index === 0}
           />
         ))}
@@ -161,8 +161,8 @@ export default function SetupPin() {
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="bg-[#FF6B00]/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Lock className="w-10 h-10 text-[#FF6B00]" />
+          <div className="bg-brand/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Lock className="w-10 h-10 text-brand" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             {step === "create" ? "Set Up Your PIN" : "Confirm Your PIN"}
@@ -179,7 +179,7 @@ export default function SetupPin() {
 
           <Button
             onClick={step === "create" ? handleCreatePin : handleConfirmPin}
-            className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-14 rounded-lg font-medium text-lg"
+            className="w-full bg-brand hover:bg-brand-light text-white h-14 rounded-lg font-medium text-lg"
             disabled={loading || (step === "create" ? pin.some(d => !d) : confirmPin.some(d => !d))}
           >
             {loading ? (
@@ -203,7 +203,7 @@ export default function SetupPin() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Fingerprint className="w-6 h-6 text-[#FF6B00]" />
+              <Fingerprint className="w-6 h-6 text-brand" />
               Setup Biometric Login
             </DialogTitle>
             <DialogDescription>
@@ -213,7 +213,7 @@ export default function SetupPin() {
           <div className="space-y-4 pt-4">
             <Button
               onClick={handleSetupBiometric}
-              className="w-full bg-[#FF6B00] hover:bg-[#FF8533] text-white h-12"
+              className="w-full bg-brand hover:bg-brand-light text-white h-12"
             >
               <Fingerprint className="w-5 h-5 mr-2" />
               Enable Biometric

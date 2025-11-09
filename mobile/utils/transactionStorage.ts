@@ -12,6 +12,7 @@ export interface Transaction {
   recipient?: string;
   serviceType?: string;
   network?: string;
+  metadata?: Record<string, any>;
 }
 
 const TRANSACTIONS_KEY = '@netpay_transactions';

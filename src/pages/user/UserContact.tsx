@@ -136,8 +136,8 @@ export default function UserContact() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FF6B00]/10 flex items-center justify-center flex-shrink-0">
-                <Mail className="w-5 h-5 text-[#FF6B00]" />
+              <div className="w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center flex-shrink-0">
+                <Mail className="w-5 h-5 text-brand" />
               </div>
               <div>
                 <p className="font-medium">Email</p>
@@ -149,8 +149,8 @@ export default function UserContact() {
             </div>
 
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FF6B00]/10 flex items-center justify-center flex-shrink-0">
-                <Phone className="w-5 h-5 text-[#FF6B00]" />
+              <div className="w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center flex-shrink-0">
+                <Phone className="w-5 h-5 text-brand" />
               </div>
               <div>
                 <p className="font-medium">Phone</p>
@@ -162,8 +162,8 @@ export default function UserContact() {
             </div>
 
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FF6B00]/10 flex items-center justify-center flex-shrink-0">
-                <MapPin className="w-5 h-5 text-[#FF6B00]" />
+              <div className="w-10 h-10 rounded-full bg-brand/10 flex items-center justify-center flex-shrink-0">
+                <MapPin className="w-5 h-5 text-brand" />
               </div>
               <div>
                 <p className="font-medium">Address</p>

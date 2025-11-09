@@ -1,4 +1,4 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, ActivityIndicator } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,28 +8,226 @@ import { Alert } from 'react-native';
 import { Image } from 'expo-image';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { parseEducationPurchaseMetadata } from '@/utils/education';
 
-export default function TransactionDetailsScreen() {
+type DetailTransaction = {
+  id: string;
+  type: 'credit' | 'debit';
+  amount: number;
+  status: string;
+  reference?: string | null;
+  description?: string | null;
+  serviceType?: string | null;
+  provider?: string | null;
+  recipient?: string | null;
+  sender?: string | null;
+  phoneNumber?: string | null;
+  planName?: string | null;
+  planValidity?: string | null;
+  balanceBefore?: number | null;
+  balanceAfter?: number | null;
+  createdAt: string;
+  formattedDate: string;
+  formattedTime: string;
+  metadata?: {
+    meterType?: string;
+    token?: string;
+    customerName?: string;
+    meterNumber?: string;
+    educationPin?: string;
+    educationSerial?: string;
+    educationInstructions?: string;
+    examType?: string;
+  };
+};
+
+const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
+  MTN: require('@/assets/images/mtn.png'),
+  AIRTEL: require('@/assets/images/airtel.png'),
+  GLO: require('@/assets/images/glo.png'),
+  '9MOBILE': require('@/assets/images/9mobile.png'),
+  '9 MOBILE': require('@/assets/images/9mobile.png'),
+  DSTV: require('@/assets/images/dstv.png'),
+  GOTV: require('@/assets/images/gotv.png'),
+  STARTIMES: require('@/assets/images/startimes.png'),
+  AEDC: require('@/assets/images/AEDC.png'),
+  EEDC: require('@/assets/images/EEDC.png'),
+  EKEDC: require('@/assets/images/EKEDC.png'),
+  IKEDC: require('@/assets/images/IKEDC.png'),
+  KEDCO: require('@/assets/images/KEDCO.png'),
+  PHEDC: require('@/assets/images/PHEDC.png'),
+  WAEC: require('@/assets/images/waec.png'),
+  NECO: require('@/assets/images/neco.png'),
+  JAMB: require('@/assets/images/jamb.png'),
+  KAEDCO: require('@/assets/images/KAEDCO.png'),
+  JED: require('@/assets/images/JED.png'),
+};
+
+const DEFAULT_LOGO = require('@/assets/images/logo.png');
+
+const formatCurrency = (amount: number) =>
+  `₦${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const formatDate = (value: string) => {
+  const date = new Date(value);
+  return date.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const formatTime = (value: string) => {
+  const date = new Date(value);
+  return date.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
+};
+
+const parseDateTime = (dateStr?: string, timeStr?: string) => {
+  const fallback = new Date();
+
+  if (!dateStr) return fallback;
+
+  const buildDate = (candidate: string) => {
+    const parsed = new Date(candidate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  if (dateStr.includes('T')) {
+    const parsed = buildDate(dateStr);
+    if (parsed) return parsed;
+  }
+
+  const normalizedTime = timeStr
+    ? timeStr.length === 5
+      ? `${timeStr}:00`
+      : timeStr
+    : '00:00:00';
+
+  const isoCandidate = `${dateStr}T${normalizedTime}`;
+  const parsedIso = buildDate(isoCandidate);
+  if (parsedIso) return parsedIso;
+
+  const fallbackParsed = buildDate(dateStr);
+  return fallbackParsed || fallback;
+};
+
+const getStatusColor = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'completed':
+    case 'success':
+      return '#4CAF50';
+    case 'pending':
+      return '#FF9800';
+    case 'failed':
+    case 'cancelled':
+      return '#F44336';
+    default:
+      return '#666';
+  }
+};
+
+const getTypeIcon = (type: string) => {
+  switch (type.toLowerCase()) {
+    case 'credit':
+      return 'arrow-downward';
+    case 'debit':
+      return 'arrow-upward';
+    default:
+      return 'swap-horiz';
+  }
+};
+
+const getTypeColor = (type: string) => (type.toLowerCase() === 'credit' ? '#4CAF50' : '#F44336');
+
+const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
+  IKEJA: NETWORK_LOGOS.IKEDC,
+  IKEDC: NETWORK_LOGOS.IKEDC,
+  EKO: NETWORK_LOGOS.EKEDC,
+  ABUJA: NETWORK_LOGOS.AEDC,
+  AEDC: NETWORK_LOGOS.AEDC,
+  KADUNA: NETWORK_LOGOS.KAEDCO,
+  KAEDCO: NETWORK_LOGOS.KAEDCO,
+  IBADAN: NETWORK_LOGOS.IBEDC,
+  IBEDC: NETWORK_LOGOS.IBEDC,
+  KANO: NETWORK_LOGOS.KEDCO,
+  KEDCO: NETWORK_LOGOS.KEDCO,
+  PORTHARCOURT: NETWORK_LOGOS.PHEDC,
+  PHEDC: NETWORK_LOGOS.PHEDC,
+  JOS: NETWORK_LOGOS.JED,
+  JED: NETWORK_LOGOS.JED,
+};
+
+const getTransactionLogo = (serviceType?: string | null, provider?: string | null): ImageSourcePropType | null => {
+  const key = (provider || serviceType || '').toUpperCase();
+  if (key.includes('ELECTRICITY')) {
+    if (provider) {
+      const providerOnly = provider.split('•')[0].trim().toUpperCase();
+      if (NETWORK_LOGOS[providerOnly]) {
+        return NETWORK_LOGOS[providerOnly];
+      }
+      if (ELECTRICITY_LOGO_ALIASES[providerOnly]) {
+        return ELECTRICITY_LOGO_ALIASES[providerOnly];
+      }
+    }
+    return NETWORK_LOGOS.AEDC;
+  }
+  return NETWORK_LOGOS[key] || null;
+};
+
+function TransactionDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // Sample transaction data - in a real app, this would be fetched based on transaction ID
-  const transaction = {
-    id: params.id || '1',
-    type: params.type || 'credit',
-    amount: parseFloat(params.amount as string) || 500,
-    date: params.date || 'Nov 6, 2025',
-    time: params.time || '4:22 PM',
-    reference: params.reference || 'CREDIT-1762442529579',
-    status: params.status || 'Completed',
-    description: params.description || 'Wallet funding',
-    recipient: params.recipient || '',
-    serviceType: params.serviceType || '',
-    network: params.network || '',
+  const category = (params.category as string) || 'wallet';
+  const paramType = (params.type as string) || 'debit';
+  const paramAmount = parseFloat((params.amount as string) || '0');
+  const paramDate = (params.date as string) || new Date().toISOString();
+  const paramTime = (params.time as string) || '';
+
+  const parsedDate = parseDateTime(paramDate, paramTime);
+  const parsedIso = parsedDate.toISOString();
+
+  const recipientParam = ((params.recipient as string) || (params.meterNumber as string) || '');
+
+  const initialTransaction: DetailTransaction = {
+    id: (params.id as string) || 'pending',
+    type: paramType.toLowerCase() === 'credit' ? 'credit' : 'debit',
+    amount: Number.isFinite(paramAmount) ? paramAmount : 0,
+    status: (params.status as string) || 'Completed',
+    reference: (params.reference as string) || '',
+    description: (params.description as string) || '',
+    serviceType: (params.serviceType as string) || '',
+    provider: (params.network as string) || '',
+    recipient: recipientParam,
+    sender: (params.sender as string) || '',
+    phoneNumber: (params.phoneNumber as string) || '',
+    planName: (params.planName as string) || '',
+    planValidity: (params.planValidity as string) || '',
+    balanceBefore: undefined,
+    balanceAfter: undefined,
+    createdAt: parsedIso,
+    formattedDate: formatDate(parsedIso),
+    formattedTime: formatTime(parsedIso),
+    metadata: {
+      meterType: (params.meterType as string) || '',
+      token: (params.token as string) || '',
+      customerName: (params.customerName as string) || '',
+      meterNumber: (params.meterNumber as string) || '',
+      educationPin: (params.educationPin as string) || '',
+      educationSerial: (params.educationSerial as string) || '',
+      educationInstructions: (params.educationInstructions as string) || '',
+      examType: (params.examType as string) || '',
+    },
   };
+
+  const [transaction, setTransaction] = useState<DetailTransaction>(initialTransaction);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const handleCopy = async (text: string, label: string) => {
     try {
+      if (!text) {
+        Alert.alert('Unavailable', `No ${label.toLowerCase()} to copy.`);
+        return;
+      }
       if (Platform.OS === 'web') {
         await navigator.clipboard.writeText(text);
       } else {
@@ -41,113 +239,257 @@ export default function TransactionDetailsScreen() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'completed':
-      case 'success':
-        return '#4CAF50';
-      case 'pending':
-        return '#FF9800';
-      case 'failed':
-      case 'cancelled':
-        return '#F44336';
-      default:
-        return '#666';
-    }
-  };
+  const fetchTransactionDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-  const getTypeIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'credit':
-        return 'arrow-downward';
-      case 'debit':
-        return 'arrow-upward';
-      default:
-        return 'swap-horiz';
-    }
-  };
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
 
-  const getTypeColor = (type: string) => {
-    return type.toLowerCase() === 'credit' ? '#4CAF50' : '#F44336';
-  };
-
-  // Helper function to get transaction logo
-  const getTransactionLogo = (serviceType: string, network: string): ImageSourcePropType | null => {
-    if (!serviceType || !network) return null;
-    
-    const networkLower = network.toLowerCase();
-    const serviceLower = serviceType.toLowerCase();
-    
-    // Network logos (for Airtime, Data)
-    if (serviceLower === 'airtime vtu' || serviceLower === 'data bundle') {
-      switch (networkLower) {
-        case 'mtn':
-          return require('@/assets/images/mtn.png');
-        case 'airtel':
-          return require('@/assets/images/airtel.png');
-        case '9mobile':
-          return require('@/assets/images/9mobile.png');
-        case 'glo':
-          return require('@/assets/images/glo.png');
-        default:
-          return null;
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
       }
-    }
-    
-    // Cable TV logos
-    if (serviceLower === 'cable tv') {
-      switch (networkLower) {
-        case 'dstv':
-          return require('@/assets/images/dstv.png');
-        case 'gotv':
-          return require('@/assets/images/gotv.png');
-        case 'startimes':
-          return require('@/assets/images/startimes.png');
-        default:
-          return null;
-      }
-    }
-    
-    // Electricity logos
-    if (serviceLower === 'electricity') {
-      switch (networkLower) {
-        case 'aedc':
-          return require('@/assets/images/AEDC.png');
-        case 'eedc':
-          return require('@/assets/images/EEDC.png');
-        case 'ekedc':
-          return require('@/assets/images/EKEDC.png');
-        case 'ikedc':
-          return require('@/assets/images/IKEDC.png');
-        case 'kedco':
-          return require('@/assets/images/KEDCO.png');
-        case 'phedc':
-          return require('@/assets/images/PHEDC.png');
-        default:
-          return null;
-      }
-    }
-    
-    // Education logos
-    if (serviceLower === 'education') {
-      switch (networkLower) {
-        case 'waec':
-          return require('@/assets/images/waec.png');
-        case 'neco':
-          return require('@/assets/images/neco.png');
-        case 'jamb':
-          return require('@/assets/images/jamb.png');
-        default:
-          return null;
-      }
-    }
-    
-    return null;
-  };
 
-  const transactionLogo = getTransactionLogo(transaction.serviceType, transaction.network);
+      const userId = session.user.id;
+      let detail: DetailTransaction | null = null;
 
-  // Generate HTML receipt template
+      if (category === 'wallet') {
+        const { data, error } = await supabase
+          .from('user_transactions')
+          .select('id, amount, transaction_type, description, reference, created_at, balance_before, balance_after, user_id')
+          .eq('id', initialTransaction.id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          const createdDate = new Date(data.created_at);
+          detail = {
+            id: data.id,
+            type: (data.transaction_type || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit',
+            amount: Number(data.amount) || 0,
+            status: 'Completed',
+            reference: data.reference,
+            description: data.description,
+            serviceType: 'Wallet Transaction',
+            provider: '',
+            recipient: '',
+            sender: '',
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            phoneNumber: '',
+            planName: '',
+            planValidity: '',
+            balanceBefore: data.balance_before,
+            balanceAfter: data.balance_after,
+            metadata: (data as any)?.metadata || {},
+          };
+        }
+      } else if (category === 'airtime') {
+        const { data, error } = await supabase
+          .from('airtime_transactions')
+          .select('id, amount, status, reference, created_at, network, phone_number, user_id')
+          .eq('id', initialTransaction.id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          detail = {
+            id: data.id,
+            type: 'debit',
+            amount: Number(data.amount) || 0,
+            status: data.status,
+            reference: data.reference,
+            description: `Airtime purchase • ${data.phone_number}`,
+            serviceType: 'Airtime VTU',
+            provider: data.network,
+            recipient: data.phone_number,
+            sender: '',
+            phoneNumber: data.phone_number,
+            planName: '',
+            planValidity: '',
+            balanceBefore: null,
+            balanceAfter: null,
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            metadata: (data as any)?.metadata || {},
+          };
+        }
+      } else if (category === 'data') {
+        const { data, error } = await supabase
+          .from('data_transactions')
+          .select('id, amount, status, reference, created_at, network, plan_name, plan_validity, phone_number, user_id')
+          .eq('id', initialTransaction.id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          detail = {
+            id: data.id,
+            type: 'debit',
+            amount: Number(data.amount) || 0,
+            status: data.status,
+            reference: data.reference,
+            description: data.plan_name,
+            serviceType: 'Data Bundle',
+            provider: data.network,
+            recipient: data.phone_number,
+            sender: '',
+            phoneNumber: data.phone_number,
+            planName: data.plan_name,
+            planValidity: data.plan_validity,
+            balanceBefore: null,
+            balanceAfter: null,
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            metadata: (data as any)?.metadata || {},
+          };
+        }
+      } else if (category === 'electricity') {
+        const { data, error } = await supabase
+          .from('electricity_transactions')
+          .select('id, amount, status, reference, created_at, provider, meter_number, meter_type, token, customer_name, user_id')
+          .eq('id', initialTransaction.id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          detail = {
+            id: data.id,
+            type: 'debit',
+            amount: Number(data.amount) || 0,
+            status: data.status,
+            reference: data.reference,
+            description: `Electricity purchase • ${data.meter_number}`,
+            serviceType: 'Electricity',
+            provider: data.provider,
+            recipient: data.meter_number,
+            sender: '',
+            phoneNumber: '',
+            planName: '',
+            planValidity: '',
+            balanceBefore: null,
+            balanceAfter: null,
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            metadata: {
+              ...((data as any)?.metadata || {}),
+              meterType: data.meter_type,
+              token: data.token,
+              customerName: data.customer_name,
+              meterNumber: data.meter_number,
+            },
+          };
+        }
+      } else if (category === 'education') {
+        const { data, error } = await supabase
+          .from('education_transactions')
+          .select('id, amount, status, reference, created_at, exam_type, phone_number, balance_before, balance_after, api_response, user_id')
+          .eq('id', initialTransaction.id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          const metadata = parseEducationPurchaseMetadata((data as any)?.api_response);
+          const serviceLabel = data.exam_type ? `Education • ${data.exam_type}` : 'Education';
+          const description = data.phone_number
+            ? `${data.exam_type || 'Education'} purchase • ${data.phone_number}`
+            : `${data.exam_type || 'Education'} purchase`;
+          detail = {
+            id: data.id,
+            type: 'debit',
+            amount: Number(data.amount) || 0,
+            status: data.status || 'Completed',
+            reference: data.reference,
+            description,
+            serviceType: serviceLabel,
+            provider: data.exam_type,
+            recipient: data.phone_number || '',
+            sender: '',
+            phoneNumber: data.phone_number || '',
+            planName: '',
+            planValidity: '',
+            balanceBefore: data.balance_before ?? null,
+            balanceAfter: data.balance_after ?? null,
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            metadata: {
+              ...((data as any)?.metadata || {}),
+              educationPin: metadata.pin,
+              educationSerial: metadata.serial,
+              educationInstructions: metadata.instructions,
+              examType: data.exam_type,
+            },
+          };
+        }
+      } else if (category === 'transfer_sent' || category === 'transfer_received') {
+        const { data, error } = await supabase
+          .from('transfer_transactions')
+          .select('id, amount, status, reference, description, created_at, sender_id, recipient_id, recipient:profiles!transfer_transactions_recipient_id_fkey(full_name,email), sender:profiles!transfer_transactions_sender_id_fkey(full_name,email)')
+          .eq('id', initialTransaction.id)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data && (data.sender_id === userId || data.recipient_id === userId)) {
+          const isSender = data.sender_id === userId;
+          const counterpart = isSender ? data.recipient?.full_name || data.recipient?.email : data.sender?.full_name || data.sender?.email;
+          detail = {
+            id: data.id,
+            type: isSender ? 'debit' : 'credit',
+            amount: Number(data.amount) || 0,
+            status: data.status || 'Completed',
+            reference: data.reference,
+            description: data.description,
+            serviceType: 'Transfer',
+            provider: '',
+            recipient: isSender ? counterpart || data.recipient?.email || '' : data.recipient?.email || '',
+            sender: isSender ? data.sender?.email || '' : counterpart || data.sender?.email || '',
+            phoneNumber: '',
+            planName: '',
+            planValidity: '',
+            balanceBefore: null,
+            balanceAfter: null,
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            metadata: (data as any)?.metadata || {},
+          };
+        }
+      }
+
+      if (!detail) {
+        setError('Transaction not found.');
+        return;
+      }
+
+      setTransaction(detail);
+    } catch (err) {
+      console.error('Failed to load transaction details:', err);
+      const message = err instanceof Error ? err.message : 'Unable to load transaction details.';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [category, initialTransaction.id, router]);
+
+  useEffect(() => {
+    fetchTransactionDetails();
+  }, [fetchTransactionDetails]);
+
+  const transactionLogo = useMemo(() => getTransactionLogo(transaction.serviceType, transaction.provider), [transaction.serviceType, transaction.provider]);
+
   const generateReceiptHTML = () => {
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleDateString('en-US', {
@@ -248,7 +590,7 @@ export default function TransactionDetailsScreen() {
             .amount-value {
               font-size: 36px;
               font-weight: bold;
-              color: ${transaction.type === 'credit' ? '#4CAF50' : '#F44336'};
+              color: ${getTypeColor(transaction.type)};
             }
             .status-badge {
               display: inline-block;
@@ -294,14 +636,14 @@ export default function TransactionDetailsScreen() {
 
             <div class="amount-section">
               <div class="amount-label">${transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}</div>
-              <div class="amount-value">${transaction.type === 'credit' ? '+' : '-'}₦${transaction.amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div class="amount-value">${transaction.type === 'credit' ? '+' : '-'}${formatCurrency(transaction.amount)}</div>
               <div class="status-badge">${transaction.status}</div>
             </div>
 
             <div class="transaction-info">
               <div class="info-row">
                 <span class="info-label">Transaction Type</span>
-                <span class="info-value">${transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}</span>
+                <span class="info-value">${transaction.type.toUpperCase()}</span>
               </div>
               ${transaction.serviceType ? `
               <div class="info-row">
@@ -309,10 +651,82 @@ export default function TransactionDetailsScreen() {
                 <span class="info-value">${transaction.serviceType}</span>
               </div>
               ` : ''}
-              ${transaction.network ? `
+              ${transaction.provider ? `
               <div class="info-row">
-                <span class="info-label">Provider/Network</span>
-                <span class="info-value">${transaction.network}</span>
+                <span class="info-label">Provider</span>
+                <span class="info-value">${transaction.provider}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.examType ? `
+              <div class="info-row">
+                <span class="info-label">Exam</span>
+                <span class="info-value">${transaction.metadata.examType}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.customerName ? `
+              <div class="info-row">
+                <span class="info-label">Customer</span>
+                <span class="info-value">${transaction.metadata.customerName}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.examType ? `
+              <div class="info-row">
+                <span class="info-label">Exam</span>
+                <span class="info-value">${transaction.metadata.examType}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.meterType ? `
+              <div class="info-row">
+                <span class="info-label">Meter Type</span>
+                <span class="info-value">${transaction.metadata.meterType.toUpperCase()}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.token ? `
+              <div class="info-row">
+                <span class="info-label">Token</span>
+                <span class="info-value">${transaction.metadata.token}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.educationPin ? `
+              <div class="info-row">
+                <span class="info-label">PIN</span>
+                <span class="info-value">${transaction.metadata.educationPin}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.educationSerial ? `
+              <div class="info-row">
+                <span class="info-label">Serial</span>
+                <span class="info-value">${transaction.metadata.educationSerial}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.educationInstructions ? `
+              <div class="info-row">
+                <span class="info-label">Instructions</span>
+                <span class="info-value">${transaction.metadata.educationInstructions}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.educationPin ? `
+              <div class="info-row">
+                <span class="info-label">PIN</span>
+                <span class="info-value">${transaction.metadata.educationPin}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.educationSerial ? `
+              <div class="info-row">
+                <span class="info-label">Serial</span>
+                <span class="info-value">${transaction.metadata.educationSerial}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.educationInstructions ? `
+              <div class="info-row">
+                <span class="info-label">Instructions</span>
+                <span class="info-value">${transaction.metadata.educationInstructions}</span>
+              </div>
+              ` : ''}
+              ${transaction.sender ? `
+              <div class="info-row">
+                <span class="info-label">Sender</span>
+                <span class="info-value">${transaction.sender}</span>
               </div>
               ` : ''}
               ${transaction.recipient ? `
@@ -321,25 +735,27 @@ export default function TransactionDetailsScreen() {
                 <span class="info-value">${transaction.recipient}</span>
               </div>
               ` : ''}
-              ${transaction.description ? `
+              ${transaction.phoneNumber ? `
               <div class="info-row">
-                <span class="info-label">Description</span>
-                <span class="info-value">${transaction.description}</span>
+                <span class="info-label">Phone Number</span>
+                <span class="info-value">${transaction.phoneNumber}</span>
+              </div>
+              ` : ''}
+              ${transaction.planName ? `
+              <div class="info-row">
+                <span class="info-label">Plan</span>
+                <span class="info-value">${transaction.planName}${transaction.planValidity ? ` • ${transaction.planValidity}` : ''}</span>
               </div>
               ` : ''}
               <div class="info-row">
                 <span class="info-label">Date</span>
-                <span class="info-value">${transaction.date}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Time</span>
-                <span class="info-value">${transaction.time}</span>
+                <span class="info-value">${transaction.formattedDate} ${transaction.formattedTime}</span>
               </div>
             </div>
 
             <div class="reference">
               <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Reference Number</div>
-              <div class="reference-code">${transaction.reference}</div>
+              <div class="reference-code">${transaction.reference || 'N/A'}</div>
             </div>
 
             <div class="reference">
@@ -357,31 +773,25 @@ export default function TransactionDetailsScreen() {
     `;
   };
 
-  // Handle print receipt
   const handlePrintReceipt = async () => {
     try {
       const html = generateReceiptHTML();
-      
-      // Generate PDF
       const { uri } = await Print.printToFileAsync({
         html,
         base64: false,
-        width: 612, // US Letter width in points
-        height: 792, // US Letter height in points
+        width: 612,
+        height: 792,
       });
 
-      // Check if sharing is available
       const isAvailable = await Sharing.isAvailableAsync();
-      
+
       if (isAvailable) {
         await Sharing.shareAsync(uri, {
           mimeType: 'application/pdf',
           dialogTitle: 'Share Receipt',
         });
       } else {
-        Alert.alert('Success', 'Receipt generated successfully!', [
-          { text: 'OK' }
-        ]);
+        Alert.alert('Success', 'Receipt generated successfully!', [{ text: 'OK' }]);
       }
     } catch (error) {
       console.error('Error generating receipt:', error);
@@ -389,9 +799,10 @@ export default function TransactionDetailsScreen() {
     }
   };
 
+  const statusColor = getStatusColor(transaction.status || 'Completed');
+
   return (
     <ThemedView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#000" />
@@ -400,145 +811,282 @@ export default function TransactionDetailsScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Amount Card */}
-        <View style={styles.amountCard}>
-          <View style={[styles.iconContainer, { backgroundColor: transaction.type.toLowerCase() === 'credit' ? '#E8F5E9' : '#FFEBEE' }]}>
-            {transactionLogo ? (
-              <Image
-                source={transactionLogo}
-                style={styles.transactionLogo}
-                contentFit="contain"
-              />
-            ) : (
-              <MaterialIcons 
-                name={getTypeIcon(transaction.type) as any} 
-                size={32} 
-                color={getTypeColor(transaction.type)} 
-              />
-            )}
-          </View>
-          <ThemedText style={styles.amountLabel}>
-            {transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}
-          </ThemedText>
-          <View style={styles.amountValueContainer}>
-            <ThemedText style={[styles.amountValue, { color: getTypeColor(transaction.type) }]}>
-              {transaction.type === 'credit' ? '+' : '-'}₦{transaction.amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </ThemedText>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transaction.status) + '20' }]}>
-            <ThemedText style={[styles.statusText, { color: getStatusColor(transaction.status) }]}>
-              {transaction.status}
-            </ThemedText>
-          </View>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF7F00" />
         </View>
-
-        {/* Transaction Information */}
-        <View style={styles.infoSection}>
-          <ThemedText style={styles.sectionTitle}>Transaction Information</ThemedText>
-          
-          {/* Transaction Type */}
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>Transaction Type</ThemedText>
-            <ThemedText style={styles.infoValue} numberOfLines={1}>
-              {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={32} color="#d32f2f" />
+          <ThemedText style={styles.errorText}>{error}</ThemedText>
+        </View>
+      ) : (
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.amountCard}>
+            <View style={[styles.iconContainer, { backgroundColor: transaction.type === 'credit' ? '#E8F5E9' : '#FFEBEE' }]}>
+              {transactionLogo ? (
+                <Image
+                  source={transactionLogo}
+                  style={styles.transactionLogo}
+                  contentFit="contain"
+                />
+              ) : (
+                <MaterialIcons 
+                  name={getTypeIcon(transaction.type) as any} 
+                  size={32} 
+                  color={getTypeColor(transaction.type)} 
+                />
+              )}
+            </View>
+            <ThemedText style={styles.amountLabel}>
+              {transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}
             </ThemedText>
-          </View>
-
-          {/* Date */}
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>Date</ThemedText>
-            <ThemedText style={styles.infoValue}>{transaction.date}</ThemedText>
-          </View>
-
-          {/* Time */}
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>Time</ThemedText>
-            <ThemedText style={styles.infoValue}>{transaction.time}</ThemedText>
-          </View>
-
-          {/* Reference Number */}
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>Reference Number</ThemedText>
-            <TouchableOpacity 
-              style={styles.copyRow}
-              onPress={() => handleCopy(transaction.reference, 'Reference number')}>
-              <ThemedText style={styles.infoValue} numberOfLines={1}>
-                {transaction.reference}
+            <View style={styles.amountValueContainer}>
+              <ThemedText style={[styles.amountValue, { color: getTypeColor(transaction.type) }]}>
+                {transaction.type === 'credit' ? '+' : '-'}₦{transaction.amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </ThemedText>
-              <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-            </TouchableOpacity>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transaction.status) + '20' }]}>
+              <ThemedText style={[styles.statusText, { color: getStatusColor(transaction.status) }]}>
+                {transaction.status}
+              </ThemedText>
+            </View>
           </View>
 
-          {/* Description */}
-          {transaction.description && (
+          {/* Transaction Information */}
+          <View style={styles.infoSection}>
+            <ThemedText style={styles.sectionTitle}>Transaction Information</ThemedText>
+            
+            {/* Transaction Type */}
             <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Description</ThemedText>
-              <ThemedText style={styles.infoValue}>{transaction.description}</ThemedText>
+              <ThemedText style={styles.infoLabel}>Transaction Type</ThemedText>
+              <ThemedText style={styles.infoValue} numberOfLines={1}>
+                {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+              </ThemedText>
             </View>
-          )}
 
-          {/* Service Type */}
-          {transaction.serviceType && (
+            {/* Date */}
             <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Service Type</ThemedText>
-              <ThemedText style={styles.infoValue}>{transaction.serviceType}</ThemedText>
+              <ThemedText style={styles.infoLabel}>Date</ThemedText>
+              <ThemedText style={styles.infoValue}>{transaction.formattedDate}</ThemedText>
             </View>
-          )}
 
-          {/* Network/Provider */}
-          {transaction.network && (
+            {/* Time */}
             <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Provider</ThemedText>
-              <ThemedText style={styles.infoValue}>{transaction.network}</ThemedText>
+              <ThemedText style={styles.infoLabel}>Time</ThemedText>
+              <ThemedText style={styles.infoValue}>{transaction.formattedTime}</ThemedText>
             </View>
-          )}
 
-          {/* Recipient */}
-          {transaction.recipient && (
+            {/* Reference Number */}
             <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Recipient</ThemedText>
+              <ThemedText style={styles.infoLabel}>Reference Number</ThemedText>
               <TouchableOpacity 
                 style={styles.copyRow}
-                onPress={() => handleCopy(transaction.recipient, 'Recipient')}>
+                onPress={() => handleCopy(transaction.reference || 'N/A', 'Reference number')}>
                 <ThemedText style={styles.infoValue} numberOfLines={1}>
-                  {transaction.recipient}
+                  {transaction.reference || 'N/A'}
                 </ThemedText>
                 <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
               </TouchableOpacity>
             </View>
-          )}
-        </View>
 
-        {/* Transaction ID */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoRow}>
-            <ThemedText style={styles.infoLabel}>Transaction ID</ThemedText>
+            {/* Description */}
+            {transaction.description && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Description</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.description}</ThemedText>
+              </View>
+            )}
+
+            {/* Service Type */}
+            {transaction.serviceType && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Service Type</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.serviceType}</ThemedText>
+              </View>
+            )}
+
+            {/* Network/Provider */}
+            {transaction.provider && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Provider</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.provider}</ThemedText>
+              </View>
+            )}
+
+            {/* Exam Type */}
+            {transaction.metadata?.examType && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Exam</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.metadata.examType}</ThemedText>
+              </View>
+            )}
+
+            {/* Customer Name */}
+            {transaction.metadata?.customerName && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Customer</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.metadata.customerName}</ThemedText>
+              </View>
+            )}
+
+            {/* Meter Type */}
+            {transaction.metadata?.meterType && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Meter Type</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.metadata.meterType.toUpperCase()}</ThemedText>
+              </View>
+            )}
+
+            {/* Token */}
+            {transaction.metadata?.token && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Token</ThemedText>
+                <TouchableOpacity
+                  style={styles.copyRow}
+                  onPress={() => handleCopy(transaction.metadata?.token || '', 'Token')}
+                >
+                  <ThemedText style={styles.infoValue} numberOfLines={1}>
+                    {transaction.metadata?.token}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
+              </View>
+            )}
+ 
+            {/* Education PIN */}
+            {transaction.metadata?.educationPin && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>PIN</ThemedText>
+                <TouchableOpacity
+                  style={styles.copyRow}
+                  onPress={() => handleCopy(transaction.metadata?.educationPin || '', 'PIN')}>
+                  <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
+                    {transaction.metadata?.educationPin}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Education Serial */}
+            {transaction.metadata?.educationSerial && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Serial Number</ThemedText>
+                <TouchableOpacity
+                  style={styles.copyRow}
+                  onPress={() => handleCopy(transaction.metadata?.educationSerial || '', 'Serial number')}>
+                  <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
+                    {transaction.metadata?.educationSerial}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Education Instructions */}
+            {transaction.metadata?.educationInstructions && (
+              <View style={[styles.infoRow, styles.infoRowMultiline]}>
+                <ThemedText style={styles.infoLabel}>Instructions</ThemedText>
+                <TouchableOpacity
+                  style={[styles.copyRow, styles.copyRowMultiline]}
+                  onPress={() => handleCopy(transaction.metadata?.educationInstructions || '', 'Instructions')}>
+                  <ThemedText style={styles.infoValueMultiline}>
+                    {transaction.metadata?.educationInstructions}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Recipient */}
+            {transaction.recipient && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Recipient</ThemedText>
+                <TouchableOpacity 
+                  style={styles.copyRow}
+                  onPress={() => handleCopy(transaction.recipient || '', 'Recipient')}>
+                  <ThemedText style={styles.infoValue} numberOfLines={1}>
+                    {transaction.recipient}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Sender */}
+            {transaction.sender && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Sender</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.sender}</ThemedText>
+              </View>
+            )}
+
+            {/* Phone Number */}
+            {transaction.phoneNumber && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Phone Number</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.phoneNumber}</ThemedText>
+              </View>
+            )}
+
+            {/* Plan Name */}
+            {transaction.planName && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Plan</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.planName}{transaction.planValidity ? ` • ${transaction.planValidity}` : ''}</ThemedText>
+              </View>
+            )}
+
+            {/* Balance Before */}
+            {transaction.balanceBefore != null && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Balance Before</ThemedText>
+                <ThemedText style={styles.infoValue}>{formatCurrency(transaction.balanceBefore)}</ThemedText>
+              </View>
+            )}
+
+            {/* Balance After */}
+            {transaction.balanceAfter != null && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Balance After</ThemedText>
+                <ThemedText style={styles.infoValue}>{formatCurrency(transaction.balanceAfter)}</ThemedText>
+              </View>
+            )}
+          </View>
+
+          {/* Transaction ID */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoRow}>
+              <ThemedText style={styles.infoLabel}>Transaction ID</ThemedText>
+              <TouchableOpacity 
+                style={styles.copyRow}
+                onPress={() => handleCopy(transaction.id, 'Transaction ID')}>
+                <ThemedText style={styles.infoValue} numberOfLines={1}>
+                  {transaction.id}
+                </ThemedText>
+                <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Print Receipt Button */}
+          <View style={styles.buttonContainer}>
             <TouchableOpacity 
-              style={styles.copyRow}
-              onPress={() => handleCopy(transaction.id, 'Transaction ID')}>
-              <ThemedText style={styles.infoValue} numberOfLines={1}>
-                {transaction.id}
-              </ThemedText>
-              <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+              style={styles.printButton}
+              onPress={handlePrintReceipt}
+              activeOpacity={0.8}>
+              <MaterialIcons name="print" size={20} color="#fff" style={styles.printIcon} />
+              <ThemedText style={styles.printButtonText}>Print Receipt</ThemedText>
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Print Receipt Button */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity 
-            style={styles.printButton}
-            onPress={handlePrintReceipt}
-            activeOpacity={0.8}>
-            <MaterialIcons name="print" size={20} color="#fff" style={styles.printIcon} />
-            <ThemedText style={styles.printButtonText}>Print Receipt</ThemedText>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      )}
     </ThemedView>
   );
 }
+
+export default TransactionDetailsScreen;
 
 const styles = StyleSheet.create({
   container: {
@@ -569,6 +1117,24 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 20,
+  },
+  errorText: {
+    color: '#d32f2f',
+    textAlign: 'center',
+    marginTop: 10,
   },
   amountCard: {
     backgroundColor: '#F5F5F5',
@@ -642,6 +1208,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
+  infoRowMultiline: {
+    alignItems: 'flex-start',
+  },
   infoLabel: {
     fontSize: 14,
     color: '#666',
@@ -654,11 +1223,30 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
   },
+  infoValueMultiline: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+    textAlign: 'right',
+    lineHeight: 20,
+  },
+  monospaceValue: {
+    fontFamily: Platform.select({
+      ios: 'Menlo',
+      android: 'monospace',
+      default: 'Courier New',
+    }),
+    letterSpacing: 0.5,
+  },
   copyRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  copyRowMultiline: {
+    alignItems: 'flex-start',
   },
   copyIcon: {
     marginLeft: 8,
