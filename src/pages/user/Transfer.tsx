@@ -57,19 +57,23 @@ export default function Transfer() {
 
     setVerifying(true);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('full_name, email')
-        .eq('email', recipientEmail.toLowerCase())
-        .single();
+      const { data: verifyResponse, error } = await supabase.functions.invoke('verify-transfer-recipient', {
+        body: {
+          email: recipientEmail.toLowerCase(),
+        },
+      });
 
-      if (error || !data) {
-        toast.error("Recipient not found. Please check the email address.");
+      if (error) {
+        throw error;
+      }
+
+      if (!verifyResponse?.success) {
+        toast.error(verifyResponse?.error || "Recipient not found. Please check the email address.");
         setRecipientDetails(null);
         return;
       }
 
-      setRecipientDetails(data);
+      setRecipientDetails(verifyResponse.data);
       toast.success("Recipient verified successfully!");
     } catch (error) {
       toast.error("Error verifying recipient");

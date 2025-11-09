@@ -94,24 +94,30 @@ export default function TransferScreen() {
       setVerifying(true);
       setError(null);
 
-      const { data, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email')
-        .ilike('email', trimmedEmail)
-        .maybeSingle();
+      const { data: verifyResponse, error: verifyError } = await supabase.functions.invoke('verify-transfer-recipient', {
+        body: {
+          email: trimmedEmail,
+        },
+      });
 
-      if (profileError || !data) {
-        Alert.alert('Recipient Not Found', 'No user found with the provided email address.');
+      if (verifyError) {
+        throw verifyError;
+      }
+
+      if (!verifyResponse?.success) {
+        Alert.alert('Verification Failed', verifyResponse?.error || 'No user found with the provided email address.');
         setRecipientDetails(null);
         return;
       }
 
+      const recipientData = verifyResponse.data;
+
       setRecipientDetails({
-        id: data.id,
-        full_name: data.full_name,
-        email: data.email,
+        id: recipientData.id,
+        full_name: recipientData.full_name,
+        email: recipientData.email,
       });
-      Alert.alert('Verified', `${data.full_name || 'Recipient'} verified successfully.`);
+      Alert.alert('Verified', `${recipientData.full_name || 'Recipient'} verified successfully.`);
     } catch (err) {
       console.error('Verify recipient error:', err);
       Alert.alert('Verification Failed', 'Unable to verify recipient. Please try again later.');
