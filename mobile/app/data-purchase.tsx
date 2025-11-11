@@ -25,12 +25,24 @@ const DEFAULT_NETWORK_LOGO = require('@/assets/images/logo.png');
 const NETWORK_KEY_MAP: Record<string, string> = {
   MTN: 'MTN',
   'MTN NIGERIA': 'MTN',
+  'MTN SME': 'MTN',
+  'MTN SME DATA': 'MTN',
+  'MTN SME PLAN': 'MTN',
+  'MTN CORPORATE': 'MTN',
+  'MTN DIRECT': 'MTN',
   AIRTEL: 'AIRTEL',
   'AIRTEL NIGERIA': 'AIRTEL',
+  'AIRTEL SME': 'AIRTEL',
+  'AIRTEL SME DATA': 'AIRTEL',
+  'AIRTEL CORPORATE': 'AIRTEL',
   GLO: 'GLO',
   GLOBACOM: 'GLO',
+  'GLO SME': 'GLO',
+  'GLO SME DATA': 'GLO',
   '9MOBILE': '9MOBILE',
   '9 MOBILE': '9MOBILE',
+  '9MOBILE SME': '9MOBILE',
+  '9 MOBILE SME': '9MOBILE',
   ETISALAT: '9MOBILE',
 };
 
@@ -51,7 +63,25 @@ const SMEPLUG_NETWORK_IDS: Record<string, string> = {
 const normalizeNetwork = (value?: string | null) => {
   if (!value) return null;
   const upper = value.toUpperCase().trim();
-  return NETWORK_KEY_MAP[upper] || upper;
+
+  if (NETWORK_KEY_MAP[upper]) {
+    return NETWORK_KEY_MAP[upper];
+  }
+
+  if (upper.includes('MTN')) {
+    return 'MTN';
+  }
+  if (upper.includes('AIRTEL')) {
+    return 'AIRTEL';
+  }
+  if (upper.includes('GLO') || upper.includes('GLOBACOM')) {
+    return 'GLO';
+  }
+  if (upper.includes('9MOBILE') || upper.includes('9 MOBILE') || upper.includes('ETISALAT')) {
+    return '9MOBILE';
+  }
+
+  return upper;
 };
 
 const getNetworkDisplayName = (networkId: string) => {
@@ -88,6 +118,7 @@ export default function DataPurchaseScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [dataPlan, setDataPlan] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [balance, setBalance] = useState(0);
   const [networks, setNetworks] = useState<NetworkOption[]>([]);
   const [plansByNetwork, setPlansByNetwork] = useState<Record<string, DataPlan[]>>({});
@@ -176,13 +207,23 @@ export default function DataPurchaseScreen() {
         grouped[key].sort((a, b) => a.price - b.price);
       });
 
+      const priorityOrder = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
       const networkList: NetworkOption[] = Object.keys(grouped)
-        .sort()
         .map((networkId) => ({
           id: networkId,
           name: getNetworkDisplayName(networkId),
           logo: NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
-        }));
+        }))
+        .sort((a, b) => {
+          const aIndex = priorityOrder.indexOf(a.id);
+          const bIndex = priorityOrder.indexOf(b.id);
+          if (aIndex === -1 && bIndex === -1) {
+            return a.name.localeCompare(b.name);
+          }
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
 
       const previousNetwork = selectedNetworkRef.current;
       const effectiveNetwork =
@@ -263,6 +304,8 @@ export default function DataPurchaseScreen() {
   const handleConfirmPayment = useCallback(async () => {
     if (!selectedPlan || !selectedNetwork) return;
 
+    setIsProcessing(true);
+
     try {
       const rawNetworkId = SMEPLUG_NETWORK_IDS[selectedNetwork];
       if (!rawNetworkId) {
@@ -284,6 +327,7 @@ export default function DataPurchaseScreen() {
           phone_number: sanitizedPhoneNumber,
           plan_id: selectedPlan.id,
           network_id: rawNetworkId,
+          network_name: selectedNetworkName,
         },
         headers: accessToken
           ? {
@@ -353,6 +397,8 @@ export default function DataPurchaseScreen() {
       }
 
       Alert.alert('Data Purchase', message);
+    } finally {
+      setIsProcessing(false);
     }
   }, [phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
 
@@ -524,10 +570,12 @@ export default function DataPurchaseScreen() {
         {/* Continue Button */}
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={[styles.continueButton, isContinueDisabled && styles.continueButtonDisabled]}
+            style={[
+              styles.continueButton,
+              (isContinueDisabled || isProcessing) && styles.continueButtonDisabled,
+            ]}
             onPress={handleContinue}
-            disabled={isContinueDisabled}
-          >
+            disabled={isContinueDisabled || isProcessing}>
             <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
           </TouchableOpacity>
         </View>
@@ -538,6 +586,7 @@ export default function DataPurchaseScreen() {
           visible={showConfirmModal}
           onClose={() => setShowConfirmModal(false)}
           onConfirm={handleConfirmPayment}
+          loading={isProcessing}
           amount={selectedPlan.price}
           network={selectedNetworkName}
           networkLogo={selectedNetworkLogo}
@@ -545,6 +594,15 @@ export default function DataPurchaseScreen() {
           serviceType={`Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`}
           planDetails={selectedPlanLabel || selectedPlan.planName}
         />
+      )}
+
+      {isProcessing && (
+        <View style={styles.processingOverlay}>
+          <View style={styles.processingCard}>
+            <ActivityIndicator size="large" color="#FF7F00" />
+            <ThemedText style={styles.processingText}>Processing payment…</ThemedText>
+          </View>
+        </View>
       )}
     </ThemedView>
   );
@@ -713,6 +771,35 @@ const styles = StyleSheet.create({
   },
   continueButtonDisabled: {
     opacity: 0.6,
+  },
+  processingOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 50,
+  },
+  processingCard: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    borderRadius: 18,
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  processingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
   },
   errorBanner: {
     flexDirection: 'row',

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureProfileExists } from "@/utils/profile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -57,13 +58,8 @@ export default function UserAuth() {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // Check if user has completed setup
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('pin_enabled')
-          .eq('id', session.user.id)
-          .single();
-        
+        const profile = await ensureProfileExists(session.user);
+
         if (profile && !profile.pin_enabled) {
           navigate("/user/setup-pin");
         } else {
@@ -75,13 +71,8 @@ export default function UserAuth() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session && event === 'SIGNED_IN') {
-        // Check if user needs to complete setup after email verification
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('pin_enabled')
-          .eq('id', session.user.id)
-          .single();
-        
+        const profile = await ensureProfileExists(session.user);
+
         if (profile && !profile.pin_enabled) {
           navigate("/user/setup-pin");
         } else {
@@ -98,21 +89,34 @@ export default function UserAuth() {
     setLoading(true);
 
     try {
-      const validation = signInSchema.safeParse({ email: loginEmail, password });
+      const normalizedEmail = loginEmail.trim().toLowerCase();
+
+      const validation = signInSchema.safeParse({ email: normalizedEmail, password });
       if (!validation.success) {
         toast.error(validation.error.errors[0].message);
         return;
       }
 
       const { error } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
+        email: normalizedEmail,
         password,
       });
 
       if (error) throw error;
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        await ensureProfileExists(session.user);
+      }
+
       toast.success("Signed in successfully!");
     } catch (error: any) {
-      toast.error(error.message || "Invalid credentials");
+      const fallbackMessage =
+        error?.message === "Invalid login credentials" ? "Invalid email or password" : error?.message;
+      toast.error(fallbackMessage || "Invalid credentials");
     } finally {
       setLoading(false);
     }
@@ -190,30 +194,17 @@ export default function UserAuth() {
         console.log('User created and confirmed immediately');
       }
 
-      // Ensure profile is created (fallback if trigger doesn't fire)
       if (signUpData.user) {
-        try {
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .upsert({
-              id: signUpData.user.id,
-              email: normalizedEmail,
-              full_name: `${firstName} ${lastName}`.trim(),
-              phone: sanitizedPhone || null,
-              balance: 0,
-              status: 'active'
-            }, {
-              onConflict: 'id'
-            });
-
-          if (profileError) {
-            console.error('Profile creation error:', profileError);
-            // Don't fail signup if profile creation fails - trigger should handle it
-          }
-        } catch (profileErr) {
-          console.error('Error ensuring profile exists:', profileErr);
-          // Continue anyway - trigger should have created it
-        }
+        await ensureProfileExists(signUpData.user, {
+          email: normalizedEmail,
+          full_name: `${firstName} ${lastName}`.trim(),
+          phone: sanitizedPhone || null,
+          balance: 0,
+          status: 'active',
+          referral_code: referralCode || null,
+          biometric_enabled: false,
+          pin_enabled: false,
+        });
       }
       
       toast.success("Account created! Please check your email for verification code.");

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureProfileExists } from "@/utils/profile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,16 +33,7 @@ export default function EditProfile() {
       setUserId(session.user.id);
       setEmail(session.user.email || "");
 
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('full_name, phone')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error("Error fetching profile:", error);
-        return;
-      }
+      const profile = await ensureProfileExists(session.user);
 
       if (profile) {
         setFullName(profile.full_name || "");

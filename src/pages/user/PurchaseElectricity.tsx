@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureProfileExists } from "@/utils/profile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,13 +71,9 @@ const PurchaseElectricity = () => {
           return;
         }
 
-        // Fetch balance and phone
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('balance, phone')
-          .eq('id', session.user.id)
-          .single();
+        const profile = await ensureProfileExists(session.user);
 
+        // Fetch balance and phone
         if (profile) {
           setBalance(profile.balance || 0);
           setPhone(profile.phone || '');

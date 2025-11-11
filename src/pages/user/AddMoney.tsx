@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureProfileExists } from "@/utils/profile";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Copy, Loader2, Building2, User, Info, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -26,6 +27,8 @@ export default function AddMoney() {
         navigate("/user/auth");
         return;
       }
+
+      await ensureProfileExists(session.user);
 
       // Check if user already has a virtual account for this bank
       const { data: existingAccount, error } = await supabase
@@ -81,13 +84,9 @@ export default function AddMoney() {
         return;
       }
 
-      // Get user profile for phone number
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, email, phone')
-        .eq('id', session.user.id)
-        .single();
+      const profile = await ensureProfileExists(session.user);
 
+      // Get user profile for phone number
       const { data, error } = await supabase.functions.invoke('get-virtual-account', {
         body: {
           email: session.user.email,

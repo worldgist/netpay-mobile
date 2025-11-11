@@ -14,6 +14,7 @@ interface ConfirmPaymentModalProps {
   recipient: string;
   serviceType?: string;
   planDetails?: string;
+  loading?: boolean;
 }
 
 export function ConfirmPaymentModal({
@@ -26,6 +27,7 @@ export function ConfirmPaymentModal({
   recipient,
   serviceType = 'Airtime VTU',
   planDetails,
+  loading = false,
 }: ConfirmPaymentModalProps) {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-GB', {
@@ -40,8 +42,10 @@ export function ConfirmPaymentModal({
   });
   const [submitting, setSubmitting] = useState(false);
 
+  const isBusy = submitting || loading;
+
   const handleConfirm = async () => {
-    if (submitting) return;
+    if (isBusy) return;
 
     try {
       setSubmitting(true);
@@ -63,7 +67,7 @@ export function ConfirmPaymentModal({
             <View style={styles.modalContent}>
               <View style={styles.headerRow}>
                 <ThemedText style={styles.headerTitle}>Payment</ThemedText>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <TouchableOpacity onPress={isBusy ? undefined : onClose} style={styles.closeButton} disabled={isBusy}>
                   <MaterialIcons name="close" size={22} color="#333" />
                 </TouchableOpacity>
               </View>
@@ -117,12 +121,14 @@ export function ConfirmPaymentModal({
                 </View>
                 <View style={styles.summaryRow}>
                   <ThemedText style={styles.summaryLabel}>Status</ThemedText>
-                  <ThemedText style={[styles.summaryValue, styles.statusValue]}>Processing</ThemedText>
+              <ThemedText style={[styles.summaryValue, styles.statusValue]}>
+                {isBusy ? 'Authorizing payment…' : 'Ready'}
+              </ThemedText>
                 </View>
               </View>
 
-              <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm} disabled={submitting}>
-                {submitting ? (
+          <TouchableOpacity style={[styles.confirmButton, isBusy && styles.confirmButtonDisabled]} onPress={handleConfirm} disabled={isBusy}>
+            {isBusy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <ThemedText style={styles.confirmButtonText}>Confirm to Pay</ThemedText>
@@ -263,6 +269,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingVertical: 12,
     alignItems: 'center',
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#FFB875',
   },
   confirmButtonText: {
     fontSize: 15,

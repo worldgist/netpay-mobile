@@ -58,27 +58,61 @@ serve(async (req) => {
 
     console.log('Validating meter:', { meter_number, provider, meter_type });
 
-    // Map provider to service IDs
-    const providerServiceMap: { [key: string]: { prepaid: string; postpaid: string } } = {
+    const canonicalMap: Record<string, { prepaid: string; postpaid: string }> = {
       IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
-      IKEDC: { prepaid: 'AMA', postpaid: 'AMB' },
       EKO: { prepaid: 'ANA', postpaid: 'ANB' },
-      EKEDC: { prepaid: 'ANA', postpaid: 'ANB' },
       ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
-      AEDC: { prepaid: 'AHB', postpaid: 'AHA' },
       KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
-      KAEDCO: { prepaid: 'AGB', postpaid: 'AGA' },
       IBADAN: { prepaid: 'AEA', postpaid: 'AEB' },
-      IBEDC: { prepaid: 'AEA', postpaid: 'AEB' },
       KANO: { prepaid: 'AFA', postpaid: 'AFB' },
-      KEDCO: { prepaid: 'AFA', postpaid: 'AFB' },
       PORTHARCOURT: { prepaid: 'ADB', postpaid: 'ADA' },
-      PHEDC: { prepaid: 'ADB', postpaid: 'ADA' },
       JOS: { prepaid: 'ACB', postpaid: 'ACA' },
-      JED: { prepaid: 'ACB', postpaid: 'ACA' },
+      BENIN: { prepaid: 'AAB', postpaid: 'AAA' },
+      YOLA: { prepaid: 'ALA', postpaid: 'ALB' },
     };
 
-    const serviceIds = providerServiceMap[provider.toUpperCase()];
+    const aliasMap: Record<string, string> = {
+      IKEDC: 'IKEJA',
+      IKEJAELECTRICITY: 'IKEJA',
+      IKEJAELECTRICITYBILLS: 'IKEJA',
+      IKEJAELECTRICITYTOKENPURCHASE: 'IKEJA',
+      EKOELECTRICITY: 'EKO',
+      EKOELECTRICITYPREPAID: 'EKO',
+      EKOELECTRICITYPOSTPAID: 'EKO',
+      EKEDC: 'EKO',
+      ABUJAELECTRICITY: 'ABUJA',
+      ABUJAELECTRICITYPREPAID: 'ABUJA',
+      ABUJAELECTRICITYPOSTPAID: 'ABUJA',
+      AEDC: 'ABUJA',
+      KADUNAELECTRICITY: 'KADUNA',
+      KADUNAELECTRICITYPREPAID: 'KADUNA',
+      KADUNAELECTRICITYPOSTPAID: 'KADUNA',
+      KAEDCO: 'KADUNA',
+      IBADANELECTRICITY: 'IBADAN',
+      IBADANELECTRICITYPREPAID: 'IBADAN',
+      IBADANELECTRICITYPOSTPAID: 'IBADAN',
+      IBEDC: 'IBADAN',
+      KANOELECTRICITY: 'KANO',
+      KANOELECTRICITYDISTRIBUTIONPREPAID: 'KANO',
+      KANOELECTRICITYDISTRIBUTIONPOSTPAID: 'KANO',
+      KEDCO: 'KANO',
+      PORTHARCOURTELECTRICITY: 'PORTHARCOURT',
+      PORTHARCOURTPREPAID: 'PORTHARCOURT',
+      PORTHARCOURTPOSTPAID: 'PORTHARCOURT',
+      PHEDC: 'PORTHARCOURT',
+      JOSELECTRICITY: 'JOS',
+      JOSELECTRICITYPREPAID: 'JOS',
+      JOSELECTRICITYPOSTPAID: 'JOS',
+      JED: 'JOS',
+      BEDC: 'BENIN',
+      BENINELECTRICITY: 'BENIN',
+      YEDC: 'YOLA',
+      YOLAELECTRICITY: 'YOLA',
+    };
+
+    const normalizedProvider = provider.toUpperCase().replace(/[^A-Z]/g, '');
+    const canonicalKey = aliasMap[normalizedProvider] || normalizedProvider;
+    const serviceIds = canonicalMap[canonicalKey];
     if (!serviceIds) {
       console.error('Invalid provider:', provider);
       return new Response(
@@ -100,6 +134,7 @@ serve(async (req) => {
       body: JSON.stringify({
         service_id: serviceId,
         customerAccountId: meter_number,
+        customerReference: meter_number,
       }),
     });
 
@@ -116,8 +151,13 @@ serve(async (req) => {
             address: details.customerAddress || '',
             meter_number: details.customerReference || meter_number,
             tariff: details.tariff || '',
-            minimum_vend: details.minimumVend || 0,
-          }
+            minimum_vend: Number(details.minimumVend ?? 0),
+            outstanding_amount: Number(details.outstandingAmount ?? 0),
+            customer_category: details.customerCategory || '',
+            business_unit: details.businessUnit || '',
+            utility_account: details.utilityAccount || '',
+            response_message: details.responseMessage || '',
+          },
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

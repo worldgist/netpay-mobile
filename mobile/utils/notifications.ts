@@ -16,11 +16,18 @@ export async function createTransactionNotification(params: CreateTransactionNot
       return;
     }
 
+    const accessToken = session.access_token;
+
     const { data, error } = await supabase.functions.invoke('create-transaction-notification', {
       body: {
         title: params.title,
         message: params.message,
       },
+      headers: accessToken
+        ? {
+            Authorization: `Bearer ${accessToken}`,
+          }
+        : undefined,
     });
 
     if (error) {
