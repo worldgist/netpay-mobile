@@ -174,26 +174,39 @@ export default function ReferralScreen() {
     fetchReferralData({ isRefresh: true });
   }, [fetchReferralData]);
 
-  const handleCopyCode = async () => {
-    if (!referralCode) return;
-    await Clipboard.setStringAsync(referralCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+const referralLink = useMemo(
+  () => (referralCode ? `https://netpayy.ng/signup?ref=${encodeURIComponent(referralCode)}` : ''),
+  [referralCode]
+);
 
-  const handleShareLink = () => {
-    if (!referralCode) return;
+const handleCopyCode = async () => {
+  if (!referralCode) return;
+  await Clipboard.setStringAsync(referralCode);
+  setCopied(true);
+  setTimeout(() => setCopied(false), 2000);
+};
 
-    const message = `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Download the app and enter the code during signup.`;
+const handleCopyLink = async () => {
+  if (!referralLink) return;
+  await Clipboard.setStringAsync(referralLink);
+  setCopied(true);
+  setTimeout(() => setCopied(false), 2000);
+  Alert.alert('Referral Link', 'Referral link copied to clipboard.');
+};
 
-    Share.share({
-      message,
-      title: 'Invite to NetPay',
-    }).catch((error) => {
-      console.error('Failed to share referral link:', error);
-      Alert.alert('Referral', 'Unable to share right now. Please try again.');
-    });
-  };
+const handleShareLink = () => {
+  if (!referralCode) return;
+
+  const message = `Use my NetPay referral code ${referralCode} to sign up and earn rewards! ${referralLink}`;
+
+  Share.share({
+    message,
+    title: 'Invite to NetPay',
+  }).catch((error) => {
+    console.error('Failed to share referral link:', error);
+    Alert.alert('Referral', 'Unable to share right now. Please try again.');
+  });
+};
 
   const rewardSummary = useMemo(() => {
     if (referrerReward === null && referredReward === null) return '';
@@ -249,6 +262,15 @@ export default function ReferralScreen() {
               <MaterialIcons name={copied ? "check" : "content-copy"} size={20} color="#fff" />
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={[styles.copyLinkButton, !referralLink && styles.copyLinkButtonDisabled]}
+            onPress={handleCopyLink}
+            disabled={!referralLink}
+          >
+            <MaterialIcons name="link" size={20} color="#fff" />
+            <ThemedText style={styles.copyLinkButtonText}>Copy Referral Link</ThemedText>
+          </TouchableOpacity>
 
           <TouchableOpacity style={[styles.shareButton, !referralCode && styles.shareButtonDisabled]} onPress={handleShareLink} disabled={!referralCode}>
             <MaterialIcons name="share" size={20} color="#333" style={styles.shareIcon} />
@@ -477,6 +499,31 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 8,
     padding: 8,
+    marginLeft: 10,
+  },
+  copyLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    width: '100%',
+    justifyContent: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  copyLinkButtonDisabled: {
+    opacity: 0.6,
+  },
+  copyLinkButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
     marginLeft: 10,
   },
   shareButton: {
