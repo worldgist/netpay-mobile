@@ -130,16 +130,6 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const isMounted = useRef(true);
   const selectedNetworkRef = useRef<string | null>(null);
   const dataPlanRef = useRef<string>('');
-const pendingPurchaseRef = useRef<{
-  phone: string;
-  planId: string;
-  networkId: string | null;
-}>({
-  phone: '',
-  planId: '',
-  networkId: null,
-});
-
   useEffect(() => {
     isMounted.current = true;
     return () => {
@@ -292,11 +282,6 @@ const pendingPurchaseRef = useRef<{
         setSelectedNetwork(effectiveNetwork);
         setDataPlan(effectivePlanId);
         setNetworkIdMap(fetchedNetworkMap);
-        pendingPurchaseRef.current = {
-          phone: '',
-          planId: effectivePlanId || '',
-          networkId: effectiveNetwork || '',
-        };
       }
     } catch (err) {
       console.error('Failed to fetch data plans:', err);
@@ -351,41 +336,53 @@ const pendingPurchaseRef = useRef<{
       return;
     }
 
-    pendingPurchaseRef.current = {
-      phone: normalizedPhone,
-      planId: dataPlan,
-      networkId: selectedNetwork,
-    };
-
     setShowConfirmModal(true);
   };
 
   const handleConfirmPayment = useCallback(async () => {
-    if (!selectedPlan || !selectedNetwork) return;
+    console.log('[ConfirmPayment] handler invoked', {
+      selectedPlan: selectedPlan?.id,
+      selectedNetwork,
+      phoneNumber,
+    });
+
+    if (!selectedPlan || !selectedNetwork) {
+      console.warn('[ConfirmPayment] Missing plan or network', {
+        selectedPlan,
+        selectedNetwork,
+      });
+      return;
+    }
 
     setIsProcessing(true);
 
     try {
-      const { phone: pendingPhone, planId: pendingPlanId, networkId: pendingNetworkId } =
-        pendingPurchaseRef.current;
+      const validation = validateNigerianPhoneNumber(phoneNumber, selectedNetwork);
+      if (!validation.isMatch || validation.message) {
+        console.warn('[ConfirmPayment] Phone validation failed', validation);
+        Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
+        return;
+      }
 
-      const normalizedStatePlanId = dataPlan || '';
-      const normalizedStateNetworkId = selectedNetwork || '';
-      const normalizedStatePhone = phoneNumber.replace(/\s+/g, '').trim();
-
+      const effectivePhone = validation.normalized;
       const effectivePlanId =
-        pendingPlanId && pendingPlanId.length > 0 ? pendingPlanId : normalizedStatePlanId;
-      const effectiveNetworkId =
-        pendingNetworkId && pendingNetworkId.length > 0 ? pendingNetworkId : normalizedStateNetworkId;
-      const effectivePhone =
-        pendingPhone && pendingPhone.length > 0 ? pendingPhone : normalizedStatePhone;
+        typeof selectedPlan.id === 'string'
+          ? selectedPlan.id.trim()
+          : String(selectedPlan.id ?? '').trim();
+      const effectiveNetworkId = selectedNetwork.trim();
 
       if (!effectivePlanId) {
+        console.warn('[ConfirmPayment] Empty plan id after normalization', {
+          selectedPlan,
+        });
         Alert.alert('Data Purchase', 'Please select a data plan.');
         return;
       }
 
       if (!effectiveNetworkId) {
+        console.warn('[ConfirmPayment] Empty network id after normalization', {
+          selectedNetwork,
+        });
         Alert.alert('Data Purchase', 'Unable to determine the selected network. Please try again.');
         return;
       }
@@ -402,6 +399,9 @@ const pendingPurchaseRef = useRef<{
 
       const sanitizedPhoneNumber = effectivePhone.replace(/\s+/g, '').trim();
       if (!sanitizedPhoneNumber) {
+        console.warn('[ConfirmPayment] Sanitized phone is empty', {
+          effectivePhone,
+        });
         Alert.alert('Data Purchase', 'Phone number is required.');
         return;
       }
@@ -409,6 +409,7 @@ const pendingPurchaseRef = useRef<{
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
       if (!accessToken) {
+        console.warn('[ConfirmPayment] Missing access token');
         Alert.alert('Session Expired', 'Please sign in again to continue.');
         router.replace('/auth/login');
         return;
@@ -419,7 +420,9 @@ const pendingPurchaseRef = useRef<{
         plan_id: effectivePlanId,
         network_id: rawNetworkId,
         network_name: selectedNetworkName,
+        resolved_network_key: effectiveNetworkId,
       };
+      console.log('Prepared request body:', requestBody);
 
       console.log('Submitting purchase-smeplug-data request:', requestBody);
 
@@ -430,6 +433,7 @@ const pendingPurchaseRef = useRef<{
           Authorization: `Bearer ${accessToken}`,
         },
       });
+      console.log('purchase-smeplug-data response:', { data, error });
 
       if (error) {
         throw error;

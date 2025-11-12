@@ -46,6 +46,7 @@ serve(async (req) => {
     let plan_id: unknown;
     let network_id: unknown;
     let network_name: unknown;
+    let resolved_network_key: unknown;
 
     const bodyText = await req.text();
     console.log('Raw request body text for purchase-smeplug-data:', bodyText);
@@ -62,7 +63,7 @@ serve(async (req) => {
     }
 
     if (rawBody && typeof rawBody === 'object') {
-      ({ phone_number, plan_id, network_id, network_name } = rawBody as Record<string, unknown>);
+      ({ phone_number, plan_id, network_id, network_name, resolved_network_key } = rawBody as Record<string, unknown>);
     }
 
     console.log('Incoming data purchase payload:', JSON.stringify(rawBody, null, 2));
@@ -101,30 +102,25 @@ serve(async (req) => {
 
     const sanitizedPhone =
       typeof phone_number === 'string' ? phone_number.replace(/\s+/g, '').trim() : '';
-    const smeplugNetworkId = resolveNetworkId(network_id);
-    const resolvedNetworkName =
-      typeof network_name === 'string' && network_name.trim().length > 0
-        ? network_name.trim()
-        : typeof network_id === 'string'
-        ? network_id.trim()
-        : '';
 
-    if (!sanitizedPhone || !plan_id || smeplugNetworkId === null) {
+    if (!sanitizedPhone || !plan_id) {
       console.error('Invalid data purchase payload:', {
         phone_number: sanitizedPhone ? '***hidden***' : sanitizedPhone,
         plan_id,
         network_id,
-        resolvedNetworkId: smeplugNetworkId,
+        resolved_network_key,
+        resolvedNetworkId: null,
       });
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'phone_number, plan_id, and a valid network_id are required',
+          error: 'phone_number and plan_id are required',
           details: {
             phone_number: Boolean(sanitizedPhone),
             plan_id,
             network_id,
-            resolvedNetworkId: smeplugNetworkId,
+            resolved_network_key,
+            resolvedNetworkId: null,
           },
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -161,6 +157,47 @@ serve(async (req) => {
       );
     }
 
+    const effectiveNetworkKey =
+      (typeof network_id === 'string' && network_id.trim().length > 0 ? network_id.trim() : null) ??
+      (typeof resolved_network_key === 'string' && resolved_network_key.trim().length > 0
+        ? resolved_network_key.trim()
+        : null) ??
+      (typeof network_name === 'string' && network_name.trim().length > 0 ? network_name.trim() : null) ??
+      (typeof dataPlan.network === 'string' && dataPlan.network.trim().length > 0
+        ? dataPlan.network.trim()
+        : null);
+
+    const smeplugNetworkId =
+      resolveNetworkId(effectiveNetworkKey) ??
+      resolveNetworkId(dataPlan.network);
+
+    if (smeplugNetworkId === null) {
+      console.error('Unable to resolve SMEPLUG network ID', {
+        network_id,
+        resolved_network_key,
+        network_name,
+        data_plan_network: dataPlan.network,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Unable to resolve network ID for this provider',
+          details: {
+            network_id,
+            resolved_network_key,
+            network_name,
+            data_plan_network: dataPlan.network,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const resolvedNetworkName =
+      typeof network_name === 'string' && network_name.trim().length > 0
+        ? network_name.trim()
+        : dataPlan.network || effectiveNetworkKey || '';
+
     const balanceBefore = Number(profile.balance) || 0;
     const planPrice = Number(dataPlan.price);
 
@@ -174,7 +211,7 @@ serve(async (req) => {
     const reference = `DATA-${Date.now()}-${user.id.slice(0, 8)}`;
 
     console.log(
-      `Purchasing data: ${dataPlan.plan_name} for ${sanitizedPhone} on network ${smeplugNetworkId}`
+      `Purchasing data: ${dataPlan.plan_name} for ${sanitizedPhone} on network ${smeplugNetworkId} (resolved from ${network_id ?? resolved_network_key ?? resolvedNetworkName})`
     );
 
     // Purchase data via SMEPLUG API

@@ -113,32 +113,33 @@ const Index = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground">
       {/* Header */}
-      <header className="border-b border-border/40 bg-card/60 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+      <header className="border-b border-border/30 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between transition-smooth">
           <div className="flex items-center gap-3">
             <img
               src="/logo.png"
               alt="NetPay"
-              className="w-10 h-10 rounded-lg border border-border/40 shadow-sm"
+              className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
               loading="lazy"
             />
             <span className="text-2xl font-bold">
-              <span className="text-brand">NET</span>PAY
+              <span className="text-brand">NET</span>
+              <span className="text-slate-800">PAY</span>
             </span>
           </div>
           <div className="flex items-center gap-3">
             <Button
               onClick={() => navigate("/user/auth?mode=signin")}
               variant="ghost"
-              className="hidden sm:inline-flex"
+              className="hidden sm:inline-flex text-brand hover:bg-brand/10"
             >
               Login
             </Button>
             <Button
               onClick={() => navigate("/user/auth?mode=signup")}
-              className="bg-brand hover:bg-brand/90 text-white"
+              className="bg-brand hover:bg-brand/90 text-white shadow-elegant"
             >
               Get Started
             </Button>
@@ -197,7 +198,7 @@ const Index = () => {
                 { label: "Users", value: "50k+" },
                 { label: "Support", value: "24/7" },
               ].map((stat) => (
-                <div key={stat.label} className="text-center bg-card/70 border border-border/40 rounded-2xl py-4 shadow-sm">
+                <div key={stat.label} className="text-center bg-white/80 border border-brand/20 rounded-2xl py-4 shadow-elegant">
                   <div className="text-3xl font-bold text-brand">{stat.value}</div>
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">{stat.label}</div>
                 </div>
@@ -231,7 +232,7 @@ const Index = () => {
       </section>
 
       {/* Bill Services */}
-      <section className="bg-secondary/25 py-16">
+      <section className="bg-gradient-to-r from-brand/5 via-white to-brand/5 py-16">
         <div className="container mx-auto px-4 grid lg:grid-cols-[3fr_2fr] gap-12 items-start">
           <div className="space-y-10">
             <div className="space-y-4">
@@ -251,9 +252,9 @@ const Index = () => {
               {billServices.map((service) => (
                 <div
                   key={service.title}
-                  className="rounded-3xl border border-border/40 bg-card/90 p-6 shadow-sm transition-all hover:shadow-lg hover:border-brand/40"
+                  className="rounded-3xl border border-brand/15 bg-white/85 p-6 shadow-elegant transition-all hover:shadow-lg hover:border-brand/40"
                 >
-                  <div className="bg-brand/10 w-12 h-12 rounded-xl flex items-center justify-center text-brand mb-4">
+                  <div className="bg-brand/10 w-12 h-12 rounded-xl flex items-center justify-center text-brand mb-4 shadow-inner">
                     <service.icon className="w-6 h-6" />
                   </div>
                   <h3 className="font-semibold text-lg text-foreground mb-2">{service.title}</h3>
@@ -263,7 +264,7 @@ const Index = () => {
             </div>
           </div>
 
-          <div className="relative rounded-[32px] bg-card p-4 shadow-lg border border-border/40">
+          <div className="relative rounded-[32px] bg-white/90 p-4 shadow-glow border border-brand/20">
             <img
               src="/splash2.png"
               alt="NetPay consolidated billers"
@@ -294,8 +295,8 @@ const Index = () => {
 
             <div className="grid sm:grid-cols-2 gap-6">
               {platformHighlights.map((item) => (
-                <div key={item.title} className="bg-card border border-border/40 rounded-2xl p-5 space-y-3 shadow-sm">
-                  <div className="bg-brand/10 w-10 h-10 rounded-lg flex items-center justify-center text-brand">
+                <div key={item.title} className="bg-white/80 border border-brand/15 rounded-2xl p-5 space-y-3 shadow-elegant">
+                  <div className="bg-brand/10 w-10 h-10 rounded-lg flex items-center justify-center text-brand shadow-inner">
                     <item.icon className="w-5 h-5" />
                   </div>
                   <h3 className="font-semibold text-foreground">{item.title}</h3>
@@ -340,7 +341,7 @@ const Index = () => {
       </section>
 
       {/* Trust Signals */}
-      <section className="bg-muted/25 py-16">
+      <section className="bg-gradient-to-br from-brand/5 via-white to-orange-50/40 py-16">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center space-y-4">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground">Why teams choose NetPay</h2>
@@ -351,7 +352,7 @@ const Index = () => {
 
           <div className="grid md:grid-cols-3 gap-8 pt-10">
             <div className="text-center">
-              <div className="bg-brand/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="bg-brand/15 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-elegant">
                 <Clock className="w-8 h-8 text-brand" />
               </div>
               <h3 className="font-bold text-lg mb-2">Instant Processing</h3>
@@ -360,7 +361,7 @@ const Index = () => {
               </p>
             </div>
             <div className="text-center">
-              <div className="bg-brand/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="bg-brand/15 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-elegant">
                 <Shield className="w-8 h-8 text-brand" />
               </div>
               <h3 className="font-bold text-lg mb-2">Bank-Grade Security</h3>
@@ -369,7 +370,7 @@ const Index = () => {
               </p>
             </div>
             <div className="text-center">
-              <div className="bg-brand/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="bg-brand/15 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-elegant">
                 <TrendingUp className="w-8 h-8 text-brand" />
               </div>
               <h3 className="font-bold text-lg mb-2">Scales With You</h3>
@@ -382,9 +383,9 @@ const Index = () => {
       </section>
 
       {/* CTA */}
-      <section className="bg-brand py-16">
-        <div className="container mx-auto px-4 text-center space-y-6">
-          <h2 className="text-3xl md:text-4xl font-bold text-white">
+      <section className="bg-brand py-16 shadow-inner">
+        <div className="container mx-auto px-4 text-center space-y-6 text-white">
+          <h2 className="text-3xl md:text-4xl font-bold">
             Ready to offer the most delightful bill payment experience?
           </h2>
           <p className="text-white/90 text-lg max-w-2xl mx-auto">
@@ -394,7 +395,7 @@ const Index = () => {
             <Button
               onClick={() => navigate("/user/auth?mode=signup")}
               size="lg"
-              className="bg-white text-brand hover:bg-white/90 h-12 px-8"
+              className="bg-white text-brand hover:bg-white/90 h-12 px-8 shadow-elegant"
             >
               Create Your Free Account
             </Button>
@@ -411,7 +412,7 @@ const Index = () => {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border/40 bg-card/70 py-12">
+      <footer className="border-t border-brand/20 bg-white/85 py-12">
         <div className="container mx-auto px-4 flex flex-col gap-8">
           <div className="flex flex-col lg:flex-row justify-between gap-8">
             <div className="max-w-sm space-y-4">
@@ -419,7 +420,7 @@ const Index = () => {
                 <img
                   src="/logo.png"
                   alt="NetPay"
-                  className="w-10 h-10 rounded-lg border border-border/40 shadow-sm"
+                  className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
                   loading="lazy"
                 />
                 <span className="text-xl font-bold text-foreground">
