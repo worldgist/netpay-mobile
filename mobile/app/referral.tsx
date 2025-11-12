@@ -14,7 +14,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -24,6 +24,7 @@ export default function ReferralScreen() {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
   const [stats, setStats] = useState({
     totalReferrals: 0,
     completedReferrals: 0,
@@ -179,6 +180,35 @@ const referralLink = useMemo(
   [referralCode]
 );
 
+useEffect(() => {
+  let isActive = true;
+  const verifyLink = async () => {
+    if (!referralLink) {
+      if (isActive) setIsReferralLinkReachable(false);
+      return;
+    }
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(referralLink, { method: 'HEAD', signal: controller.signal });
+      clearTimeout(timeout);
+      if (isActive) {
+        setIsReferralLinkReachable(response.ok);
+      }
+    } catch (error) {
+      if (isActive) {
+        setIsReferralLinkReachable(false);
+      }
+    }
+  };
+
+  verifyLink();
+
+  return () => {
+    isActive = false;
+  };
+}, [referralLink]);
+
 const handleCopyCode = async () => {
   if (!referralCode) return;
   await Clipboard.setStringAsync(referralCode);
@@ -186,18 +216,12 @@ const handleCopyCode = async () => {
   setTimeout(() => setCopied(false), 2000);
 };
 
-const handleCopyLink = async () => {
-  if (!referralLink) return;
-  await Clipboard.setStringAsync(referralLink);
-  setCopied(true);
-  setTimeout(() => setCopied(false), 2000);
-  Alert.alert('Referral Link', 'Referral link copied to clipboard.');
-};
-
 const handleShareLink = () => {
   if (!referralCode) return;
 
-  const message = `Use my NetPay referral code ${referralCode} to sign up and earn rewards! ${referralLink}`;
+  const message = isReferralLinkReachable
+    ? `Use my NetPay referral code ${referralCode} to sign up and earn rewards! ${referralLink}`
+    : `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Visit netpayy.ng and enter the code during signup.`;
 
   Share.share({
     message,
@@ -263,16 +287,17 @@ const handleShareLink = () => {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[styles.copyLinkButton, !referralLink && styles.copyLinkButtonDisabled]}
-            onPress={handleCopyLink}
-            disabled={!referralLink}
-          >
-            <MaterialIcons name="link" size={20} color="#fff" />
-            <ThemedText style={styles.copyLinkButtonText}>Copy Referral Link</ThemedText>
-          </TouchableOpacity>
+          {!isReferralLinkReachable && referralLink ? (
+            <ThemedText style={styles.offlineNotice}>
+              We could not verify the referral link. Sharing will use your referral code without the link.
+            </ThemedText>
+          ) : null}
 
-          <TouchableOpacity style={[styles.shareButton, !referralCode && styles.shareButtonDisabled]} onPress={handleShareLink} disabled={!referralCode}>
+          <TouchableOpacity
+            style={[styles.shareButton, !referralCode && styles.shareButtonDisabled]}
+            onPress={handleShareLink}
+            disabled={!referralCode}
+          >
             <MaterialIcons name="share" size={20} color="#333" style={styles.shareIcon} />
             <ThemedText style={styles.shareButtonText}>Share Referral Link</ThemedText>
           </TouchableOpacity>
@@ -501,31 +526,6 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 10,
   },
-  copyLinkButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    width: '100%',
-    justifyContent: 'center',
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  copyLinkButtonDisabled: {
-    opacity: 0.6,
-  },
-  copyLinkButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginLeft: 10,
-  },
   shareButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -559,6 +559,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     opacity: 0.95,
+  },
+  offlineNotice: {
+    marginTop: 12,
+    marginBottom: 12,
+    color: '#fff',
+    fontSize: 13,
+    textAlign: 'center',
+    opacity: 0.85,
+    lineHeight: 18,
   },
   statsGrid: {
     flexDirection: 'row',
