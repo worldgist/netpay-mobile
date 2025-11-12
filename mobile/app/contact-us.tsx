@@ -9,6 +9,7 @@ import {
   Modal,
   Linking,
   ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -17,6 +18,17 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '@/lib/supabase';
+
+type SupportMessage = {
+  id: string;
+  created_at: string;
+  user_id: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status?: string | null;
+};
 
 export default function ContactUsScreen() {
   const router = useRouter();
@@ -433,6 +445,67 @@ export default function ContactUsScreen() {
             </View>
           ))}
         </View>
+
+        {/* Support Options */}
+        <View style={styles.supportSection}>
+          <ThemedText style={styles.sectionTitle}>Other ways to reach us</ThemedText>
+          <TouchableOpacity
+            style={styles.supportCard}
+            onPress={handleEmailAction}
+            activeOpacity={0.7}>
+            <View style={styles.supportIconContainer}>
+              <MaterialIcons name="email" size={24} color="#FF7F00" />
+            </View>
+            <View style={styles.supportDetails}>
+              <ThemedText style={styles.supportTitle}>Email</ThemedText>
+              <ThemedText style={styles.supportValue}>{supportEmail}</ThemedText>
+              <ThemedText style={styles.supportNote}>We typically respond within 24 hours</ThemedText>
+            </View>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleEmailAction();
+              }}
+              activeOpacity={0.7}>
+              <MaterialIcons name="send" size={20} color="#FF7F00" />
+            </TouchableOpacity>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.supportCard}
+            onPress={handlePhoneAction}
+            activeOpacity={0.7}>
+            <View style={styles.supportIconContainer}>
+              <MaterialIcons name="phone" size={24} color="#FF7F00" />
+            </View>
+            <View style={styles.supportDetails}>
+              <ThemedText style={styles.supportTitle}>Phone</ThemedText>
+              <ThemedText style={styles.supportValue}>{supportPhoneDisplay}</ThemedText>
+              <ThemedText style={styles.supportNote}>Mon-Fri: 9:00 AM - 6:00 PM WAT</ThemedText>
+            </View>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={(e) => {
+                e.stopPropagation();
+                handlePhoneAction();
+              }}
+              activeOpacity={0.7}>
+              <MaterialIcons name="call" size={20} color="#FF7F00" />
+            </TouchableOpacity>
+          </TouchableOpacity>
+
+          <View style={styles.contactItem}>
+            <View style={styles.contactIconContainer}>
+              <MaterialIcons name="location-on" size={24} color="#FF7F00" />
+            </View>
+            <View style={styles.contactDetails}>
+              <ThemedText style={styles.contactTitle}>Address</ThemedText>
+              <ThemedText style={styles.contactValue}>{supportAddress || 'Lagos, Nigeria'}</ThemedText>
+              <ThemedText style={styles.contactNote}>Visit our office during business hours</ThemedText>
+            </View>
+          </View>
+        </View>
       </ScrollView>
 
       {/* Success Modal */}
@@ -749,6 +822,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  supportSection: {
+    marginBottom: 24,
+    gap: 16,
+  },
+  supportCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#FAFAFA',
+  },
+  supportIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FF7F00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  supportDetails: {
+    flex: 1,
+  },
+  supportTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  supportValue: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 4,
+  },
+  supportNote: {
+    fontSize: 14,
+    color: '#666',
   },
 });
 

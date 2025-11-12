@@ -1,13 +1,20 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Mail, Phone, MapPin, Send } from "lucide-react";
+import { ArrowLeft, Mail, Phone, MapPin, Send, MessageCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import BottomNav from "@/components/BottomNav";
+import { supabase } from "@/integrations/supabase/client";
+import { ensureProfileExists } from "@/utils/profile";
+
+type BusinessHour = {
+  day: string;
+  time: string;
+};
 
 export default function UserContact() {
   const navigate = useNavigate();
@@ -18,18 +25,189 @@ export default function UserContact() {
     message: "",
   });
   const [sending, setSending] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [supportEmail, setSupportEmail] = useState("support@netpayy.ng");
+  const [supportPhone, setSupportPhone] = useState("07067398399");
+  const [supportPhoneDisplay, setSupportPhoneDisplay] = useState("+234 706 739 8399");
+  const [address, setAddress] = useState("Lagos, Nigeria");
+  const [businessHours, setBusinessHours] = useState<BusinessHour[]>([
+    { day: "Monday - Friday", time: "9:00 AM - 6:00 PM" },
+    { day: "Saturday", time: "10:00 AM - 4:00 PM" },
+    { day: "Sunday", time: "Closed" },
+  ]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadInitialData = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session?.user) {
+          navigate("/user/auth?mode=signin");
+          return;
+        }
+
+        setUserId(session.user.id);
+
+        const profile = await ensureProfileExists(session.user);
+        if (!isMounted) return;
+
+        const fallbackName = session.user.email?.split("@")[0] ?? "NetPay User";
+        const derivedName = profile?.full_name || fallbackName;
+
+        setFormData((prev) => ({
+          ...prev,
+          name: derivedName,
+          email: session.user.email ?? prev.email,
+        }));
+
+        try {
+          const { data: settingsRow, error: settingsError } = await supabase
+            .from("contact_settings")
+            .select("support_email, support_phone, support_phone_display, address_line, city, state, country, business_hours")
+            .eq("is_active", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const recoverableCodes = new Set(["PGRST116", "PGRST205", "42P01"]);
+          if (settingsError && !recoverableCodes.has(settingsError.code ?? "")) {
+            throw settingsError;
+          }
+
+          if (settingsRow) {
+            if (settingsRow.support_email) setSupportEmail(settingsRow.support_email);
+            if (settingsRow.support_phone) setSupportPhone(settingsRow.support_phone);
+            if (settingsRow.support_phone_display) setSupportPhoneDisplay(settingsRow.support_phone_display);
+
+            const addressParts = [
+              settingsRow.address_line,
+              settingsRow.city,
+              settingsRow.state,
+              settingsRow.country,
+            ]
+              .filter(Boolean)
+              .join(", ");
+
+            if (addressParts) {
+              setAddress(addressParts);
+            }
+
+            if (Array.isArray(settingsRow.business_hours) && settingsRow.business_hours.length > 0) {
+              const parsed = settingsRow.business_hours
+                .map((entry: any) => ({
+                  day: typeof entry.day === "string" ? entry.day : "",
+                  time: typeof entry.time === "string" ? entry.time : "",
+                }))
+                .filter((entry) => entry.day && entry.time);
+
+              if (parsed.length > 0) {
+                setBusinessHours(parsed);
+              }
+            }
+          }
+        } catch (settingsError) {
+          console.warn("contact_settings unavailable:", settingsError);
+        }
+      } catch (error) {
+        console.error("Failed to load contact data:", error);
+        toast.error("Unable to load your contact information. Please try again later.");
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [navigate]);
+
+  const displayBusinessHours = useMemo(() => businessHours, [businessHours]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (sending) return;
+    const trimmedName = formData.name.trim();
+    const trimmedEmail = formData.email.trim();
+    const trimmedSubject = formData.subject.trim();
+    const trimmedMessage = formData.message.trim();
+
+    if (!trimmedName || !trimmedEmail || !trimmedSubject || !trimmedMessage) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
+
+    if (!userId) {
+      toast.error("Please sign in again to contact support.");
+      navigate("/user/auth?mode=signin");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+
     setSending(true);
 
-    // Simulate sending (replace with actual API call)
-    setTimeout(() => {
-      toast.success("Message sent successfully! We'll get back to you soon.");
-      setFormData({ name: "", email: "", subject: "", message: "" });
+    try {
+      const { error } = await supabase.from("support_messages").insert({
+        user_id: userId,
+        name: trimmedName,
+        email: trimmedEmail,
+        subject: trimmedSubject,
+        message: trimmedMessage,
+        channel: "web_contact",
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const { error: notifyError } = await supabase.functions.invoke("send-support-email", {
+        body: {
+          name: trimmedName,
+          email: trimmedEmail,
+          subject: trimmedSubject,
+          message: trimmedMessage,
+        },
+      });
+
+      if (notifyError) {
+        console.error("send-support-email failed:", notifyError);
+        toast.warning("Your message was saved, but we couldn't notify support automatically. We'll follow up shortly.");
+      } else {
+        toast.success("Message sent successfully! We'll get back to you soon.");
+      }
+
+      setFormData({
+        name: trimmedName,
+        email: trimmedEmail,
+        subject: "",
+        message: "",
+      });
+    } catch (error: any) {
+      console.error("Failed to send support message:", error);
+      toast.error(error?.message ?? "Unable to send your message right now. Please try again.");
+    } finally {
       setSending(false);
-    }, 1000);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
+        <Loader2 className="h-10 w-10 animate-spin text-brand" />
+        <p className="text-sm text-muted-foreground">Loading support options...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
@@ -141,7 +319,15 @@ export default function UserContact() {
               </div>
               <div>
                 <p className="font-medium">Email</p>
-                <p className="text-sm text-muted-foreground">support@netpay.com</p>
+                <p className="text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className="underline-offset-2 hover:underline"
+                    onClick={() => navigator.clipboard.writeText(supportEmail)}
+                  >
+                    {supportEmail}
+                  </button>
+                </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   We typically respond within 24 hours
                 </p>
@@ -154,7 +340,15 @@ export default function UserContact() {
               </div>
               <div>
                 <p className="font-medium">Phone</p>
-                <p className="text-sm text-muted-foreground">+234 (0) 800 000 0000</p>
+                <p className="text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className="underline-offset-2 hover:underline"
+                    onClick={() => navigator.clipboard.writeText(supportPhone)}
+                  >
+                    {supportPhoneDisplay}
+                  </button>
+                </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Mon-Fri: 9:00 AM - 6:00 PM WAT
                 </p>
@@ -168,11 +362,14 @@ export default function UserContact() {
               <div>
                 <p className="font-medium">Address</p>
                 <p className="text-sm text-muted-foreground">
-                  123 Business Street<br />
-                  Lagos, Nigeria
+                  {address}
                 </p>
               </div>
             </div>
+
+            <Button onClick={() => navigate('/user/support-chat')} variant="outline" className="w-full" size="lg">
+              Open Support Chat
+            </Button>
           </CardContent>
         </Card>
 
@@ -183,18 +380,15 @@ export default function UserContact() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-muted-foreground">Monday - Friday</span>
-                <span className="font-medium">9:00 AM - 6:00 PM</span>
-              </div>
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-muted-foreground">Saturday</span>
-                <span className="font-medium">10:00 AM - 4:00 PM</span>
-              </div>
-              <div className="flex justify-between py-2">
-                <span className="text-muted-foreground">Sunday</span>
-                <span className="font-medium">Closed</span>
-              </div>
+              {displayBusinessHours.map((entry, index) => (
+                <div
+                  key={`${entry.day}-${index}`}
+                  className={`flex justify-between py-2 ${index !== displayBusinessHours.length - 1 ? "border-b" : ""}`}
+                >
+                  <span className="text-muted-foreground">{entry.day}</span>
+                  <span className="font-medium">{entry.time}</span>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

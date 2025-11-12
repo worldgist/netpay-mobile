@@ -15,7 +15,8 @@ interface EducationService {
   exam_type: string;
   service_name: string;
   price: number;
-  api_code: string;
+  api_code: string | null;
+  service_id: string;
 }
 
 const PurchaseEducation = () => {
@@ -150,7 +151,8 @@ const PurchaseEducation = () => {
         body: {
           phone_number: phoneNumber,
           exam_type: selectedServiceData.exam_type,
-          service_id: selectedServiceData.id,
+          education_service_id: selectedServiceData.id,
+          service_id: selectedServiceData.service_id,
           api_code: selectedServiceData.api_code,
           amount: selectedServiceData.price
         }

@@ -25,19 +25,31 @@ interface ElectricityProvider {
   id: string;
   name: string;
   logo: string;
+  providerCode: string;
+  meterType: "prepaid" | "postpaid";
 }
 
 const providers: ElectricityProvider[] = [
-  { id: 'IKEDC', name: 'Ikeja Electric', logo: '/IKEDC.png' },
-  { id: 'EKEDC', name: 'Eko Electric', logo: '/EKEDC.png' },
-  { id: 'AEDC', name: 'Abuja Electric', logo: '/AEDC.png' },
-  { id: 'KAEDCO', name: 'Kaduna Electric', logo: '/KAEDCO.png' },
-  { id: 'IBEDC', name: 'Ibadan Electric', logo: '/IBEDC.png' },
-  { id: 'KEDCO', name: 'Kano Electric', logo: '/KEDCO.png' },
-  { id: 'PHEDC', name: 'Port Harcourt Electric', logo: '/PHEDC.png' },
-  { id: 'JED', name: 'Jos Electric', logo: '/JED.png' },
-  { id: 'BEDC', name: 'Benin Electric', logo: '/BEDC.png' },
-  { id: 'YEDC', name: 'Yola Electric', logo: '/YEDC.png' },
+  { id: 'IKEJA_PREPAID', name: 'Ikeja Electricity Token Purchase', logo: '/IKEDC.png', providerCode: 'IKEJA', meterType: 'prepaid' },
+  { id: 'IKEJA_POSTPAID', name: 'Ikeja Electricity Bills', logo: '/IKEDC.png', providerCode: 'IKEJA', meterType: 'postpaid' },
+  { id: 'EKO_PREPAID', name: 'Eko Electricity Prepaid', logo: '/EKEDC.png', providerCode: 'EKO', meterType: 'prepaid' },
+  { id: 'EKO_POSTPAID', name: 'Eko Electricity Postpaid', logo: '/EKEDC.png', providerCode: 'EKO', meterType: 'postpaid' },
+  { id: 'ABUJA_PREPAID', name: 'Abuja Electricity Prepaid', logo: '/AEDC.png', providerCode: 'ABUJA', meterType: 'prepaid' },
+  { id: 'ABUJA_POSTPAID', name: 'Abuja Electricity Postpaid', logo: '/AEDC.png', providerCode: 'ABUJA', meterType: 'postpaid' },
+  { id: 'KADUNA_PREPAID', name: 'Kaduna Electricity Prepaid', logo: '/KAEDCO.png', providerCode: 'KADUNA', meterType: 'prepaid' },
+  { id: 'KADUNA_POSTPAID', name: 'Kaduna Electricity Postpaid', logo: '/KAEDCO.png', providerCode: 'KADUNA', meterType: 'postpaid' },
+  { id: 'IBADAN_PREPAID', name: 'Ibadan Electricity Prepaid', logo: '/IBEDC.png', providerCode: 'IBADAN', meterType: 'prepaid' },
+  { id: 'IBADAN_POSTPAID', name: 'Ibadan Electricity Postpaid', logo: '/IBEDC.png', providerCode: 'IBADAN', meterType: 'postpaid' },
+  { id: 'KANO_PREPAID', name: 'Kano Electricity Distribution Prepaid', logo: '/KEDCO.png', providerCode: 'KANO', meterType: 'prepaid' },
+  { id: 'KANO_POSTPAID', name: 'Kano Electricity Distribution Postpaid', logo: '/KEDCO.png', providerCode: 'KANO', meterType: 'postpaid' },
+  { id: 'PORTHARCOURT_PREPAID', name: 'Port-Harcourt Electricity Prepaid', logo: '/PHEDC.png', providerCode: 'PORTHARCOURT', meterType: 'prepaid' },
+  { id: 'PORTHARCOURT_POSTPAID', name: 'Port-Harcourt Electricity Postpaid', logo: '/PHEDC.png', providerCode: 'PORTHARCOURT', meterType: 'postpaid' },
+  { id: 'JOS_PREPAID', name: 'Jos Electricity Prepaid', logo: '/JED.png', providerCode: 'JOS', meterType: 'prepaid' },
+  { id: 'JOS_POSTPAID', name: 'Jos Electricity Postpaid', logo: '/JED.png', providerCode: 'JOS', meterType: 'postpaid' },
+  { id: 'BENIN_PREPAID', name: 'Benin Electricity Prepaid', logo: '/BEDC.png', providerCode: 'BENIN', meterType: 'prepaid' },
+  { id: 'BENIN_POSTPAID', name: 'Benin Electricity Postpaid', logo: '/BEDC.png', providerCode: 'BENIN', meterType: 'postpaid' },
+  { id: 'YOLA_PREPAID', name: 'Yola Electricity Prepaid', logo: '/YEDC.png', providerCode: 'YOLA', meterType: 'prepaid' },
+  { id: 'YOLA_POSTPAID', name: 'Yola Electricity Postpaid', logo: '/YEDC.png', providerCode: 'YOLA', meterType: 'postpaid' },
 ];
 
 const PurchaseElectricity = () => {
@@ -46,6 +58,7 @@ const PurchaseElectricity = () => {
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState("");
+  const [selectedProviderOption, setSelectedProviderOption] = useState("");
   const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid");
   const [meterNumber, setMeterNumber] = useState("");
   const [amount, setAmount] = useState("");
@@ -111,8 +124,8 @@ const PurchaseElectricity = () => {
     fetchInitialData();
   }, [navigate, toast]);
 
-  const getProviderLogo = (providerId: string) => {
-    return providers.find(p => p.id === providerId)?.logo || '';
+  const getProviderLogo = () => {
+    return providers.find(p => p.id === selectedProviderOption)?.logo || '';
   };
 
   const handleValidateMeter = async () => {
@@ -203,7 +216,14 @@ const PurchaseElectricity = () => {
           provider: selectedProvider,
           meter_type: meterType,
           amount: Number(amount),
-          phone: phone
+          phone: phone,
+          customer_name: meterInfo?.customer_name ?? null,
+          customer_address: meterInfo?.address ?? null,
+          tariff: meterInfo?.tariff ?? null,
+          minimum_vend: meterInfo?.minimum_vend ?? null,
+          outstanding_amount: meterInfo?.outstanding_amount ?? null,
+          customer_category: meterInfo?.customer_category ?? null,
+          business_unit: meterInfo?.business_unit ?? null,
         }
       });
 
@@ -285,10 +305,18 @@ const PurchaseElectricity = () => {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Select Provider</Label>
-              <Select value={selectedProvider} onValueChange={(value) => {
-                setSelectedProvider(value);
-                setMeterInfo(null);
-              }}>
+              <Select
+                value={selectedProviderOption}
+                onValueChange={(value) => {
+                  const providerOption = providers.find(p => p.id === value);
+                  if (providerOption) {
+                    setSelectedProviderOption(providerOption.id);
+                    setSelectedProvider(providerOption.providerCode);
+                    setMeterType(providerOption.meterType);
+                    setMeterInfo(null);
+                  }
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Choose electricity provider" />
                 </SelectTrigger>
@@ -313,10 +341,20 @@ const PurchaseElectricity = () => {
               <>
                 <div className="space-y-2">
                   <Label>Meter Type</Label>
-                  <Select value={meterType} onValueChange={(value) => {
-                    setMeterType(value as "prepaid" | "postpaid");
-                    setMeterInfo(null);
-                  }}>
+                  <Select
+                    value={meterType}
+                    onValueChange={(value) => {
+                      const newType = value as "prepaid" | "postpaid";
+                      setMeterType(newType);
+                      setMeterInfo(null);
+                      const matchingOption = providers.find(
+                        (option) => option.providerCode === selectedProvider && option.meterType === newType
+                      );
+                      if (matchingOption) {
+                        setSelectedProviderOption(matchingOption.id);
+                      }
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -354,10 +392,24 @@ const PurchaseElectricity = () => {
                     <p className="text-sm text-destructive">{String(errors.meter_number.message)}</p>
                   )}
                   {meterInfo && (
-                    <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 p-2 rounded">
-                      <CheckCircle className="h-4 w-4" />
-                      <span>{meterInfo.customer_name}</span>
-                    </div>
+                <div className="bg-green-50 border border-green-200 p-3 rounded-lg space-y-1 text-sm text-green-700">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    <span className="font-semibold">{meterInfo.customer_name}</span>
+                  </div>
+                  {meterInfo.address && <p>{meterInfo.address}</p>}
+                  <div className="grid grid-cols-2 gap-2 text-xs text-green-600">
+                    <span>Tariff: {meterInfo.tariff || '—'}</span>
+                    <span>Min Vend: ₦{meterInfo.minimum_vend?.toLocaleString?.() ?? meterInfo.minimum_vend ?? '0'}</span>
+                    <span>Category: {meterInfo.customer_category || '—'}</span>
+                    <span>Business Unit: {meterInfo.business_unit || '—'}</span>
+                    {meterInfo.outstanding_amount !== undefined && (
+                      <span className="col-span-2">
+                        Outstanding: ₦{Number(meterInfo.outstanding_amount).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
                   )}
                 </div>
 
@@ -417,15 +469,15 @@ const PurchaseElectricity = () => {
             <div className="flex justify-center py-4">
               <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center">
                 <img 
-                  src={getProviderLogo(selectedProvider)} 
-                  alt={providers.find(p => p.id === selectedProvider)?.name}
+                  src={getProviderLogo()} 
+                  alt={providers.find(p => p.id === selectedProviderOption)?.name}
                   className="w-14 h-14 object-contain"
                 />
               </div>
             </div>
             <div className="flex justify-between">
               <span>Provider:</span>
-              <span className="font-semibold">{providers.find(p => p.id === selectedProvider)?.name}</span>
+              <span className="font-semibold">{providers.find(p => p.id === selectedProviderOption)?.name}</span>
             </div>
             <div className="flex justify-between">
               <span>Meter Type:</span>
@@ -436,9 +488,46 @@ const PurchaseElectricity = () => {
               <span className="font-semibold">{meterNumber}</span>
             </div>
             {meterInfo && (
-              <div className="flex justify-between">
-                <span>Customer:</span>
-                <span className="font-semibold">{meterInfo.customer_name}</span>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Customer:</span>
+                  <span className="font-semibold text-foreground">{meterInfo.customer_name}</span>
+                </div>
+                {meterInfo.address && (
+                  <div className="text-muted-foreground">
+                    <span className="font-semibold text-foreground">Address:</span> {meterInfo.address}
+                  </div>
+                )}
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Tariff:</span>
+                  <span className="font-medium text-foreground">{meterInfo.tariff || '—'}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Minimum Vend:</span>
+                  <span className="font-medium text-foreground">
+                    ₦{Number(meterInfo.minimum_vend ?? 0).toLocaleString()}
+                  </span>
+                </div>
+                {meterInfo.outstanding_amount !== undefined && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Outstanding:</span>
+                    <span className="font-medium text-foreground">
+                      ₦{Number(meterInfo.outstanding_amount ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {meterInfo.customer_category && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Category:</span>
+                    <span className="font-medium text-foreground">{meterInfo.customer_category}</span>
+                  </div>
+                )}
+                {meterInfo.business_unit && (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Business Unit:</span>
+                    <span className="font-medium text-foreground">{meterInfo.business_unit}</span>
+                  </div>
+                )}
               </div>
             )}
             <div className="flex justify-between">
@@ -474,6 +563,29 @@ const PurchaseElectricity = () => {
                   <p className="text-lg font-mono font-bold">{transactionDetails.token}</p>
                 </div>
               )}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <span className="text-muted-foreground">Provider:</span>
+                <span className="font-semibold text-foreground">
+                  {providers.find(p => p.providerCode === transactionDetails.provider && p.meterType === transactionDetails.meter_type)?.name ||
+                    transactionDetails.provider}
+                </span>
+                <span className="text-muted-foreground">Meter Type:</span>
+                <span className="font-semibold text-foreground capitalize">{transactionDetails.meter_type}</span>
+                <span className="text-muted-foreground">Meter Number:</span>
+                <span className="font-semibold text-foreground">{transactionDetails.meter_number}</span>
+                {transactionDetails.customer_name && (
+                  <>
+                    <span className="text-muted-foreground">Customer:</span>
+                    <span className="font-semibold text-foreground">{transactionDetails.customer_name}</span>
+                  </>
+                )}
+                {transactionDetails.customer_address && (
+                  <>
+                    <span className="text-muted-foreground">Address:</span>
+                    <span className="text-foreground">{transactionDetails.customer_address}</span>
+                  </>
+                )}
+              </div>
               <div className="flex justify-between">
                 <span>Reference:</span>
                 <span className="font-semibold">{transactionDetails.reference}</span>

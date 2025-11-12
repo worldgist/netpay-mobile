@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, RefreshControl, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ export default function TransferScreen() {
   const [transferLoading, setTransferLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState('');
+  const [verificationSuccess, setVerificationSuccess] = useState(false);
 
   const amountValue = useMemo(() => parseFloat(amount) || 0, [amount]);
   const canTransfer = !!recipientDetails && amountValue > 0 && amountValue <= balance && !transferLoading;
@@ -94,10 +95,26 @@ export default function TransferScreen() {
       setVerifying(true);
       setError(null);
 
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
+      }
+
+      const accessToken = session.access_token;
+
       const { data: verifyResponse, error: verifyError } = await supabase.functions.invoke('verify-transfer-recipient', {
         body: {
           email: trimmedEmail,
         },
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
       });
 
       if (verifyError) {
@@ -117,11 +134,12 @@ export default function TransferScreen() {
         full_name: recipientData.full_name,
         email: recipientData.email,
       });
-      Alert.alert('Verified', `${recipientData.full_name || 'Recipient'} verified successfully.`);
+      setVerificationSuccess(true);
     } catch (err) {
       console.error('Verify recipient error:', err);
       Alert.alert('Verification Failed', 'Unable to verify recipient. Please try again later.');
       setRecipientDetails(null);
+      setVerificationSuccess(false);
     } finally {
       setVerifying(false);
     }
@@ -147,7 +165,7 @@ export default function TransferScreen() {
   };
 
   const handleConfirmTransfer = async () => {
-    if (!recipientDetails) return;
+    if (!recipientDetails || transferLoading) return;
 
     try {
       setTransferLoading(true);
@@ -161,12 +179,19 @@ export default function TransferScreen() {
         return;
       }
 
+      const accessToken = session.access_token;
+
       const { data, error: transferError } = await supabase.functions.invoke('transfer-funds', {
         body: {
           recipientEmail: recipientDetails.email.toLowerCase(),
           amount: amountValue,
           description: description.trim() || undefined,
         },
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
       });
 
       if (transferError) throw transferError;
@@ -372,7 +397,33 @@ export default function TransferScreen() {
         amount={amountValue}
         recipientEmail={recipientDetails?.email || recipientEmail}
         description={description.trim() || undefined}
+        loading={transferLoading}
       />
+
+      <Modal
+        visible={verificationSuccess}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setVerificationSuccess(false)}
+      >
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <View style={styles.successIconCircle}>
+              <MaterialIcons name="check-circle" size={36} color="#4CAF50" />
+            </View>
+            <ThemedText style={styles.successTitle}>Recipient Verified</ThemedText>
+            <ThemedText style={styles.successMessage}>
+              You can now proceed with the transfer to this recipient.
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.successButton}
+              onPress={() => setVerificationSuccess(false)}
+            >
+              <ThemedText style={styles.successButtonText}>Continue</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -583,11 +634,66 @@ const styles = StyleSheet.create({
   },
   noteText: {
     fontSize: 13,
-    color: '#1976D2',
-    lineHeight: 20,
+    color: '#555',
+    lineHeight: 18,
   },
   noteBold: {
     fontWeight: 'bold',
+  },
+  successOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  successCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  successIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1B5E20',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  successMessage: {
+    fontSize: 15,
+    color: '#4A4A4A',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  successButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+  },
+  successButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

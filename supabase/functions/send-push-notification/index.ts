@@ -110,16 +110,33 @@ serve(async (req) => {
     }
 
     if (expoMessages.length === 0) {
+      const statusPayload = {
+        success: errors.length === 0,
+        delivered: 0,
+        errors,
+        message: errors.length === 0
+          ? "No notifications to send."
+          : "No valid Expo push tokens found for the provided targets.",
+      };
+
       return new Response(
-        JSON.stringify({ success: errors.length === 0, errors }),
-        { status: errors.length === 0 ? 200 : 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify(statusPayload),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const expoResponse = await sendExpoNotification(expoMessages);
 
+    const successfullyEnqueued =
+      Array.isArray(expoResponse?.data) ? expoResponse.data.length : expoMessages.length;
+
     return new Response(
-      JSON.stringify({ success: true, data: expoResponse, errors }),
+      JSON.stringify({
+        success: true,
+        delivered: successfullyEnqueued,
+        data: expoResponse,
+        errors,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {

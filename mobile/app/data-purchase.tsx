@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ImageSourcePropType } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ImageSourcePropType, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -10,7 +10,6 @@ import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { supabase } from '@/lib/supabase';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
-import { createTransactionNotification } from '@/utils/notifications';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -122,12 +121,24 @@ export default function DataPurchaseScreen() {
   const [balance, setBalance] = useState(0);
   const [networks, setNetworks] = useState<NetworkOption[]>([]);
   const [plansByNetwork, setPlansByNetwork] = useState<Record<string, DataPlan[]>>({});
+const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
+  const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
 
   const isMounted = useRef(true);
   const selectedNetworkRef = useRef<string | null>(null);
   const dataPlanRef = useRef<string>('');
+const pendingPurchaseRef = useRef<{
+  phone: string;
+  planId: string;
+  networkId: string | null;
+}>({
+  phone: '',
+  planId: '',
+  networkId: null,
+});
 
   useEffect(() => {
     isMounted.current = true;
@@ -152,7 +163,9 @@ export default function DataPurchaseScreen() {
       }
 
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        throw sessionError;
+      }
 
       const session = sessionData.session;
       if (!session) {
@@ -162,7 +175,12 @@ export default function DataPurchaseScreen() {
 
       const userId = session.user.id;
 
-      const [profileRes, plansRes] = await Promise.all([
+      const accessToken = session.access_token;
+      if (!accessToken) {
+        throw new Error('Missing access token. Please sign in again.');
+      }
+
+      const [profileRes, plansRes, networksRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('balance')
@@ -173,6 +191,11 @@ export default function DataPurchaseScreen() {
           .select('id, network, plan_name, price, validity')
           .order('network', { ascending: true })
           .order('price', { ascending: true }),
+        supabase.functions.invoke('fetch-smeplug-networks', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }),
       ]);
 
       if (profileRes.error && profileRes.error.code !== 'PGRST116') {
@@ -181,6 +204,30 @@ export default function DataPurchaseScreen() {
 
       if (plansRes.error) {
         throw plansRes.error;
+      }
+
+      let fetchedNetworkMap: Record<string, string> = {};
+
+      if (networksRes.error) {
+        console.warn('Failed to fetch SMEPLUG networks. Falling back to default mapping:', networksRes.error);
+      } else {
+        const networkPayload = networksRes.data;
+        if (networkPayload?.success && Array.isArray(networkPayload.data) && networkPayload.data.length > 0) {
+          networkPayload.data.forEach((item: { id: string; name: string; network_id: string }) => {
+            const normalizedFromName = normalizeNetwork(item.name);
+            const normalizedFromId = normalizeNetwork(item.id);
+            const derivedKey = normalizedFromName || normalizedFromId;
+            if (derivedKey) {
+              fetchedNetworkMap[derivedKey] = String(item.network_id || item.id);
+            }
+          });
+        } else {
+          console.warn('SMEPLUG networks function returned no data. Falling back to default mapping.');
+        }
+      }
+
+      if (Object.keys(fetchedNetworkMap).length === 0) {
+        fetchedNetworkMap = { ...SMEPLUG_NETWORK_IDS };
       }
 
       const balanceValue = profileRes.data ? Number(profileRes.data.balance) : 0;
@@ -244,6 +291,12 @@ export default function DataPurchaseScreen() {
         setNetworks(networkList);
         setSelectedNetwork(effectiveNetwork);
         setDataPlan(effectivePlanId);
+        setNetworkIdMap(fetchedNetworkMap);
+        pendingPurchaseRef.current = {
+          phone: '',
+          planId: effectivePlanId || '',
+          networkId: effectiveNetwork || '',
+        };
       }
     } catch (err) {
       console.error('Failed to fetch data plans:', err);
@@ -291,12 +344,18 @@ export default function DataPurchaseScreen() {
     }
 
     if (selectedPlan.price > balance) {
-      Alert.alert(
-        'Insufficient Balance',
+      setInsufficientFundsMessage(
         `Your wallet balance is ${formatCurrency(balance)}. Please fund your wallet to continue.`
       );
+      setShowInsufficientFundsModal(true);
       return;
     }
+
+    pendingPurchaseRef.current = {
+      phone: normalizedPhone,
+      planId: dataPlan,
+      networkId: selectedNetwork,
+    };
 
     setShowConfirmModal(true);
   };
@@ -307,13 +366,41 @@ export default function DataPurchaseScreen() {
     setIsProcessing(true);
 
     try {
-      const rawNetworkId = SMEPLUG_NETWORK_IDS[selectedNetwork];
+      const { phone: pendingPhone, planId: pendingPlanId, networkId: pendingNetworkId } =
+        pendingPurchaseRef.current;
+
+      const normalizedStatePlanId = dataPlan || '';
+      const normalizedStateNetworkId = selectedNetwork || '';
+      const normalizedStatePhone = phoneNumber.replace(/\s+/g, '').trim();
+
+      const effectivePlanId =
+        pendingPlanId && pendingPlanId.length > 0 ? pendingPlanId : normalizedStatePlanId;
+      const effectiveNetworkId =
+        pendingNetworkId && pendingNetworkId.length > 0 ? pendingNetworkId : normalizedStateNetworkId;
+      const effectivePhone =
+        pendingPhone && pendingPhone.length > 0 ? pendingPhone : normalizedStatePhone;
+
+      if (!effectivePlanId) {
+        Alert.alert('Data Purchase', 'Please select a data plan.');
+        return;
+      }
+
+      if (!effectiveNetworkId) {
+        Alert.alert('Data Purchase', 'Unable to determine the selected network. Please try again.');
+        return;
+      }
+
+      const rawNetworkId =
+        networkIdMap[effectiveNetworkId] ||
+        SMEPLUG_NETWORK_IDS[effectiveNetworkId] ||
+        networkIdMap[selectedNetworkName?.toUpperCase?.() ?? ''] ||
+        null;
       if (!rawNetworkId) {
         Alert.alert('Data Purchase', 'Unable to determine the network ID for this provider. Please try again.');
         return;
       }
 
-      const sanitizedPhoneNumber = phoneNumber.replace(/\s+/g, '').trim();
+      const sanitizedPhoneNumber = effectivePhone.replace(/\s+/g, '').trim();
       if (!sanitizedPhoneNumber) {
         Alert.alert('Data Purchase', 'Phone number is required.');
         return;
@@ -321,19 +408,27 @@ export default function DataPurchaseScreen() {
 
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        Alert.alert('Session Expired', 'Please sign in again to continue.');
+        router.replace('/auth/login');
+        return;
+      }
+
+      const requestBody = {
+        phone_number: sanitizedPhoneNumber,
+        plan_id: effectivePlanId,
+        network_id: rawNetworkId,
+        network_name: selectedNetworkName,
+      };
+
+      console.log('Submitting purchase-smeplug-data request:', requestBody);
 
       const { data, error } = await supabase.functions.invoke('purchase-smeplug-data', {
-        body: {
-          phone_number: sanitizedPhoneNumber,
-          plan_id: selectedPlan.id,
-          network_id: rawNetworkId,
-          network_name: selectedNetworkName,
+        body: requestBody,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
-        headers: accessToken
-          ? {
-              Authorization: `Bearer ${accessToken}`,
-            }
-          : undefined,
       });
 
       if (error) {
@@ -353,11 +448,6 @@ export default function DataPurchaseScreen() {
       setShowConfirmModal(false);
 
       const reference = data?.data?.reference || '';
-
-      await createTransactionNotification({
-        title: 'Data Purchase Successful',
-        message: `${selectedPlanLabel || selectedPlan.planName} on ${selectedNetworkName} for ${sanitizedPhoneNumber}${reference ? ` (ref: ${reference})` : ''}.`,
-      });
 
       router.push({
         pathname: '/payment-success',
@@ -400,7 +490,7 @@ export default function DataPurchaseScreen() {
     } finally {
       setIsProcessing(false);
     }
-  }, [phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
+  }, [networkIdMap, phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
 
   const currentPlans = useMemo(() => {
     return selectedNetwork ? plansByNetwork[selectedNetwork] || [] : [];
@@ -604,6 +694,40 @@ export default function DataPurchaseScreen() {
           </View>
         </View>
       )}
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={showInsufficientFundsModal}
+        onRequestClose={() => setShowInsufficientFundsModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.insufficientModal}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="account-balance-wallet" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Insufficient Balance</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              {insufficientFundsMessage ||
+                'Your wallet balance is insufficient for this transaction. Please fund your wallet to continue.'}
+            </ThemedText>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={() => {
+                  setShowInsufficientFundsModal(false);
+                  router.push('/add-money');
+                }}>
+                <ThemedText style={styles.modalPrimaryButtonText}>Fund Wallet</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={() => setShowInsufficientFundsModal(false)}>
+                <ThemedText style={styles.modalSecondaryButtonText}>Close</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -800,6 +924,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 60,
+  },
+  insufficientModal: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+  },
+  modalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 127, 0, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: '#4A4A4A',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  modalActions: {
+    width: '100%',
+    gap: 12,
+  },
+  modalPrimaryButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+  },
+  modalPrimaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalSecondaryButton: {
+    backgroundColor: 'rgba(255, 127, 0, 0.12)',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+  },
+  modalSecondaryButtonText: {
+    color: '#FF7F00',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   errorBanner: {
     flexDirection: 'row',

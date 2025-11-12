@@ -57,7 +57,23 @@ export default function MobileNig() {
   const fetchMobileNigData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-mobilenig-balance');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        throw new Error('Please sign in again to view MobileNig details.');
+      }
+
+      const accessToken = session.access_token;
+
+      const { data, error } = await supabase.functions.invoke('fetch-mobilenig-balance', {
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
+      });
 
       if (error) throw error;
 
@@ -82,12 +98,27 @@ export default function MobileNig() {
   const fetchWalletHistory = async (transId?: string) => {
     setLoadingTransactions(true);
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        throw new Error('Please sign in again to view transaction history.');
+      }
+
+      const accessToken = session.access_token;
+
       const payload = transId 
         ? { trans_id: transId }
         : { page, per_page: 10 };
 
       const { data, error } = await supabase.functions.invoke('fetch-mobilenig-wallet-history', {
         body: payload,
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
       });
 
       if (error) throw error;

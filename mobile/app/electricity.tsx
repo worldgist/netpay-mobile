@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -11,7 +11,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
-import { createTransactionNotification } from '@/utils/notifications';
 
 type ElectricityProvider = {
   id: string;
@@ -129,6 +128,10 @@ export default function ElectricityScreen() {
   const [providerFilter, setProviderFilter] = useState('all');
   const [balance, setBalance] = useState<number>(0);
   const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [showVerificationErrorModal, setShowVerificationErrorModal] = useState(false);
+  const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
+  const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -228,6 +231,8 @@ export default function ElectricityScreen() {
       setVerificationLoading(true);
       setToken(null);
       setVerifiedName(null);
+      setVerificationError(null);
+      setShowVerificationErrorModal(false);
       const { data, error } = await supabase.functions.invoke('validate-meter-number', {
         body: {
           meter_number: meterNumber.trim(),
@@ -241,7 +246,9 @@ export default function ElectricityScreen() {
       }
 
       if (!data?.success) {
-        Alert.alert('Verification Failed', data?.error || 'Meter not found.');
+        const failedMessage = data?.error || data?.details?.message || 'Meter not found.';
+        setVerificationError(failedMessage);
+        setShowVerificationErrorModal(true);
         return;
       }
 
@@ -252,7 +259,8 @@ export default function ElectricityScreen() {
     } catch (error) {
       console.error('Meter verification failed:', error);
       const message = error instanceof Error ? error.message : 'Unable to verify meter at the moment.';
-      Alert.alert('Verification Failed', message);
+      setVerificationError(message);
+      setShowVerificationErrorModal(true);
       setVerifiedAddress(null);
     } finally {
       setVerificationLoading(false);
@@ -306,7 +314,12 @@ export default function ElectricityScreen() {
       }
     }
     if (purchaseAmount > balance) {
-      Alert.alert('Insufficient Balance', `Your wallet balance is ₦${balance.toLocaleString()}. Please fund your wallet to continue.`);
+      const formattedBalance = `₦${Number(balance).toLocaleString('en-NG', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+      setInsufficientFundsMessage(`Your wallet balance is ${formattedBalance}. Please fund your wallet to continue.`);
+      setShowInsufficientFundsModal(true);
       return;
     }
 
@@ -377,16 +390,6 @@ export default function ElectricityScreen() {
       setVerifiedAddress(customerAddress || '');
       setShowConfirmModal(false);
       await fetchBalance();
-
-      const formattedAmount = `₦${Number(purchaseAmount).toLocaleString('en-NG', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`;
-
-      await createTransactionNotification({
-        title: 'Electricity Purchase Successful',
-        message: `${providerName} ${meterType.toUpperCase()} meter ${sanitizedMeter} charged ${formattedAmount}${purchaseToken ? ` • Token: ${purchaseToken}` : ''}${reference ? ` • Ref: ${reference}` : ''}.`,
-      });
 
       router.push({
         pathname: '/payment-success',
@@ -745,6 +748,63 @@ export default function ElectricityScreen() {
           planDetails={planDetailsSummary}
         />
       )}
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={showVerificationErrorModal}
+        onRequestClose={() => setShowVerificationErrorModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.errorModal}>
+            <View style={styles.errorIconContainer}>
+              <MaterialIcons name="error-outline" size={36} color="#FF4D4F" />
+            </View>
+            <ThemedText style={styles.errorTitle}>Verification Failed</ThemedText>
+            <ThemedText style={styles.errorMessage}>
+              {verificationError || 'We could not validate this meter number. Please check the number and try again.'}
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.errorButton}
+              onPress={() => setShowVerificationErrorModal(false)}>
+              <ThemedText style={styles.errorButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={showInsufficientFundsModal}
+        onRequestClose={() => setShowInsufficientFundsModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.errorModal}>
+            <View style={styles.errorIconContainer}>
+              <MaterialIcons name="account-balance-wallet" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.errorTitle}>Insufficient Balance</ThemedText>
+            <ThemedText style={styles.errorMessage}>
+              {insufficientFundsMessage ||
+                'Your wallet balance is insufficient for this transaction. Please fund your wallet to continue.'}
+            </ThemedText>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.errorButton}
+                onPress={() => {
+                  setShowInsufficientFundsModal(false);
+                  router.push('/add-money');
+                }}>
+                <ThemedText style={styles.errorButtonText}>Fund Wallet</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.errorSecondaryButton}
+                onPress={() => setShowInsufficientFundsModal(false)}>
+                <ThemedText style={styles.errorSecondaryButtonText}>Close</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -965,6 +1025,71 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
     color: '#666',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  errorModal: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+  },
+  errorIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 77, 79, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  errorMessage: {
+    fontSize: 15,
+    color: '#4A4A4A',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  errorButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+  },
+  errorButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalActions: {
+    width: '100%',
+    gap: 12,
+  },
+  errorSecondaryButton: {
+    backgroundColor: 'rgba(255, 127, 0, 0.12)',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+  },
+  errorSecondaryButtonText: {
+    color: '#FF7F00',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

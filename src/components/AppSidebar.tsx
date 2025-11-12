@@ -1,4 +1,24 @@
-import { LayoutDashboard, Users, Settings, DollarSign, CreditCard, TrendingUp, LogOut, Bell, Wifi, Zap, Tv, Smartphone, GraduationCap, Globe, Gift, FileText, UserCog } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  Settings,
+  DollarSign,
+  CreditCard,
+  TrendingUp,
+  LogOut,
+  Bell,
+  Wifi,
+  Zap,
+  Tv,
+  Smartphone,
+  GraduationCap,
+  Globe,
+  Gift,
+  FileText,
+  UserCog,
+  LifeBuoy,
+  ShieldCheck,
+} from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -30,8 +50,11 @@ const menuItems = [
   { title: "Referrals", url: "/referrals", icon: Gift },
   { title: "Users", url: "/users", icon: Users },
   { title: "Staff", url: "/staff", icon: UserCog },
+  { title: "HR Manager", url: "/hr", icon: Users },
+  { title: "Compliance", url: "/compliance", icon: ShieldCheck },
   { title: "Content", url: "/content", icon: FileText },
   { title: "Notifications", url: "/notifications", icon: Bell },
+  { title: "Support", url: "/contact", icon: LifeBuoy },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

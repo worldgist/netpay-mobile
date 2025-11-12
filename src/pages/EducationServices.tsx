@@ -33,11 +33,18 @@ interface EducationService {
   exam_type: string;
   service_name: string;
   price: number;
-  api_code: string;
+  api_code: string | null;
+  service_id: string;
   is_active: boolean;
 }
 
-const EXAM_TYPES = ["WAEC", "NECO", "JAMB"];
+const EXAM_TYPES = ["WAEC", "NECO", "JAMB"] as const;
+
+const DEFAULT_SERVICE_IDS: Record<string, string> = {
+  WAEC: "AJA",
+  NECO: "AJC",
+  JAMB: "AJB",
+};
 
 const getEducationLogo = (examType: string) => {
   const logos: Record<string, string> = {
@@ -59,6 +66,7 @@ export default function EducationServices() {
     service_name: "",
     price: "",
     api_code: "",
+    service_id: "",
     is_active: true,
   });
   const { toast } = useToast();
@@ -88,13 +96,38 @@ export default function EducationServices() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const normalizedExamType = formData.exam_type.toUpperCase();
+    const normalizedServiceId = formData.service_id.trim().toUpperCase();
+    const fallbackServiceId = DEFAULT_SERVICE_IDS[normalizedExamType] || "";
+
+    const parsedPrice = parseFloat(formData.price);
+
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      toast({
+        title: "Invalid Price",
+        description: "Please enter a valid price greater than zero.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const serviceData = {
-      exam_type: formData.exam_type,
+      exam_type: normalizedExamType,
       service_name: formData.service_name,
-      price: parseFloat(formData.price),
-      api_code: formData.api_code,
+      price: parsedPrice,
+      service_id: normalizedServiceId || fallbackServiceId || (formData.api_code || "").trim().toUpperCase(),
+      api_code: (formData.api_code || "").trim().toUpperCase() || normalizedServiceId || fallbackServiceId,
       is_active: formData.is_active,
     };
+
+    if (!serviceData.service_id) {
+      toast({
+        title: "Invalid Service ID",
+        description: "Please provide a valid service ID.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (editingService) {
       const { error } = await supabase
@@ -144,7 +177,8 @@ export default function EducationServices() {
       exam_type: service.exam_type,
       service_name: service.service_name,
       price: service.price.toString(),
-      api_code: service.api_code,
+      api_code: service.api_code?.toUpperCase?.() ?? "",
+      service_id: service.service_id.toUpperCase(),
       is_active: service.is_active,
     });
     setIsDialogOpen(true);
@@ -176,6 +210,7 @@ export default function EducationServices() {
       service_name: "",
       price: "",
       api_code: "",
+      service_id: "",
       is_active: true,
     });
     setEditingService(null);
@@ -207,7 +242,7 @@ export default function EducationServices() {
         const { error: upsertError } = await supabase
           .from('education_services')
           .upsert(servicesData, { 
-            onConflict: 'exam_type,api_code',
+            onConflict: 'exam_type,service_id',
             ignoreDuplicates: false 
           });
 
@@ -298,7 +333,26 @@ export default function EducationServices() {
                         <Select
                           value={formData.exam_type}
                           onValueChange={(value) =>
-                            setFormData({ ...formData, exam_type: value })
+                            setFormData({
+                              ...formData,
+                              exam_type: value,
+                              service_id: (
+                                formData.service_id ||
+                                DEFAULT_SERVICE_IDS[value] ||
+                                ""
+                              )
+                                .toString()
+                                .trim()
+                                .toUpperCase(),
+                              api_code: (
+                                formData.api_code ||
+                                DEFAULT_SERVICE_IDS[value] ||
+                                ""
+                              )
+                                .toString()
+                                .trim()
+                                .toUpperCase(),
+                            })
                           }
                           required
                         >
@@ -341,14 +395,25 @@ export default function EducationServices() {
                         />
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="api_code">API Code</Label>
+                        <Label htmlFor="service_id">Service ID</Label>
                         <Input
-                          id="api_code"
-                          value={formData.api_code}
+                          id="service_id"
+                          value={formData.service_id}
                           onChange={(e) =>
-                            setFormData({ ...formData, api_code: e.target.value })
+                            setFormData({
+                              ...formData,
+                              service_id: e.target.value.trim().toUpperCase(),
+                              api_code:
+                                (formData.api_code && formData.api_code.trim() !== ""
+                                  ? formData.api_code
+                                  : e.target.value
+                                )
+                                  .toString()
+                                  .trim()
+                                  .toUpperCase(),
+                            })
                           }
-                          placeholder="e.g. WAEC-RESULT-PIN"
+                          placeholder="e.g. AJA"
                           required
                         />
                       </div>
@@ -423,7 +488,7 @@ export default function EducationServices() {
                       <TableHead>Exam Type</TableHead>
                       <TableHead>Service Name</TableHead>
                       <TableHead>Price</TableHead>
-                      <TableHead>API Code</TableHead>
+                      <TableHead>Service ID</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -451,7 +516,7 @@ export default function EducationServices() {
                           <TableCell>{service.service_name}</TableCell>
                           <TableCell>₦{service.price.toFixed(2)}</TableCell>
                           <TableCell className="font-mono text-sm">
-                            {service.api_code}
+                            {service.service_id}
                           </TableCell>
                           <TableCell>
                             <Badge variant={service.is_active ? "default" : "secondary"}>

@@ -84,9 +84,20 @@ export default function ReferralScreen() {
           .eq('referrer_id', userId)
           .order('created_at', { ascending: false });
 
-        if (referralError) throw referralError;
-
-        if (isMounted.current) {
+        if (referralError) {
+          console.warn('referrals query error:', referralError);
+          if (isMounted.current) {
+            setRecentReferrals([]);
+            setStats({
+              totalReferrals: 0,
+              completedReferrals: 0,
+              pendingReferrals: 0,
+              totalEarnings: 0,
+              paidEarnings: 0,
+              pendingEarnings: 0,
+            });
+          }
+        } else if (isMounted.current) {
           const rows = referralRows || [];
           setRecentReferrals(rows.slice(0, 5));
 
@@ -125,6 +136,9 @@ export default function ReferralScreen() {
         if (isMounted.current && settingsRow) {
           setReferrerReward(Number(settingsRow.referrer_reward || 0));
           setReferredReward(Number(settingsRow.referred_reward || 0));
+        } else if (isMounted.current) {
+          setReferrerReward(null);
+          setReferredReward(null);
         }
       } catch (error) {
         console.error('Failed to load referral data:', error);

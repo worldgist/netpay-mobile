@@ -76,24 +76,50 @@ serve(async (req) => {
     // Parse request body - provider is optional, if not provided, fetch all
     const { provider } = await req.json().catch(() => ({}));
 
-    // Map provider names to MobileNig service IDs (Prepaid and Postpaid)
-    const providerServiceMap: { [key: string]: { prepaid: string; postpaid: string } } = {
-      'IKEDC': { prepaid: 'AMA', postpaid: 'AMB' }, // Ikeja
-      'EKEDC': { prepaid: 'ANA', postpaid: 'ANB' }, // Eko
-      'AEDC': { prepaid: 'AHB', postpaid: 'AHA' }, // Abuja
-      'KAEDCO': { prepaid: 'AGB', postpaid: 'AGA' }, // Kaduna
-      'IBEDC': { prepaid: 'AEA', postpaid: 'AEB' }, // Ibadan
-      'KEDCO': { prepaid: 'AFA', postpaid: 'AFB' }, // Kano
-      'PHEDC': { prepaid: 'ADB', postpaid: 'ADA' }, // Port-Harcourt
-      'JED': { prepaid: 'ACB', postpaid: 'ACA' }, // Jos
-      'BEDC': { prepaid: 'AAB', postpaid: 'AAA' }, // Benin
-      'YEDC': { prepaid: 'ALA', postpaid: 'ALB' }, // Yola
+    const canonicalMap: Record<string, { prepaid: string; postpaid: string }> = {
+      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
+      EKO: { prepaid: 'ANA', postpaid: 'ANB' },
+      ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
+      KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
+      IBADAN: { prepaid: 'AEA', postpaid: 'AEB' },
+      KANO: { prepaid: 'AFA', postpaid: 'AFB' },
+      PORTHARCOURT: { prepaid: 'ADB', postpaid: 'ADA' },
+      JOS: { prepaid: 'ACB', postpaid: 'ACA' },
+      BENIN: { prepaid: 'AAB', postpaid: 'AAA' },
+      YOLA: { prepaid: 'ALA', postpaid: 'ALB' },
     };
 
-    // Determine which providers to fetch
-    const providersToFetch = provider 
-      ? [provider.toUpperCase()] 
-      : Object.keys(providerServiceMap);
+    const aliasMap: Record<string, string> = {
+      IKEDC: 'IKEJA',
+      IKEJAELECTRICITY: 'IKEJA',
+      IKEJAELECTRICITYTOKENPURCHASE: 'IKEJA',
+      IKEJAELECTRICITYBILLS: 'IKEJA',
+      EKEDC: 'EKO',
+      EKOELECTRICITY: 'EKO',
+      AEDC: 'ABUJA',
+      ABUJAELECTRICITY: 'ABUJA',
+      KAEDCO: 'KADUNA',
+      KADUNAELECTRICITY: 'KADUNA',
+      IBEDC: 'IBADAN',
+      IBADANELECTRICITY: 'IBADAN',
+      KEDCO: 'KANO',
+      KANOELECTRICITY: 'KANO',
+      PHEDC: 'PORTHARCOURT',
+      PORTHARCOURTELECTRICITY: 'PORTHARCOURT',
+      JED: 'JOS',
+      JOSELECTRICITY: 'JOS',
+      BEDC: 'BENIN',
+      BENINELECTRICITY: 'BENIN',
+      YEDC: 'YOLA',
+      YOLAELECTRICITY: 'YOLA',
+    };
+
+    const normalizeProvider = (value: string) =>
+      value.toUpperCase().replace(/[^A-Z]/g, '');
+
+    const providersToFetch = provider
+      ? [aliasMap[normalizeProvider(provider)] || normalizeProvider(provider)]
+      : Object.keys(canonicalMap);
 
     console.log(`Fetching packages for ${providersToFetch.length} provider(s):`, providersToFetch);
 
@@ -103,7 +129,7 @@ serve(async (req) => {
 
     // Create fetch promises for all providers
     const fetchPromises = providersToFetch.map(async (prov) => {
-      const serviceIds = providerServiceMap[prov];
+      const serviceIds = canonicalMap[prov];
       
       if (!serviceIds) {
         fetchResults[prov] = { success: false, count: 0, error: 'Invalid provider' };

@@ -1,4 +1,4 @@
-import { StyleSheet, View, TouchableOpacity, Modal, Platform, ScrollView } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Modal, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -9,6 +9,7 @@ interface ConfirmTransferModalProps {
   amount: number;
   recipientEmail: string;
   description?: string;
+  loading?: boolean;
 }
 
 export function ConfirmTransferModal({
@@ -18,6 +19,7 @@ export function ConfirmTransferModal({
   amount,
   recipientEmail,
   description,
+  loading = false,
 }: ConfirmTransferModalProps) {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-US', {
@@ -38,11 +40,11 @@ export function ConfirmTransferModal({
       animationType="slide"
       onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <View style={[styles.modalContent, loading && styles.modalContentDisabled]} pointerEvents={loading ? 'none' : 'auto'}>
           {/* Header */}
           <View style={styles.header}>
             <ThemedText style={styles.headerTitle}>Confirm Transfer</ThemedText>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton} disabled={loading}>
               <MaterialIcons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
@@ -92,7 +94,9 @@ export function ConfirmTransferModal({
               </View>
               <View style={[styles.summaryRow, styles.summaryRowLast]}>
                 <ThemedText style={styles.summaryLabel}>Status</ThemedText>
-                <ThemedText style={styles.statusValue}>Ready</ThemedText>
+                <ThemedText style={[styles.statusValue, loading && styles.statusValueProcessing]}>
+                  {loading ? 'Processing…' : 'Ready'}
+                </ThemedText>
               </View>
             </View>
 
@@ -106,10 +110,30 @@ export function ConfirmTransferModal({
           </ScrollView>
 
           {/* Confirm Button */}
-          <TouchableOpacity style={styles.confirmButton} onPress={onConfirm}>
-            <ThemedText style={styles.confirmButtonText}>Confirm Transfer</ThemedText>
+          <TouchableOpacity
+            style={[styles.confirmButton, loading && styles.confirmButtonDisabled]}
+            onPress={loading ? undefined : onConfirm}
+            activeOpacity={loading ? 1 : 0.8}
+            disabled={loading}
+          >
+            {loading ? (
+              <View style={styles.confirmButtonContent}>
+                <ActivityIndicator color="#fff" style={styles.confirmButtonSpinner} />
+                <ThemedText style={styles.confirmButtonText}>Processing…</ThemedText>
+              </View>
+            ) : (
+              <ThemedText style={styles.confirmButtonText}>Confirm Transfer</ThemedText>
+            )}
           </TouchableOpacity>
         </View>
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="large" color="#FF7F00" style={styles.loadingSpinner} />
+              <ThemedText style={styles.loadingText}>Processing transfer…</ThemedText>
+            </View>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -130,6 +154,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     maxHeight: '85%',
     width: '100%',
+  },
+  modalContentDisabled: {
+    opacity: 0.5,
   },
   scrollView: {
     flex: 1,
@@ -212,7 +239,10 @@ const styles = StyleSheet.create({
   statusValue: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2196F3',
+    color: '#4CAF50',
+  },
+  statusValueProcessing: {
+    color: '#FF9800',
   },
   warningContainer: {
     flexDirection: 'row',
@@ -235,10 +265,45 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
   },
+  confirmButtonDisabled: {
+    opacity: 0.7,
+  },
+  confirmButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  confirmButtonSpinner: {
+    marginRight: 12,
+  },
   confirmButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  loadingSpinner: {
+    marginBottom: 12,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
   },
 });
 

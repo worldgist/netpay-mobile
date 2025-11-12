@@ -103,14 +103,34 @@ serve(async (req) => {
     const responseData: any = {
       success: true,
       balance: {
-        amount: parseFloat(balanceData.details?.balance || '0'),
-        currency: 'NGN',
+        amount: parseFloat(balanceData.details?.balance || balanceData.data?.balance || balanceData.balance || '0'),
+        currency: balanceData.details?.currency || balanceData.data?.currency || 'NGN',
       },
       account: {
-        accountNumber: accountData.details?.account_number || 'N/A',
-        accountName: accountData.details?.account_name || 'N/A',
-        bankName: accountData.details?.bank_name || 'Providus Bank',
-        businessName: 'MobileNig Enterprise Account',
+        accountNumber:
+          accountData.details?.account_number ||
+          accountData.account_number ||
+          accountData.data?.account_number ||
+          accountData.details?.virtual_account_number ||
+          accountData.data?.virtual_account_number ||
+          'N/A',
+        accountName:
+          accountData.details?.account_name ||
+          accountData.account_name ||
+          accountData.data?.account_name ||
+          'N/A',
+        bankName:
+          accountData.details?.bank_name ||
+          accountData.bank_name ||
+          accountData.data?.bank_name ||
+          accountData.details?.bank ||
+          accountData.data?.bank ||
+          'Providus Bank',
+        businessName:
+          accountData.details?.business_name ||
+          accountData.business_name ||
+          accountData.data?.business_name ||
+          'MobileNig Enterprise Account',
       },
     };
 

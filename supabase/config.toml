@@ -50,3 +50,9 @@ verify_jwt = false
 
 [functions.sign-in-with-biometric]
 verify_jwt = false
+
+[functions.fetch-staff-overview]
+verify_jwt = true
+
+[functions.apply-referral-code]
+verify_jwt = false

@@ -50,7 +50,15 @@ serve(async (req) => {
     }
 
     const rawBody = await req.json();
-    const { meter_number, provider, meter_type, amount, phone } = rawBody ?? {};
+    const {
+      meter_number,
+      provider,
+      meter_type,
+      amount,
+      phone,
+      customer_name,
+      customer_address,
+    } = rawBody ?? {};
 
     console.log('Incoming electricity purchase payload:', JSON.stringify(rawBody, null, 2));
 
@@ -117,26 +125,61 @@ serve(async (req) => {
     }
 
     // Map provider to service IDs
-    const providerServiceMap: { [key: string]: { prepaid: string; postpaid: string } } = {
+    const canonicalMap: Record<string, { prepaid: string; postpaid: string }> = {
       IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
-      IKEDC: { prepaid: 'AMA', postpaid: 'AMB' },
       EKO: { prepaid: 'ANA', postpaid: 'ANB' },
-      EKEDC: { prepaid: 'ANA', postpaid: 'ANB' },
       ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
-      AEDC: { prepaid: 'AHB', postpaid: 'AHA' },
       KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
-      KAEDCO: { prepaid: 'AGB', postpaid: 'AGA' },
       IBADAN: { prepaid: 'AEA', postpaid: 'AEB' },
-      IBEDC: { prepaid: 'AEA', postpaid: 'AEB' },
       KANO: { prepaid: 'AFA', postpaid: 'AFB' },
-      KEDCO: { prepaid: 'AFA', postpaid: 'AFB' },
       PORTHARCOURT: { prepaid: 'ADB', postpaid: 'ADA' },
-      PHEDC: { prepaid: 'ADB', postpaid: 'ADA' },
       JOS: { prepaid: 'ACB', postpaid: 'ACA' },
-      JED: { prepaid: 'ACB', postpaid: 'ACA' },
+      BENIN: { prepaid: 'AAB', postpaid: 'AAA' },
+      YOLA: { prepaid: 'ALA', postpaid: 'ALB' },
     };
 
-    const serviceIds = providerServiceMap[providerCode];
+    const aliasMap: Record<string, string> = {
+      IKEDC: 'IKEJA',
+      IKEJAELECTRICITY: 'IKEJA',
+      IKEJAELECTRICITYBILLS: 'IKEJA',
+      IKEJAELECTRICITYTOKENPURCHASE: 'IKEJA',
+      EKEDC: 'EKO',
+      EKOELECTRICITY: 'EKO',
+      EKOELECTRICITYPREPAID: 'EKO',
+      EKOELECTRICITYPOSTPAID: 'EKO',
+      AEDC: 'ABUJA',
+      ABUJAELECTRICITY: 'ABUJA',
+      ABUJAELECTRICITYPREPAID: 'ABUJA',
+      ABUJAELECTRICITYPOSTPAID: 'ABUJA',
+      KAEDCO: 'KADUNA',
+      KADUNAELECTRICITY: 'KADUNA',
+      KADUNAELECTRICITYPREPAID: 'KADUNA',
+      KADUNAELECTRICITYPOSTPAID: 'KADUNA',
+      IBEDC: 'IBADAN',
+      IBADANELECTRICITY: 'IBADAN',
+      IBADANELECTRICITYPREPAID: 'IBADAN',
+      IBADANELECTRICITYPOSTPAID: 'IBADAN',
+      KEDCO: 'KANO',
+      KANOELECTRICITY: 'KANO',
+      KANOELECTRICITYDISTRIBUTIONPREPAID: 'KANO',
+      KANOELECTRICITYDISTRIBUTIONPOSTPAID: 'KANO',
+      PHEDC: 'PORTHARCOURT',
+      PORTHARCOURTELECTRICITY: 'PORTHARCOURT',
+      PORTHARCOURTPREPAID: 'PORTHARCOURT',
+      PORTHARCOURTPOSTPAID: 'PORTHARCOURT',
+      JED: 'JOS',
+      JOSELECTRICITY: 'JOS',
+      JOSELECTRICITYPREPAID: 'JOS',
+      JOSELECTRICITYPOSTPAID: 'JOS',
+      BEDC: 'BENIN',
+      BENINELECTRICITY: 'BENIN',
+      YEDC: 'YOLA',
+      YOLAELECTRICITY: 'YOLA',
+    };
+
+    const normalizedProvider = providerCode.replace(/[^A-Z]/g, '');
+    const canonicalKey = aliasMap[normalizedProvider] || normalizedProvider;
+    const serviceIds = canonicalMap[canonicalKey];
     if (!serviceIds) {
       return new Response(
         JSON.stringify({
@@ -154,6 +197,10 @@ serve(async (req) => {
     // Purchase electricity via MobileNig
     const transId = Date.now().toString();
 
+    const mobilenigTestMode =
+      (Deno.env.get('MOBILENIG_TEST_MODE') || Deno.env.get('MOBILENIG_TESTING') || '').toLowerCase() === 'true';
+    const mobilenigTestPhone = Deno.env.get('MOBILENIG_TEST_PHONE');
+
     const purchasePayload: Record<string, unknown> = {
       service_id: serviceId,
       trans_id: Number(transId),
@@ -161,6 +208,7 @@ serve(async (req) => {
       amount: purchaseAmount,
       customerName: requestedCustomerName || sanitizedMeter,
       customerAddress: requestedCustomerAddress || 'Not Provided',
+      phone: mobilenigTestMode ? (mobilenigTestPhone || sanitizedPhone) : sanitizedPhone,
     };
 
     if (sanitizedPhone) {

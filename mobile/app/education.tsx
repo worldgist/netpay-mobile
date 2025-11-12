@@ -14,7 +14,8 @@ type EducationService = {
   examType: string;
   name: string;
   price: number;
-  apiCode: string;
+  apiCode: string | null;
+   serviceId: string;
   logo: any;
   logoUrl?: string | null;
 };
@@ -25,10 +26,16 @@ const SERVICE_LOGOS: Record<string, any> = {
   JAMB: require('@/assets/images/jamb.png'),
 };
 
+const SERVICE_ID_MAP: Record<string, string> = {
+  WAEC: 'AJA',
+  NECO: 'AJC',
+  JAMB: 'AJB',
+};
+
 const FALLBACK_SERVICES: EducationService[] = [
-  { id: 'waec-fallback', examType: 'WAEC', name: 'WAEC Registration', price: 4500, apiCode: 'WAEC', logo: SERVICE_LOGOS.WAEC },
-  { id: 'neco-fallback', examType: 'NECO', name: 'NECO Registration', price: 4200, apiCode: 'NECO', logo: SERVICE_LOGOS.NECO },
-  { id: 'jamb-fallback', examType: 'JAMB', name: 'JAMB Registration', price: 6500, apiCode: 'JAMB', logo: SERVICE_LOGOS.JAMB },
+  { id: 'waec-fallback', examType: 'WAEC', name: 'WAEC Registration', price: 4500, apiCode: 'WAEC', serviceId: SERVICE_ID_MAP.WAEC, logo: SERVICE_LOGOS.WAEC },
+  { id: 'neco-fallback', examType: 'NECO', name: 'NECO Registration', price: 4200, apiCode: 'NECO', serviceId: SERVICE_ID_MAP.NECO, logo: SERVICE_LOGOS.NECO },
+  { id: 'jamb-fallback', examType: 'JAMB', name: 'JAMB Registration', price: 6500, apiCode: 'JAMB', serviceId: SERVICE_ID_MAP.JAMB, logo: SERVICE_LOGOS.JAMB },
 ];
 
 const formatCurrency = (amount: number) => `₦${Number(amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -78,7 +85,7 @@ export default function EducationScreen() {
           .maybeSingle(),
         supabase
           .from('education_services')
-          .select('id, exam_type, service_name, price, custom_price, original_price, api_code, is_active, logo_url')
+          .select('id, exam_type, service_name, price, custom_price, original_price, api_code, service_id, is_active, logo_url')
           .eq('is_active', true)
           .order('exam_type', { ascending: true }),
       ]);
@@ -97,9 +104,18 @@ export default function EducationScreen() {
           .map((service) => {
             const examTypeRaw = service.exam_type || service.service_name || service.id;
             const examType = examTypeRaw ? String(examTypeRaw).toUpperCase().trim() : 'EDUCATION';
-            const price = service.custom_price ?? service.price ?? service.original_price ?? 0;
+            const price =
+              (typeof service.price === 'number' ? service.price : null) ??
+              (typeof service.original_price === 'number' ? service.original_price : null) ??
+              (typeof service.custom_price === 'number' ? service.custom_price : null) ??
+              0;
             const logoUrl = service.logo_url ? String(service.logo_url).trim() : null;
             const localLogo = SERVICE_LOGOS[examType] || SERVICE_LOGOS.WAEC;
+            const providerServiceId =
+              (service.service_id && String(service.service_id).trim()) ||
+              (service.api_code && String(service.api_code).trim()) ||
+              SERVICE_ID_MAP[examType] ||
+              service.id;
 
             return {
               id: service.id,
@@ -107,6 +123,7 @@ export default function EducationScreen() {
               name: service.service_name || examTypeRaw || 'Education Service',
               price,
               apiCode: service.api_code,
+              serviceId: providerServiceId.toUpperCase(),
               logo: localLogo,
               logoUrl,
             } as EducationService;

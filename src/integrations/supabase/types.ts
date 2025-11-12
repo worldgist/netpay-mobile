@@ -214,6 +214,51 @@ export type Database = {
           },
         ]
       }
+      contact_settings: {
+        Row: {
+          address_line: string | null
+          business_hours: Json | null
+          city: string | null
+          country: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          state: string | null
+          support_email: string | null
+          support_phone: string | null
+          support_phone_display: string | null
+          updated_at: string
+        }
+        Insert: {
+          address_line?: string | null
+          business_hours?: Json | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          state?: string | null
+          support_email?: string | null
+          support_phone?: string | null
+          support_phone_display?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address_line?: string | null
+          business_hours?: Json | null
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          state?: string | null
+          support_email?: string | null
+          support_phone?: string | null
+          support_phone_display?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       data_plans: {
         Row: {
           api_code: string
@@ -309,6 +354,7 @@ export type Database = {
           exam_type: string
           id: string
           is_active: boolean
+          service_id: string
           original_price: number | null
           price: number
           service_name: string
@@ -321,6 +367,7 @@ export type Database = {
           exam_type: string
           id?: string
           is_active?: boolean
+          service_id: string
           original_price?: number | null
           price: number
           service_name: string
@@ -333,6 +380,7 @@ export type Database = {
           exam_type?: string
           id?: string
           is_active?: boolean
+          service_id?: string
           original_price?: number | null
           price?: number
           service_name?: string
@@ -924,6 +972,72 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      support_messages: {
+        Row: {
+          assigned_to: string | null
+          channel: string | null
+          created_at: string
+          email: string | null
+          id: string
+          last_reply_at: string | null
+          message: string | null
+          metadata: Json | null
+          name: string | null
+          priority: string | null
+          status: string | null
+          subject: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          channel?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_reply_at?: string | null
+          message?: string | null
+          metadata?: Json | null
+          name?: string | null
+          priority?: string | null
+          status?: string | null
+          subject?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          channel?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_reply_at?: string | null
+          message?: string | null
+          metadata?: Json | null
+          name?: string | null
+          priority?: string | null
+          status?: string | null
+          subject?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_messages_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transfer_transactions: {
         Row: {

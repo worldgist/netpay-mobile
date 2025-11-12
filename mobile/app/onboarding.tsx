@@ -3,17 +3,22 @@ import { StyleSheet, View, Dimensions, ScrollView, TouchableOpacity } from 'reac
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 const { width, height } = Dimensions.get('window');
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(0);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   const handleNext = () => {
     if (currentPage < 2) {
-      setCurrentPage(currentPage + 1);
+      const nextPage = currentPage + 1;
+      setCurrentPage(nextPage);
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ x: nextPage * width, animated: true });
+      }
     } else {
       // Navigate to login after onboarding
       router.replace('/auth/login');
@@ -27,6 +32,7 @@ export default function OnboardingScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -55,7 +61,7 @@ export default function OnboardingScreen() {
         {/* Page 2 */}
         <View style={[styles.page, { width }]}>
           <Image
-            source={require('@/assets/images/splash1.png')}
+            source={require('@/assets/images/splash2.png')}
             style={styles.onboardingImage}
             contentFit="contain"
           />
@@ -72,7 +78,7 @@ export default function OnboardingScreen() {
         {/* Page 3 */}
         <View style={[styles.page, { width }]}>
           <Image
-            source={require('@/assets/images/splash1.png')}
+            source={require('@/assets/images/splash.png')}
             style={styles.onboardingImage}
             contentFit="contain"
           />

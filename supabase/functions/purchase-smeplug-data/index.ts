@@ -41,8 +41,29 @@ serve(async (req) => {
       );
     }
 
-    const rawBody = await req.json();
-    const { phone_number, plan_id, network_id, network_name } = rawBody ?? {};
+    let rawBody: Record<string, unknown> | null = null;
+    let phone_number: unknown;
+    let plan_id: unknown;
+    let network_id: unknown;
+    let network_name: unknown;
+
+    const bodyText = await req.text();
+    console.log('Raw request body text for purchase-smeplug-data:', bodyText);
+    if (bodyText && bodyText.trim().length > 0) {
+      try {
+        rawBody = JSON.parse(bodyText);
+      } catch (parseRequestError) {
+        console.error('Unable to parse request body for purchase-smeplug-data. Treating as empty payload.', {
+          error: parseRequestError,
+          bodyText,
+        });
+        rawBody = null;
+      }
+    }
+
+    if (rawBody && typeof rawBody === 'object') {
+      ({ phone_number, plan_id, network_id, network_name } = rawBody as Record<string, unknown>);
+    }
 
     console.log('Incoming data purchase payload:', JSON.stringify(rawBody, null, 2));
 
@@ -174,13 +195,19 @@ serve(async (req) => {
     const responseText = await response.text();
     let apiResponse;
     try {
+      if (responseText.trim().length === 0) {
+        throw new Error('Empty response from SMEPLUG data endpoint');
+      }
       apiResponse = JSON.parse(responseText);
     } catch (parseError) {
-      console.error('Failed to parse SMEPLUG response:', responseText);
+      console.error('Failed to parse SMEPLUG response:', responseText, parseError);
       return new Response(
         JSON.stringify({
           success: false,
           error: `Invalid response from data provider: ${responseText.substring(0, 120)}`,
+          details: {
+            raw: responseText,
+          },
         }),
         { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );

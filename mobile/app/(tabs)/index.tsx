@@ -69,6 +69,8 @@ const formatNotificationTimestamp = (value: string) => {
   }
 };
 
+const SHOW_NOTIFICATION_PANEL = false;
+
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -282,11 +284,9 @@ export default function HomeScreen() {
   }, []);
 
   const handleNotificationBellPress = useCallback(() => {
-    if (!notificationPanelVisible && userId) {
-      fetchNotificationPreview(userId, { showSpinner: true });
-    }
-    setNotificationPanelVisible((prev) => !prev);
-  }, [fetchNotificationPreview, notificationPanelVisible, userId]);
+    setNotificationPanelVisible(false);
+    router.push('/notifications');
+  }, [router]);
 
   const updateNotificationReadState = useCallback(
     async (entry: NotificationPreviewItem, shouldRead: boolean) => {
@@ -502,7 +502,7 @@ export default function HomeScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {notificationPanelVisible && (
+      {SHOW_NOTIFICATION_PANEL && notificationPanelVisible && (
         <>
           <Pressable style={styles.notificationOverlay} onPress={closeNotificationPanel} />
           <View style={[styles.notificationPanel, { top: insets.top + 56 }]}>

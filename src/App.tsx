@@ -20,6 +20,14 @@ import AirtimeProviders from "./pages/AirtimeProviders";
 import ContactUs from "./pages/ContactUs";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsAndConditions from "./pages/TermsAndConditions";
+import About from "./pages/About";
+import Careers from "./pages/Careers";
+import Pricing from "./pages/Pricing";
+import FAQ from "./pages/FAQ";
+import Security from "./pages/Security";
+import HrManager from "./pages/HrManager";
+import ComplianceOfficer from "./pages/ComplianceOfficer";
+import SupportChat from "./pages/user/SupportChat";
 import NotFound from "./pages/NotFound";
 import UserAuth from "./pages/user/UserAuth";
 import UserDashboard from "./pages/user/UserDashboard";
@@ -72,14 +80,22 @@ const App = () => (
         <Route path="/staff" element={<StaffManagement />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/hr" element={<HrManager />} />
         <Route path="/electricity" element={<ElectricityPlans />} />
         <Route path="/cable-tv" element={<CableTvPlans />} />
         <Route path="/education" element={<EducationServices />} />
         <Route path="/data-plans" element={<DataPlans />} />
         <Route path="/airtime" element={<AirtimeProviders />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/careers" element={<Careers />} />
+        <Route path="/pricing" element={<Pricing />} />
         <Route path="/contact" element={<ContactUs />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsAndConditions />} />
+        <Route path="/faq" element={<FAQ />} />
+        <Route path="/security" element={<Security />} />
+        <Route path="/hr" element={<HrManager />} />
+        <Route path="/compliance" element={<ComplianceOfficer />} />
         
         {/* User-facing pages */}
         <Route path="/user/auth" element={<UserAuth />} />
@@ -104,6 +120,7 @@ const App = () => (
         <Route path="/user/contact" element={<UserContact />} />
         <Route path="/user/terms" element={<UserTerms />} />
         <Route path="/user/privacy" element={<UserPrivacy />} />
+        <Route path="/user/support-chat" element={<SupportChat />} />
         
         <Route path="*" element={<NotFound />} />
       </Routes>

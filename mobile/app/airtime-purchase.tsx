@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ImageSourcePropType } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ImageSourcePropType, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -9,7 +9,6 @@ import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { supabase } from '@/lib/supabase';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
-import { createTransactionNotification } from '@/utils/notifications';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -86,6 +85,8 @@ export default function AirtimePurchaseScreen() {
   const [providers, setProviders] = useState<ProviderDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
+  const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
 
   const isMounted = useRef(true);
   const providerRef = useRef<string | null>(null);
@@ -248,10 +249,10 @@ export default function AirtimePurchaseScreen() {
     }
 
     if (effectiveAmount > balance) {
-      Alert.alert(
-        'Insufficient Balance',
+      setInsufficientFundsMessage(
         `Your wallet balance is ${formatCurrency(balance)}. Please fund your wallet to continue.`
       );
+      setShowInsufficientFundsModal(true);
       return;
     }
 
@@ -317,11 +318,6 @@ export default function AirtimePurchaseScreen() {
       setShowConfirmModal(false);
 
       const reference = data?.data?.reference || '';
-
-      await createTransactionNotification({
-        title: 'Airtime Purchase Successful',
-        message: `${formatCurrency(amountValue)} airtime sent to ${phoneNumber} on ${selectedProviderName}${reference ? ` (ref: ${reference})` : ''}.`,
-      });
 
       router.push({
         pathname: '/payment-success',
@@ -484,7 +480,6 @@ export default function AirtimePurchaseScreen() {
                       )}
                     </View>
                     <ThemedText style={styles.networkName}>{provider.displayName}</ThemedText>
-                    <ThemedText style={styles.networkIdText}>{`ID: ${provider.apiCode}`}</ThemedText>
                     <ThemedText style={styles.networkHint}>
                       {`Min ${formatCurrency(provider.minAmount)}`}
                     </ThemedText>
@@ -559,6 +554,40 @@ export default function AirtimePurchaseScreen() {
           serviceType={`Airtime VTU • Network ID ${selectedProviderNetworkId || ''}`}
         />
       )}
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={showInsufficientFundsModal}
+        onRequestClose={() => setShowInsufficientFundsModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="account-balance-wallet" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Insufficient Balance</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              {insufficientFundsMessage ||
+                'Your wallet balance is insufficient for this purchase. Please fund your wallet to continue.'}
+            </ThemedText>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={() => {
+                  setShowInsufficientFundsModal(false);
+                  router.push('/add-money');
+                }}>
+                <ThemedText style={styles.modalPrimaryButtonText}>Fund Wallet</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={() => setShowInsufficientFundsModal(false)}>
+                <ThemedText style={styles.modalSecondaryButtonText}>Close</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -750,6 +779,77 @@ const styles = StyleSheet.create({
   },
   errorIcon: {
     marginRight: 8,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 100,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+  },
+  modalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 127, 0, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: '#4A4A4A',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  modalActions: {
+    width: '100%',
+    gap: 12,
+  },
+  modalPrimaryButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+  },
+  modalPrimaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalSecondaryButton: {
+    backgroundColor: 'rgba(255, 127, 0, 0.12)',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+  },
+  modalSecondaryButtonText: {
+    color: '#FF7F00',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 

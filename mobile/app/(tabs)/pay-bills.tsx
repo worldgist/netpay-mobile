@@ -23,30 +23,6 @@ const SERVICE_CONFIG = [
   { id: 'electricity', name: 'Electricity', icon: 'flash-on' as const, route: '/electricity' },
 ] as const;
 
-const formatCurrency = (value?: number | null) => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return '₦--';
-  }
-  return `₦${Number(value).toLocaleString('en-NG', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-};
-
-const formatDate = (value?: string | null) => {
-  if (!value) return '--';
-  try {
-    return new Date(value).toLocaleString('en-NG', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch (error) {
-    return '--';
-  }
-};
-
 const formatServiceName = (value: string) =>
   value
     .replace(/_/g, ' ')
@@ -330,11 +306,12 @@ export default function PayBillsScreen() {
       ) : null}
 
       <ScrollView
+        contentInsetAdjustmentBehavior="never"
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF7F00" />}
         showsVerticalScrollIndicator>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top + 16, 64) }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top + 24, 88) }]}>
           <ThemedText style={styles.pageTitle}>Pay Bills</ThemedText>
           <ThemedText style={styles.pageSubtitle}>Select a service to continue</ThemedText>
         </View>
@@ -391,23 +368,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#E5E7EB',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
     marginBottom: 20,
   },
   pageTitle: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '800',
     color: '#1E2533',
     letterSpacing: 0.4,
+    lineHeight: 40,
   },
   pageSubtitle: {
-    fontSize: 17,
+    fontSize: 16,
     color: '#4E5A6D',
     letterSpacing: 0.2,
+    lineHeight: 22,
   },
   balanceCard: {
     marginHorizontal: 20,
