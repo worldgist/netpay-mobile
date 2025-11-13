@@ -10,16 +10,9 @@ import {
   Shield,
   Clock,
   Gamepad2,
-  Twitter,
-  Instagram,
-  Facebook,
-  Youtube,
   Globe2,
   Droplet,
   ShieldCheck,
-  BarChart3,
-  Users,
-  Briefcase,
   CheckCircle2,
   Mail,
 } from "lucide-react";
@@ -82,66 +75,52 @@ const Index = () => {
     },
   ];
 
-  const platformHighlights = [
-    {
-      icon: BarChart3,
-      title: "Real-time Monitoring",
-      description: "Every wallet top-up, bill purchase and settlement at your fingertips with live dashboards.",
-    },
-    {
-      icon: Users,
-      title: "Collaborative Workflows",
-      description: "Assign roles, manage approvals and keep teams aligned across channels.",
-    },
-    {
-      icon: Shield,
-      title: "Bank-Grade Security",
-      description: "Biometrics, 2FA, device management and PCI-compliant frameworks keep you safe.",
-    },
-    {
-      icon: Briefcase,
-      title: "Business Ready",
-      description: "Built for enterprises, resellers and agencies managing multiple wallets and customers.",
-    },
-  ];
-
-  const automationBenefits = [
-    "Schedule recurring payments and receive renewals alerts automatically.",
-    "Instant receipts, downloadable statements and branded customer emails.",
-    "Dedicated support with proactive monitoring and real human escalation.",
-    "Export-ready reconciliation, audit trails and multi-wallet visibility.",
-  ];
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground">
       {/* Header */}
       <header className="border-b border-border/30 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between transition-smooth">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="NetPay"
-              className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
-              loading="lazy"
-            />
-            <span className="text-2xl font-bold">
-              <span className="text-brand">NET</span>
-              <span className="text-slate-800">PAY</span>
-            </span>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <img
+                src="/logo.png"
+                alt="NetPay"
+                className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
+                loading="lazy"
+              />
+              <span className="text-2xl font-bold">
+                <span className="text-brand">NET</span>
+                <span className="text-slate-800">PAY</span>
+              </span>
+            </div>
+            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-800">
+              <button onClick={() => navigate("/")} className="hover:text-brand transition-colors">
+                Home
+              </button>
+              <button onClick={() => navigate("/about")} className="hover:text-brand transition-colors">
+                About Us
+              </button>
+              <button onClick={() => navigate("/contact-us")} className="hover:text-brand transition-colors">
+                Contact Us
+              </button>
+              <button onClick={() => navigate("/faq")} className="hover:text-brand transition-colors">
+                FAQ
+              </button>
+            </nav>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
             <Button
               onClick={() => navigate("/user/auth?mode=signin")}
               variant="ghost"
-              className="hidden sm:inline-flex text-brand hover:bg-brand/10"
+              className="text-brand hover:bg-brand/10"
             >
-              Login
+              Sign In
             </Button>
             <Button
               onClick={() => navigate("/user/auth?mode=signup")}
               className="bg-brand hover:bg-brand/90 text-white shadow-elegant"
             >
-              Get Started
+              Sign Up
             </Button>
           </div>
         </div>
@@ -172,14 +151,6 @@ const Index = () => {
                 className="bg-brand hover:bg-brand/90 text-white h-12 px-8 text-base"
               >
                 Create Free Account
-              </Button>
-              <Button
-                onClick={() => navigate("/user/auth?mode=signin")}
-                variant="outline"
-                size="lg"
-                className="h-12 px-8 text-base border-brand/40 text-brand hover:bg-brand/10"
-              >
-                View Dashboard
               </Button>
             </div>
 
@@ -278,68 +249,6 @@ const Index = () => {
         </div>
       </section>
 
-      {/* Platform Highlights */}
-      <section className="container mx-auto px-4 py-16">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          <div className="space-y-6">
-            <span className="text-brand font-semibold uppercase tracking-[0.35em] text-xs md:text-sm">
-              Designed For Modern Teams
-            </span>
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground">
-              Smart automations for finance, operations and customer success.
-            </h2>
-            <p className="text-muted-foreground leading-relaxed">
-              Equip your organisation with the tools it needs to manage bills, wallets and payouts with ease.
-              Real-time analytics, reliable infrastructure, and cross-channel experiences your customers will love.
-            </p>
-
-            <div className="grid sm:grid-cols-2 gap-6">
-              {platformHighlights.map((item) => (
-                <div key={item.title} className="bg-white/80 border border-brand/15 rounded-2xl p-5 space-y-3 shadow-elegant">
-                  <div className="bg-brand/10 w-10 h-10 rounded-lg flex items-center justify-center text-brand shadow-inner">
-                    <item.icon className="w-5 h-5" />
-                  </div>
-                  <h3 className="font-semibold text-foreground">{item.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-3 pt-2">
-              {automationBenefits.map((point) => (
-                <div key={point} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <CheckCircle2 className="w-4 h-4 text-brand mt-1 flex-shrink-0" />
-                  <span>{point}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative">
-            <div className="relative rounded-[32px] bg-card p-4 shadow-glow border border-border/40">
-              <img
-                src="/splash.png"
-                alt="NetPay workflow overview"
-                className="rounded-3xl w-full"
-                loading="lazy"
-              />
-            </div>
-            <img
-              src="/splash1.png"
-              alt="NetPay transaction list"
-              className="hidden md:block absolute -bottom-16 right-0 w-2/3 rounded-3xl shadow-xl border border-border/40"
-              loading="lazy"
-            />
-            <img
-              src="/splash2.png"
-              alt="NetPay card stack"
-              className="hidden md:block absolute -top-16 left-0 w-1/2 rounded-3xl shadow-xl border border-border/40"
-              loading="lazy"
-            />
-          </div>
-        </div>
-      </section>
-
       {/* Trust Signals */}
       <section className="bg-gradient-to-br from-brand/5 via-white to-orange-50/40 py-16">
         <div className="container mx-auto px-4">
@@ -400,7 +309,7 @@ const Index = () => {
               Create Your Free Account
             </Button>
             <Button
-              onClick={() => navigate("/contact")}
+              onClick={() => navigate("/contact-us")}
               size="lg"
               variant="outline"
               className="border-white/60 text-white hover:bg-white/10 h-12 px-8"
@@ -433,33 +342,18 @@ const Index = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-sm">
               <div className="space-y-3">
                 <p className="text-foreground font-semibold uppercase tracking-wide text-xs">Company</p>
                 <div className="flex flex-col gap-2 text-muted-foreground">
                   <button onClick={() => navigate("/about")} className="hover:text-foreground transition-colors text-left">
                     About NetPay
                   </button>
-                  <button onClick={() => navigate("/contact")} className="hover:text-foreground transition-colors text-left">
+                  <button onClick={() => navigate("/contact-us")} className="hover:text-foreground transition-colors text-left">
                     Contact & Support
                   </button>
                   <button onClick={() => navigate("/careers")} className="hover:text-foreground transition-colors text-left">
                     Careers
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-foreground font-semibold uppercase tracking-wide text-xs">Resources</p>
-                <div className="flex flex-col gap-2 text-muted-foreground">
-                  <button onClick={() => navigate("/pricing")} className="hover:text-foreground transition-colors text-left">
-                    Pricing & Plans
-                  </button>
-                  <button onClick={() => navigate("/smeplug")} className="hover:text-foreground transition-colors text-left">
-                    SME & Reseller Tools
-                  </button>
-                  <button onClick={() => navigate("/faq")} className="hover:text-foreground transition-colors text-left">
-                    FAQs
                   </button>
                 </div>
               </div>
@@ -488,8 +382,8 @@ const Index = () => {
                     rel="noreferrer"
                     className="hover:text-foreground transition-colors flex items-center gap-2"
                   >
-                    <Twitter className="w-4 h-4" />
-                    <span>Twitter</span>
+                    <img src="/x.png" alt="X" className="w-4 h-4" />
+                    <span>Twitter / X</span>
                   </a>
                   <a
                     href="https://instagram.com/netpay"
@@ -497,7 +391,7 @@ const Index = () => {
                     rel="noreferrer"
                     className="hover:text-foreground transition-colors flex items-center gap-2"
                   >
-                    <Instagram className="w-4 h-4" />
+                    <img src="/instagram.png" alt="Instagram" className="w-4 h-4 rounded" />
                     <span>Instagram</span>
                   </a>
                   <a
@@ -506,17 +400,17 @@ const Index = () => {
                     rel="noreferrer"
                     className="hover:text-foreground transition-colors flex items-center gap-2"
                   >
-                    <Facebook className="w-4 h-4" />
+                    <img src="/facebook.png" alt="Facebook" className="w-4 h-4 rounded" />
                     <span>Facebook</span>
                   </a>
                   <a
-                    href="https://youtube.com/@netpay"
+                    href="https://wa.me/2348012345678"
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-foreground transition-colors flex items-center gap-2"
                   >
-                    <Youtube className="w-4 h-4" />
-                    <span>YouTube</span>
+                    <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 rounded" />
+                    <span>WhatsApp</span>
                   </a>
                   <a
                     href="mailto:support@netpay.ng"
@@ -534,11 +428,6 @@ const Index = () => {
             <p className="text-sm text-muted-foreground text-center md:text-left">
               © {new Date().getFullYear()} NetPay. All rights reserved. Built in Lagos, powering payments across Nigeria.
             </p>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="uppercase tracking-wide">PCI DSS Ready</span>
-              <span className="uppercase tracking-wide">NDPR Compliant</span>
-              <span className="uppercase tracking-wide">24/7 Support</span>
-            </div>
           </div>
         </div>
       </footer>

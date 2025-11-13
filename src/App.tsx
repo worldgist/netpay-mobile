@@ -18,6 +18,9 @@ import EducationServices from "./pages/EducationServices";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
 import ContactUs from "./pages/ContactUs";
+import ContactLanding from "./pages/ContactLanding";
+import PrivacyLanding from "./pages/PrivacyLanding";
+import TermsLanding from "./pages/TermsLanding";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import About from "./pages/About";
@@ -90,12 +93,14 @@ const App = () => (
         <Route path="/careers" element={<Careers />} />
         <Route path="/pricing" element={<Pricing />} />
         <Route path="/contact" element={<ContactUs />} />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
-        <Route path="/terms" element={<TermsAndConditions />} />
+        <Route path="/contact-us" element={<ContactLanding />} />
+        <Route path="/privacy" element={<PrivacyLanding />} />
+        <Route path="/terms" element={<TermsLanding />} />
         <Route path="/faq" element={<FAQ />} />
         <Route path="/security" element={<Security />} />
-        <Route path="/hr" element={<HrManager />} />
         <Route path="/compliance" element={<ComplianceOfficer />} />
+        <Route path="/admin/privacy" element={<PrivacyPolicy />} />
+        <Route path="/admin/terms" element={<TermsAndConditions />} />
         
         {/* User-facing pages */}
         <Route path="/user/auth" element={<UserAuth />} />
