@@ -161,7 +161,7 @@ export default function AddMoneyScreen() {
         .maybeSingle();
 
       const fullName = profileData?.full_name || session.user.email?.split('@')[0] || 'User';
-      const phoneNumber = profileData?.phone || '08000000000';
+      const phoneNumber = profileData?.phone || '07067398399';
       const emailAddress = profileData?.email || session.user.email || '';
 
       const { data, error: invokeError } = await supabase.functions.invoke('get-virtual-account', {

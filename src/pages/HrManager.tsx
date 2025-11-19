@@ -34,7 +34,7 @@ const sampleStaff = [
     team: "Support",
     status: "Active",
     lastLogin: "10 Nov, 2025 · 09:14",
-    email: "amina.bello@netpay.ng",
+    email: "support@netpayy.ng",
     startDate: "2023-06-15",
     employeeId: "NET-230615-1254",
     address: "12 Admiralty Way, Lekki Phase 1",
@@ -49,7 +49,7 @@ const sampleStaff = [
     team: "Product",
     status: "Active",
     lastLogin: "09 Nov, 2025 · 20:05",
-    email: "chinedu.okafor@netpay.ng",
+    email: "support@netpayy.ng",
     startDate: "2022-09-01",
     employeeId: "NET-220901-4571",
     address: "4 Admiralty Close, Lekki",
@@ -64,7 +64,7 @@ const sampleStaff = [
     team: "Finance",
     status: "On Leave",
     lastLogin: "30 Oct, 2025 · 17:45",
-    email: "sarah.adeyemi@netpay.ng",
+    email: "support@netpayy.ng",
     startDate: "2021-11-22",
     employeeId: "NET-211122-7843",
     address: "15 Glover Road, Ikoyi",
@@ -926,7 +926,7 @@ const HrManager = () => {
                 <Input
                   id="employee-email"
                   type="email"
-                  placeholder="jane@netpay.ng"
+                  placeholder="support@netpayy.ng"
                   value={newEmployee.email}
                   onChange={(event) => setNewEmployee((prev) => ({ ...prev, email: event.target.value }))}
                   required

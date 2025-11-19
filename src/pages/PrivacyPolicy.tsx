@@ -83,7 +83,7 @@ const PrivacyPolicy = () => {
                 <h2 className="text-xl font-semibold mb-3">7. Contact Us</h2>
                 <p className="text-muted-foreground">
                   If you have any questions about this privacy policy or our privacy practices, please contact us at 
-                  privacy@netpay.com
+                  support@netpayy.ng
                 </p>
               </section>
             </CardContent>

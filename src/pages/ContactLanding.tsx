@@ -82,9 +82,9 @@ const ContactLanding = () => {
     return parsed.length > 0 ? parsed : DEFAULT_BUSINESS_HOURS;
   }, [settings?.business_hours]);
 
-  const supportEmail = settings?.support_email || "support@netpay.ng";
-  const supportPhone = settings?.support_phone_display || "+234 700 000 0000";
-  const supportPhoneRaw = settings?.support_phone || "07000000000";
+  const supportEmail = settings?.support_email || "support@netpayy.ng";
+  const supportPhone = settings?.support_phone_display || "+234 706 739 8399";
+  const supportPhoneRaw = settings?.support_phone || "07067398399";
   const supportAddress = [settings?.address_line, settings?.city, settings?.state, settings?.country]
     .filter(Boolean)
     .join(", ") || "Lagos, Nigeria";

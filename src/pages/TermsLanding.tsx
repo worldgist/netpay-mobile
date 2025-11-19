@@ -24,7 +24,7 @@ const SECTIONS = [
       "You must be at least 18 years old or the legal age of majority in your jurisdiction.",
       "All information provided during signup must be accurate, complete, and kept up to date.",
       "You are responsible for safeguarding login credentials, transaction PINs and device access.",
-      "Notify NetPay immediately of unauthorized activity via support@netpay.ng or +234 700 NETPAY.",
+      "Notify NetPay immediately of unauthorized activity via support@netpayy.ng or +234 706 739 8399.",
     ],
   },
   {
@@ -77,7 +77,7 @@ const SECTIONS = [
   {
     title: "10. Contact & Support",
     body: [
-      "For questions about these Terms or to request clarifications, contact legal@netpay.ng or visit our Contact centre.",
+      "For questions about these Terms or to request clarifications, contact support@netpayy.ng or visit our Contact centre.",
     ],
   },
 ];
@@ -138,13 +138,13 @@ const TermsLanding = () => {
           </p>
           <div className="flex flex-wrap justify-center gap-4 text-sm font-medium">
             <a
-              href="mailto:legal@netpay.ng"
+              href="mailto:support@netpayy.ng"
               className="px-5 py-3 rounded-full bg-brand text-white hover:bg-brand/90 transition-colors shadow-elegant"
             >
-              Email legal@netpay.ng
+              Email support@netpayy.ng
             </a>
             <a
-              href="mailto:support@netpay.ng"
+              href="mailto:support@netpayy.ng"
               className="px-5 py-3 rounded-full border border-brand/40 text-brand hover:bg-brand/10 transition-colors"
             >
               Contact support

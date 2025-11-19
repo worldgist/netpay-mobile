@@ -81,7 +81,7 @@ export default function PrivacyPolicyScreen() {
           <ThemedText style={styles.bulletPoint}>• Object to or restrict processing of your information</ThemedText>
           <ThemedText style={styles.bulletPoint}>• Withdraw consent at any time</ThemedText>
           <ThemedText style={styles.sectionText}>
-            To exercise these rights, please contact us at support@netpay.com.
+            To exercise these rights, please contact us at support@netpayy.ng.
           </ThemedText>
 
           <ThemedText style={styles.sectionTitle}>8. Cookies and Tracking Technologies</ThemedText>
@@ -108,8 +108,8 @@ export default function PrivacyPolicyScreen() {
           <ThemedText style={styles.sectionText}>
             If you have any questions about this Privacy Policy, please contact us at:
           </ThemedText>
-          <ThemedText style={styles.contactInfo}>Email: support@netpay.com</ThemedText>
-          <ThemedText style={styles.contactInfo}>Phone: +234 (0) 800 000 0000</ThemedText>
+          <ThemedText style={styles.contactInfo}>Email: support@netpayy.ng</ThemedText>
+          <ThemedText style={styles.contactInfo}>Phone: +234 706 739 8399</ThemedText>
           <ThemedText style={styles.contactInfo}>Address: 123 Business Street, Lagos, Nigeria</ThemedText>
         </View>
       </ScrollView>

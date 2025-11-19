@@ -70,16 +70,16 @@ const Careers = () => (
                 <p className="text-sm text-muted-foreground mt-2">{opening.summary}</p>
               </div>
               <a
-                href="mailto:careers@netpay.ng"
+                href="mailto:support@netpayy.ng"
                 className="text-sm font-medium text-brand hover:text-brand/80 transition-colors"
               >
-                Apply via careers@netpay.ng →
+                Apply via support@netpayy.ng →
               </a>
             </div>
           ))}
         </div>
         <p className="text-sm text-muted-foreground">
-          Don’t see a role that fits yet? Send us your portfolio or CV at <a href="mailto:careers@netpay.ng" className="text-brand hover:text-brand/80">careers@netpay.ng</a> and tell us why you’re excited about NetPay.
+          Don't see a role that fits yet? Send us your portfolio or CV at <a href="mailto:support@netpayy.ng" className="text-brand hover:text-brand/80">support@netpayy.ng</a> and tell us why you're excited about NetPay.
         </p>
       </div>
     </section>

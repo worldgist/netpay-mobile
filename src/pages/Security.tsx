@@ -60,7 +60,7 @@ const Security = () => (
       <div className="rounded-3xl border border-border/30 bg-card/70 p-8 shadow-sm space-y-4">
         <h2 className="text-2xl font-semibold text-foreground">Responsible disclosure</h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Found a vulnerability? Email <a href="mailto:security@netpay.ng" className="text-brand hover:text-brand/80">security@netpay.ng</a> with full details so we can respond swiftly. We appreciate researchers who help keep our ecosystem safe.
+          Found a vulnerability? Email <a href="mailto:support@netpayy.ng" className="text-brand hover:text-brand/80">support@netpayy.ng</a> with full details so we can respond swiftly. We appreciate researchers who help keep our ecosystem safe.
         </p>
       </div>
     </section>

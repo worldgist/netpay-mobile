@@ -413,11 +413,11 @@ const Index = () => {
                     <span>WhatsApp</span>
                   </a>
                   <a
-                    href="mailto:support@netpay.ng"
+                    href="mailto:support@netpayy.ng"
                     className="hover:text-foreground transition-colors flex items-center gap-2"
                   >
                     <Mail className="w-4 h-4" />
-                    <span>support@netpay.ng</span>
+                    <span>support@netpayy.ng</span>
                   </a>
                 </div>
               </div>

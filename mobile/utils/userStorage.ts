@@ -12,7 +12,7 @@ const USER_DATA_KEY = '@netpay_user_data';
 const DEFAULT_USER_DATA: UserData = {
   fullName: 'Mustapha Suleiman',
   email: 'netpay0147@gmail.com',
-  phoneNumber: '08105393046',
+  phoneNumber: '07067398399',
 };
 
 export const UserStorage = {

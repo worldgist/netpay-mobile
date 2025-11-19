@@ -37,9 +37,9 @@ export default function ContactUsScreen() {
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [supportEmail, setSupportEmail] = useState('support@netpay.com');
-  const [supportPhone, setSupportPhone] = useState('+2348000000000');
-  const [supportPhoneDisplay, setSupportPhoneDisplay] = useState('+234 (0) 800 000 0000');
+  const [supportEmail, setSupportEmail] = useState('support@netpayy.ng');
+  const [supportPhone, setSupportPhone] = useState('07067398399');
+  const [supportPhoneDisplay, setSupportPhoneDisplay] = useState('+234 706 739 8399');
   const [supportAddress, setSupportAddress] = useState('');
   const [businessHours, setBusinessHours] = useState<Array<{ day: string; time: string }>>([
     { day: 'Monday - Friday', time: '9:00 AM - 6:00 PM' },

@@ -125,8 +125,8 @@ export default function UserTerms() {
               If you have any questions about these Terms and Conditions, please contact us at:
             </p>
             <p className="text-muted-foreground">
-              Email: support@netpay.com<br />
-              Phone: +234 (0) 800 000 0000
+              Email: support@netpayy.ng<br />
+              Phone: +234 706 739 8399
             </p>
           </CardContent>
         </Card>

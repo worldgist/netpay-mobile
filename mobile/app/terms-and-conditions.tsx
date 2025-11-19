@@ -77,7 +77,7 @@ export default function TermsAndConditionsScreen() {
 
           <ThemedText style={styles.sectionTitle}>11. Contact Information</ThemedText>
           <ThemedText style={styles.sectionText}>
-            If you have any questions about these Terms & Conditions, please contact us at support@netpay.com or call +234 (0) 800 000 0000.
+            If you have any questions about these Terms & Conditions, please contact us at support@netpayy.ng or call +234 706 739 8399.
           </ThemedText>
         </View>
       </ScrollView>

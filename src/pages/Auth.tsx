@@ -178,7 +178,7 @@ const Auth = () => {
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@netpay.com"
+                placeholder="admin@netpayy.ng"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);

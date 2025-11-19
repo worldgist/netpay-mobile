@@ -369,7 +369,7 @@ serve(async (req) => {
       throw new Error("RESEND_API_KEY environment variable is not configured");
     }
 
-    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Notifications <no-reply@netpay.com>";
+    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Notifications <support@netpayy.ng>";
 
     const payload = await parseRequest(req);
     const { subject, html, text } = buildEmailContent(payload);

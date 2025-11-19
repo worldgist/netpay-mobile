@@ -43,7 +43,7 @@ const DATA_PRACTICES = [
     body: [
       "We retain transaction records and account history for the period required by Nigerian regulators, typically up to 7 years.",
       "Support records and analytics data are kept as long as necessary to operate the service, after which they are anonymised or deleted.",
-      "You may request deletion or restriction of certain personal data by contacting privacy@netpay.ng. Some records must be retained to comply with legal obligations.",
+      "You may request deletion or restriction of certain personal data by contacting support@netpayy.ng. Some records must be retained to comply with legal obligations.",
     ],
   },
   {
@@ -73,18 +73,18 @@ const DATA_PRACTICES = [
 const CONTACT_POINTS = [
   {
     label: "Email",
-    value: "privacy@netpay.ng",
-    href: "mailto:privacy@netpay.ng",
+    value: "support@netpayy.ng",
+    href: "mailto:support@netpayy.ng",
   },
   {
     label: "Compliance Desk",
-    value: "compliance@netpay.ng",
-    href: "mailto:compliance@netpay.ng",
+    value: "support@netpayy.ng",
+    href: "mailto:support@netpayy.ng",
   },
   {
     label: "Phone",
-    value: "+234 700 638 729",
-    href: "tel:+234700638729",
+    value: "+234 706 739 8399",
+    href: "tel:+2347067398399",
   },
 ];
 

@@ -85,7 +85,7 @@ export default function EducationScreen() {
           .maybeSingle(),
         supabase
           .from('education_services')
-          .select('id, exam_type, service_name, price, custom_price, original_price, api_code, service_id, is_active, logo_url')
+          .select('id, exam_type, service_name, price, custom_price, original_price, api_code, service_id, is_active, logo_url, metadata')
           .eq('is_active', true)
           .order('exam_type', { ascending: true }),
       ]);
@@ -99,16 +99,75 @@ export default function EducationScreen() {
 
       let mappedServices: EducationService[] = [];
 
+      const collectPriceCandidates = (source: unknown, depth = 0): Array<number | string> => {
+        if (!source || depth > 3) return [];
+        if (typeof source === 'number' && Number.isFinite(source)) {
+          return [source];
+        }
+        if (typeof source === 'string') {
+          return [source];
+        }
+        if (Array.isArray(source)) {
+          return source.flatMap((item) => collectPriceCandidates(item, depth + 1));
+        }
+        if (typeof source === 'object') {
+          const obj = source as Record<string, unknown>;
+          const priceKeys = [
+            'price',
+            'amount',
+            'unit_price',
+            'unitPrice',
+            'total',
+            'value',
+            'unitAmount',
+            'unit_amount',
+          ];
+          const directMatches = priceKeys
+            .filter((key) => key in obj)
+            .flatMap((key) => collectPriceCandidates(obj[key], depth + 1));
+          const nestedMatches = Object.values(obj)
+            .flatMap((value) => collectPriceCandidates(value, depth + 1));
+          return [...directMatches, ...nestedMatches];
+        }
+        return [];
+      };
+
+      const parsePrice = (...values: (number | string | null | undefined)[]) => {
+        for (const value of values) {
+          if (value == null) continue;
+          const numeric =
+            typeof value === 'number'
+              ? value
+              : typeof value === 'string'
+              ? Number(
+                  value
+                    .toString()
+                    .trim()
+                    .replace(/[^\d.-]/g, '')
+                )
+              : Array.isArray(value)
+              ? parsePrice(...value)
+              : typeof value === 'object'
+              ? parsePrice(...collectPriceCandidates(value))
+              : NaN;
+          if (!Number.isNaN(numeric) && Number.isFinite(numeric) && numeric > 0) {
+            return numeric;
+          }
+        }
+        return 0;
+      };
+
       if (servicesRes.status === 'fulfilled' && servicesRes.value.data) {
         mappedServices = servicesRes.value.data
           .map((service) => {
             const examTypeRaw = service.exam_type || service.service_name || service.id;
             const examType = examTypeRaw ? String(examTypeRaw).toUpperCase().trim() : 'EDUCATION';
-            const price =
-              (typeof service.price === 'number' ? service.price : null) ??
-              (typeof service.original_price === 'number' ? service.original_price : null) ??
-              (typeof service.custom_price === 'number' ? service.custom_price : null) ??
-              0;
+            const price = parsePrice(
+              service.custom_price,
+              service.price,
+              service.original_price,
+              collectPriceCandidates(service.metadata)
+            );
             const logoUrl = service.logo_url ? String(service.logo_url).trim() : null;
             const localLogo = SERVICE_LOGOS[examType] || SERVICE_LOGOS.WAEC;
             const providerServiceId =
@@ -117,11 +176,12 @@ export default function EducationScreen() {
               SERVICE_ID_MAP[examType] ||
               service.id;
 
+            const fallback = FALLBACK_SERVICES.find((s) => s.examType === examType);
             return {
               id: service.id,
               examType,
-              name: service.service_name || examTypeRaw || 'Education Service',
-              price,
+              name: service.service_name || examTypeRaw || fallback?.name || 'Education Service',
+              price: price > 0 ? price : fallback?.price ?? 0,
               apiCode: service.api_code,
               serviceId: providerServiceId.toUpperCase(),
               logo: localLogo,

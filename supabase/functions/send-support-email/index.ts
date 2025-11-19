@@ -57,8 +57,8 @@ serve(async (req) => {
       throw new Error("RESEND_API_KEY environment variable is not configured");
     }
 
-    const SUPPORT_INBOX = Deno.env.get("RESEND_TO_EMAIL") ?? "support@netpay.com";
-    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Support <support@netpay.com>";
+    const SUPPORT_INBOX = Deno.env.get("RESEND_TO_EMAIL") ?? "support@netpayy.ng";
+    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Support <support@netpayy.ng>";
 
     const body = (await req.json()) as SupportEmailPayload;
     const name = normalize(body.name);
@@ -122,6 +122,7 @@ serve(async (req) => {
     );
   }
 });
+
 
 
 

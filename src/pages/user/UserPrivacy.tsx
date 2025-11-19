@@ -148,8 +148,8 @@ export default function UserPrivacy() {
               If you have any questions about this Privacy Policy, please contact us:
             </p>
             <p className="text-muted-foreground">
-              Email: privacy@netpay.com<br />
-              Phone: +234 (0) 800 000 0000<br />
+              Email: support@netpayy.ng<br />
+              Phone: +234 706 739 8399<br />
               Address: 123 Business Street, Lagos, Nigeria
             </p>
           </CardContent>
