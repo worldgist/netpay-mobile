@@ -62,7 +62,14 @@ interface DataPlan {
   price: number;
   validity: string;
   api_code: string;
+  custom_price?: number | null;
+  original_price?: number | null;
 }
+
+// Helper function to get effective price (custom_price || original_price || price)
+const getEffectivePrice = (plan: DataPlan): number => {
+  return plan.custom_price ?? plan.original_price ?? plan.price;
+};
 
 interface Network {
   id: string;
@@ -141,7 +148,7 @@ const PurchaseData = () => {
 
         let plansQuery = supabase
           .from('data_plans')
-          .select('id, network, plan_name, price, validity, api_code, provider')
+          .select('id, network, plan_name, price, validity, api_code, provider, custom_price, original_price')
           .order('network', { ascending: true })
           .order('price', { ascending: true });
 
@@ -156,7 +163,7 @@ const PurchaseData = () => {
           if (plansRes.error.code === '42703') {
             const fallback = await supabase
               .from('data_plans')
-              .select('id, network, plan_name, price, validity, api_code')
+              .select('id, network, plan_name, price, validity, api_code, custom_price, original_price')
               .order('network', { ascending: true })
               .order('price', { ascending: true });
             if (fallback.error) throw fallback.error;
@@ -291,7 +298,8 @@ const PurchaseData = () => {
     const plan = dataPlans.find(p => p.id === selectedPlan);
     if (!plan) return;
 
-    if (balance < plan.price) {
+    const effectivePrice = getEffectivePrice(plan);
+    if (balance < effectivePrice) {
       setShowInsufficientBalance(true);
       return;
     }
@@ -367,7 +375,8 @@ const PurchaseData = () => {
         throw new Error(responseData?.error || responseData?.message || 'Purchase failed');
       }
 
-      setTransactionDetails(responseData.data || { reference: responseData.request_id || requestId, amount: plan.price });
+      const effectivePrice = getEffectivePrice(plan);
+      setTransactionDetails(responseData.data || { reference: responseData.request_id || requestId, amount: effectivePrice });
       setShowSuccess(true);
 
       // Refresh balance
@@ -473,11 +482,14 @@ const PurchaseData = () => {
                       <SelectValue placeholder="Choose a plan" />
                     </SelectTrigger>
                     <SelectContent>
-                      {dataPlans.map((plan) => (
-                        <SelectItem key={plan.id} value={plan.id}>
-                          {plan.plan_name} - {formatNaira(plan.price)}{plan.validity && plan.validity !== 'N/A' ? ` (${plan.validity})` : ''}
-                        </SelectItem>
-                      ))}
+                      {dataPlans.map((plan) => {
+                        const effectivePrice = getEffectivePrice(plan);
+                        return (
+                          <SelectItem key={plan.id} value={plan.id}>
+                            {plan.plan_name} - {formatNaira(effectivePrice)}{plan.validity && plan.validity !== 'N/A' ? ` (${plan.validity})` : ''}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -544,7 +556,7 @@ const PurchaseData = () => {
               </div>
               <div className="flex justify-between">
                 <span>Amount:</span>
-                <span className="font-semibold">{formatNaira(selectedPlanData.price)}</span>
+                <span className="font-semibold">{formatNaira(getEffectivePrice(selectedPlanData))}</span>
               </div>
               <div className="flex gap-3 mt-4">
                 <Button variant="outline" onClick={() => setShowSummary(false)} className="flex-1">
@@ -594,7 +606,10 @@ const PurchaseData = () => {
         open={showInsufficientBalance}
         onOpenChange={setShowInsufficientBalance}
         currentBalance={balance}
-        requiredAmount={dataPlans.find(p => p.id === selectedPlan)?.price}
+        requiredAmount={(() => {
+          const plan = dataPlans.find(p => p.id === selectedPlan);
+          return plan ? getEffectivePrice(plan) : undefined;
+        })()}
       />
     </div>
   );

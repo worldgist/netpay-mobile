@@ -198,7 +198,9 @@ serve(async (req) => {
     }
 
     const balanceBefore = Number(profile.balance) || 0;
-    const planPrice = Number(dataPlan.price) || 0;
+    // Use custom_price if set, otherwise original_price, otherwise price
+    const effectivePrice = dataPlan.custom_price ?? dataPlan.original_price ?? dataPlan.price;
+    const planPrice = Number(effectivePrice) || 0;
 
     if (balanceBefore < planPrice) {
       return new Response(

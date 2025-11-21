@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
-import { Plus, Trash2, RefreshCw, Pencil, X } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Pencil, X, RotateCcw, DollarSign } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface DataPlan {
@@ -24,6 +24,8 @@ interface DataPlan {
   api_code: string;
   provider?: string;
   created_at: string;
+  custom_price?: number | null;
+  original_price?: number | null;
 }
 
 interface Network {
@@ -47,7 +49,8 @@ const DataPlans = () => {
     plan_name: "",
     price: "",
     validity: "",
-    api_code: ""
+    api_code: "",
+    custom_price: ""
   });
   const [dataProvider, setDataProvider] = useState<'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa'>('smeplug');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
@@ -416,6 +419,7 @@ const DataPlans = () => {
               network: network.name,
               plan_name: typeof planName === 'string' ? planName.trim() || 'Unknown Plan' : 'Unknown Plan',
               price: priceValue,
+              original_price: priceValue, // Set original_price to the imported price
               validity: typeof validityValue === 'string' ? validityValue.trim() || 'N/A' : 'N/A',
               api_code: normalizedApiCode || `${network.name}-${Date.now()}`,
               provider: dataProvider,
@@ -515,11 +519,13 @@ const DataPlans = () => {
 
   const openEditDialog = (plan: DataPlan) => {
     setEditingPlan(plan);
+    const originalPrice = plan.original_price ?? plan.price;
     setEditForm({
       plan_name: plan.plan_name,
-      price: String(plan.price),
+      price: String(originalPrice),
       validity: plan.validity,
-      api_code: plan.api_code
+      api_code: plan.api_code,
+      custom_price: plan.custom_price ? String(plan.custom_price) : ""
     });
     setIsEditDialogOpen(true);
   };
@@ -570,14 +576,35 @@ const DataPlans = () => {
     }
 
     try {
+      const customPriceValue = editForm.custom_price.trim();
+      const customPriceNum = customPriceValue ? parseFloat(customPriceValue) : null;
+      const isValidCustomPrice = customPriceNum !== null && !isNaN(customPriceNum) && customPriceNum >= 0;
+      
+      const updateData: any = {
+        plan_name: editForm.plan_name.trim(),
+        price: priceNum,
+        validity: editForm.validity.trim(),
+        api_code: editForm.api_code.trim(),
+      };
+      
+      // Always update original_price to match the price field (this is the provider's price)
+      // This ensures original_price is always set and reflects the current provider price
+      updateData.original_price = priceNum;
+      
+      // Set custom_price (can be null to clear it)
+      // This is what users will be charged
+      updateData.custom_price = isValidCustomPrice ? customPriceNum : null;
+      
+      console.log('Updating data plan:', {
+        planId: editingPlan.id,
+        originalPrice: priceNum,
+        customPrice: updateData.custom_price,
+        userWillPay: updateData.custom_price ?? priceNum
+      });
+      
       const { error } = await supabase
         .from('data_plans')
-        .update({
-          plan_name: editForm.plan_name.trim(),
-          price: priceNum,
-          validity: editForm.validity.trim(),
-          api_code: editForm.api_code.trim(),
-        })
+        .update(updateData)
         .eq('id', editingPlan.id);
 
       if (error) throw error;
@@ -595,6 +622,76 @@ const DataPlans = () => {
       toast({
         title: "Error",
         description: "Failed to update data plan",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const resetCustomPrice = async (planId: string) => {
+    try {
+      const { error } = await supabase.rpc('reset_data_plan_custom_prices', {
+        plan_ids: [planId]
+      });
+
+      if (error) {
+        // If RPC doesn't exist, fallback to direct update
+        console.warn('RPC function not found, using direct update:', error);
+        const { error: updateError } = await supabase
+          .from('data_plans')
+          .update({ custom_price: null })
+          .eq('id', planId);
+        
+        if (updateError) throw updateError;
+      }
+
+      toast({
+        title: "Success",
+        description: "Custom price reset to original price",
+      });
+
+      await fetchDataPlans();
+    } catch (error: any) {
+      console.error('Error resetting custom price:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset custom price",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const resetAllCustomPricesForProvider = async () => {
+    if (!confirm(`Are you sure you want to reset all custom prices for ${dataProvider.toUpperCase()}? This will restore all plans to their original prices.`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc('reset_data_provider_custom_prices', {
+        provider_name: dataProvider
+      });
+
+      if (error) {
+        // If RPC doesn't exist, fallback to direct update
+        console.warn('RPC function not found, using direct update:', error);
+        const { error: updateError } = await supabase
+          .from('data_plans')
+          .update({ custom_price: null })
+          .eq('provider', dataProvider);
+        
+        if (updateError) throw updateError;
+      }
+
+      toast({
+        title: "Success",
+        description: `All custom prices reset for ${dataProvider.toUpperCase()}`,
+      });
+
+      await fetchDataPlans();
+    } catch (error: any) {
+      console.error('Error resetting custom prices:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset custom prices",
         variant: "destructive",
       });
     }
@@ -669,8 +766,23 @@ const DataPlans = () => {
                     Manage data plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}
                     {filterNetwork && ` - ${filterNetwork} network`}
                   </p>
+                  <div className="mt-2 flex items-center gap-2 text-sm bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+                    <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span className="text-blue-700 dark:text-blue-300">
+                      <strong>Pricing:</strong> Set custom prices to charge users a different amount than the provider's price. Users will be charged the custom price (or original if not set).
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4">
+                  <Button
+                    variant="outline"
+                    onClick={resetAllCustomPricesForProvider}
+                    className="flex items-center gap-2"
+                    title="Reset all custom prices to original prices"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Reset All Prices
+                  </Button>
                   <div className="flex items-center gap-3 bg-card border rounded-lg px-4 py-2">
                     <Label htmlFor="data-provider" className="text-sm font-medium">Data Provider:</Label>
                     <Select
@@ -808,39 +920,77 @@ const DataPlans = () => {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Plan Name</TableHead>
-                            <TableHead>Price</TableHead>
+                            <TableHead>Original Price</TableHead>
+                            <TableHead>Custom Price</TableHead>
+                            <TableHead className="font-semibold">User Pays</TableHead>
                             <TableHead>Validity</TableHead>
                             <TableHead>API Code</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {plans.map((plan) => (
-                            <TableRow key={plan.id}>
-                              <TableCell className="font-medium">{plan.plan_name}</TableCell>
-                              <TableCell>{formatNaira(plan.price)}</TableCell>
-                              <TableCell>{plan.validity}</TableCell>
-                              <TableCell className="font-mono text-sm">{plan.api_code}</TableCell>
+                          {plans.map((plan) => {
+                            const effectivePrice = plan.custom_price ?? plan.original_price ?? plan.price;
+                            const originalPrice = plan.original_price ?? plan.price;
+                            const hasCustomPrice = !!plan.custom_price;
+                            return (
+                              <TableRow key={plan.id}>
+                                <TableCell className="font-medium">{plan.plan_name}</TableCell>
+                                <TableCell>₦{originalPrice.toFixed(2)}</TableCell>
+                                <TableCell>
+                                  {hasCustomPrice ? (
+                                    <span className="text-primary font-medium">₦{plan.custom_price!.toFixed(2)}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="font-semibold">
+                                  <div className="flex items-center gap-2">
+                                    <span className={hasCustomPrice ? "text-primary" : ""}>
+                                      ₦{effectivePrice.toFixed(2)}
+                                    </span>
+                                    {hasCustomPrice && (
+                                      <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary">
+                                        Custom
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{plan.validity}</TableCell>
+                                <TableCell className="font-mono text-sm">{plan.api_code}</TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => openEditDialog(plan)}
+                                    title="Edit plan"
                                   >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
+                                  {plan.custom_price && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => resetCustomPrice(plan.id)}
+                                      title="Reset to original price"
+                                    >
+                                      <RotateCcw className="h-4 w-4 text-orange-600" />
+                                    </Button>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => deletePlan(plan.id)}
+                                    title="Delete plan"
                                   >
                                     <Trash2 className="h-4 w-4 text-destructive" />
                                   </Button>
                                 </div>
                               </TableCell>
-                            </TableRow>
-                          ))}
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
@@ -883,7 +1033,7 @@ const DataPlans = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="edit-price">Price (₦)</Label>
+                    <Label htmlFor="edit-price">Original Price (₦)</Label>
                     <Input
                       id="edit-price"
                       type="number"
@@ -893,6 +1043,9 @@ const DataPlans = () => {
                       onChange={(e) => handleEditFormChange('price', e.target.value)}
                       placeholder="e.g., 500"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      This is the original price from the provider. Users will see this price unless you set a custom price below.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-validity">Validity</Label>
@@ -913,6 +1066,37 @@ const DataPlans = () => {
                       placeholder="e.g., MTN-1GB-DAILY"
                       maxLength={100}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-custom-price" className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-primary" />
+                      Custom Price (₦) - User Charged Amount
+                    </Label>
+                    <Input
+                      id="edit-custom-price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editForm.custom_price}
+                      onChange={(e) => handleEditFormChange('custom_price', e.target.value)}
+                      placeholder="Leave empty to use original price"
+                      className={editForm.custom_price ? "border-primary" : ""}
+                    />
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Users will be charged this amount.</strong> Set a custom price to override the original price.
+                      </p>
+                      {editForm.custom_price && editForm.price && (
+                        <p className="text-xs font-medium text-primary">
+                          User will pay: ₦{parseFloat(editForm.custom_price) || 0} (Original: ₦{parseFloat(editForm.price) || 0})
+                        </p>
+                      )}
+                      {!editForm.custom_price && editForm.price && (
+                        <p className="text-xs text-muted-foreground">
+                          User will pay: ₦{parseFloat(editForm.price) || 0} (Original price)
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <Button 
                     onClick={updatePlan} 

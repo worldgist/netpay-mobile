@@ -119,6 +119,13 @@ type DataPlan = {
   price: number;
   validity?: string | null;
   apiCode?: string | null;
+  custom_price?: number | null;
+  original_price?: number | null;
+};
+
+// Helper function to get effective price (custom_price || original_price || price)
+const getEffectivePrice = (plan: DataPlan): number => {
+  return plan.custom_price ?? plan.original_price ?? plan.price;
 };
 
 type NetworkOption = {
@@ -211,7 +218,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
 
       let plansQuery = supabase
         .from('data_plans')
-        .select('id, network, plan_name, price, validity, api_code, provider')
+        .select('id, network, plan_name, price, validity, api_code, provider, custom_price, original_price')
         .order('network', { ascending: true })
         .order('price', { ascending: true });
 
@@ -235,7 +242,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           console.warn('Provider column missing from data_plans. Falling back to unfiltered query.');
           const fallback = await supabase
             .from('data_plans')
-            .select('id, network, plan_name, price, validity, api_code')
+            .select('id, network, plan_name, price, validity, api_code, custom_price, original_price')
             .order('network', { ascending: true })
             .order('price', { ascending: true });
 
@@ -282,13 +289,16 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           grouped[normalized] = [];
         }
 
+        const effectivePrice = plan.custom_price ?? plan.original_price ?? plan.price;
         grouped[normalized].push({
           id: plan.id,
           network: normalized,
           planName: plan.plan_name || 'Data Plan',
-          price: Number(plan.price) || 0,
+          price: Number(effectivePrice) || 0,
           validity: plan.validity,
           apiCode: plan.api_code,
+          custom_price: plan.custom_price,
+          original_price: plan.original_price,
         });
       });
 
@@ -391,7 +401,8 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       return;
     }
 
-    if (planToUse.price > balance) {
+    const effectivePrice = getEffectivePrice(planToUse);
+    if (effectivePrice > balance) {
       setInsufficientFundsMessage(
         `Your wallet balance is ${formatCurrency(balance)}. Please fund your wallet to continue.`
       );
@@ -540,7 +551,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       router.push({
         pathname: '/payment-success',
         params: {
-          amount: selectedPlan.price.toString(),
+          amount: getEffectivePrice(selectedPlan).toString(),
           network: selectedNetworkName,
           recipient: sanitizedPhoneNumber,
           serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
@@ -603,7 +614,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       currentPlans.map((plan) => ({
         id: plan.id,
         name: plan.validity ? `${plan.planName} • ${plan.validity}` : plan.planName,
-        amount: plan.price,
+        amount: getEffectivePrice(plan),
       })),
     [currentPlans]
   );
@@ -779,7 +790,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           onClose={() => setShowConfirmModal(false)}
           onConfirm={handleConfirmPayment}
           loading={isProcessing}
-          amount={selectedPlan.price}
+          amount={getEffectivePrice(selectedPlan)}
           network={selectedNetworkName}
           networkLogo={selectedNetworkLogo}
           recipient={phoneNumber}
