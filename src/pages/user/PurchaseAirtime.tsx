@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
+import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,6 +38,7 @@ const PurchaseAirtime = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   const { register, formState: { errors } } = useForm({
     resolver: zodResolver(airtimeSchema)
@@ -147,11 +149,7 @@ const PurchaseAirtime = () => {
     }
 
     if (balance < purchaseAmount) {
-      toast({
-        title: "Insufficient Balance",
-        description: "Please fund your wallet to continue",
-        variant: "destructive",
-      });
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -396,6 +394,13 @@ const PurchaseAirtime = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <InsufficientBalanceModal
+        open={showInsufficientBalance}
+        onOpenChange={setShowInsufficientBalance}
+        currentBalance={balance}
+        requiredAmount={Number(amount)}
+      />
     </div>
   );
 };

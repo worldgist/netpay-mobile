@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
-import { Plus, Trash2, RefreshCw, Pencil } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Pencil, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface DataPlan {
@@ -22,6 +22,7 @@ interface DataPlan {
   price: number;
   validity: string;
   api_code: string;
+  provider?: string;
   created_at: string;
 }
 
@@ -48,67 +49,91 @@ const DataPlans = () => {
     validity: "",
     api_code: ""
   });
+  const [dataProvider, setDataProvider] = useState<'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa'>('smeplug');
+  const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
+  const [filterNetwork, setFilterNetwork] = useState<string | null>(null);
 
-  useEffect(() => {
-    checkAdminAndFetch();
-  }, [navigate]);
-
-  const checkAdminAndFetch = async () => {
+  // Define fetchDataPlansForProvider first (before it's used)
+  const fetchDataPlansForProvider = useCallback(async (provider: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log('fetchDataPlansForProvider called with provider:', provider);
       
-      if (!session) {
-        navigate('/auth');
-        return;
+      // Check if provider column exists by trying to query with it
+      // If it doesn't exist, fall back to fetching all plans
+      let query = supabase
+        .from('data_plans')
+        .select('*');
+      
+      // Try to filter by provider, but handle if column doesn't exist
+      try {
+        query = query.eq('provider', provider);
+      } catch (e) {
+        console.warn('Provider column may not exist, fetching all plans');
+        // If provider column doesn't exist, we'll filter in JavaScript
       }
+      
+      const { data, error } = await query.order('network', { ascending: true });
 
-      // Check if user is admin
-      const { data: roles } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', session.user.id)
-        .eq('role', 'admin')
-        .single();
-
-      if (!roles) {
+      if (error) {
+        // If error is about missing column, try without provider filter
+        if (error.code === '42703' || error.message?.includes('provider')) {
+          console.warn('Provider column not found, fetching all plans and filtering in memory');
+          const { data: allData, error: allError } = await supabase
+            .from('data_plans')
+            .select('*')
+            .order('network', { ascending: true });
+          
+          if (allError) throw allError;
+          
+          // Filter by provider in memory (if plans have provider field, otherwise show all)
+          const filtered = (allData || []).filter((plan: any) => 
+            !plan.provider || plan.provider === provider
+          );
+          
+          const sortedData = filtered.sort((a: any, b: any) => {
+            if (a.network !== b.network) {
+              return a.network.localeCompare(b.network);
+            }
+            return (a.price || 0) - (b.price || 0);
+          });
+          
+          console.log('Fetched data plans (fallback):', sortedData.length, 'plans');
+          setDataPlans(sortedData);
+          return;
+        }
+        throw error;
+      }
+      
+      // Sort by price as secondary sort in JavaScript
+      const sortedData = (data || []).sort((a, b) => {
+        if (a.network !== b.network) {
+          return a.network.localeCompare(b.network);
+        }
+        return (a.price || 0) - (b.price || 0);
+      });
+      
+      console.log('Fetched data plans:', sortedData.length, 'plans');
+      setDataPlans(sortedData);
+    } catch (error: any) {
+      console.error('Error fetching data plans:', error);
+      // Don't show toast for empty results, only for actual errors
+      if (error?.code !== 'PGRST116') {
         toast({
-          title: "Access Denied",
-          description: "You don't have permission to access this page",
+          title: "Error",
+          description: error?.message || "Failed to load data plans",
           variant: "destructive",
         });
-        navigate('/dashboard');
-        return;
       }
-
-      await Promise.all([fetchDataPlans(), fetchNetworks()]);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error:', error);
-      setLoading(false);
+      // Set empty array on error so UI can still render
+      setDataPlans([]);
     }
-  };
+  }, [toast]);
 
-  const fetchDataPlans = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('data_plans')
-        .select('*')
-        .order('network', { ascending: true })
-        .order('price', { ascending: true });
+  const fetchDataPlans = useCallback(async () => {
+    await fetchDataPlansForProvider(dataProvider);
+  }, [dataProvider, fetchDataPlansForProvider]);
 
-      if (error) throw error;
-      setDataPlans(data || []);
-    } catch (error) {
-      console.error('Error fetching data plans:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load data plans",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const fetchNetworks = async () => {
+  const fetchNetworks = useCallback(async () => {
     try {
       const { data, error } = await supabase.functions.invoke('fetch-smeplug-networks');
       
@@ -119,6 +144,134 @@ const DataPlans = () => {
       }
     } catch (error) {
       console.error('Error fetching networks:', error);
+    }
+  }, []);
+
+  const fetchDataProvider = useCallback(async () => {
+    console.log('fetchDataProvider called');
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'data_provider')
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching data provider setting:', error);
+        // Default to smeplug on error
+        setDataProvider('smeplug');
+        await fetchDataPlansForProvider('smeplug');
+        return;
+      }
+
+      if (data?.setting_value) {
+        const provider = (data.setting_value as any)?.provider || 'smeplug';
+        const validProviders = ['smeplug', 'anyone', 'vtpass', 'mobilenig', 'ebills.africa'];
+        const selectedProvider = validProviders.includes(provider) ? provider as any : 'smeplug';
+        console.log('Setting data provider to:', selectedProvider);
+        setDataProvider(selectedProvider);
+        // Fetch plans for the selected provider
+        await fetchDataPlansForProvider(selectedProvider);
+      } else {
+        console.log('No data provider setting found, defaulting to smeplug');
+        // Default to smeplug if no setting found
+        setDataProvider('smeplug');
+        await fetchDataPlansForProvider('smeplug');
+      }
+    } catch (error) {
+      console.error('Error fetching data provider setting:', error);
+      // Default to smeplug on error
+      setDataProvider('smeplug');
+      await fetchDataPlansForProvider('smeplug');
+    }
+  }, [fetchDataPlansForProvider]);
+
+  const checkAdminAndFetch = useCallback(async () => {
+    console.log('checkAdminAndFetch called');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        console.log('No session, redirecting to auth');
+        setLoading(false);
+        navigate('/auth');
+        return;
+      }
+
+      console.log('Session found, checking admin role');
+      // Check if user is admin
+      const { data: roles } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+
+      if (!roles) {
+        console.log('Not admin, redirecting');
+        setLoading(false);
+        toast({
+          title: "Access Denied",
+          description: "You don't have permission to access this page",
+          variant: "destructive",
+        });
+        navigate('/dashboard');
+        return;
+      }
+
+      console.log('Admin confirmed, fetching data');
+      await Promise.all([fetchDataProvider(), fetchNetworks()]);
+      console.log('Data fetched, setting loading to false');
+      setLoading(false);
+    } catch (error) {
+      console.error('Error in checkAdminAndFetch:', error);
+      setLoading(false);
+    }
+  }, [navigate, toast, fetchDataProvider, fetchNetworks]);
+
+  useEffect(() => {
+    checkAdminAndFetch();
+  }, [checkAdminAndFetch]);
+
+  // Initial load effect
+  useEffect(() => {
+    checkAdminAndFetch();
+  }, [checkAdminAndFetch]);
+
+  const updateDataProvider = async (newProvider: 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa') => {
+    setIsUpdatingProvider(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          setting_key: 'data_provider',
+          setting_value: { provider: newProvider },
+          setting_category: 'system',
+          description: 'Data vending provider: smeplug or anyone'
+        }, {
+          onConflict: 'setting_key'
+        });
+
+      if (error) throw error;
+
+      setDataProvider(newProvider);
+      // Fetch plans for the new provider
+      await fetchDataPlansForProvider(newProvider);
+      // Clear network filter when switching providers
+      setFilterNetwork(null);
+      toast({
+        title: "Success",
+        description: `Data provider switched to ${newProvider === 'ebills.africa' ? 'eBills.Africa' : newProvider.toUpperCase()}. Showing plans from ${newProvider === 'ebills.africa' ? 'eBills.Africa' : newProvider.toUpperCase()}.`,
+      });
+    } catch (error: any) {
+      console.error('Error updating data provider:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update data provider",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingProvider(false);
     }
   };
 
@@ -137,8 +290,38 @@ const DataPlans = () => {
       const network = networks.find(n => n.id === selectedNetwork);
       if (!network) return;
 
-      const { data, error } = await supabase.functions.invoke('fetch-smeplug-data-plans', {
-        body: { network_id: network.network_id }
+      // Determine which edge function to call based on selected provider
+      let functionName = 'fetch-smeplug-data-plans';
+      let requestBody: any = { network_id: network.network_id };
+
+      switch (dataProvider) {
+        case 'vtpass':
+          functionName = 'fetch-vtpass-data-plans';
+          requestBody = { network: network.name };
+          break;
+        case 'mobilenig':
+          // TODO: Create fetch-mobilenig-data-plans function
+          functionName = 'fetch-smeplug-data-plans';
+          break;
+        case 'ebills.africa':
+          // TODO: Create fetch-ebills-data-plans function
+          functionName = 'fetch-smeplug-data-plans';
+          break;
+        case 'anyone':
+          // TODO: Create fetch-anyone-data-plans function
+          functionName = 'fetch-smeplug-data-plans';
+          break;
+        case 'smeplug':
+        default:
+          functionName = 'fetch-smeplug-data-plans';
+          requestBody = { network_id: network.network_id };
+          break;
+      }
+
+      console.log(`Fetching data plans from ${dataProvider} using function: ${functionName}`);
+
+      const { data, error } = await supabase.functions.invoke(functionName, {
+        body: requestBody
       });
 
       if (error) throw error;
@@ -151,19 +334,33 @@ const DataPlans = () => {
         if (Array.isArray(raw)) {
           plansArray = raw;
         } else if (raw && typeof raw === 'object') {
-          const keyed = (raw as any)[network.network_id] ?? (raw as any)[String(network.network_id)];
-          if (Array.isArray(keyed)) {
-            plansArray = keyed;
-          } else if (Array.isArray((raw as any).plans)) {
-            plansArray = (raw as any).plans;
-          } else {
-            const values = Object.values(raw as any);
-            const arrays = values.filter((v) => Array.isArray(v)) as any[];
-            if (arrays.length) {
-              // Fallback: flatten all arrays (may include other networks if provider returns mixed data)
-              plansArray = arrays.flat();
+          // Handle different provider response formats
+          if (dataProvider === 'vtpass') {
+            // VTpass returns array directly in data.data
+            // Check if it's already an array or needs extraction
+            if (Array.isArray(raw)) {
+              plansArray = raw;
+            } else if (raw.content && Array.isArray(raw.content.varations)) {
+              // Handle VTpass nested format if present
+              plansArray = raw.content.varations;
             } else {
-              plansArray = values.filter((v) => v && typeof v === 'object') as any[];
+              plansArray = [];
+            }
+          } else {
+            // SMEPLUG and others might have nested structure
+            const keyed = (raw as any)[network.network_id] ?? (raw as any)[String(network.network_id)];
+            if (Array.isArray(keyed)) {
+              plansArray = keyed;
+            } else if (Array.isArray((raw as any).plans)) {
+              plansArray = (raw as any).plans;
+            } else {
+              const values = Object.values(raw as any);
+              const arrays = values.filter((v) => Array.isArray(v)) as any[];
+              if (arrays.length) {
+                plansArray = arrays.flat();
+              } else {
+                plansArray = values.filter((v) => v && typeof v === 'object') as any[];
+              }
             }
           }
         } else if (Array.isArray((data as any).plans)) {
@@ -173,34 +370,135 @@ const DataPlans = () => {
         if (!plansArray.length) {
           toast({
             title: 'No Plans Found',
-            description: 'The provider returned no plans for this network.',
+            description: `The ${dataProvider.toUpperCase()} provider returned no plans for this network.`,
           });
           return;
         }
 
-        const plansToInsert = plansArray.map((plan: any) => ({
-          network: network.name,
-          plan_name: plan.plan || plan.name || plan.title || 'Unknown Plan',
-          price: parseFloat(plan.price) || parseFloat(plan.amount) || 0,
-          validity: plan.validity || plan.duration || plan.validity_period || 'N/A',
-          api_code: String(plan.id || plan.plan_id || plan.code || ''),
-        }));
+        const normalizePrice = (value: any) => {
+          if (value == null) return 0;
+          const numeric = typeof value === 'number'
+            ? value
+            : typeof value === 'string'
+            ? Number(value.replace(/[^0-9.-]/g, ''))
+            : Number(value);
+          if (!Number.isFinite(numeric) || numeric < 0) return 0;
+          return Number(numeric.toFixed(2));
+        };
 
-        const { error: insertError } = await supabase
-          .from('data_plans')
-          .upsert(plansToInsert, { 
-            onConflict: 'api_code',
-            ignoreDuplicates: false 
+        // Map plans based on provider format and sanitize inputs
+        const plansToInsert = plansArray
+          .map((plan: any) => {
+            const apiCodeCandidate = plan.variation_code || plan.id || plan.code || plan.plan_id;
+            const normalizedApiCode = typeof apiCodeCandidate === 'string'
+              ? apiCodeCandidate.trim()
+              : String(apiCodeCandidate ?? '');
+
+            const planName =
+              plan.plan ||
+              plan.name ||
+              plan.variation_name ||
+              plan.fixedPriceDescription ||
+              plan.title ||
+              'Unknown Plan';
+
+            const validityValue = plan.validity || plan.duration || plan.validity_period || 'N/A';
+            const priceValue = normalizePrice(
+              plan.price ??
+                plan.amount ??
+                plan.variation_amount ??
+                plan.fixedPrice ??
+                plan.variationAmount ??
+                plan.fixedPriceAmount
+            );
+
+            return {
+              network: network.name,
+              plan_name: typeof planName === 'string' ? planName.trim() || 'Unknown Plan' : 'Unknown Plan',
+              price: priceValue,
+              validity: typeof validityValue === 'string' ? validityValue.trim() || 'N/A' : 'N/A',
+              api_code: normalizedApiCode || `${network.name}-${Date.now()}`,
+              provider: dataProvider,
+            };
+          })
+          .filter((plan: any) => {
+            if (!plan.api_code) {
+              console.warn('Skipping plan without api_code', plan);
+              return false;
+            }
+            if (!Number.isFinite(plan.price)) {
+              console.warn('Skipping plan with invalid price', plan);
+              return false;
+            }
+            return true;
           });
+
+        // Deduplicate plans by provider + api_code to avoid Postgres conflicts
+        const dedupedPlans: typeof plansToInsert = [];
+        const seen = new Set<string>();
+        for (const plan of plansToInsert) {
+          const key = `${plan.provider}-${plan.api_code}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          dedupedPlans.push(plan);
+        }
+
+        if (!dedupedPlans.length) {
+          toast({
+            title: 'No Valid Plans',
+            description: 'Fetched plans did not contain valid API codes or prices.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Try upsert with provider column first, fallback to api_code only if column doesn't exist
+        let insertError;
+        try {
+          const result = await supabase
+            .from('data_plans')
+            .upsert(dedupedPlans, { 
+              onConflict: 'provider,api_code',
+              ignoreDuplicates: false 
+            });
+          insertError = result.error;
+        } catch (e: any) {
+          // If provider column doesn't exist, try with api_code only
+          if (
+            e.code === '42703' ||
+            e?.message?.toLowerCase().includes('provider') ||
+            insertError?.code === '42703' ||
+            insertError?.message?.toLowerCase().includes('provider') ||
+            e.code === 'PGRST212' ||
+            insertError?.code === 'PGRST212' ||
+            e?.message?.toLowerCase().includes('on conflict') ||
+            insertError?.message?.toLowerCase().includes('on conflict')
+          ) {
+            console.warn('Provider column not found, using api_code only for conflict resolution');
+            // Remove provider from plans if column doesn't exist
+            const plansWithoutProvider = dedupedPlans.map(({ provider, ...rest }) => rest);
+            const result = await supabase
+              .from('data_plans')
+              .upsert(plansWithoutProvider, { 
+                onConflict: 'api_code',
+                ignoreDuplicates: false 
+              });
+            insertError = result.error;
+          } else {
+            insertError = e;
+          }
+        }
 
         if (insertError) throw insertError;
 
         await fetchDataPlans();
         setIsDialogOpen(false);
+        // Filter to show only the fetched network
+        setFilterNetwork(network.name);
         
         toast({
           title: "Success",
-          description: `Imported ${plansToInsert.length} data plans from ${network.name}`,
+          description: `Imported ${dedupedPlans.length} data plans from ${network.name} via ${dataProvider.toUpperCase()}. Showing only ${network.name} plans.`,
         });
       }
     } catch (error: any) {
@@ -345,6 +643,10 @@ const DataPlans = () => {
   }
 
   const groupedPlans = dataPlans.reduce((acc, plan) => {
+    // Filter by network if filterNetwork is set
+    if (filterNetwork && plan.network !== filterNetwork) {
+      return acc;
+    }
     if (!acc[plan.network]) {
       acc[plan.network] = [];
     }
@@ -363,9 +665,34 @@ const DataPlans = () => {
               <div className="flex-1 flex justify-between items-center">
                 <div>
                   <h1 className="text-3xl font-bold">Data Plans Management</h1>
-                  <p className="text-muted-foreground">Manage data plans from SMEPLUG API</p>
+                  <p className="text-muted-foreground">
+                    Manage data plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}
+                    {filterNetwork && ` - ${filterNetwork} network`}
+                  </p>
                 </div>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 bg-card border rounded-lg px-4 py-2">
+                    <Label htmlFor="data-provider" className="text-sm font-medium">Data Provider:</Label>
+                    <Select
+                      value={dataProvider}
+                      onValueChange={(value) => {
+                        updateDataProvider(value as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa');
+                      }}
+                      disabled={isUpdatingProvider}
+                    >
+                      <SelectTrigger id="data-provider" className="w-[180px]">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="smeplug">SMEPLUG</SelectItem>
+                        <SelectItem value="anyone">ANYONE</SelectItem>
+                        <SelectItem value="vtpass">VTPASS</SelectItem>
+                        <SelectItem value="mobilenig">MobileNig</SelectItem>
+                        <SelectItem value="ebills.africa">eBills.Africa</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="mr-2 h-4 w-4" />
@@ -374,9 +701,9 @@ const DataPlans = () => {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Import Data Plans from SMEPLUG</DialogTitle>
+                      <DialogTitle>Import Data Plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}</DialogTitle>
                       <DialogDescription>
-                        Select a network to fetch and import their data plans
+                        Select a network to fetch and import their data plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -412,11 +739,57 @@ const DataPlans = () => {
                     </div>
                   </DialogContent>
                 </Dialog>
+                </div>
               </div>
             </div>
 
+            {/* Filter Badge */}
+            {filterNetwork && (
+              <div className="mb-4 flex items-center gap-2">
+                <Badge className="bg-brand text-white px-3 py-1.5 text-sm">
+                  Showing: {filterNetwork}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFilterNetwork(null);
+                    toast({
+                      title: "Filter Cleared",
+                      description: "Showing all networks",
+                    });
+                  }}
+                  className="h-7 px-2"
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Clear Filter
+                </Button>
+              </div>
+            )}
+
             <div className="space-y-6">
-              {Object.entries(groupedPlans).map(([network, plans]) => (
+              {Object.entries(groupedPlans).length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-16">
+                    <p className="text-muted-foreground mb-4">
+                      {filterNetwork 
+                        ? `No data plans found for ${filterNetwork}` 
+                        : "No data plans found"}
+                    </p>
+                    {filterNetwork && (
+                      <Button 
+                        variant="outline"
+                        onClick={() => setFilterNetwork(null)}
+                        className="mt-2"
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Clear Filter
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                Object.entries(groupedPlans).map(([network, plans]) => (
                 <Card key={network}>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -473,9 +846,10 @@ const DataPlans = () => {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                ))
+              )}
 
-              {dataPlans.length === 0 && (
+              {dataPlans.length === 0 && !filterNetwork && (
                 <Card>
                   <CardContent className="flex flex-col items-center justify-center py-16">
                     <p className="text-muted-foreground mb-4">No data plans found</p>

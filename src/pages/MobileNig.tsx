@@ -75,21 +75,51 @@ export default function MobileNig() {
           : undefined,
       });
 
-      if (error) throw error;
+      if (error) {
+        // Try to extract error message from error object
+        let errorMessage = error.message || 'Failed to fetch MobileNig balance';
+        
+        // Check if error has context with response body
+        if (error.context?.body) {
+          try {
+            const errorBody = typeof error.context.body === 'string' 
+              ? JSON.parse(error.context.body) 
+              : error.context.body;
+            errorMessage = errorBody.error || errorBody.message || errorMessage;
+          } catch (e) {
+            console.error('Failed to parse error body:', e);
+          }
+        }
+        
+        // If we have data even with an error, check if it contains error info
+        if (data && !data.success) {
+          errorMessage = data.error || data.message || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      if (!data) {
+        throw new Error('No data returned from MobileNig API');
+      }
 
       if (data.success) {
         setBalance(data.balance);
         setAccount(data.account);
       } else {
-        throw new Error('Failed to fetch MobileNig data');
+        throw new Error(data.error || data.message || 'Failed to fetch MobileNig data');
       }
     } catch (error: any) {
       console.error('Error fetching MobileNig data:', error);
+      const errorMessage = error.message || "Failed to fetch MobileNig account information. Please check the API configuration or try again later.";
       toast({
         title: "Error",
-        description: error.message || "Failed to fetch MobileNig account information",
+        description: errorMessage,
         variant: "destructive",
       });
+      // Set balance and account to null to show error state
+      setBalance(null);
+      setAccount(null);
     } finally {
       setLoading(false);
     }
@@ -121,20 +151,48 @@ export default function MobileNig() {
           : undefined,
       });
 
-      if (error) throw error;
+      if (error) {
+        // Try to extract error message from error object
+        let errorMessage = error.message || 'Failed to fetch wallet history';
+        
+        // Check if error has context with response body
+        if (error.context?.body) {
+          try {
+            const errorBody = typeof error.context.body === 'string' 
+              ? JSON.parse(error.context.body) 
+              : error.context.body;
+            errorMessage = errorBody.error || errorBody.message || errorMessage;
+          } catch (e) {
+            console.error('Failed to parse error body:', e);
+          }
+        }
+        
+        // If we have data even with an error, check if it contains error info
+        if (data && !data.success) {
+          errorMessage = data.error || data.message || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      if (!data) {
+        throw new Error('No data returned from wallet history API');
+      }
 
       if (data.success) {
-        setTransactions(data.transactions);
+        setTransactions(data.transactions || []);
       } else {
-        throw new Error('Failed to fetch wallet history');
+        throw new Error(data.error || data.message || 'Failed to fetch wallet history');
       }
     } catch (error: any) {
       console.error('Error fetching wallet history:', error);
+      const errorMessage = error.message || "Failed to fetch wallet history. Please try again later.";
       toast({
         title: "Error",
-        description: error.message || "Failed to fetch wallet history",
+        description: errorMessage,
         variant: "destructive",
       });
+      setTransactions([]);
     } finally {
       setLoadingTransactions(false);
     }

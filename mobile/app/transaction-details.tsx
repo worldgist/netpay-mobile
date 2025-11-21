@@ -682,9 +682,11 @@ function TransactionDetailsScreen() {
               </div>
               ` : ''}
               ${transaction.metadata?.token ? `
-              <div class="info-row">
-                <span class="info-label">Token</span>
-                <span class="info-value">${transaction.metadata.token}</span>
+              <div class="info-row" style="background: #FFF5E6; padding: 16px; border-radius: 8px; margin: 12px 0; border: 2px solid #FF7F00;">
+                <div style="width: 100%;">
+                  <div style="font-size: 12px; color: #FF7F00; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Electricity Token</div>
+                  <div style="font-size: 20px; font-weight: bold; color: #333; font-family: monospace; letter-spacing: 2px; word-break: break-all;">${transaction.metadata.token}</div>
+                </div>
               </div>
               ` : ''}
               ${transaction.metadata?.educationPin ? `

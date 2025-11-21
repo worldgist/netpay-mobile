@@ -44,6 +44,9 @@ export default function CableTVScreen() {
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
+  const [showServiceUnavailableModal, setShowServiceUnavailableModal] = useState(false);
+  const [showInvalidCardModal, setShowInvalidCardModal] = useState(false);
+  const [invalidCardMessage, setInvalidCardMessage] = useState('');
 
   useEffect(() => {
     isMounted.current = true;
@@ -177,6 +180,10 @@ export default function CableTVScreen() {
 
     try {
       setVerifying(true);
+      setVerifiedName(null);
+      setShowServiceUnavailableModal(false);
+      setShowInvalidCardModal(false);
+
       const { data, error } = await supabase.functions.invoke('validate-cable-customer', {
         body: {
           card_number: smartCardNumber.trim(),
@@ -184,29 +191,50 @@ export default function CableTVScreen() {
         },
       });
 
+      // Handle edge function errors (network, timeout, etc.)
       if (error) {
-        throw error;
-      }
-
-      if (!data?.success) {
+        console.error('Edge function error:', error);
         setVerifiedName(null);
-        Alert.alert('Verification Failed', data?.error || 'Smart card not found.');
+        setShowServiceUnavailableModal(true);
         return;
       }
 
-      const name = data.data?.customer_name || selectedProvider;
-      setVerifiedName(name);
+      // Check if validation was successful
+      if (data?.success === true && data?.data?.customer_name) {
+        const name = data.data.customer_name || selectedProvider;
+        setVerifiedName(name);
+        // Clear any error modals
+        setShowServiceUnavailableModal(false);
+        setShowInvalidCardModal(false);
+      } else {
+        // Handle validation failure
+        const errorMessage = data?.error || 'Unable to verify smart card number';
+        const errorType = data?.errorType || '';
+        
+        console.log('Verification failed:', errorMessage, 'ErrorType:', errorType);
+        setVerifiedName(null);
+        
+        // Check if it's an invalid card number error
+        const isInvalidCard = errorType === 'invalid_card' ||
+                             errorMessage.toLowerCase().includes('invalid') || 
+                             errorMessage.toLowerCase().includes('card number') ||
+                             errorMessage.toLowerCase().includes('smart card') ||
+                             errorMessage.toLowerCase().includes('customer not found') ||
+                             errorMessage.toLowerCase().includes('not found') ||
+                             errorMessage.toLowerCase().includes('wrong');
+        
+        if (isInvalidCard) {
+          // Set a user-friendly message
+          setInvalidCardMessage('Wrong card number. Please check the card number and try again.');
+          setShowInvalidCardModal(true);
+        } else {
+          setShowServiceUnavailableModal(true);
+        }
+      }
     } catch (error) {
       console.error('Smart card verification failed:', error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'object' && error !== null && 'message' in error
-          ? // @ts-ignore
-            error.message
-          : 'Unable to verify smart card. Please try again later.';
       setVerifiedName(null);
-      Alert.alert('Verification Failed', message);
+      setShowServiceUnavailableModal(true);
     } finally {
       setVerifying(false);
     }
@@ -414,6 +442,63 @@ export default function CableTVScreen() {
           serviceType={`Cable TV • ${selectedPlan.packageName}`}
         />
       )}
+
+      {/* Service Unavailable Modal */}
+      <Modal
+        visible={showServiceUnavailableModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowServiceUnavailableModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="error-outline" size={64} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Services Unavailable</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              We're experiencing technical difficulties. Please try again later.
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowServiceUnavailableModal(false)}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Invalid Card Number Modal */}
+      <Modal
+        visible={showInvalidCardModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowInvalidCardModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="credit-card-off" size={64} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Wrong Card Number</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              {invalidCardMessage || 'The smart card number you entered is incorrect. Please check the number and try again.'}
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => {
+                setShowInvalidCardModal(false);
+                setSmartCardNumber('');
+              }}
+              activeOpacity={0.8}
+            >
+              <ThemedText style={styles.modalButtonText}>OK</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -615,6 +700,56 @@ const styles = StyleSheet.create({
   verifiedText: {
     fontSize: 14,
     color: '#4CAF50',
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalIconContainer: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FF7F00',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '600',
   },
 });

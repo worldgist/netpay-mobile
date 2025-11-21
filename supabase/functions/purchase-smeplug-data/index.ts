@@ -293,20 +293,51 @@ serve(async (req) => {
       },
     });
 
-    await supabase.from('data_transactions').insert({
-      user_id: user.id,
-      phone_number: sanitizedPhone,
-      network: dataPlan.network || String(network_id),
-      plan_name: dataPlan.plan_name,
-      plan_validity: dataPlan.validity,
-      amount: planPrice,
-      balance_before: debitResult.balanceBefore,
-      balance_after: debitResult.balanceAfter,
-      status: 'success',
-      reference,
-      api_response: apiResponse,
-      performed_by: user.id
-    });
+    // Record transaction - CRITICAL: This must succeed
+    const { data: insertedTransaction, error: dataTxnError } = await supabase
+      .from('data_transactions')
+      .insert({
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: dataPlan.network || String(network_id),
+        plan_name: dataPlan.plan_name,
+        plan_validity: dataPlan.validity || "N/A",
+        amount: planPrice,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        status: 'success',
+        reference,
+        api_response: apiResponse,
+        performed_by: user.id,
+        provider: 'smeplug',
+      })
+      .select()
+      .single();
+
+    if (dataTxnError || !insertedTransaction) {
+      console.error("CRITICAL: Failed to record data transaction after wallet debit:", dataTxnError);
+      // This is a critical error - wallet was debited but transaction not recorded
+      console.error("Data consistency issue: Wallet debited but transaction not recorded", {
+        userId: user.id,
+        amount: planPrice,
+        reference,
+        error: dataTxnError,
+      });
+      
+      // Return error so the frontend knows something went wrong
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Transaction completed but failed to record. Please contact support with reference: " + reference,
+          reference,
+          details: {
+            message: "Your wallet was debited and data was delivered, but the transaction record failed. Please contact support.",
+            error: dataTxnError?.message || "Unknown error",
+          },
+        }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
 
     return new Response(
       JSON.stringify({ 

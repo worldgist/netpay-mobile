@@ -102,16 +102,16 @@ export default function UserNotifications() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#FFF8F0] to-white">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#FF7F00]"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-gradient-to-b from-[#FFF8F0] to-white pb-24">
       {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
+      <div className="bg-gradient-to-r from-[#FF7F00] to-[#FF9933] border-b-2 border-[#FF7F00] sticky top-0 z-10 shadow-md">
         <div className="px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -119,13 +119,14 @@ export default function UserNotifications() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate("/user/profile")}
+                className="text-white hover:bg-white/20"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div>
-                <h1 className="text-xl font-bold">Notifications</h1>
+                <h1 className="text-xl font-bold text-white">Notifications</h1>
                 {unreadCount > 0 && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-white/90">
                     {unreadCount} unread
                   </p>
                 )}
@@ -136,6 +137,7 @@ export default function UserNotifications() {
                 variant="ghost"
                 size="sm"
                 onClick={markAllAsRead}
+                className="text-white hover:bg-white/20 border border-white/30"
               >
                 <CheckCheck className="h-4 w-4 mr-2" />
                 Mark all read
@@ -148,11 +150,11 @@ export default function UserNotifications() {
       {/* Notifications List */}
       <div className="p-4 space-y-3">
         {notifications.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Bell className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-              <h3 className="font-semibold text-lg mb-2">No notifications</h3>
-              <p className="text-muted-foreground">
+          <Card className="border-2 border-[#FFE5CC] shadow-lg">
+            <CardContent className="py-12 text-center bg-white">
+              <Bell className="h-16 w-16 mx-auto text-[#FFB366] mb-4" />
+              <h3 className="font-semibold text-lg mb-2 text-[#FF7F00]">No notifications</h3>
+              <p className="text-[#CC6600]">
                 You're all caught up! Check back later for updates.
               </p>
             </CardContent>
@@ -161,22 +163,32 @@ export default function UserNotifications() {
           notifications.map((notification) => (
             <Card
               key={notification.id}
-              className={notification.read_status?.is_read ? "opacity-60" : ""}
+              className={`border-2 shadow-md transition-all ${
+                notification.read_status?.is_read 
+                  ? "border-[#FFE5CC] bg-white opacity-70" 
+                  : "border-[#FF7F00] bg-[#FFF8F0] border-l-4"
+              }`}
             >
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 space-y-2">
                     <div className="flex items-start justify-between">
-                      <h3 className="font-semibold">{notification.title}</h3>
+                      <h3 className={`font-semibold ${
+                        notification.read_status?.is_read ? "text-[#CC6600]" : "text-[#FF7F00]"
+                      }`}>
+                        {notification.title}
+                      </h3>
                       {!notification.read_status?.is_read && (
-                        <Badge variant="default" className="ml-2">New</Badge>
+                        <Badge className="ml-2 bg-[#FF7F00] text-white">New</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className={`text-sm ${
+                      notification.read_status?.is_read ? "text-gray-600" : "text-gray-800"
+                    }`}>
                       {notification.message}
                     </p>
                     <div className="flex items-center justify-between">
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-[#CC6600] font-medium">
                         {new Date(notification.created_at).toLocaleDateString('en-NG', {
                           month: 'short',
                           day: 'numeric',
@@ -190,7 +202,7 @@ export default function UserNotifications() {
                           variant="ghost"
                           size="sm"
                           onClick={() => markAsRead(notification.id)}
-                          className="h-auto py-1 px-2 text-xs"
+                          className="h-auto py-1 px-2 text-xs text-[#FF7F00] hover:bg-[#FFF4E6]"
                         >
                           Mark as read
                         </Button>

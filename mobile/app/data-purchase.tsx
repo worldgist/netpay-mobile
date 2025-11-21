@@ -97,12 +97,28 @@ const formatCurrency = (amount?: number | null) => {
   })}`;
 };
 
+const generateRequestId = () => {
+  const lagos = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' })
+  );
+  const pad = (value: number) => `${value}`.padStart(2, '0');
+  const timestamp =
+    lagos.getFullYear().toString() +
+    pad(lagos.getMonth() + 1) +
+    pad(lagos.getDate()) +
+    pad(lagos.getHours()) +
+    pad(lagos.getMinutes());
+  const random = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `${timestamp}${random}`;
+};
+
 type DataPlan = {
   id: string;
   network: string;
   planName: string;
   price: number;
   validity?: string | null;
+  apiCode?: string | null;
 };
 
 type NetworkOption = {
@@ -116,6 +132,7 @@ export default function DataPurchaseScreen() {
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [dataPlan, setDataPlan] = useState('');
+  const [selectedPlanCache, setSelectedPlanCache] = useState<DataPlan | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [balance, setBalance] = useState(0);
@@ -126,6 +143,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
+  const [dataProvider, setDataProvider] = useState<'smeplug' | 'vtpass' | 'anyone' | 'mobilenig' | 'ebills.africa'>('smeplug');
 
   const isMounted = useRef(true);
   const selectedNetworkRef = useRef<string | null>(null);
@@ -153,9 +171,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       }
 
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        throw sessionError;
-      }
+      if (sessionError) throw sessionError;
 
       const session = sessionData.session;
       if (!session) {
@@ -164,66 +180,101 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       }
 
       const userId = session.user.id;
-
       const accessToken = session.access_token;
       if (!accessToken) {
         throw new Error('Missing access token. Please sign in again.');
       }
 
+      const providerResponse = await supabase.functions.invoke('get-data-provider', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      let resolvedProvider =
+        typeof providerResponse.data?.provider === 'string'
+          ? providerResponse.data.provider
+          : (providerResponse.data as string) || 'smeplug';
+
+      if (!['smeplug', 'vtpass', 'anyone', 'mobilenig', 'ebills.africa'].includes(resolvedProvider)) {
+        resolvedProvider = 'smeplug';
+      }
+
+      if (isMounted.current) {
+        setDataProvider(resolvedProvider as typeof dataProvider);
+      }
+
+      const networksPromise =
+        resolvedProvider === 'smeplug'
+          ? supabase.functions.invoke('fetch-smeplug-networks', {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            })
+          : Promise.resolve({ data: null, error: null });
+
+      let plansQuery = supabase
+        .from('data_plans')
+        .select('id, network, plan_name, price, validity, api_code, provider')
+        .order('network', { ascending: true })
+        .order('price', { ascending: true });
+
+      if (resolvedProvider) {
+        plansQuery = plansQuery.eq('provider', resolvedProvider);
+      }
+
       const [profileRes, plansRes, networksRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', userId)
-          .single(),
-        supabase
-          .from('data_plans')
-          .select('id, network, plan_name, price, validity')
-          .order('network', { ascending: true })
-          .order('price', { ascending: true }),
-        supabase.functions.invoke('fetch-smeplug-networks', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }),
+        supabase.from('profiles').select('balance').eq('id', userId).single(),
+        plansQuery,
+        networksPromise,
       ]);
 
       if (profileRes.error && profileRes.error.code !== 'PGRST116') {
         throw profileRes.error;
       }
 
+      let plansData = plansRes.data || [];
       if (plansRes.error) {
-        throw plansRes.error;
-      }
+        if (plansRes.error.code === '42703') {
+          console.warn('Provider column missing from data_plans. Falling back to unfiltered query.');
+          const fallback = await supabase
+            .from('data_plans')
+            .select('id, network, plan_name, price, validity, api_code')
+            .order('network', { ascending: true })
+            .order('price', { ascending: true });
 
-      let fetchedNetworkMap: Record<string, string> = {};
-
-      if (networksRes.error) {
-        console.warn('Failed to fetch SMEPLUG networks. Falling back to default mapping:', networksRes.error);
-      } else {
-        const networkPayload = networksRes.data;
-        if (networkPayload?.success && Array.isArray(networkPayload.data) && networkPayload.data.length > 0) {
-          networkPayload.data.forEach((item: { id: string; name: string; network_id: string }) => {
-            const normalizedFromName = normalizeNetwork(item.name);
-            const normalizedFromId = normalizeNetwork(item.id);
-            const derivedKey = normalizedFromName || normalizedFromId;
-            if (derivedKey) {
-              fetchedNetworkMap[derivedKey] = String(item.network_id || item.id);
-            }
-          });
+          if (fallback.error) throw fallback.error;
+          plansData = fallback.data || [];
         } else {
-          console.warn('SMEPLUG networks function returned no data. Falling back to default mapping.');
+          throw plansRes.error;
         }
       }
 
-      if (Object.keys(fetchedNetworkMap).length === 0) {
-        fetchedNetworkMap = { ...SMEPLUG_NETWORK_IDS };
+      let fetchedNetworkMap: Record<string, string> = {};
+      if (resolvedProvider === 'smeplug') {
+        if (networksRes.error) {
+          console.warn('Failed to fetch SMEPLUG networks. Falling back to default mapping:', networksRes.error);
+        } else {
+          const payload = networksRes.data;
+          if (payload?.success && Array.isArray(payload.data) && payload.data.length > 0) {
+            payload.data.forEach((item: { id: string; name: string; network_id: string }) => {
+              const normalizedFromName = normalizeNetwork(item.name);
+              const normalizedFromId = normalizeNetwork(item.id);
+              const derivedKey = normalizedFromName || normalizedFromId;
+              if (derivedKey) {
+                fetchedNetworkMap[derivedKey] = String(item.network_id || item.id);
+              }
+            });
+          } else {
+            console.warn('SMEPLUG networks function returned no data. Falling back to default mapping.');
+          }
+        }
+
+        if (Object.keys(fetchedNetworkMap).length === 0) {
+          fetchedNetworkMap = { ...SMEPLUG_NETWORK_IDS };
+        }
       }
 
       const balanceValue = profileRes.data ? Number(profileRes.data.balance) : 0;
 
       const grouped: Record<string, DataPlan[]> = {};
-      (plansRes.data || []).forEach((plan) => {
+      plansData.forEach((plan) => {
         const normalized = normalizeNetwork(plan.network);
         if (!normalized) return;
 
@@ -237,6 +288,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           planName: plan.plan_name || 'Data Plan',
           price: Number(plan.price) || 0,
           validity: plan.validity,
+          apiCode: plan.api_code,
         });
       });
 
@@ -281,7 +333,10 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         setNetworks(networkList);
         setSelectedNetwork(effectiveNetwork);
         setDataPlan(effectivePlanId);
-        setNetworkIdMap(fetchedNetworkMap);
+        if (!effectivePlanId) {
+          setSelectedPlanCache(null);
+        }
+        setNetworkIdMap(resolvedProvider === 'smeplug' ? fetchedNetworkMap : {});
       }
     } catch (err) {
       console.error('Failed to fetch data plans:', err);
@@ -291,6 +346,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         setNetworks([]);
         setSelectedNetwork(null);
         setDataPlan('');
+        setSelectedPlanCache(null);
         setBalance(0);
       }
     } finally {
@@ -323,12 +379,19 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       setPhoneNumber(normalizedPhone);
     }
 
-    if (!selectedPlan) {
-      Alert.alert('Error', 'Please select a data plan');
+    let planToUse = selectedPlan;
+    if (!planToUse && currentPlans.length > 0) {
+      planToUse = currentPlans[0];
+      setDataPlan(planToUse.id);
+      setSelectedPlanCache(planToUse);
+    }
+
+    if (!planToUse) {
+      Alert.alert('Error', 'No available data plans for the selected network.');
       return;
     }
 
-    if (selectedPlan.price > balance) {
+    if (planToUse.price > balance) {
       setInsufficientFundsMessage(
         `Your wallet balance is ${formatCurrency(balance)}. Please fund your wallet to continue.`
       );
@@ -387,14 +450,17 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         return;
       }
 
-      const rawNetworkId =
-        networkIdMap[effectiveNetworkId] ||
-        SMEPLUG_NETWORK_IDS[effectiveNetworkId] ||
-        networkIdMap[selectedNetworkName?.toUpperCase?.() ?? ''] ||
-        null;
-      if (!rawNetworkId) {
-        Alert.alert('Data Purchase', 'Unable to determine the network ID for this provider. Please try again.');
-        return;
+      let rawNetworkId: string | null = null;
+      if (dataProvider === 'smeplug') {
+        rawNetworkId =
+          networkIdMap[effectiveNetworkId] ||
+          SMEPLUG_NETWORK_IDS[effectiveNetworkId] ||
+          networkIdMap[selectedNetworkName?.toUpperCase?.() ?? ''] ||
+          null;
+        if (!rawNetworkId) {
+          Alert.alert('Data Purchase', 'Unable to determine the network ID for this provider. Please try again.');
+          return;
+        }
       }
 
       const sanitizedPhoneNumber = effectivePhone.replace(/\s+/g, '').trim();
@@ -415,43 +481,61 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         return;
       }
 
-      const requestBody = {
+      const requestId = dataProvider === 'vtpass' ? generateRequestId() : undefined;
+      const requestBody: Record<string, any> = {
         phone_number: sanitizedPhoneNumber,
         plan_id: effectivePlanId,
         network_id: rawNetworkId,
         network_name: selectedNetworkName,
         resolved_network_key: effectiveNetworkId,
       };
+      if (requestId) {
+        requestBody.request_id = requestId;
+      }
       console.log('Prepared request body:', requestBody);
 
-      console.log('Submitting purchase-smeplug-data request:', requestBody);
+      const functionName = dataProvider === 'vtpass' ? 'purchase-vtpass-data' : 'purchase-smeplug-data';
+      console.log(`Submitting ${functionName} request:`, requestBody);
 
-      const { data, error } = await supabase.functions.invoke('purchase-smeplug-data', {
-        body: requestBody,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      console.log('purchase-smeplug-data response:', { data, error });
-
-      if (error) {
-        throw error;
+      // Direct fetch call for better error handling
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
       }
 
-      if (!data?.success) {
+      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const responseData = await response.json();
+      console.log(`${functionName} response:`, { status: response.status, data: responseData });
+
+      if (!response.ok) {
+        // Extract error message from response
+        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+
+      if (!responseData?.success) {
         const detail =
-          data?.details?.message ||
-          data?.details?.error ||
-          data?.details?.data?.message ||
-          data?.details?.data?.error;
-        const message = detail || data?.error || 'Unable to complete data purchase.';
+          responseData?.details?.message ||
+          responseData?.details?.error ||
+          responseData?.details?.data?.message ||
+          responseData?.details?.data?.error;
+        const message = detail || responseData?.error || responseData?.message || 'Unable to complete data purchase.';
         throw new Error(message);
       }
 
       setShowConfirmModal(false);
 
-      const reference = data?.data?.reference || '';
+      const reference = responseData?.data?.reference || responseData?.request_id || requestId || '';
 
       router.push({
         pathname: '/payment-success',
@@ -471,34 +555,48 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         message = purchaseError.message || message;
       }
 
-      const context = (purchaseError as any)?.context;
-      if (context?.body) {
-        try {
-          const body = typeof context.body === 'string' ? JSON.parse(context.body) : context.body;
-          const bodyMessage =
-            body?.error ||
-            body?.message ||
-            body?.details?.error ||
-            body?.details?.message ||
-            body?.details?.data?.message ||
-            body?.details?.data?.error;
-          if (bodyMessage) {
-            message = bodyMessage;
-          }
-        } catch (_err) {
-          // ignore
-        }
-      }
-
       Alert.alert('Data Purchase', message);
     } finally {
       setIsProcessing(false);
     }
-  }, [networkIdMap, phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
+  }, [dataProvider, networkIdMap, phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
 
   const currentPlans = useMemo(() => {
     return selectedNetwork ? plansByNetwork[selectedNetwork] || [] : [];
   }, [selectedNetwork, plansByNetwork]);
+
+  const handleSelectPlan = useCallback(
+    (planId: string) => {
+      setDataPlan(planId);
+      const match = currentPlans.find((plan) => plan.id === planId);
+      setSelectedPlanCache(match ?? null);
+    },
+    [currentPlans]
+  );
+
+  useEffect(() => {
+    if (!dataPlan) {
+      if (currentPlans.length > 0) {
+        const first = currentPlans[0];
+        setDataPlan(first.id);
+        setSelectedPlanCache(first);
+      } else {
+        setSelectedPlanCache(null);
+      }
+      return;
+    }
+
+    const found = currentPlans.find((plan) => plan.id === dataPlan);
+    if (found) {
+      setSelectedPlanCache(found);
+    } else if (currentPlans.length > 0) {
+      const fallback = currentPlans[0];
+      setDataPlan(fallback.id);
+      setSelectedPlanCache(fallback);
+    } else {
+      setSelectedPlanCache(null);
+    }
+  }, [dataPlan, currentPlans]);
 
   const dropdownOptions = useMemo(
     () =>
@@ -511,8 +609,8 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   );
 
   const selectedPlan = useMemo(() => {
-    return currentPlans.find((plan) => plan.id === dataPlan);
-  }, [currentPlans, dataPlan]);
+    return currentPlans.find((plan) => plan.id === dataPlan) || selectedPlanCache || undefined;
+  }, [currentPlans, dataPlan, selectedPlanCache]);
 
   const selectedNetworkDetails = useMemo(
     () => (selectedNetwork ? networks.find((item) => item.id === selectedNetwork) : undefined),
@@ -648,7 +746,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                 <Dropdown
                   options={dropdownOptions}
                   selectedId={dataPlan || null}
-                  onSelect={setDataPlan}
+                  onSelect={handleSelectPlan}
                   placeholder={planPlaceholder}
                 />
                 {!dropdownOptions.length && selectedNetwork && !loading && (

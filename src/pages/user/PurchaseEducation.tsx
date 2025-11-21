@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
+import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 
 interface EducationService {
   id: string;
@@ -32,6 +33,7 @@ const PurchaseEducation = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   const EXAM_TYPES = ["WAEC", "JAMB", "NECO"];
 
@@ -128,11 +130,7 @@ const PurchaseEducation = () => {
     if (!selectedServiceData) return;
 
     if (balance < selectedServiceData.price) {
-      toast({
-        title: "Insufficient Balance",
-        description: "Please fund your wallet to continue",
-        variant: "destructive",
-      });
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -397,6 +395,13 @@ const PurchaseEducation = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <InsufficientBalanceModal
+        open={showInsufficientBalance}
+        onOpenChange={setShowInsufficientBalance}
+        currentBalance={balance}
+        requiredAmount={services.find(s => s.id === selectedService)?.price}
+      />
     </div>
   );
 };

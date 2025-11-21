@@ -69,7 +69,28 @@ serve(async (req) => {
       );
     }
 
-    const { page = 1, per_page = 10, trans_id } = await req.json().catch(() => ({ page: 1, per_page: 10 }));
+    // Parse request body safely
+    let page = 1;
+    let per_page = 10;
+    let trans_id: string | undefined;
+    
+    try {
+      const contentType = req.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const bodyText = await req.text();
+        if (bodyText && bodyText.trim()) {
+          const body = JSON.parse(bodyText);
+          page = body.page || 1;
+          per_page = body.per_page || 10;
+          trans_id = body.trans_id;
+        }
+      }
+    } catch (parseError) {
+      // If body is empty or invalid JSON, use defaults
+      console.log('No request body or invalid JSON, using defaults:', parseError);
+    }
+    
+    console.log('Request params:', { page, per_page, trans_id });
 
     let url: string;
     if (trans_id) {
@@ -80,16 +101,39 @@ serve(async (req) => {
       console.log('Fetching wallet history - page:', page, 'per_page:', per_page);
     }
 
+    console.log('Calling MobileNig wallet history API:', url);
+    console.log('API Key configured:', mobilenigPublicKey ? 'Yes (masked)' : 'No');
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${mobilenigPublicKey}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
     });
 
-    const data = await response.json();
-    console.log('MobileNig wallet history response:', data);
+    console.log('Wallet history API response status:', response.status, response.statusText);
+    console.log('Wallet history API response headers:', Object.fromEntries(response.headers.entries()));
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('MobileNig wallet history API error:', response.status, errorText);
+      throw new Error(`MobileNig API returned ${response.status}: ${errorText}`);
+    }
+
+    let data;
+    try {
+      const responseText = await response.text();
+      if (!responseText || !responseText.trim()) {
+        throw new Error('Empty response from MobileNig API');
+      }
+      data = JSON.parse(responseText);
+      console.log('MobileNig wallet history response:', data);
+    } catch (parseError) {
+      console.error('Error parsing MobileNig response:', parseError);
+      throw new Error(`Failed to parse MobileNig API response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+    }
 
     const responseData = {
       success: true,
@@ -108,10 +152,18 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in fetch-mobilenig-wallet-history function:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = process.env.NODE_ENV === 'development' 
+      ? { message: errorMessage, stack: error instanceof Error ? error.stack : undefined }
+      : { message: 'Internal server error' };
+    
     return new Response(
       JSON.stringify({ 
         error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        ...errorDetails
       }),
       { 
         status: 500,

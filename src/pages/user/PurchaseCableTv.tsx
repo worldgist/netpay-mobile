@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
+import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -56,6 +57,8 @@ const PurchaseCableTv = () => {
   } | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [openPackageSelect, setOpenPackageSelect] = useState(false);
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [showWrongCardModal, setShowWrongCardModal] = useState(false);
 
   const { register, formState: { errors } } = useForm({
     resolver: zodResolver(cableTvSchema)
@@ -123,35 +126,91 @@ const PurchaseCableTv = () => {
 
       setLoadingPlans(true);
       try {
-        const { data, error } = await supabase.functions.invoke('fetch-cable-packages', {
-          body: { provider: selectedProvider }
-        });
+        // Get the active cable vending provider setting
+        const { data: providerSetting } = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'cable_provider')
+          .maybeSingle();
 
-        if (error) throw error;
+        const vendingProvider = providerSetting?.setting_value?.provider || 'smeplug';
+        console.log('Fetching cable plans for provider:', selectedProvider, 'from vending provider:', vendingProvider);
 
-        if (data?.success && data?.data) {
-          const plans = (data.data as any[]).map((p: any, idx: number) => ({
-            ...p,
-            id: p.api_code || `${p.provider}-${p.package_name}-${idx}`,
-          }));
-          setCablePlans(plans);
-          if (selectedPlan && !plans.find((pl) => pl.id === selectedPlan)) {
-            setSelectedPlan("");
-          }
-        } else {
-          toast({
-            title: "Error",
-            description: "Failed to load cable packages",
-            variant: "destructive",
-          });
+        // Fetch plans directly from database table
+        let query = supabase
+          .from('cable_tv_plans')
+          .select('id, provider, package_name, price, api_code, custom_price, is_active, vending_provider')
+          .eq('provider', selectedProvider)
+          .eq('is_active', true)
+          .order('price', { ascending: true });
+
+        // Try to filter by vending_provider if column exists
+        try {
+          query = query.eq('vending_provider', vendingProvider);
+        } catch (e) {
+          console.warn('Vending provider column may not exist, fetching all plans');
         }
-      } catch (error) {
+
+        const { data, error } = await query;
+
+        if (error) {
+          // If error is about missing column, try without vending_provider filter
+          if (error.code === '42703' || error.message?.includes('vending_provider')) {
+            console.warn('Vending provider column not found, fetching all active plans');
+            const { data: allData, error: allError } = await supabase
+              .from('cable_tv_plans')
+              .select('id, provider, package_name, price, api_code, custom_price, is_active, vending_provider')
+              .eq('provider', selectedProvider)
+              .eq('is_active', true)
+              .order('price', { ascending: true });
+
+            if (allError) throw allError;
+
+            // Filter by vending_provider in memory
+            const filtered = (allData || []).filter((plan: any) => 
+              !plan.vending_provider || plan.vending_provider === vendingProvider
+            );
+
+            const plans = filtered.map((p: any, idx: number) => ({
+              id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
+              provider: p.provider,
+              package_name: p.package_name,
+              price: p.custom_price || p.price,
+              api_code: p.api_code,
+            }));
+
+            setCablePlans(plans);
+            if (selectedPlan && !plans.find((pl) => pl.id === selectedPlan)) {
+              setSelectedPlan("");
+            }
+            return;
+          }
+          throw error;
+        }
+
+        // Map plans to the expected format
+        const plans = (data || []).map((p: any, idx: number) => ({
+          id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
+          provider: p.provider,
+          package_name: p.package_name,
+          price: p.custom_price || p.price,
+          api_code: p.api_code,
+        }));
+
+        console.log(`Loaded ${plans.length} cable plans for ${selectedProvider}`);
+        setCablePlans(plans);
+        
+        if (selectedPlan && !plans.find((pl) => pl.id === selectedPlan)) {
+          setSelectedPlan("");
+        }
+      } catch (error: any) {
         console.error('Error fetching cable plans:', error);
         toast({
           title: "Error",
-          description: "Failed to load cable packages",
+          description: error.message || "Failed to load cable packages",
           variant: "destructive",
         });
+        setCablePlans([]);
       } finally {
         setLoadingPlans(false);
       }
@@ -183,6 +242,7 @@ const PurchaseCableTv = () => {
   const validateCardNumber = async () => {
     setValidatingCard(true);
     setValidationError(null);
+    setShowWrongCardModal(false);
 
     try {
       const { data, error } = await supabase.functions.invoke('validate-cable-customer', {
@@ -196,20 +256,58 @@ const PurchaseCableTv = () => {
       if (error || !data?.success) {
         // Use the error message from the edge function response if available
         const errorMessage = data?.error || 'Invalid card number. Please check and try again.';
-        throw new Error(errorMessage);
+        const errorType = data?.errorType || '';
+        
+        // Check if it's an invalid card number error
+        const isInvalidCard = errorType === 'invalid_card' ||
+                             errorMessage.toLowerCase().includes('invalid') || 
+                             errorMessage.toLowerCase().includes('card number') ||
+                             errorMessage.toLowerCase().includes('smart card') ||
+                             errorMessage.toLowerCase().includes('customer not found') ||
+                             errorMessage.toLowerCase().includes('not found') ||
+                             errorMessage.toLowerCase().includes('wrong');
+        
+        if (isInvalidCard) {
+          // Show wrong card modal
+          setShowWrongCardModal(true);
+          setValidatedCustomer(null);
+          setCustomerName('');
+        } else {
+          // Show inline error for other issues
+          const friendlyMessage = error.message?.includes('non-2xx status code') 
+            ? "Could not verify card number. Please try again."
+            : errorMessage || "Could not verify card number";
+          setValidationError(friendlyMessage);
+        }
+        return;
       }
 
       // Success: Store validated customer data
       setValidatedCustomer(data.data);
       setCustomerName(data.data.customer_name);
+      setShowWrongCardModal(false);
+      setValidationError(null);
 
     } catch (error: any) {
-      // Show user-friendly error message
-      const friendlyMessage = error.message.includes('non-2xx status code') 
-        ? "Invalid card number. Please check and try again."
-        : error.message || "Could not verify card number";
+      // Check if it's an invalid card error
+      const errorMessage = error.message || "Could not verify card number";
+      const isInvalidCard = errorMessage.toLowerCase().includes('invalid') || 
+                           errorMessage.toLowerCase().includes('card number') ||
+                           errorMessage.toLowerCase().includes('smart card') ||
+                           errorMessage.toLowerCase().includes('customer not found') ||
+                           errorMessage.toLowerCase().includes('not found') ||
+                           errorMessage.toLowerCase().includes('wrong');
       
-      setValidationError(friendlyMessage);
+      if (isInvalidCard) {
+        setShowWrongCardModal(true);
+        setValidatedCustomer(null);
+        setCustomerName('');
+      } else {
+        const friendlyMessage = errorMessage.includes('non-2xx status code') 
+          ? "Could not verify card number. Please try again."
+          : errorMessage;
+        setValidationError(friendlyMessage);
+      }
     } finally {
       setValidatingCard(false);
     }
@@ -241,11 +339,7 @@ const PurchaseCableTv = () => {
     if (!plan) return;
 
     if (balance < plan.price) {
-      toast({
-        title: "Insufficient Balance",
-        description: "Please fund your wallet to continue",
-        variant: "destructive",
-      });
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -657,6 +751,57 @@ const PurchaseCableTv = () => {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <InsufficientBalanceModal
+        open={showInsufficientBalance}
+        onOpenChange={setShowInsufficientBalance}
+        currentBalance={balance}
+        requiredAmount={cablePlans.find(p => p.id === selectedPlan)?.price}
+      />
+
+      {/* Wrong Card Number Modal */}
+      <Dialog open={showWrongCardModal} onOpenChange={setShowWrongCardModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl font-bold text-orange-600 dark:text-orange-500">
+              Wrong Card Number
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              The smart card number you entered is incorrect. Please check the number and try again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center py-4">
+            <div className="rounded-full bg-orange-100 dark:bg-orange-900/20 p-3">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-12 w-12 text-orange-600 dark:text-orange-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                />
+              </svg>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setShowWrongCardModal(false);
+                setCardNumber('');
+              }}
+            >
+              OK
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

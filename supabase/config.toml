@@ -12,6 +12,15 @@ verify_jwt = true
 [functions.fetch-cable-packages]
 verify_jwt = true
 
+[functions.fetch-vtpass-cable-packages]
+verify_jwt = true
+
+[functions.verify-vtpass-cable-customer]
+verify_jwt = true
+
+[functions.purchase-vtpass-cable]
+verify_jwt = true
+
 [functions.fetch-electricity-packages]
 verify_jwt = true
 
@@ -56,3 +65,16 @@ verify_jwt = true
 
 [functions.apply-referral-code]
 verify_jwt = false
+
+[functions.mobilenig-webhook]
+verify_jwt = false
+
+[functions.fetch-vtpass-data-plans]
+verify_jwt = true
+
+[functions.purchase-vtpass-data]
+verify_jwt = true
+
+[functions.get-data-provider]
+verify_jwt = true
+

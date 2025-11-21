@@ -1,14 +1,16 @@
-import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
 import { TransactionStorage, generateTransactionId, generateReference } from '@/utils/transactionStorage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TransferSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const amount = (params.amount as string) || '0';
   const recipientEmail = (params.recipientEmail as string) || '';
   const recipientName = (params.recipientName as string) || '';
@@ -62,7 +64,10 @@ export default function TransferSuccessScreen() {
     <ThemedView style={styles.container}>
       <ScrollView 
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: Math.max(insets.top, 20) + 20 }
+        ]}
         showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
           {/* Success Checkmark */}
@@ -73,7 +78,11 @@ export default function TransferSuccessScreen() {
           </View>
 
           {/* Success Message */}
-          <ThemedText style={styles.successTitle}>Transfer Successful!</ThemedText>
+          <View style={styles.titleContainer}>
+            <ThemedText style={styles.successTitle} numberOfLines={2} adjustsFontSizeToFit>
+              Transfer Successful!
+            </ThemedText>
+          </View>
           <ThemedText style={styles.successMessage}>
             Your money transfer has been completed successfully
           </ThemedText>
@@ -167,11 +176,14 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   content: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20,
+  },
+  titleContainer: {
+    width: '100%',
+    paddingHorizontal: 10,
+    marginBottom: 12,
   },
   checkmarkContainer: {
     marginBottom: 32,
@@ -193,8 +205,9 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#000',
-    marginBottom: 12,
     textAlign: 'center',
+    lineHeight: 36,
+    minHeight: 36,
   },
   successMessage: {
     fontSize: 16,

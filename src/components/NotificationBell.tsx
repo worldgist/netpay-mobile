@@ -199,52 +199,56 @@ export default function NotificationBell() {
     <Popover open={isOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button className="relative">
-          <Bell className="w-6 h-6 text-gray-600" />
+          <Bell className="w-8 h-8 text-[#FF7F00] hover:text-[#FF9933] transition-colors" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-medium">
+            <span className="absolute -top-1 -right-1 w-5 h-5 bg-[#FF7F00] rounded-full text-white text-xs flex items-center justify-center font-medium shadow-md">
               {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="end">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="font-semibold text-gray-900">Notifications</h3>
+      <PopoverContent className="w-80 p-0 border-2 border-[#FFE5CC] shadow-xl" align="end">
+        <div className="flex items-center justify-between p-4 border-b-2 border-[#FFE5CC] bg-gradient-to-r from-[#FF7F00] to-[#FF9933]">
+          <h3 className="font-semibold text-white">Notifications</h3>
           {unreadCount > 0 && (
-            <Badge variant="secondary" className="bg-red-100 text-red-700">
+            <Badge className="bg-white text-[#FF7F00] border-0">
               {unreadCount} new
             </Badge>
           )}
         </div>
-        <ScrollArea className="h-[400px]">
+        <ScrollArea className="h-[400px] bg-[#FFF8F0]">
           {notifications.length === 0 ? (
             <div className="p-8 text-center">
-              <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">No notifications yet</p>
+              <Bell className="w-12 h-12 text-[#FFB366] mx-auto mb-3" />
+              <p className="text-[#CC6600] text-sm font-medium">No notifications yet</p>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-[#FFE5CC]">
               {notifications.map((notif) => (
                 <div
                   key={notif.id}
-                  className={`p-4 hover:bg-gray-50 transition-colors ${
-                    !notif.is_read ? 'bg-blue-50/50' : ''
+                  className={`p-4 transition-colors ${
+                    !notif.is_read ? 'bg-[#FFF8F0] border-l-4 border-l-[#FF7F00]' : 'bg-white hover:bg-[#FFF8F0]'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1">
-                        <p className="font-medium text-gray-900 text-sm">
+                        <p className={`font-medium text-sm ${
+                          !notif.is_read ? 'text-[#FF7F00]' : 'text-gray-900'
+                        }`}>
                           {notif.title}
                         </p>
                         {!notif.is_read && (
-                          <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
+                          <div className="w-2 h-2 bg-[#FF7F00] rounded-full flex-shrink-0 mt-1 shadow-sm" />
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 line-clamp-2 mb-2">
+                      <p className={`text-sm line-clamp-2 mb-2 ${
+                        !notif.is_read ? 'text-gray-800' : 'text-gray-600'
+                      }`}>
                         {notif.message}
                       </p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-[#CC6600] font-medium">
                         {formatTime(notif.created_at)}
                       </p>
                     </div>

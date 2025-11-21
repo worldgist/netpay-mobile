@@ -328,7 +328,7 @@ export default function TransferScreen() {
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Amount</ThemedText>
               <View style={styles.inputRow}>
-                <MaterialIcons name="attach-money" size={20} color="#666" style={styles.inputIcon} />
+                <MaterialIcons name="payments" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder="Enter amount"

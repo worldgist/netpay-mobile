@@ -1,4 +1,4 @@
-import { StyleSheet, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -7,10 +7,12 @@ import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { sendPushNotification } from '@/utils/push-notifications';
 import { TransactionStorage, generateTransactionId, generateReference } from '@/utils/transactionStorage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function PaymentSuccessScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const amount = (params.amount as string) || '0';
   const network = (params.network as string) || '';
   const recipient = (params.recipient as string) || '';
@@ -18,26 +20,31 @@ export default function PaymentSuccessScreen() {
   const token = (params.token as string) || '';
   const meterType = (params.meterType as string) || '';
   const customerName = (params.customerName as string) || '';
+  const referenceParam = (params.reference as string) || '';
+
+  const transactionReference = referenceParam || generateReference(serviceType || 'PAYMENT');
+  const currentDate = new Date();
+  const transactionDate = currentDate.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+  const transactionTime = currentDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
 
   // Save transaction when screen loads
   useEffect(() => {
     const saveTransaction = async () => {
-      const currentDate = new Date();
       const transaction = {
         id: generateTransactionId(),
         type: 'debit' as const,
         amount: parseFloat(amount),
-        date: currentDate.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        }),
-        time: currentDate.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true,
-        }),
-        reference: generateReference(serviceType || 'PAYMENT'),
+        date: transactionDate,
+        time: transactionTime,
+        reference: transactionReference,
         status: 'Completed',
         description: serviceType || 'Payment',
         recipient: recipient || '',
@@ -53,7 +60,7 @@ export default function PaymentSuccessScreen() {
     };
 
     saveTransaction();
-  }, [amount, network, recipient, serviceType, token, meterType, customerName]);
+  }, [amount, network, recipient, serviceType, token, meterType, customerName, transactionReference, transactionDate, transactionTime]);
 
   const pushSentRef = useRef(false);
 
@@ -99,69 +106,119 @@ export default function PaymentSuccessScreen() {
     router.replace('/(tabs)');
   };
 
+  const handleViewTransaction = () => {
+    // Navigate to transactions screen
+    router.push('/(tabs)/transactions');
+  };
+
   return (
     <ThemedView style={styles.container}>
-      <View style={styles.content}>
-        {/* Success Checkmark */}
-        <View style={styles.checkmarkContainer}>
-          <View style={styles.checkmarkCircle}>
-            <MaterialIcons name="check" size={64} color="#fff" />
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: Math.max(insets.top, 20) + 20 }
+        ]}
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          {/* Success Checkmark */}
+          <View style={styles.checkmarkContainer}>
+            <View style={styles.checkmarkCircle}>
+              <MaterialIcons name="check" size={64} color="#fff" />
+            </View>
+          </View>
+
+          {/* Success Message */}
+          <View style={styles.titleContainer}>
+            <ThemedText style={styles.successTitle} numberOfLines={2} adjustsFontSizeToFit>
+              Payment Successful!
+            </ThemedText>
+          </View>
+          <ThemedText style={styles.successMessage}>
+            Your payment has been processed successfully
+          </ThemedText>
+
+          {/* Amount Display */}
+          <View style={styles.amountCard}>
+            <ThemedText style={styles.amountLabel}>Amount Paid</ThemedText>
+            <View style={styles.amountValueContainer}>
+              <ThemedText style={styles.amountValue}>₦{parseFloat(amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+            </View>
+          </View>
+
+          {/* Transaction Details */}
+          <View style={styles.detailsCard}>
+            <ThemedText style={styles.detailsTitle}>Transaction Details</ThemedText>
+            {serviceType && (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Service Type</ThemedText>
+                <ThemedText style={styles.detailValue} numberOfLines={2}>{serviceType}</ThemedText>
+              </View>
+            )}
+            {network && (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Network</ThemedText>
+                <ThemedText style={styles.detailValue}>{network}</ThemedText>
+              </View>
+            )}
+            {recipient && (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
+                <ThemedText style={styles.detailValue} numberOfLines={1}>{recipient}</ThemedText>
+              </View>
+            )}
+            {customerName && (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Customer</ThemedText>
+                <ThemedText style={styles.detailValue} numberOfLines={1}>{customerName}</ThemedText>
+              </View>
+            )}
+            {meterType && (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Meter Type</ThemedText>
+                <ThemedText style={styles.detailValue}>{meterType.toUpperCase()}</ThemedText>
+              </View>
+            )}
+            {token && (
+              <View style={[styles.detailRow, { backgroundColor: '#FFF5E6', borderWidth: 2, borderColor: '#FF7F00', borderRadius: 8, padding: 16, marginVertical: 8 }]}>
+                <ThemedText style={[styles.detailLabel, { color: '#FF7F00', fontWeight: '600', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Electricity Token</ThemedText>
+                <ThemedText style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold', textAlign: 'center', letterSpacing: 2, marginTop: 8 }]} numberOfLines={0}>{token}</ThemedText>
+                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 8 }}>Keep this token safe. You'll need it to recharge your meter.</ThemedText>
+              </View>
+            )}
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Status</ThemedText>
+              <ThemedText style={styles.statusValue}>Completed</ThemedText>
+            </View>
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Reference</ThemedText>
+              <ThemedText style={styles.detailValue} numberOfLines={1}>{transactionReference}</ThemedText>
+            </View>
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Date</ThemedText>
+              <ThemedText style={styles.detailValue}>{transactionDate}</ThemedText>
+            </View>
+            <View style={styles.detailRow}>
+              <ThemedText style={styles.detailLabel}>Time</ThemedText>
+              <ThemedText style={styles.detailValue}>{transactionTime}</ThemedText>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity 
+              style={styles.viewTransactionButton} 
+              onPress={handleViewTransaction}>
+              <MaterialIcons name="receipt" size={20} color="#FF7F00" style={styles.buttonIcon} />
+              <ThemedText style={styles.viewTransactionButtonText}>View Transaction</ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.doneButton} onPress={handleDone}>
+              <ThemedText style={styles.doneButtonText}>Done</ThemedText>
+            </TouchableOpacity>
           </View>
         </View>
-
-        {/* Success Message */}
-        <ThemedText style={styles.successTitle}>Payment Successful!</ThemedText>
-        <ThemedText style={styles.successMessage}>
-          Your payment has been processed successfully
-        </ThemedText>
-
-        {/* Transaction Details */}
-        <View style={styles.detailsCard}>
-          <View style={styles.detailRow}>
-            <ThemedText style={styles.detailLabel}>Amount</ThemedText>
-            <ThemedText style={styles.detailValue}>₦{parseFloat(amount).toFixed(2)}</ThemedText>
-          </View>
-          {network && (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Network</ThemedText>
-              <ThemedText style={styles.detailValue}>{network}</ThemedText>
-            </View>
-          )}
-          {recipient && (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
-              <ThemedText style={styles.detailValue}>{recipient}</ThemedText>
-            </View>
-          )}
-          {meterType ? (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Meter Type</ThemedText>
-              <ThemedText style={styles.detailValue}>{meterType.toUpperCase()}</ThemedText>
-            </View>
-          ) : null}
-          {customerName ? (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Customer</ThemedText>
-              <ThemedText style={styles.detailValue}>{customerName}</ThemedText>
-            </View>
-          ) : null}
-          {token ? (
-            <View style={styles.detailRow}>
-              <ThemedText style={styles.detailLabel}>Token</ThemedText>
-              <ThemedText style={styles.detailValue}>{token}</ThemedText>
-            </View>
-          ) : null}
-          <View style={styles.detailRow}>
-            <ThemedText style={styles.detailLabel}>Status</ThemedText>
-            <ThemedText style={styles.statusValue}>Completed</ThemedText>
-          </View>
-        </View>
-
-        {/* Done Button */}
-        <TouchableOpacity style={styles.doneButton} onPress={handleDone}>
-          <ThemedText style={styles.doneButtonText}>Done</ThemedText>
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
     </ThemedView>
   );
 }
@@ -171,19 +228,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  content: {
+  scrollView: {
     flex: 1,
-    justifyContent: 'center',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
+  content: {
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  titleContainer: {
+    width: '100%',
+    paddingHorizontal: 10,
+    marginBottom: 12,
   },
   checkmarkContainer: {
-    marginBottom: 28,
+    marginBottom: 32,
   },
   checkmarkCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#4CAF50',
     justifyContent: 'center',
     alignItems: 'center',
@@ -194,25 +262,62 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   successTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: 'bold',
     color: '#000',
-    marginBottom: 8,
     textAlign: 'center',
+    lineHeight: 36,
+    minHeight: 36,
   },
   successMessage: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#666',
     textAlign: 'center',
-    marginBottom: 28,
-    paddingHorizontal: 16,
+    marginBottom: 32,
+    paddingHorizontal: 20,
+  },
+  amountCard: {
+    width: '100%',
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    padding: 24,
+    marginBottom: 24,
+    alignItems: 'center',
+    minHeight: 120,
+    justifyContent: 'center',
+  },
+  amountLabel: {
+    fontSize: 14,
+    color: '#fff',
+    opacity: 0.95,
+    marginBottom: 12,
+    fontWeight: '500',
+  },
+  amountValueContainer: {
+    minHeight: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  amountValue: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#fff',
+    lineHeight: 44,
+    textAlign: 'center',
   },
   detailsCard: {
     width: '100%',
     backgroundColor: '#F5F5F5',
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 20,
-    marginBottom: 28,
+    marginBottom: 32,
+  },
+  detailsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
   },
   detailRow: {
     flexDirection: 'row',
@@ -223,29 +328,55 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   detailLabel: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#666',
+    flex: 1,
   },
   detailValue: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: '#333',
+    flex: 1,
+    textAlign: 'right',
   },
   statusValue: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#4CAF50',
+  },
+  buttonContainer: {
+    width: '100%',
+    gap: 12,
+  },
+  viewTransactionButton: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  viewTransactionButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FF7F00',
   },
   doneButton: {
     width: '100%',
     backgroundColor: '#FF7F00',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   doneButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#fff',
   },
 });

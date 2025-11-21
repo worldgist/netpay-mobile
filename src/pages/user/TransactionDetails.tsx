@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, CheckCircle, Clock, XCircle, Copy, Download } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, XCircle, Copy, Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 
 const getNetworkLogo = (network: string) => {
@@ -123,6 +123,283 @@ export default function TransactionDetails() {
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${label} copied to clipboard`);
+  };
+
+  const handlePrintReceipt = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow popups to print receipt');
+      return;
+    }
+
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const formattedTime = currentDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const getStatusColor = (status: string) => {
+      switch (status?.toLowerCase()) {
+        case 'completed':
+        case 'success':
+          return '#10b981';
+        case 'pending':
+          return '#f59e0b';
+        case 'failed':
+          return '#ef4444';
+        default:
+          return '#10b981';
+      }
+    };
+
+    const getTypeColor = (type: string) => {
+      if (type === 'credit' || type === 'funding' || type === 'transfer_received') {
+        return '#10b981';
+      }
+      return '#ef4444';
+    };
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Transaction Receipt - ${transaction?.reference || 'N/A'}</title>
+          <style>
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              padding: 20px;
+              background: #fff;
+              color: #333;
+            }
+            .receipt-container {
+              max-width: 600px;
+              margin: 0 auto;
+              background: #fff;
+              border: 1px solid #e0e0e0;
+              border-radius: 8px;
+              padding: 30px;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #FF7F00;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+            }
+            .logo {
+              font-size: 28px;
+              font-weight: bold;
+              color: #FF7F00;
+              margin-bottom: 10px;
+            }
+            .receipt-title {
+              font-size: 24px;
+              font-weight: bold;
+              color: #333;
+              margin-bottom: 5px;
+            }
+            .receipt-subtitle {
+              font-size: 14px;
+              color: #666;
+            }
+            .transaction-info {
+              margin-bottom: 30px;
+            }
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 12px 0;
+              border-bottom: 1px solid #f0f0f0;
+            }
+            .info-row:last-child {
+              border-bottom: none;
+            }
+            .info-label {
+              font-size: 14px;
+              color: #666;
+              font-weight: 500;
+            }
+            .info-value {
+              font-size: 14px;
+              color: #333;
+              font-weight: 600;
+              text-align: right;
+            }
+            .token-section {
+              background: #FFF5E6;
+              border: 2px solid #FF7F00;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 20px 0;
+              text-align: center;
+            }
+            .token-label {
+              font-size: 12px;
+              color: #FF7F00;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 8px;
+            }
+            .token-value {
+              font-size: 20px;
+              font-weight: bold;
+              color: #333;
+              font-family: monospace;
+              letter-spacing: 2px;
+              word-break: break-all;
+            }
+            .amount-section {
+              background: #F5F5F5;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 30px 0;
+              text-align: center;
+            }
+            .amount-label {
+              font-size: 14px;
+              color: #666;
+              margin-bottom: 10px;
+            }
+            .amount-value {
+              font-size: 36px;
+              font-weight: bold;
+              color: ${getTypeColor(transaction?.type || 'debit')};
+            }
+            .status-badge {
+              display: inline-block;
+              padding: 6px 16px;
+              border-radius: 20px;
+              font-size: 14px;
+              font-weight: 600;
+              background: ${getStatusColor(transaction?.status || 'completed')}20;
+              color: ${getStatusColor(transaction?.status || 'completed')};
+              margin-top: 10px;
+            }
+            .footer {
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 1px solid #e0e0e0;
+              text-align: center;
+              font-size: 12px;
+              color: #999;
+            }
+            .reference {
+              background: #F5F5F5;
+              padding: 15px;
+              border-radius: 8px;
+              margin: 20px 0;
+              text-align: center;
+            }
+            .reference-code {
+              font-size: 16px;
+              font-weight: bold;
+              color: #333;
+              font-family: monospace;
+              letter-spacing: 1px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="receipt-container">
+            <div class="header">
+              <div class="logo">NetPay</div>
+              <div class="receipt-title">Transaction Receipt</div>
+              <div class="receipt-subtitle">${formattedDate} at ${formattedTime}</div>
+            </div>
+
+            <div class="amount-section">
+              <div class="amount-label">${transaction?.type === 'credit' || transaction?.type === 'funding' ? 'Amount Received' : 'Amount Sent'}</div>
+              <div class="amount-value">${transaction?.type === 'credit' || transaction?.type === 'funding' ? '+' : '-'}₦${Number(transaction?.amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div class="status-badge">${transaction?.status || 'Completed'}</div>
+            </div>
+
+            <div class="transaction-info">
+              <div class="info-row">
+                <span class="info-label">Transaction Type</span>
+                <span class="info-value">${(transaction?.type || 'debit').toUpperCase()}</span>
+              </div>
+              ${transaction?.provider ? `
+              <div class="info-row">
+                <span class="info-label">Provider</span>
+                <span class="info-value">${transaction.provider}</span>
+              </div>
+              ` : ''}
+              ${transaction?.meter_number ? `
+              <div class="info-row">
+                <span class="info-label">Meter Number</span>
+                <span class="info-value">${transaction.meter_number}</span>
+              </div>
+              ` : ''}
+              ${transaction?.meter_type ? `
+              <div class="info-row">
+                <span class="info-label">Meter Type</span>
+                <span class="info-value">${transaction.meter_type.toUpperCase()}</span>
+              </div>
+              ` : ''}
+              ${transaction?.customer_name ? `
+              <div class="info-row">
+                <span class="info-label">Customer Name</span>
+                <span class="info-value">${transaction.customer_name}</span>
+              </div>
+              ` : ''}
+              ${transaction?.token ? `
+              <div class="token-section">
+                <div class="token-label">Electricity Token</div>
+                <div class="token-value">${transaction.token}</div>
+              </div>
+              ` : ''}
+              ${transaction?.description ? `
+              <div class="info-row">
+                <span class="info-label">Description</span>
+                <span class="info-value">${transaction.description}</span>
+              </div>
+              ` : ''}
+              <div class="info-row">
+                <span class="info-label">Date</span>
+                <span class="info-value">${new Date(transaction?.created_at || Date.now()).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+              </div>
+            </div>
+
+            <div class="reference">
+              <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Reference Number</div>
+              <div class="reference-code">${transaction?.reference || 'N/A'}</div>
+            </div>
+
+            ${transaction?.id ? `
+            <div class="reference">
+              <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Transaction ID</div>
+              <div class="reference-code">${transaction.id}</div>
+            </div>
+            ` : ''}
+
+            <div class="footer">
+              <p>This is a computer-generated receipt. No signature is required.</p>
+              <p style="margin-top: 10px;">Thank you for using NetPay!</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   const getStatusIcon = () => {
@@ -347,17 +624,20 @@ export default function TransactionDetails() {
                 {transaction.token && (
                   <div className="py-3 border-b">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-gray-600 text-sm">Electricity Token</span>
+                      <span className="text-gray-600 text-sm font-semibold">Electricity Token</span>
                       <button
                         onClick={() => copyToClipboard(transaction.token, 'Token')}
-                        className="text-primary hover:text-primary/80"
+                        className="text-primary hover:text-primary/80 flex items-center gap-1"
+                        title="Copy token"
                       >
                         <Copy className="w-4 h-4" />
+                        <span className="text-xs">Copy</span>
                       </button>
                     </div>
-                    <div className="bg-muted p-3 rounded-lg">
-                      <p className="font-mono font-bold text-lg break-all">{transaction.token}</p>
+                    <div className="bg-orange-50 border-2 border-orange-200 p-4 rounded-lg">
+                      <p className="font-mono font-bold text-xl break-all text-center text-gray-900 tracking-wider">{transaction.token}</p>
                     </div>
+                    <p className="text-xs text-gray-500 mt-2 text-center">Keep this token safe. You'll need it to recharge your meter.</p>
                   </div>
                 )}
                 {transaction.provider && (
@@ -478,6 +758,13 @@ export default function TransactionDetails() {
 
         {/* Actions */}
         <div className="space-y-3 pb-6">
+          <Button
+            onClick={handlePrintReceipt}
+            className="w-full h-12 gradient-primary"
+          >
+            <Printer className="w-5 h-5 mr-2" />
+            Print Receipt
+          </Button>
           <Button
             onClick={() => navigate('/user/transactions')}
             variant="outline"

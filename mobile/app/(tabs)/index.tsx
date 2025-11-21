@@ -609,7 +609,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
           >
-            <MaterialIcons name="notifications" size={24} color="#333" />
+            <MaterialIcons name="notifications" size={28} color="#333" />
             {unreadCount > 0 && (
               <View style={styles.notificationBadge}>
                 <ThemedText style={styles.notificationBadgeText}>

@@ -133,7 +133,12 @@ export default function Notifications() {
       return;
     }
 
-    setNotifications(data || []);
+    // Sort: newest first (already sorted by query, but ensure it's correct)
+    const sorted = (data || []).sort((a, b) => {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    setNotifications(sorted);
   };
 
   const handleUserSelect = (userId: string, checked: boolean) => {
@@ -253,34 +258,34 @@ export default function Notifications() {
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
         <main className="flex-1 overflow-auto">
-          <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <header className="sticky top-0 z-10 border-b-2 border-[#FF7F00] bg-gradient-to-r from-[#FFF8F0] to-white backdrop-blur supports-[backdrop-filter]:bg-background/60 shadow-md">
             <div className="flex h-16 items-center justify-between px-6">
               <div className="flex items-center gap-4">
                 <SidebarTrigger />
-                <Bell className="h-5 w-5" />
+                <Bell className="h-6 w-6 text-[#FF7F00]" />
                 <div>
-                  <h1 className="text-2xl font-bold">Notifications Management</h1>
-                  <p className="text-xs text-muted-foreground">
+                  <h1 className="text-2xl font-bold text-[#FF7F00]">Notifications Management</h1>
+                  <p className="text-xs text-[#CC6600]">
                     Last updated: {lastUpdate.toLocaleTimeString()}
                   </p>
                 </div>
               </div>
-              <Badge variant="outline" className="gap-1">
-                <Circle className="h-2 w-2 fill-green-500 text-green-500 animate-pulse" />
+              <Badge variant="outline" className="gap-1 border-[#FF7F00] bg-[#FFF4E6] text-[#CC6600]">
+                <Circle className="h-2 w-2 fill-[#FF7F00] text-[#FF7F00] animate-pulse" />
                 Live Updates
               </Badge>
             </div>
           </header>
 
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-6 bg-gradient-to-b from-[#FFF8F0] to-white min-h-screen">
             {/* Compose Notification Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+            <Card className="border-2 border-[#FFE5CC] shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-[#FF7F00] to-[#FF9933] text-white rounded-t-lg">
+                <CardTitle className="flex items-center gap-2 text-white">
                   <Send className="h-5 w-5" />
                   Compose Notification
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="text-white/90">
                   Send notifications to users about important updates
                 </CardDescription>
               </CardHeader>
@@ -409,7 +414,7 @@ export default function Notifications() {
                   <Button
                     onClick={handleSendNotification}
                     disabled={isSending}
-                    className="w-full"
+                    className="w-full bg-[#FF7F00] hover:bg-[#FF9933] text-white font-semibold shadow-md"
                   >
                     {isSending ? (
                       "Sending..."
@@ -425,23 +430,26 @@ export default function Notifications() {
             </Card>
 
             {/* Notification History */}
-            <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
+            <Card className="border-2 border-[#FFE5CC] shadow-lg">
+                  <CardHeader className="bg-gradient-to-r from-[#FF7F00] to-[#FF9933] text-white rounded-t-lg">
+                    <CardTitle className="flex items-center justify-between text-white">
                       <span>Notification History</span>
-                      <Badge variant="outline" className="gap-1">
-                        <Circle className="h-2 w-2 fill-green-500 text-green-500 animate-pulse" />
+                      <Badge variant="outline" className="gap-1 border-white bg-white/20 text-white">
+                        <Circle className="h-2 w-2 fill-white text-white animate-pulse" />
                         Live
                       </Badge>
                     </CardTitle>
-                    <CardDescription>Recently sent notifications with read status</CardDescription>
+                    <CardDescription className="text-white/90">Recently sent notifications with read status</CardDescription>
                   </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {notifications.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-8">
-                      No notifications sent yet
-                    </p>
+                    <div className="text-center py-12">
+                      <Bell className="h-16 w-16 mx-auto text-[#FFB366] mb-4" />
+                      <p className="text-[#CC6600] font-medium">
+                        No notifications sent yet
+                      </p>
+                    </div>
                   ) : (
                     notifications.map((notification) => {
                       const recipients = notification.notification_recipients || [];
@@ -451,20 +459,20 @@ export default function Notifications() {
                       return (
                         <div
                           key={notification.id}
-                          className="border rounded-lg p-4 space-y-3"
+                          className="border-2 border-[#FFE5CC] rounded-lg p-4 space-y-3 bg-white hover:bg-[#FFF8F0] transition-colors shadow-sm"
                         >
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <h3 className="font-semibold">{notification.title}</h3>
-                              <p className="text-sm text-muted-foreground mt-1">
+                              <h3 className="font-semibold text-[#FF7F00]">{notification.title}</h3>
+                              <p className="text-sm text-[#333] mt-1">
                                 {notification.message}
                               </p>
                             </div>
                             <Badge
-                              variant={
+                              className={
                                 notification.recipient_type === "all"
-                                  ? "default"
-                                  : "secondary"
+                                  ? "bg-[#FF7F00] text-white"
+                                  : "bg-[#FFF4E6] text-[#CC6600] border-[#FFB366]"
                               }
                             >
                               {notification.recipient_type === "all"
@@ -476,22 +484,22 @@ export default function Notifications() {
                           </div>
                           
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">
+                            <span className="text-[#CC6600] font-medium">
                               {new Date(notification.created_at).toLocaleString()}
                             </span>
                             
                             {totalCount > 0 && (
                               <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-1">
-                                  <Eye className="h-3 w-3 text-green-500" />
-                                  <span className="text-green-500 font-medium">{readCount}</span>
+                                  <Eye className="h-3 w-3 text-[#FF7F00]" />
+                                  <span className="text-[#FF7F00] font-medium">{readCount}</span>
                                 </div>
-                                <span className="text-muted-foreground">/</span>
+                                <span className="text-[#CC6600]">/</span>
                                 <div className="flex items-center gap-1">
-                                  <EyeOff className="h-3 w-3 text-muted-foreground" />
-                                  <span className="text-muted-foreground">{totalCount - readCount}</span>
+                                  <EyeOff className="h-3 w-3 text-[#CC6600]" />
+                                  <span className="text-[#CC6600]">{totalCount - readCount}</span>
                                 </div>
-                                <Badge variant="outline" className="ml-1">
+                                <Badge variant="outline" className="ml-1 border-[#FFB366] bg-[#FFF4E6] text-[#CC6600]">
                                   {totalCount > 0 ? Math.round((readCount / totalCount) * 100) : 0}% read
                                 </Badge>
                               </div>

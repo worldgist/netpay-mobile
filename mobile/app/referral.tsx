@@ -17,9 +17,11 @@ import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ReferralScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [referralCode, setReferralCode] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -260,18 +262,18 @@ const handleShareLink = () => {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <ThemedText style={styles.headerTitle}>Referral Program</ThemedText>
+        <ThemedText style={styles.headerTitle} numberOfLines={1} adjustsFontSizeToFit>Referral Program</ThemedText>
         <View style={styles.placeholder} />
       </View>
-      <ThemedText style={styles.headerSubtitle}>Invite friends and earn rewards</ThemedText>
+      <ThemedText style={styles.headerSubtitle} numberOfLines={2}>Invite friends and earn rewards</ThemedText>
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 40) }]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}>
         
@@ -281,7 +283,7 @@ const handleShareLink = () => {
           <ThemedText style={styles.referralCardSubtitle}>Share this code with friends to earn rewards</ThemedText>
 
           <View style={styles.codeContainer}>
-            <ThemedText style={styles.referralCode}>{referralCode || 'Generating...'}</ThemedText>
+            <ThemedText style={styles.referralCode} numberOfLines={1} adjustsFontSizeToFit>{referralCode || 'Generating...'}</ThemedText>
             <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode} disabled={!referralCode}>
               <MaterialIcons name={copied ? "check" : "content-copy"} size={20} color="#fff" />
             </TouchableOpacity>
@@ -303,31 +305,31 @@ const handleShareLink = () => {
           </TouchableOpacity>
 
           {!!rewardSummary && (
-            <ThemedText style={styles.rewardSummary}>{rewardSummary}</ThemedText>
+            <ThemedText style={styles.rewardSummary} numberOfLines={3}>{rewardSummary}</ThemedText>
           )}
         </View>
 
         {/* Statistics Grid */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
-            <MaterialIcons name="people" size={36} color="#FF7F00" />
-            <ThemedText style={styles.statValue}>{stats.totalReferrals}</ThemedText>
-            <ThemedText style={styles.statLabel}>Total Referrals</ThemedText>
+            <MaterialIcons name="people" size={32} color="#FF7F00" />
+            <ThemedText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats.totalReferrals}</ThemedText>
+            <ThemedText style={styles.statLabel} numberOfLines={2}>Total Referrals</ThemedText>
           </View>
           <View style={styles.statCard}>
-            <MaterialIcons name="check-circle" size={36} color="#4CAF50" />
-            <ThemedText style={styles.statValue}>{stats.completedReferrals}</ThemedText>
-            <ThemedText style={styles.statLabel}>Completed</ThemedText>
+            <MaterialIcons name="check-circle" size={32} color="#4CAF50" />
+            <ThemedText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats.completedReferrals}</ThemedText>
+            <ThemedText style={styles.statLabel} numberOfLines={2}>Completed</ThemedText>
           </View>
           <View style={styles.statCard}>
-            <MaterialIcons name="card-giftcard" size={36} color="#9C27B0" />
-            <ThemedText style={styles.statValue}>{formatCurrency(stats.totalEarnings)}</ThemedText>
-            <ThemedText style={styles.statLabel}>Total Earnings</ThemedText>
+            <MaterialIcons name="card-giftcard" size={32} color="#9C27B0" />
+            <ThemedText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(stats.totalEarnings)}</ThemedText>
+            <ThemedText style={styles.statLabel} numberOfLines={2}>Total Earnings</ThemedText>
           </View>
           <View style={styles.statCard}>
-            <MaterialIcons name="card-giftcard" size={36} color="#4CAF50" />
-            <ThemedText style={styles.statValue}>{formatCurrency(stats.paidEarnings)}</ThemedText>
-            <ThemedText style={styles.statLabel}>Paid Out</ThemedText>
+            <MaterialIcons name="card-giftcard" size={32} color="#4CAF50" />
+            <ThemedText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(stats.paidEarnings)}</ThemedText>
+            <ThemedText style={styles.statLabel} numberOfLines={2}>Paid Out</ThemedText>
           </View>
         </View>
 
@@ -355,10 +357,10 @@ const handleShareLink = () => {
                   <MaterialIcons name="person-add" size={20} color="#FF7F00" />
                 </View>
                 <View style={styles.referralRowContent}>
-                  <ThemedText style={styles.referralRowEmail}>
+                  <ThemedText style={styles.referralRowEmail} numberOfLines={1} adjustsFontSizeToFit>
                     {referral.referred_email || 'Pending sign up'}
                   </ThemedText>
-                  <ThemedText style={styles.referralRowMeta}>
+                  <ThemedText style={styles.referralRowMeta} numberOfLines={1}>
                     {new Date(referral.created_at).toLocaleDateString('en-NG', {
                       year: 'numeric',
                       month: 'short',
@@ -374,6 +376,7 @@ const handleShareLink = () => {
                       styles.referralRowStatusText,
                       referral.status === 'completed' ? styles.statusCompleted : styles.statusPending,
                     ]}
+                    numberOfLines={1}
                   >
                     {referral.status === 'completed'
                       ? referral.referrer_reward_paid
@@ -381,7 +384,7 @@ const handleShareLink = () => {
                         : 'Reward Pending'
                       : 'In Progress'}
                   </ThemedText>
-                  <ThemedText style={styles.referralRowAmount}>
+                  <ThemedText style={styles.referralRowAmount} numberOfLines={1} adjustsFontSizeToFit>
                     {formatCurrency(referral.reward_amount)}
                   </ThemedText>
                 </View>
@@ -399,8 +402,8 @@ const handleShareLink = () => {
               <ThemedText style={styles.stepNumberText}>1</ThemedText>
             </View>
             <View style={styles.stepContent}>
-              <ThemedText style={styles.stepTitle}>Share your code</ThemedText>
-              <ThemedText style={styles.stepDescription}>Send your referral code to friends and family</ThemedText>
+              <ThemedText style={styles.stepTitle} numberOfLines={2}>Share your code</ThemedText>
+              <ThemedText style={styles.stepDescription} numberOfLines={2}>Send your referral code to friends and family</ThemedText>
             </View>
           </View>
 
@@ -409,8 +412,8 @@ const handleShareLink = () => {
               <ThemedText style={styles.stepNumberText}>2</ThemedText>
             </View>
             <View style={styles.stepContent}>
-              <ThemedText style={styles.stepTitle}>They sign up</ThemedText>
-              <ThemedText style={styles.stepDescription}>Your friend creates an account using your code</ThemedText>
+              <ThemedText style={styles.stepTitle} numberOfLines={2}>They sign up</ThemedText>
+              <ThemedText style={styles.stepDescription} numberOfLines={2}>Your friend creates an account using your code</ThemedText>
             </View>
           </View>
 
@@ -419,8 +422,8 @@ const handleShareLink = () => {
               <ThemedText style={styles.stepNumberText}>3</ThemedText>
             </View>
             <View style={styles.stepContent}>
-              <ThemedText style={styles.stepTitle}>Earn rewards</ThemedText>
-              <ThemedText style={styles.stepDescription}>Get rewarded when they complete their first transaction</ThemedText>
+              <ThemedText style={styles.stepTitle} numberOfLines={2}>Earn rewards</ThemedText>
+              <ThemedText style={styles.stepDescription} numberOfLines={2}>Get rewarded when they complete their first transaction</ThemedText>
             </View>
           </View>
         </View>
@@ -445,7 +448,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
@@ -459,6 +461,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#000',
+    flex: 1,
+    textAlign: 'center',
   },
   placeholder: {
     width: 40,
@@ -476,6 +480,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 40,
+    flexGrow: 1,
   },
   referralCard: {
     backgroundColor: '#FF7F00',
@@ -519,6 +524,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
     flex: 1,
+    marginRight: 8,
   },
   copyButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
@@ -588,18 +594,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
+    minHeight: 120,
+    justifyContent: 'center',
   },
   statValue: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
     marginTop: 8,
     marginBottom: 4,
+    textAlign: 'center',
+    minHeight: 32,
   },
   statLabel: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#666',
     textAlign: 'center',
+    paddingHorizontal: 4,
   },
   referralsCard: {
     backgroundColor: '#fff',
@@ -677,7 +688,9 @@ const styles = StyleSheet.create({
   },
   referralRowStatus: {
     alignItems: 'flex-end',
-    minWidth: 110,
+    minWidth: 100,
+    maxWidth: 120,
+    marginLeft: 8,
   },
   referralRowStatusText: {
     fontSize: 12,

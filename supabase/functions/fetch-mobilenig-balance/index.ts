@@ -74,30 +74,97 @@ serve(async (req) => {
     }
 
     console.log('Fetching MobileNig account balance and info...');
+    console.log('API Key configured:', mobilenigPublicKey ? 'Yes (masked)' : 'No');
+    console.log('API Key length:', mobilenigPublicKey?.length || 0);
 
     // Fetch balance from MobileNig API - Control endpoint
-    const balanceResponse = await fetch('https://enterprise.mobilenig.com/api/v2/control/balance', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${mobilenigPublicKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    let balanceResponse;
+    let balanceData;
+    try {
+      const balanceUrl = 'https://enterprise.mobilenig.com/api/v2/control/balance';
+      console.log('Calling MobileNig balance API:', balanceUrl);
+      
+      balanceResponse = await fetch(balanceUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${mobilenigPublicKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      });
 
-    const balanceData = await balanceResponse.json();
-    console.log('MobileNig balance response:', balanceData);
+      console.log('Balance API response status:', balanceResponse.status, balanceResponse.statusText);
+      console.log('Balance API response headers:', Object.fromEntries(balanceResponse.headers.entries()));
+
+      if (!balanceResponse.ok) {
+        const errorText = await balanceResponse.text();
+        console.error('MobileNig balance API error:', balanceResponse.status, errorText);
+        throw new Error(`MobileNig API returned ${balanceResponse.status}: ${errorText}`);
+      }
+
+      const balanceText = await balanceResponse.text();
+      console.log('Balance API raw response length:', balanceText?.length || 0);
+      
+      if (!balanceText || !balanceText.trim()) {
+        throw new Error('Empty response from MobileNig balance API');
+      }
+      
+      balanceData = JSON.parse(balanceText);
+      console.log('MobileNig balance response:', JSON.stringify(balanceData, null, 2));
+    } catch (balanceError) {
+      console.error('Error fetching balance:', balanceError);
+      console.error('Balance error details:', {
+        message: balanceError instanceof Error ? balanceError.message : 'Unknown',
+        stack: balanceError instanceof Error ? balanceError.stack : undefined,
+      });
+      throw new Error(`Failed to fetch balance: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+    }
 
     // Fetch unique account details from MobileNig API
-    const accountResponse = await fetch('https://enterprise.mobilenig.com/api/v2/control/unique_account_details', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${mobilenigPublicKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    let accountResponse;
+    let accountData;
+    try {
+      const accountUrl = 'https://enterprise.mobilenig.com/api/v2/control/unique_account_details';
+      console.log('Calling MobileNig account API:', accountUrl);
+      
+      accountResponse = await fetch(accountUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${mobilenigPublicKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      });
 
-    const accountData = await accountResponse.json();
-    console.log('MobileNig account response:', accountData);
+      console.log('Account API response status:', accountResponse.status, accountResponse.statusText);
+
+      if (!accountResponse.ok) {
+        const errorText = await accountResponse.text();
+        console.error('MobileNig account API error:', accountResponse.status, errorText);
+        // Don't fail completely if account details fail, just log it and use defaults
+        console.warn('Account details fetch failed, using defaults');
+        accountData = {};
+      } else {
+        const accountText = await accountResponse.text();
+        console.log('Account API raw response length:', accountText?.length || 0);
+        
+        if (!accountText || !accountText.trim()) {
+          console.warn('Empty response from MobileNig account API, using defaults');
+          accountData = {};
+        } else {
+          accountData = JSON.parse(accountText);
+          console.log('MobileNig account response:', JSON.stringify(accountData, null, 2));
+        }
+      }
+    } catch (accountError) {
+      console.error('Error fetching account details:', accountError);
+      console.error('Account error details:', {
+        message: accountError instanceof Error ? accountError.message : 'Unknown',
+        stack: accountError instanceof Error ? accountError.stack : undefined,
+      });
+      // Don't fail completely if account details fail, just log it
+      accountData = {};
+    }
 
     // Prepare response data
     const responseData: any = {
@@ -144,10 +211,18 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in fetch-mobilenig-balance function:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = process.env.NODE_ENV === 'development' 
+      ? { message: errorMessage, stack: error instanceof Error ? error.stack : undefined }
+      : { message: 'Internal server error' };
+    
     return new Response(
       JSON.stringify({ 
         error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        ...errorDetails
       }),
       { 
         status: 500,

@@ -18,55 +18,108 @@ const authSchema = z.object({
 const Auth = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // Check if user has admin role
-        const { data: roles } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .eq('role', 'admin')
-          .single();
+    let mounted = true;
+    
+    // Set a timeout to ensure the component always renders
+    const timeoutId = setTimeout(() => {
+      if (mounted) {
+        setInitializing(false);
+      }
+    }, 3000); // Max 3 seconds for initialization
 
-        if (roles) {
-          navigate("/dashboard");
-        } else {
-          await supabase.auth.signOut();
-          toast.error("Admin access required");
+    const checkUser = async () => {
+      try {
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Error getting session:', sessionError);
+          if (mounted) setInitializing(false);
+          return;
         }
+        
+        if (currentSession) {
+          // Check if user has admin role
+          try {
+            const { data: roles, error: rolesError } = await supabase
+              .from('user_roles')
+              .select('role')
+              .eq('user_id', currentSession.user.id)
+              .eq('role', 'admin')
+              .maybeSingle();
+
+            if (!mounted) return;
+
+            if (rolesError) {
+              console.error('Error checking user role:', rolesError);
+              // Don't sign out on query errors, just log and show the form
+              setInitializing(false);
+            } else if (roles) {
+              clearTimeout(timeoutId);
+              navigate("/dashboard");
+              return; // Don't set initializing to false if navigating
+            } else {
+              await supabase.auth.signOut();
+              toast.error("Admin access required");
+              setInitializing(false);
+            }
+          } catch (error: any) {
+            console.error('Error in role check:', error);
+            // If there's an error, just show the form
+            if (mounted) setInitializing(false);
+          }
+        } else {
+          if (mounted) setInitializing(false);
+        }
+      } catch (error) {
+        console.error('Error in checkUser:', error);
+        if (mounted) setInitializing(false);
       }
     };
+    
     checkUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session && event === 'SIGNED_IN') {
         // Defer admin check with setTimeout to prevent deadlock
         setTimeout(async () => {
-          const { data: roles } = await supabase
-            .from('user_roles')
-            .select('role')
-            .eq('user_id', session.user.id)
-            .eq('role', 'admin')
-            .single();
+          if (!mounted) return;
+          
+          try {
+            const { data: roles, error: rolesError } = await supabase
+              .from('user_roles')
+              .select('role')
+              .eq('user_id', session.user.id)
+              .eq('role', 'admin')
+              .maybeSingle();
 
-          if (roles) {
-            navigate("/dashboard");
-          } else {
-            await supabase.auth.signOut();
-            toast.error("Admin access required. Contact administrator.");
+            if (rolesError) {
+              console.error('Error checking user role:', rolesError);
+              // Don't sign out on query errors, just log
+            } else if (roles) {
+              navigate("/dashboard");
+            } else {
+              await supabase.auth.signOut();
+              toast.error("Admin access required. Contact administrator.");
+            }
+          } catch (error) {
+            console.error('Error in auth state change handler:', error);
           }
         }, 0);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, [navigate]);
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -150,6 +203,19 @@ const Auth = () => {
       setLoading(false);
     }
   };
+
+  // Show loading state while checking session
+  if (initializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-muted/30 to-background">
+        <Card className="w-full max-w-md shadow-elegant border-border/50">
+          <CardContent className="flex items-center justify-center p-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-muted/30 to-background">

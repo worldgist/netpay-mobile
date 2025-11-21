@@ -10,9 +10,46 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
+import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+
+const NETWORK_DISPLAY_NAMES: Record<string, string> = {
+  MTN: "MTN",
+  AIRTEL: "Airtel",
+  GLO: "Glo",
+  "9MOBILE": "9Mobile",
+};
+
+const normalizeNetwork = (value?: string | null) => {
+  if (!value) return null;
+  const upper = value.toUpperCase().trim();
+  if (upper.includes("MTN")) return "MTN";
+  if (upper.includes("AIRTEL")) return "AIRTEL";
+  if (upper.includes("GLO") || upper.includes("GLOBACOM")) return "GLO";
+  if (upper.includes("9MOBILE") || upper.includes("9 MOBILE") || upper.includes("ETISALAT")) return "9MOBILE";
+  return upper;
+};
+
+const getNetworkDisplayName = (networkId: string) => {
+  return NETWORK_DISPLAY_NAMES[networkId] || networkId;
+};
+
+const generateVtpassRequestId = () => {
+  const lagos = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Africa/Lagos" })
+  );
+  const pad = (value: number) => `${value}`.padStart(2, "0");
+  const timestamp =
+    lagos.getFullYear().toString() +
+    pad(lagos.getMonth() + 1) +
+    pad(lagos.getDate()) +
+    pad(lagos.getHours()) +
+    pad(lagos.getMinutes());
+  const random = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `${timestamp}${random}`;
+};
 
 const dataSchema = z.object({
   phone_number: z.string().min(11, "Phone number must be at least 11 digits").max(11, "Phone number must be 11 digits"),
@@ -37,9 +74,12 @@ const PurchaseData = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [balance, setBalance] = useState(0);
   const [networks, setNetworks] = useState<Network[]>([]);
   const [dataPlans, setDataPlans] = useState<DataPlan[]>([]);
+  const [allPlans, setAllPlans] = useState<DataPlan[]>([]);
+  const [dataProvider, setDataProvider] = useState<'smeplug' | 'vtpass' | 'anyone' | 'mobilenig' | 'ebills.africa'>('smeplug');
   const [selectedNetwork, setSelectedNetwork] = useState("");
   const [selectedPlan, setSelectedPlan] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -47,6 +87,7 @@ const PurchaseData = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   const { register, formState: { errors } } = useForm({
     resolver: zodResolver(dataSchema)
@@ -55,16 +96,39 @@ const PurchaseData = () => {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
+        setLoading(true);
         const { data: { session } } = await supabase.auth.getSession();
         
         if (!session) {
+          setLoading(false);
           navigate('/user/auth');
           return;
         }
 
         await ensureProfileExists(session.user);
 
-        // Fetch balance
+        const sessionAccessToken = session.access_token;
+        if (!sessionAccessToken) {
+          setLoading(false);
+          navigate('/user/auth');
+          return;
+        }
+
+        const providerResponse = await supabase.functions.invoke('get-data-provider', {
+          headers: { Authorization: `Bearer ${sessionAccessToken}` },
+        });
+
+        let resolvedProvider =
+          typeof providerResponse.data?.provider === 'string'
+            ? providerResponse.data.provider
+            : (providerResponse.data as string) || 'smeplug';
+
+        if (!['smeplug', 'vtpass', 'anyone', 'mobilenig', 'ebills.africa'].includes(resolvedProvider)) {
+          resolvedProvider = 'smeplug';
+        }
+
+        setDataProvider(resolvedProvider as typeof dataProvider);
+
         const { data: profile } = await supabase
           .from('profiles')
           .select('balance')
@@ -75,18 +139,67 @@ const PurchaseData = () => {
           setBalance(profile.balance || 0);
         }
 
-        // Fetch networks from SMEPLUG
-        const { data: networksData, error: networksError } = await supabase.functions.invoke('fetch-smeplug-networks');
-        
-        if (networksError) throw networksError;
-        
-        if (networksData?.success && networksData?.data) {
-          setNetworks(networksData.data);
+        let plansQuery = supabase
+          .from('data_plans')
+          .select('id, network, plan_name, price, validity, api_code, provider')
+          .order('network', { ascending: true })
+          .order('price', { ascending: true });
+
+        if (resolvedProvider) {
+          plansQuery = plansQuery.eq('provider', resolvedProvider);
         }
+
+        const plansRes = await plansQuery;
+        let plansData = plansRes.data || [];
+
+        if (plansRes.error) {
+          if (plansRes.error.code === '42703') {
+            const fallback = await supabase
+              .from('data_plans')
+              .select('id, network, plan_name, price, validity, api_code')
+              .order('network', { ascending: true })
+              .order('price', { ascending: true });
+            if (fallback.error) throw fallback.error;
+            plansData = fallback.data || [];
+          } else {
+            throw plansRes.error;
+          }
+        }
+
+        setAllPlans(plansData);
+
+        let networkOptions: Network[] = [];
+        if (resolvedProvider === 'smeplug') {
+          const { data: networksData } = await supabase.functions.invoke('fetch-smeplug-networks', {
+            headers: { Authorization: `Bearer ${sessionAccessToken}` },
+          });
+          if (networksData?.success && Array.isArray(networksData?.data)) {
+            networkOptions = networksData.data.map((item: any) => ({
+              id: normalizeNetwork(item.name || item.id) || item.id,
+              name: item.name,
+              network_id: item.network_id,
+            }));
+          }
+        }
+
+        if (networkOptions.length === 0) {
+          const uniqueNetworks = Array.from(
+            new Set(plansData.map((plan) => normalizeNetwork(plan.network)).filter(Boolean))
+          ) as string[];
+          networkOptions = uniqueNetworks.map((key) => ({
+            id: key,
+            name: getNetworkDisplayName(key),
+            network_id: key,
+          }));
+        }
+
+        const defaultNetwork = networkOptions[0]?.id || "";
+        setNetworks(networkOptions);
+        setSelectedNetwork((prev) => (prev && networkOptions.some((n) => n.id === prev) ? prev : defaultNetwork));
+        setAccessToken(sessionAccessToken);
 
         setLoading(false);
 
-        // Subscribe to balance updates
         const channel = supabase
           .channel('balance-changes')
           .on('postgres_changes', {
@@ -117,38 +230,33 @@ const PurchaseData = () => {
   }, [navigate, toast]);
 
   useEffect(() => {
-    const fetchDataPlans = async () => {
-      if (!selectedNetwork) {
-        setDataPlans([]);
-        return;
-      }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccessToken(session?.access_token ?? null);
+    });
 
-      try {
-        const network = networks.find(n => n.id === selectedNetwork);
-        if (!network) return;
-
-        const { data: plans, error } = await supabase
-          .from('data_plans')
-          .select('*')
-          .eq('network', network.name)
-          .order('price', { ascending: true });
-
-        if (error) throw error;
-
-        setDataPlans(plans || []);
-
-      } catch (error) {
-        console.error('Error fetching data plans:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load data plans",
-          variant: "destructive",
-        });
-      }
+    return () => {
+      subscription.unsubscribe();
     };
+  }, []);
 
-    fetchDataPlans();
-  }, [selectedNetwork, networks, toast]);
+  useEffect(() => {
+    if (!selectedNetwork) {
+      setDataPlans([]);
+      setSelectedPlan('');
+      return;
+    }
+
+    const filtered = allPlans.filter(
+      (plan) => normalizeNetwork(plan.network) === selectedNetwork
+    );
+    setDataPlans(filtered);
+
+    if (!filtered.some((plan) => plan.id === selectedPlan)) {
+      setSelectedPlan(filtered[0]?.id || '');
+    }
+  }, [selectedNetwork, allPlans, selectedPlan]);
 
   const getNetworkColor = (networkName: string) => {
     const colors: Record<string, string> = {
@@ -184,11 +292,7 @@ const PurchaseData = () => {
     if (!plan) return;
 
     if (balance < plan.price) {
-      toast({
-        title: "Insufficient Balance",
-        description: "Please fund your wallet to continue",
-        variant: "destructive",
-      });
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -200,35 +304,79 @@ const PurchaseData = () => {
     setShowSummary(false);
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const activeToken = session?.access_token;
+
+      if (!activeToken) {
+        toast({
+          title: "Session Expired",
+          description: "Please sign in again to continue.",
+          variant: "destructive",
+        });
+        setPurchasing(false);
+        navigate('/user/auth');
+        return;
+      }
+
+      if (accessToken !== activeToken) {
+        setAccessToken(activeToken);
+      }
+
       const plan = dataPlans.find(p => p.id === selectedPlan);
       const network = networks.find(n => n.id === selectedNetwork);
       
       if (!plan || !network) throw new Error("Invalid plan or network");
 
-      const { data, error } = await supabase.functions.invoke('purchase-smeplug-data', {
-        body: {
-          phone_number: phoneNumber,
-          plan_id: plan.id,
-          network_id: network.network_id
-        }
-      });
-
-      if (error) throw error;
-
-      if (!data?.success) {
-        throw new Error(data?.error || 'Purchase failed');
+      const requestId = dataProvider === 'vtpass' ? generateVtpassRequestId() : undefined;
+      const functionName = dataProvider === 'vtpass' ? 'purchase-vtpass-data' : 'purchase-smeplug-data';
+      const requestBody: Record<string, any> = {
+        phone_number: phoneNumber,
+        plan_id: plan.id,
+        network_id: network.network_id,
+        network_name: network.name,
+      };
+      if (requestId) {
+        requestBody.request_id = requestId;
       }
 
-      setTransactionDetails(data.data);
+      // Direct fetch call for better error handling
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${activeToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        // Extract error message from response
+        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+
+      if (!responseData?.success) {
+        throw new Error(responseData?.error || responseData?.message || 'Purchase failed');
+      }
+
+      setTransactionDetails(responseData.data || { reference: responseData.request_id || requestId, amount: plan.price });
       setShowSuccess(true);
 
       // Refresh balance
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
+      const { data: { session: refreshedSession } } = await supabase.auth.getSession();
+      if (refreshedSession) {
         const { data: profile } = await supabase
           .from('profiles')
           .select('balance')
-          .eq('id', session.user.id)
+          .eq('id', refreshedSession.user.id)
           .single();
 
         if (profile) {
@@ -242,9 +390,13 @@ const PurchaseData = () => {
       });
     } catch (error: any) {
       console.error('Error purchasing data:', error);
+
+      // Extract error message - now we have direct access to the response
+      let message = error?.message || "Failed to purchase data. Please try again.";
+
       toast({
         title: "Purchase Failed",
-        description: error.message || "Failed to purchase data. Please try again.",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -437,6 +589,13 @@ const PurchaseData = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <InsufficientBalanceModal
+        open={showInsufficientBalance}
+        onOpenChange={setShowInsufficientBalance}
+        currentBalance={balance}
+        requiredAmount={dataPlans.find(p => p.id === selectedPlan)?.price}
+      />
     </div>
   );
 };

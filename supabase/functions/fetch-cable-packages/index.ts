@@ -59,8 +59,36 @@ serve(async (req) => {
     }
 
     // Parse request body
-    const body = await req.json();
-    const provider = body.provider || 'DSTV';
+    let body: Record<string, unknown> = {};
+    try {
+      const bodyText = await req.text();
+      if (bodyText && bodyText.trim().length > 0) {
+        body = JSON.parse(bodyText);
+      }
+    } catch (error) {
+      console.error("fetch-cable-packages: unable to parse request body:", error);
+      body = {};
+    }
+    
+    const provider = String(body.provider || 'DSTV');
+    const vendingProvider = String(body.vending_provider || 'smeplug');
+    const providerUpper = provider.toUpperCase();
+
+    console.log('Fetching cable packages:', { provider, vendingProvider });
+
+    // Check if vending provider is supported
+    const supportedProviders = ['smeplug', 'mobilenig'];
+    const vendingProviderLower = vendingProvider.toLowerCase();
+    if (!supportedProviders.includes(vendingProviderLower)) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: `Vending provider '${vendingProvider}' is not yet supported for cable TV. Supported providers: ${supportedProviders.join(', ')}`,
+          vending_provider: vendingProvider
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Map provider to service ID based on actual API responses
     // AKA returns GOTV packages, AKB returns StarTimes packages, AKC returns DSTV packages
@@ -70,7 +98,7 @@ serve(async (req) => {
       'DSTV': 'AKC'
     };
 
-    const service_id = serviceIdMap[provider.toUpperCase()];
+    const service_id = serviceIdMap[providerUpper];
     
     if (!service_id) {
       return new Response(
@@ -78,19 +106,15 @@ serve(async (req) => {
           success: false, 
           error: `Invalid provider: ${provider}. Valid providers are: DSTV, GOTV, STARTIMES`
         }),
-        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
     console.log('Request details:', {
-      provider: provider.toUpperCase(),
+      provider: providerUpper,
       service_id: service_id,
+      vending_provider: vendingProvider,
       requestBody: body
-    });
-
-    console.log('Fetching cable packages:', {
-      provider,
-      service_id
     });
 
     // Fetch packages from MobileNig API
@@ -141,7 +165,7 @@ serve(async (req) => {
 
     // Transform the data to match our cable_tv_plans schema
     const packages = result.details.map((pkg: any) => ({
-      provider: provider.toUpperCase(),
+      provider: providerUpper,
       package_name: pkg.name,
       price: parseFloat(pkg.price),
       api_code: pkg.productCode
@@ -154,8 +178,9 @@ serve(async (req) => {
         service_status: result.service_status || null,
         metadata: {
           total_packages: packages.length,
-          provider: provider?.toUpperCase() || 'DSTV',
-          service_id: service_id
+          provider: providerUpper,
+          service_id: service_id,
+          vending_provider: vendingProvider
         }
       }),
       { 
@@ -166,16 +191,33 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in fetch-cable-packages function:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      }),
-      { 
-        status: 500, 
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
-      }
-    );
+    // Always return valid JSON, even on errors
+    try {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: errorMessage,
+          details: error instanceof Error ? error.stack?.substring(0, 500) : String(error)
+        }),
+        { 
+          status: 200, 
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+        }
+      );
+    } catch (jsonError) {
+      // Fallback if JSON.stringify fails
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Failed to fetch cable packages'
+        }),
+        { 
+          status: 200, 
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
   }
 });

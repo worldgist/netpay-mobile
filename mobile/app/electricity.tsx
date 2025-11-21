@@ -238,6 +238,7 @@ export default function ElectricityScreen() {
           meter_number: meterNumber.trim(),
           provider: selectedProvider,
           meter_type: meterType,
+          vending_provider: 'vtpass', // Call VTpass directly
         },
       });
 
@@ -352,6 +353,7 @@ export default function ElectricityScreen() {
           meter_type: meterType,
           amount: purchaseAmount,
           phone: sanitizedPhone,
+          vending_provider: 'vtpass', // Call VTpass directly
           customer_name: verifiedName || undefined,
           customer_address: verifiedAddress || undefined,
         },
@@ -362,35 +364,363 @@ export default function ElectricityScreen() {
           : undefined,
       });
 
-      if (error) {
+      console.log('Electricity purchase response:', { 
+        data, 
+        error, 
+        selectedProvider, 
+        meterType, 
+        amount: purchaseAmount,
+        dataType: typeof data,
+        dataDataType: typeof data?.data,
+        dataDataIsString: typeof data?.data === 'string',
+        errorMessage: error?.message,
+        errorName: error?.name
+      });
+
+      // IMPORTANT: Even if there's an error from Supabase, check if the transaction actually succeeded
+      // Sometimes the edge function returns an error status but the transaction was successful
+      // We'll check the data first before throwing
+      const hasData = data !== null && data !== undefined;
+      
+      // Check multiple ways the data might indicate success
+      let dataHasSuccess = false;
+      let parsedSuccessData = null;
+      
+      if (hasData) {
+        // Check if data.data is a string with "success":true
+        if (data?.data && typeof data.data === 'string' && data.data.trim().length > 0) {
+          const hasSuccessInString = data.data.includes('"success":true') || data.data.includes('"success": true');
+          const hasFailure = data.data.includes('"success":false');
+          
+          if (hasSuccessInString && !hasFailure) {
+            console.log('✅ Found success in data.data string - will parse and proceed');
+            dataHasSuccess = true;
+            try {
+              parsedSuccessData = JSON.parse(data.data);
+              console.log('✅ Parsed success data:', { success: parsedSuccessData?.success, hasToken: !!parsedSuccessData?.data?.token });
+            } catch (e) {
+              console.log('Could not parse but treating as success');
+            }
+          }
+        }
+        
+        // Check if data.success is true
+        if (!dataHasSuccess && data?.success === true) {
+          console.log('✅ Found data.success === true');
+          dataHasSuccess = true;
+          parsedSuccessData = data;
+        }
+        
+        // Check if data.data is an object with success
+        if (!dataHasSuccess && data?.data && typeof data.data === 'object' && data.data !== null && data.data?.success === true) {
+          console.log('✅ Found data.data.success === true');
+          dataHasSuccess = true;
+          parsedSuccessData = data.data;
+        }
+      }
+      
+      console.log('Checking if we should proceed despite error:', {
+        hasError: !!error,
+        hasData,
+        dataHasSuccess,
+        willProceed: hasData && dataHasSuccess,
+        errorName: error?.name,
+        errorMessage: error?.message
+      });
+
+      // Only throw error if we don't have successful data
+      if (error && !(hasData && dataHasSuccess)) {
+        console.error('Electricity purchase error and no success data:', error);
         throw error;
+      } else if (error && hasData && dataHasSuccess) {
+        console.log('⚠️ Edge function returned error BUT transaction succeeded - proceeding with success flow');
+        // If we parsed the success data, use it
+        if (parsedSuccessData) {
+          data = parsedSuccessData;
+          console.log('✅ Using parsed success data as main data');
+        }
       }
 
-      if (!data?.success) {
-        const detailMessage =
-          data?.details?.message ||
-          data?.details?.error ||
-          data?.error ||
+      // Handle case where data.data might be a JSON string (double-encoded response)
+      // Sometimes Supabase wraps the response, making data.data a stringified JSON
+      let responseData = data;
+      
+      console.log('Initial data structure:', {
+        dataType: typeof data,
+        hasData: !!data,
+        dataKeys: data ? Object.keys(data) : [],
+        dataDataType: typeof data?.data,
+        dataDataIsString: typeof data?.data === 'string',
+        dataDataLength: typeof data?.data === 'string' ? data.data.length : 0
+      });
+      
+      // First, try to parse if data itself is a string
+      if (typeof data === 'string') {
+        try {
+          console.log('data is a string, parsing...');
+          responseData = JSON.parse(data);
+          console.log('Parsed data string, success:', responseData?.success, 'keys:', Object.keys(responseData || {}));
+        } catch (e) {
+          console.error('Failed to parse data as string:', e);
+        }
+      }
+      
+      // Check if data.data or responseData.data is a string and needs parsing
+      // Try multiple sources: responseData.data, data.data
+      // Priority: check data.data first (the original response from Supabase)
+      const dataToParse = data?.data;
+      
+      console.log('Checking dataToParse from data.data:', {
+        hasDataToParse: !!dataToParse,
+        dataToParseType: typeof dataToParse,
+        isString: typeof dataToParse === 'string',
+        length: typeof dataToParse === 'string' ? dataToParse.length : 0
+      });
+      
+      // If data.data is a string, parse it - this is the most common case
+      if (dataToParse && typeof dataToParse === 'string' && dataToParse.trim().length > 0) {
+        try {
+          const sample = dataToParse.length > 100 ? dataToParse.substring(0, 100) : dataToParse;
+          console.log('Parsing data.data as JSON. Length:', dataToParse.length, 'Sample:', sample);
+          const parsed = JSON.parse(dataToParse);
+          console.log('✅ Successfully parsed data.data:', {
+            hasSuccess: 'success' in parsed,
+            successValue: parsed.success,
+            successType: typeof parsed.success,
+            hasData: 'data' in parsed,
+            keys: Object.keys(parsed)
+          });
+          // IMPORTANT: Replace responseData with parsed result
+          responseData = parsed;
+          console.log('✅ responseData updated, success:', responseData?.success);
+        } catch (e) {
+          console.error('❌ Failed to parse data.data:', e);
+          // If parsing fails, keep original responseData
+        }
+      } else if (responseData && responseData.success !== undefined) {
+        // responseData is already the response object
+        console.log('Using responseData directly, success:', responseData.success);
+      } else {
+        console.log('No parsing needed:', {
+          hasResponseData: !!responseData,
+          responseDataKeys: responseData ? Object.keys(responseData) : [],
+          responseDataSuccess: responseData?.success
+        });
+      }
+      
+      // Final verification of responseData after all parsing
+      console.log('Final responseData after parsing:', {
+        hasResponseData: !!responseData,
+        responseDataType: typeof responseData,
+        success: responseData?.success,
+        successType: typeof responseData?.success,
+        keys: responseData ? Object.keys(responseData) : []
+      });
+
+      console.log('Final responseData check:', {
+        hasResponseData: !!responseData,
+        success: responseData?.success,
+        successType: typeof responseData?.success,
+        hasData: !!responseData?.data,
+        dataType: typeof responseData?.data,
+        keys: responseData ? Object.keys(responseData) : [],
+        responseDataString: typeof responseData === 'string' ? responseData.substring(0, 100) : 'not a string'
+      });
+
+      // Determine success - check multiple sources with priority order
+      let isSuccess = false;
+      const successValue = responseData?.success;
+      
+      // PRIORITY 1: Check if data.data is a string containing "success":true
+      // This is the most reliable check for double-encoded responses
+      if (data?.data && typeof data.data === 'string' && data.data.trim().length > 0) {
+        const hasSuccessInString = data.data.includes('"success":true') || data.data.includes('"success": true');
+        const hasFailure = data.data.includes('"success":false');
+        
+        console.log('Checking data.data string for success:', {
+          hasSuccessInString,
+          hasFailure,
+          sample: data.data.substring(0, 150)
+        });
+        
+        if (hasSuccessInString && !hasFailure) {
+          console.log('✅ SUCCESS: Found "success":true in data.data string');
+          isSuccess = true;
+          // Parse it to get the full responseData
+          try {
+            const stringParsed = JSON.parse(data.data);
+            responseData = stringParsed;
+            console.log('✅ Parsed data.data, got success:', responseData?.success, 'has token:', !!responseData?.data?.token);
+          } catch (e) {
+            console.log('Could not parse data.data but treating as success based on string check');
+          }
+        }
+      }
+      
+      // PRIORITY 2: Check responseData.success directly
+      if (!isSuccess) {
+        if (successValue === true || successValue === 'true') {
+          console.log('✅ SUCCESS: responseData.success === true');
+          isSuccess = true;
+        } else if (typeof successValue === 'boolean' && successValue) {
+          console.log('✅ SUCCESS: responseData.success is truthy');
+          isSuccess = true;
+        } else if (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && responseData.data.success === true) {
+          console.log('✅ SUCCESS: responseData.data.success === true');
+          isSuccess = true;
+        }
+      }
+      
+      // PRIORITY 3: Check for token or reference as fallback
+      if (!isSuccess) {
+        const hasToken = 
+          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.token || responseData.data.energyToken)) ||
+          responseData?.token ||
+          false;
+        
+        const hasReference = 
+          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.reference || responseData.data.transaction_id)) ||
+          responseData?.reference ||
+          false;
+        
+        console.log('Fallback checks:', {
+          hasToken,
+          hasReference,
+          responseDataSuccess: responseData?.success,
+          hasError: !!responseData?.error
+        });
+        
+        if (hasToken) {
+          console.log('✅ SUCCESS: Token found in response');
+          isSuccess = true;
+        } else if (hasReference && !responseData?.error) {
+          console.log('✅ SUCCESS: Reference found and no error');
+          isSuccess = true;
+        }
+      }
+      
+      console.log('🎯 FINAL Success check result:', {
+        isSuccess,
+        successValue,
+        successType: typeof successValue,
+        hasResponseData: !!responseData,
+        responseDataKeys: responseData ? Object.keys(responseData) : [],
+        responseDataSuccess: responseData?.success,
+        responseDataDataType: typeof responseData?.data,
+        originalDataDataType: typeof data?.data,
+        originalDataDataIsString: typeof data?.data === 'string'
+      });
+      
+      if (!isSuccess) {
+        console.error('❌ Transaction NOT detected as successful - will show error to user');
+        // Extract error message from various possible response formats
+        const errorMessage = 
+          responseData?.error ||
+          responseData?.message ||
+          responseData?.details?.message ||
+          responseData?.details?.error ||
+          responseData?.response_description ||
+          (typeof responseData?.details === 'string' ? responseData.details : null) ||
           'Unable to complete electricity purchase.';
-        throw new Error(detailMessage);
+        
+        console.error('Electricity purchase failed - not successful:', {
+          isSuccess,
+          successValue: responseData?.success,
+          successType: typeof responseData?.success,
+          hasToken,
+          hasReference,
+          error: errorMessage,
+          responseDataKeys: responseData ? Object.keys(responseData) : [],
+          fullResponse: JSON.stringify(responseData, null, 2),
+          originalData: JSON.stringify(data, null, 2),
+          requestPayload: {
+            provider: selectedProvider,
+            meter_type: meterType,
+            amount: purchaseAmount,
+            meter_number: sanitizedMeter.substring(0, 5) + '...'
+          }
+        });
+        
+        throw new Error(errorMessage);
       }
+      
+      // Log that we're proceeding with success flow
+      console.log('🎉 PROCEEDING WITH SUCCESS FLOW - Transaction was successful!');
+      
+      console.log('Electricity purchase successful!', {
+        success: responseData?.success,
+        hasData: !!responseData?.data,
+        dataKeys: responseData?.data ? Object.keys(responseData.data) : [],
+        isSuccess: isSuccess
+      });
 
-      const reference = data?.data?.reference || '';
-      const transactionId = data?.data?.trans_id ? String(data.data.trans_id) : reference;
+      // Extract data from response
+      // After parsing, responseData should be {success: true, data: {...}}
+      // Handle multiple possible response structures
+      let responseDataData = responseData?.data || {};
+      
+      // If responseDataData is still a string, try parsing it
+      if (typeof responseDataData === 'string') {
+        try {
+          console.log('responseDataData is a string, parsing...');
+          responseDataData = JSON.parse(responseDataData);
+          console.log('Parsed responseDataData:', Object.keys(responseDataData));
+        } catch (e) {
+          console.error('Failed to parse responseDataData:', e);
+        }
+      }
+      
+      // If we still don't have data, check if responseData itself has the fields we need
+      if (!responseDataData || Object.keys(responseDataData).length === 0) {
+        console.log('responseDataData is empty, checking responseData directly');
+        // Check if responseData has the fields directly (not nested in data)
+        if (responseData.reference || responseData.token || responseData.amount) {
+          console.log('Using responseData directly as responseDataData');
+          responseDataData = responseData;
+        }
+      }
+      
+      console.log('Extracted response data:', {
+        hasData: !!responseDataData,
+        hasResponseData: !!responseData,
+        responseDataKeys: responseData ? Object.keys(responseData) : [],
+        responseDataDataKeys: responseDataData ? Object.keys(responseDataData) : [],
+        reference: responseDataData.reference,
+        token: responseDataData.token?.substring(0, 30),
+        units: responseDataData.units,
+        amount: responseDataData.amount
+      });
+      
+      const reference = responseDataData.reference || '';
+      const transactionId = responseDataData.trans_id ? String(responseDataData.trans_id) : reference;
       const purchaseToken =
-        data?.data?.token ||
-        data?.data?.energyToken ||
-        data?.data?.token_value ||
+        responseDataData.token ||
+        responseDataData.energyToken ||
+        responseDataData.token_value ||
         '';
-      const customerName = data?.data?.customer_name || verifiedName || '';
-      const customerAddress = data?.data?.customer_address || verifiedAddress || '';
+      const customerName = responseDataData.customer_name || verifiedName || '';
+      const customerAddress = responseDataData.customer_address || verifiedAddress || '';
+
+      console.log('Setting up success state and navigating...', {
+        purchaseToken: purchaseToken?.substring(0, 30),
+        reference,
+        transactionId,
+        customerName,
+        amount: purchaseAmount
+      });
 
       setToken(purchaseToken || null);
       setVerifiedName(customerName || null);
       setVerifiedAddress(customerAddress || '');
       setShowConfirmModal(false);
-      await fetchBalance();
+      
+      try {
+        await fetchBalance();
+      } catch (balanceError) {
+        console.error('Failed to fetch balance, but continuing with success flow:', balanceError);
+      }
 
+      console.log('Navigating to payment-success screen');
       router.push({
         pathname: '/payment-success',
         params: {
@@ -404,8 +734,11 @@ export default function ElectricityScreen() {
           serviceType: `Electricity • ${meterType.toUpperCase()}`,
         },
       });
+      
       setTransactionReference(transactionId);
       setTransactionStatus('Approved');
+      
+      console.log('Success flow completed - transaction status set to Approved');
     } catch (purchaseError) {
       console.error('Electricity purchase failed:', purchaseError);
       let message = 'Unable to complete electricity purchase. Please try again.';
@@ -414,7 +747,10 @@ export default function ElectricityScreen() {
         message = purchaseError.message || message;
       }
 
-      const context = (purchaseError as any)?.context;
+      // Try to extract more detailed error from various sources
+      const errorObj = purchaseError as any;
+      const context = errorObj?.context;
+      
       if (context?.body) {
         try {
           const body = typeof context.body === 'string' ? JSON.parse(context.body) : context.body;
@@ -422,15 +758,30 @@ export default function ElectricityScreen() {
             body?.error ||
             body?.message ||
             body?.details?.error ||
-            body?.details?.message;
+            body?.details?.message ||
+            body?.response_description;
           if (bodyMessage) {
             message = bodyMessage;
           }
         } catch (_err) {
-          // ignore parse error
+          console.error('Error parsing error body:', _err);
+        }
+      }
+      
+      // Also check if there's a data property with error info
+      if (errorObj?.data) {
+        const dataMessage = 
+          errorObj.data?.error ||
+          errorObj.data?.message ||
+          errorObj.data?.details?.error ||
+          errorObj.data?.details?.message ||
+          errorObj.data?.response_description;
+        if (dataMessage) {
+          message = dataMessage;
         }
       }
 
+      console.error('Final error message:', message);
       Alert.alert('Electricity Purchase', message);
       setTransactionStatus('Failed');
     }

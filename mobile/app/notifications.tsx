@@ -5,6 +5,7 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -79,8 +80,18 @@ export default function NotificationsScreen() {
             readAt: item.read_at,
           })) as NotificationEntry[];
 
+        // Sort: unread first, then by creation date (newest first)
+        const sorted = mapped.sort((a, b) => {
+          // First, sort by read status (unread first)
+          if (a.isRead !== b.isRead) {
+            return a.isRead ? 1 : -1;
+          }
+          // Then sort by creation date (newest first)
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+
         if (isMounted.current) {
-          setNotifications(mapped);
+          setNotifications(sorted);
         }
       } catch (error) {
         console.error('Failed to load notifications:', error);
@@ -181,13 +192,16 @@ export default function NotificationsScreen() {
     <ThemedView style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }] }>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={22} color="#333" />
+          <MaterialIcons name="arrow-back" size={22} color="#FF7F00" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>Notifications</ThemedText>
         <TouchableOpacity
           onPress={markAllAsRead}
           disabled={unreadCount === 0 || processing}
-          style={styles.markAllButton}
+          style={[
+            styles.markAllButton,
+            (unreadCount === 0 || processing) && styles.markAllTextDisabled,
+          ]}
         >
           <ThemedText
             style={[
@@ -214,17 +228,17 @@ export default function NotificationsScreen() {
       >
         {errorMessage ? (
           <View style={styles.errorBanner}>
-            <MaterialIcons name="error-outline" size={20} color="#d32f2f" />
+            <MaterialIcons name="error-outline" size={20} color="#CC6600" />
             <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
           </View>
         ) : null}
 
         {notifications.length === 0 && !loading ? (
           <View style={styles.emptyState}>
-            <MaterialIcons name="notifications-off" size={40} color="#bbb" />
+            <MaterialIcons name="notifications-off" size={48} color="#FFB366" />
             <ThemedText style={styles.emptyTitle}>No notifications yet</ThemedText>
             <ThemedText style={styles.emptySubtitle}>
-              When there’s something new, it will show up here.
+              When there's something new, it will show up here.
             </ThemedText>
           </View>
         ) : (
@@ -257,7 +271,7 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFF8F0',
   },
   header: {
     flexDirection: 'row',
@@ -265,29 +279,39 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E5E5E5',
-    backgroundColor: '#fff',
+    borderBottomWidth: 2,
+    borderBottomColor: '#FF7F00',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#FF7F00',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   backButton: {
     padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#FFF4E6',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#222',
+    color: '#FF7F00',
   },
   markAllButton: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#FF7F00',
   },
   markAllText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#FF7F00',
+    color: '#FFFFFF',
   },
   markAllTextDisabled: {
     color: '#CFCFCF',
+    backgroundColor: '#F5F5F5',
   },
   loadingOverlay: {
     position: 'absolute',
@@ -298,12 +322,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 20,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -311,15 +337,15 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: '#fdecea',
+    backgroundColor: '#FFF4E6',
     borderWidth: 1,
-    borderColor: '#f5c6cb',
+    borderColor: '#FFB366',
     marginTop: 20,
     marginBottom: 12,
   },
   errorText: {
     fontSize: 14,
-    color: '#b71c1c',
+    color: '#CC6600',
     flex: 1,
   },
   emptyState: {
@@ -331,31 +357,33 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#333',
+    color: '#FF7F00',
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#CC6600',
     textAlign: 'center',
     paddingHorizontal: 24,
   },
   notificationCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#EDEDED',
+    borderWidth: 2,
+    borderColor: '#FFE5CC',
     padding: 18,
     marginTop: 16,
-    shadowColor: '#000',
+    shadowColor: '#FF7F00',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
     gap: 10,
   },
   notificationCardUnread: {
-    borderColor: '#FFB366',
-    backgroundColor: '#FFF9F1',
+    borderColor: '#FF7F00',
+    backgroundColor: '#FFF8F0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF7F00',
   },
   notificationHeader: {
     flexDirection: 'row',
@@ -366,23 +394,29 @@ const styles = StyleSheet.create({
   notificationTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#222',
+    color: '#FF7F00',
     flex: 1,
   },
   unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: '#FF7F00',
+    shadowColor: '#FF7F00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 2,
   },
   notificationMessage: {
     fontSize: 14,
-    color: '#444',
+    color: '#333',
     lineHeight: 20,
   },
   notificationTimestamp: {
     fontSize: 12,
-    color: '#888',
+    color: '#CC6600',
+    fontWeight: '500',
   },
 });
 

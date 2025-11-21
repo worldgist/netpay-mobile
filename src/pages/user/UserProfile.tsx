@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureProfileExists } from "@/utils/profile";
 import BottomNav from "@/components/BottomNav";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 
 export default function UserProfile() {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userId, setUserId] = useState("");
@@ -31,27 +33,34 @@ export default function UserProfile() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate("/user/auth");
-        return;
-      }
+      try {
+        setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          navigate("/user/auth");
+          return;
+        }
 
-      setUserEmail(session.user.email || "");
-      setUserId(session.user.id);
+        setUserEmail(session.user.email || "");
+        setUserId(session.user.id);
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, biometric_enabled, pin_enabled')
-        .eq('id', session.user.id)
-        .maybeSingle();
+        // Ensure profile exists
+        const profile = await ensureProfileExists(session.user);
 
-      if (profile) {
-        setUserName(profile.full_name || session.user.email?.split('@')[0] || 'User');
-        setBiometricEnabled(profile.biometric_enabled || false);
-        setPinEnabled(profile.pin_enabled || false);
-      } else {
-        setUserName(session.user.email?.split('@')[0] || 'User');
+        if (profile) {
+          setUserName(profile.full_name || session.user.email?.split('@')[0] || 'User');
+          setBiometricEnabled(profile.biometric_enabled || false);
+          setPinEnabled(profile.pin_enabled || false);
+        } else {
+          // Fallback if profile creation failed
+          setUserName(session.user.email?.split('@')[0] || 'User');
+          toast.error("Failed to load profile. Please refresh the page.");
+        }
+      } catch (error: any) {
+        console.error('Error loading profile:', error);
+        toast.error(error.message || "Failed to load profile");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -94,6 +103,14 @@ export default function UserProfile() {
     { icon: Shield, label: "Privacy Policy", onClick: () => navigate("/user/privacy"), color: "text-brand" },
   ];
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 pb-20 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Profile Header */}
@@ -101,8 +118,8 @@ export default function UserProfile() {
         <div className="w-24 h-24 bg-brand rounded-full flex items-center justify-center mx-auto mb-4">
           <User className="w-12 h-12 text-white" />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">{userName}</h2>
-        <p className="text-gray-600">{userEmail}</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">{userName || 'User'}</h2>
+        <p className="text-gray-600">{userEmail || ''}</p>
       </div>
 
       {/* Security Section */}
