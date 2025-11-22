@@ -1,5 +1,14 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { 
+  SidebarProvider, 
+  SidebarTrigger,
+  Sidebar,
+  SidebarContent,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+} from "@/components/ui/sidebar";
 import {
   Phone,
   CreditCard,
@@ -15,6 +24,11 @@ import {
   ShieldCheck,
   CheckCircle2,
   Mail,
+  Menu,
+  Home,
+  Info,
+  MessageCircle,
+  HelpCircle,
 } from "lucide-react";
 
 const Index = () => {
@@ -75,56 +89,98 @@ const Index = () => {
     },
   ];
 
+  const navigationItems = [
+    { label: "Home", path: "/", icon: Home },
+    { label: "About Us", path: "/about", icon: Info },
+    { label: "Contact Us", path: "/contact-us", icon: MessageCircle },
+    { label: "FAQ", path: "/faq", icon: HelpCircle },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground">
-      {/* Header */}
-      <header className="border-b border-border/30 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between transition-smooth">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
+    <SidebarProvider>
+      <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground flex w-full">
+        {/* Sidebar - Only visible on mobile */}
+        <Sidebar className="border-r md:hidden">
+          <SidebarContent>
+            <div className="flex items-center gap-3 px-4 py-4 border-b">
               <img
                 src="/logo.png"
                 alt="NetPay"
-                className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
+                className="w-8 h-8 rounded-lg border border-brand/30"
                 loading="lazy"
               />
-              <span className="text-2xl font-bold">
+              <span className="text-lg font-bold">
                 <span className="text-brand">NET</span>
                 <span className="text-slate-800">PAY</span>
               </span>
             </div>
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-800">
-              <button onClick={() => navigate("/")} className="hover:text-brand transition-colors">
-                Home
-              </button>
-              <button onClick={() => navigate("/about")} className="hover:text-brand transition-colors">
-                About Us
-              </button>
-              <button onClick={() => navigate("/contact-us")} className="hover:text-brand transition-colors">
-                Contact Us
-              </button>
-              <button onClick={() => navigate("/faq")} className="hover:text-brand transition-colors">
-                FAQ
-              </button>
-            </nav>
-          </div>
-          <div className="hidden md:flex items-center gap-3">
-            <Button
-              onClick={() => navigate("/user/auth?mode=signin")}
-              variant="ghost"
-              className="text-brand hover:bg-brand/10"
-            >
-              Sign In
-            </Button>
-            <Button
-              onClick={() => navigate("/user/auth?mode=signup")}
-              className="bg-brand hover:bg-brand/90 text-white shadow-elegant"
-            >
-              Sign Up
-            </Button>
-          </div>
-        </div>
-      </header>
+            <SidebarMenu>
+              {navigationItems.map((item) => (
+                <SidebarMenuItem key={item.path}>
+                  <SidebarMenuButton
+                    onClick={() => navigate(item.path)}
+                    className="w-full justify-start gap-3"
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarContent>
+        </Sidebar>
+
+        <div className="flex-1 flex flex-col">
+          {/* Header */}
+          <header className="border-b border-border/30 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
+            <div className="container mx-auto px-4 py-4 flex items-center justify-between transition-smooth">
+              <div className="flex items-center gap-6">
+                {/* Sidebar trigger - Only visible on mobile */}
+                <SidebarTrigger className="md:hidden" />
+                <div className="flex items-center gap-3">
+                  <img
+                    src="/logo.png"
+                    alt="NetPay"
+                    className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
+                    loading="lazy"
+                  />
+                  <span className="text-2xl font-bold">
+                    <span className="text-brand">NET</span>
+                    <span className="text-slate-800">PAY</span>
+                  </span>
+                </div>
+                <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-800">
+                  <button onClick={() => navigate("/")} className="hover:text-brand transition-colors">
+                    Home
+                  </button>
+                  <button onClick={() => navigate("/about")} className="hover:text-brand transition-colors">
+                    About Us
+                  </button>
+                  <button onClick={() => navigate("/contact-us")} className="hover:text-brand transition-colors">
+                    Contact Us
+                  </button>
+                  <button onClick={() => navigate("/faq")} className="hover:text-brand transition-colors">
+                    FAQ
+                  </button>
+                </nav>
+              </div>
+              <div className="hidden md:flex items-center gap-3">
+                <Button
+                  onClick={() => navigate("/user/auth?mode=signin")}
+                  variant="ghost"
+                  className="text-brand hover:bg-brand/10"
+                >
+                  Sign In
+                </Button>
+                <Button
+                  onClick={() => navigate("/user/auth?mode=signup")}
+                  className="bg-brand hover:bg-brand/90 text-white shadow-elegant"
+                >
+                  Sign Up
+                </Button>
+              </div>
+            </div>
+          </header>
 
       {/* Hero */}
       <section className="container mx-auto px-4 py-16 md:py-24">
@@ -431,7 +487,9 @@ const Index = () => {
           </div>
         </div>
       </footer>
-    </div>
+        </div>
+      </div>
+    </SidebarProvider>
   );
 };
 

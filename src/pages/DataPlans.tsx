@@ -521,16 +521,90 @@ const DataPlans = () => {
         let insertError;
         
         // First attempt: try with all columns including provider, original_price, custom_price
+        // PostgREST requires column names for onConflict, not constraint names
         try {
           const result = await supabase
             .from('data_plans')
             .upsert(dedupedPlans, { 
-              onConflict: 'provider,api_code',
+              onConflict: 'provider,api_code', // Use column names, not constraint name
               ignoreDuplicates: false 
             });
           insertError = result.error;
         } catch (e: any) {
           insertError = e;
+        }
+        
+        // If error is about missing constraint or on conflict, use insert and ignore duplicates
+        // This is safer than delete+insert which requires admin permissions via RLS
+        if (insertError && (
+          insertError.message?.toLowerCase().includes('on conflict') ||
+          insertError.message?.toLowerCase().includes('unique constraint') ||
+          insertError.message?.toLowerCase().includes('exclusion constraint') ||
+          insertError.message?.toLowerCase().includes('constraint') ||
+          insertError.message?.toLowerCase().includes('violate') ||
+          insertError.message?.toLowerCase().includes('duplicate') ||
+          insertError.code === 'PGRST212' ||
+          insertError.code === '23505' ||
+          insertError.code === '23503' ||
+          insertError.code === '23514'
+        )) {
+          console.warn('Unique constraint issue, using insert with duplicate handling:', insertError.message);
+          
+          // If it's an RLS error, that's a different issue - don't try insert
+          if (insertError.message?.toLowerCase().includes('row-level security') ||
+              insertError.message?.toLowerCase().includes('policy') ||
+              insertError.code === '42501') {
+            console.error('RLS policy error - admin role may not be set correctly:', insertError);
+            throw new Error(`Permission denied: ${insertError.message}. Please ensure you have admin role.`);
+          }
+          
+          try {
+            // Try to insert - duplicate key errors (23505) are acceptable
+            const result = await supabase
+              .from('data_plans')
+              .insert(dedupedPlans);
+            
+            // Only treat non-duplicate errors as failures
+            if (result.error) {
+              const errorCode = result.error.code;
+              const errorMsg = result.error.message?.toLowerCase() || '';
+              
+              // Acceptable errors: duplicate key violations
+              const isDuplicateError = 
+                errorCode === '23505' ||
+                errorCode === '23503' ||
+                errorMsg.includes('duplicate') ||
+                errorMsg.includes('already exists') ||
+                errorMsg.includes('unique constraint') ||
+                errorMsg.includes('violates unique constraint');
+              
+              if (isDuplicateError) {
+                insertError = null;
+                console.log('Insert completed (some duplicates were ignored)');
+              } else {
+                insertError = result.error;
+              }
+            } else {
+              insertError = null;
+            }
+          } catch (e: any) {
+            // If it's a duplicate error, that's acceptable
+            const errorCode = e.code;
+            const errorMsg = e.message?.toLowerCase() || '';
+            const isDuplicateError = 
+              errorCode === '23505' ||
+              errorCode === '23503' ||
+              errorMsg.includes('duplicate') ||
+              errorMsg.includes('unique constraint') ||
+              errorMsg.includes('violates unique constraint');
+            
+            if (isDuplicateError) {
+              insertError = null;
+              console.log('Insert completed (duplicates ignored)');
+            } else {
+              insertError = e;
+            }
+          }
         }
         
         // If error is about missing columns, try removing them progressively
@@ -540,9 +614,7 @@ const DataPlans = () => {
           insertError.message?.toLowerCase().includes('does not exist') ||
           insertError.message?.toLowerCase().includes('original_price') ||
           insertError.message?.toLowerCase().includes('custom_price') ||
-          insertError.message?.toLowerCase().includes('provider') ||
-          insertError.code === 'PGRST212' ||
-          insertError.message?.toLowerCase().includes('on conflict')
+          insertError.message?.toLowerCase().includes('provider')
         )) {
           console.warn('Some columns may not exist, trying with reduced columns:', insertError.message);
           
@@ -552,30 +624,40 @@ const DataPlans = () => {
           try {
             const result = await supabase
               .from('data_plans')
-              .upsert(plansWithoutPriceColumns, { 
-                onConflict: 'provider,api_code',
-                ignoreDuplicates: false 
-              });
+              .insert(plansWithoutPriceColumns);
             insertError = result.error;
-          } catch (e: any) {
-            // Third attempt: also remove provider column, use api_code only
-            if (e.code === '42703' || e.message?.toLowerCase().includes('provider') || e.code === 'PGRST212') {
-              console.warn('Provider column not found, using api_code only for conflict resolution');
-              const plansBasicOnly = plansWithoutPriceColumns.map(({ provider, ...rest }: any) => rest);
-              const result = await supabase
-                .from('data_plans')
-                .upsert(plansBasicOnly, { 
-                  onConflict: 'api_code',
-                  ignoreDuplicates: false 
-                });
-              insertError = result.error;
-            } else {
-              insertError = e;
+            
+            // Ignore duplicate errors
+            if (insertError && insertError.code === '23505') {
+              insertError = null;
             }
+          } catch (e: any) {
+            // Don't remove provider column - it's required for the unique constraint
+            // If provider column doesn't exist, that's a schema issue that needs to be fixed
+            insertError = e;
           }
         }
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          // Provide a more helpful error message for different error types
+          const errorMsg = insertError.message || insertError.toString();
+          
+          // RLS errors
+          if (errorMsg.toLowerCase().includes('row-level security') ||
+              errorMsg.toLowerCase().includes('policy') ||
+              insertError.code === '42501') {
+            throw new Error(`Permission denied: ${errorMsg}. Please ensure you have admin role and the RLS policies are correctly configured.`);
+          }
+          
+          // Constraint violations
+          if (errorMsg.toLowerCase().includes('violate') || 
+              errorMsg.toLowerCase().includes('unique constraint') ||
+              insertError.code === '23505') {
+            throw new Error(`Constraint violation: A plan with the same provider and API code already exists. ${errorMsg}`);
+          }
+          
+          throw insertError;
+        }
 
         await fetchDataPlans();
         setIsDialogOpen(false);

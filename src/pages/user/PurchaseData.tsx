@@ -310,29 +310,103 @@ const PurchaseData = () => {
         setAllPlans(plansData);
 
         let networkOptions: Network[] = [];
-        if (resolvedProvider === 'smeplug') {
-          const { data: networksData } = await supabase.functions.invoke('fetch-smeplug-networks', {
-            headers: { Authorization: `Bearer ${sessionAccessToken}` },
-          });
-          if (networksData?.success && Array.isArray(networksData?.data)) {
-            networkOptions = networksData.data.map((item: any) => ({
-              id: normalizeNetwork(item.name || item.id) || item.id,
-              name: item.name,
-              network_id: item.network_id,
-            }));
+        
+        console.log('Fetching networks. Provider:', resolvedProvider, 'Plans count:', plansData.length);
+        
+        // First, try to get distinct networks directly from database (regardless of provider filter)
+        // This ensures we always have networks even if current provider has no plans
+        try {
+          const { data: allNetworksData, error: networksQueryError } = await supabase
+            .from('data_plans')
+            .select('network')
+            .not('network', 'is', null);
+          
+          if (!networksQueryError && allNetworksData && allNetworksData.length > 0) {
+            const uniqueNetworksFromDB = Array.from(
+              new Set(
+                allNetworksData
+                  .map((item: any) => normalizeNetwork(item.network))
+                  .filter(Boolean)
+              )
+            ) as string[];
+            
+            if (uniqueNetworksFromDB.length > 0) {
+              networkOptions = uniqueNetworksFromDB.map((key) => ({
+                id: key,
+                name: getNetworkDisplayName(key),
+                network_id: key,
+              }));
+              console.log('Networks from database query:', networkOptions.length);
+            }
+          }
+        } catch (error) {
+          console.warn('Error querying networks from database:', error);
+        }
+        
+        // Try to fetch networks from API if provider is smeplug (for network_id mapping)
+        if (resolvedProvider === 'smeplug' && networkOptions.length === 0) {
+          try {
+            const { data: networksData, error: networksError } = await supabase.functions.invoke('fetch-smeplug-networks', {
+              headers: { Authorization: `Bearer ${sessionAccessToken}` },
+            });
+            
+            console.log('Network API response:', { 
+              success: networksData?.success, 
+              dataLength: networksData?.data?.length,
+              error: networksError 
+            });
+            
+            if (!networksError && networksData?.success && Array.isArray(networksData?.data) && networksData.data.length > 0) {
+              networkOptions = networksData.data.map((item: any) => ({
+                id: normalizeNetwork(item.name || item.id) || item.id,
+                name: item.name,
+                network_id: item.network_id,
+              }));
+              console.log('Networks from API:', networkOptions.length);
+            }
+          } catch (error) {
+            console.warn('Error fetching networks from API:', error);
           }
         }
 
-        if (networkOptions.length === 0) {
-          const uniqueNetworks = Array.from(
-            new Set(plansData.map((plan) => normalizeNetwork(plan.network)).filter(Boolean))
-          ) as string[];
-          networkOptions = uniqueNetworks.map((key) => ({
-            id: key,
-            name: getNetworkDisplayName(key),
-            network_id: key,
-          }));
+        // Fallback: Extract networks from loaded data plans
+        if (networkOptions.length === 0 && plansData.length > 0) {
+          const networkValues = plansData
+            .map((plan) => plan.network)
+            .filter(Boolean)
+            .map(normalizeNetwork)
+            .filter(Boolean);
+          
+          console.log('Network values from plans:', networkValues);
+          
+          const uniqueNetworks = Array.from(new Set(networkValues)) as string[];
+          
+          if (uniqueNetworks.length > 0) {
+            networkOptions = uniqueNetworks.map((key) => ({
+              id: key,
+              name: getNetworkDisplayName(key),
+              network_id: key,
+            }));
+            console.log('Networks extracted from plans:', networkOptions.length);
+          }
         }
+
+        // Final fallback: Use default networks if nothing is available
+        if (networkOptions.length === 0) {
+          console.warn('No networks found from database, API or data plans, using default networks', {
+            provider: resolvedProvider,
+            plansCount: plansData.length,
+            plansSample: plansData.slice(0, 3).map(p => ({ network: p.network, plan_name: p.plan_name }))
+          });
+          networkOptions = [
+            { id: 'MTN', name: 'MTN', network_id: 'MTN' },
+            { id: 'AIRTEL', name: 'Airtel', network_id: 'AIRTEL' },
+            { id: 'GLO', name: 'Glo', network_id: 'GLO' },
+            { id: '9MOBILE', name: '9Mobile', network_id: '9MOBILE' },
+          ];
+        }
+
+        console.log('Final network options:', networkOptions);
 
         const defaultNetwork = networkOptions[0]?.id || "";
         setNetworks(networkOptions);
@@ -471,29 +545,38 @@ const PurchaseData = () => {
       
       if (!plan) throw new Error("Invalid plan");
 
-      // Use the new unified purchase-data endpoint with automatic fallback
-      const requestBody = {
-        phone_number: phoneNumber,
-        plan_id: plan.id,
-      };
-
-      // Direct fetch call for better error handling
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const functionUrl = `${supabaseUrl}/functions/v1/purchase-data`;
-
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${activeToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      const responseData = await response.json();
+      // Use Supabase functions.invoke for better error handling and automatic auth
+      let responseData: any;
+      let functionError: any;
       
+      try {
+        const result = await supabase.functions.invoke('purchase-data', {
+          body: {
+            phone_number: phoneNumber,
+            plan_id: plan.id,
+          }
+        });
+        responseData = result.data;
+        functionError = result.error;
+      } catch (invokeError: any) {
+        console.error('Error invoking purchase-data function:', invokeError);
+        // Check if it's a network/connection error
+        if (invokeError.message?.includes('fetch') || invokeError.message?.includes('network') || invokeError.message?.includes('Failed to fetch')) {
+          throw new Error('Failed to connect to server. The purchase-data function may not be deployed. Please contact support.');
+        }
+        throw new Error(invokeError.message || 'Failed to send request to edge function. Please try again.');
+      }
+
+      if (functionError) {
+        console.error('Supabase function error:', functionError);
+        // Provide more specific error messages
+        if (functionError.message?.includes('not found') || functionError.message?.includes('404')) {
+          throw new Error('Purchase function not found. Please contact support to deploy the function.');
+        }
+        throw new Error(functionError.message || 'Failed to connect to server. Please check your internet connection and try again.');
+      }
+
       console.log('Purchase response:', {
-        httpStatus: response.status,
         success: responseData?.success,
         error: responseData?.error,
         message: responseData?.message,
@@ -501,14 +584,8 @@ const PurchaseData = () => {
         fullResponse: responseData
       });
 
-      if (!response.ok) {
-        // Extract error message from response
-        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
-        throw new Error(errorMessage);
-      }
-
       // Check if transaction failed explicitly (success === false)
-      if (responseData?.success === false) {
+      if (!responseData?.success) {
         const errorMessage = responseData?.error || responseData?.message || responseData?.details?.message || 'Purchase failed';
         throw new Error(errorMessage);
       }
