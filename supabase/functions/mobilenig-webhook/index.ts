@@ -86,9 +86,22 @@ serve(async (req) => {
       console.error('Error fetching electricity transaction:', elecTxnError);
     }
 
-    // Determine which transaction to update
-    const transaction = userTransaction || electricityTransaction;
-    const transactionTable = userTransaction ? 'user_transactions' : 'electricity_transactions';
+    // Try to find transaction in data_transactions
+    const { data: dataTransaction, error: dataTxnError } = await supabaseClient
+      .from('data_transactions')
+      .select('id, user_id, reference, status')
+      .eq('reference', transactionReference)
+      .maybeSingle();
+
+    if (dataTxnError) {
+      console.error('Error fetching data transaction:', dataTxnError);
+    }
+
+    // Determine which transaction to update (priority: data > electricity > user)
+    const transaction = dataTransaction || electricityTransaction || userTransaction;
+    const transactionTable = dataTransaction ? 'data_transactions' : 
+                            electricityTransaction ? 'electricity_transactions' : 
+                            'user_transactions';
 
     if (!transaction) {
       console.log(`Transaction not found: ${transactionReference}`);

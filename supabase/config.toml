@@ -75,6 +75,12 @@ verify_jwt = true
 [functions.purchase-vtpass-data]
 verify_jwt = true
 
+[functions.purchase-data]
+verify_jwt = true
+
+[functions.smeplug-webhook]
+verify_jwt = false
+
 [functions.get-data-provider]
 verify_jwt = true
 

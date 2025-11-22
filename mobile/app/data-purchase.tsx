@@ -98,18 +98,27 @@ const formatCurrency = (amount?: number | null) => {
 };
 
 const generateRequestId = () => {
-  const lagos = new Date(
-    new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' })
-  );
-  const pad = (value: number) => `${value}`.padStart(2, '0');
-  const timestamp =
-    lagos.getFullYear().toString() +
-    pad(lagos.getMonth() + 1) +
-    pad(lagos.getDate()) +
-    pad(lagos.getHours()) +
-    pad(lagos.getMinutes());
-  const random = Math.random().toString(36).slice(2, 10).toUpperCase();
-  return `${timestamp}${random}`;
+  try {
+    const now = new Date();
+    const pad = (value: number) => {
+      const num = Number(value);
+      return isNaN(num) ? '00' : `${num}`.padStart(2, '0');
+    };
+    const timestamp =
+      now.getFullYear().toString() +
+      pad(now.getMonth() + 1) +
+      pad(now.getDate()) +
+      pad(now.getHours()) +
+      pad(now.getMinutes()) +
+      pad(now.getSeconds());
+    const random = Math.random().toString(36).slice(2, 10).toUpperCase();
+    return `${timestamp}${random}`;
+  } catch (error) {
+    // Fallback if date conversion fails
+    const timestamp = Date.now().toString();
+    const random = Math.random().toString(36).slice(2, 10).toUpperCase();
+    return `${timestamp}${random}`;
+  }
 };
 
 type DataPlan = {
@@ -236,18 +245,147 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         throw profileRes.error;
       }
 
-      let plansData = plansRes.data || [];
+      let plansData: any[] = plansRes.data || [];
       if (plansRes.error) {
-        if (plansRes.error.code === '42703') {
-          console.warn('Provider column missing from data_plans. Falling back to unfiltered query.');
-          const fallback = await supabase
-            .from('data_plans')
-            .select('id, network, plan_name, price, validity, api_code, custom_price, original_price')
-            .order('network', { ascending: true })
-            .order('price', { ascending: true });
-
-          if (fallback.error) throw fallback.error;
-          plansData = fallback.data || [];
+        const errorCode = String(plansRes.error.code || '');
+        const errorMessage = typeof plansRes.error.message === 'string' 
+          ? plansRes.error.message 
+          : JSON.stringify(plansRes.error.message || plansRes.error);
+        const statusCode = plansRes.error.status;
+        const httpStatus = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode || '0'), 10);
+        
+        console.warn('Data plans query error:', { 
+          code: errorCode, 
+          message: errorMessage, 
+          status: statusCode 
+        });
+        
+        // Handle column missing errors (42703) or 400 Bad Request
+        const errorMsgLower = errorMessage.toLowerCase();
+        const isColumnError = errorCode === '42703' || 
+                             errorCode === 'PGRST100' ||
+                             httpStatus === 400 ||
+                             (errorMessage && (
+                               errorMsgLower.includes('column') ||
+                               errorMsgLower.includes('does not exist') ||
+                               errorMsgLower.includes('custom_price') ||
+                               errorMsgLower.includes('original_price') ||
+                               errorMsgLower.includes('provider') ||
+                               errorMsgLower.includes('bad request')
+                             ));
+        
+        if (isColumnError) {
+          console.warn('Column missing from data_plans, using fallback query', {
+            errorCode,
+            errorMessage,
+            isProviderColumnError: errorMsgLower.includes('provider') && errorMsgLower.includes('does not exist'),
+            isCustomPriceError: errorMsgLower.includes('custom_price'),
+            isOriginalPriceError: errorMsgLower.includes('original_price'),
+          });
+          
+          // Check if the error is about specific columns
+          const isProviderColumnError = errorMsgLower.includes('provider') && 
+                                      errorMsgLower.includes('does not exist');
+          
+          // Start with absolute minimum columns that should always exist
+          let fallbackSelect = 'id, network, plan_name, price, validity, api_code';
+          
+          // Only add provider if we know it exists (not the cause of error)
+          if (!isProviderColumnError) {
+            fallbackSelect += ', provider';
+          }
+          
+          console.log('Fallback select:', fallbackSelect, 'resolvedProvider:', resolvedProvider);
+          
+          // Try fallback query with provider filter first
+          let fallbackSuccess = false;
+          let lastError = null;
+          
+          // Attempt 1: Try with provider filter if provider column exists
+          if (!isProviderColumnError && resolvedProvider) {
+            try {
+              console.log('Attempt 1: Trying fallback with provider filter:', resolvedProvider);
+              const fallbackWithProvider = await supabase
+                .from('data_plans')
+                .select(fallbackSelect)
+                .eq('provider', resolvedProvider)
+                .order('network', { ascending: true })
+                .order('price', { ascending: true });
+              
+              console.log('Fallback with provider result:', {
+                error: fallbackWithProvider.error,
+                dataCount: fallbackWithProvider.data?.length || 0
+              });
+              
+              if (!fallbackWithProvider.error) {
+                plansData = fallbackWithProvider.data || [];
+                fallbackSuccess = true;
+                console.log('Fallback with provider succeeded, got', plansData.length, 'plans');
+              } else {
+                lastError = fallbackWithProvider.error;
+                console.warn('Fallback with provider filter failed:', fallbackWithProvider.error, 'trying without filter');
+              }
+            } catch (e) {
+              lastError = e;
+              console.warn('Fallback with provider filter threw error:', e, 'trying without filter');
+            }
+          }
+          
+          // Attempt 2: Try without provider filter
+          if (!fallbackSuccess) {
+            try {
+              console.log('Attempt 2: Trying fallback without provider filter');
+              const fallbackWithoutProvider = await supabase
+                .from('data_plans')
+                .select(fallbackSelect)
+                .order('network', { ascending: true })
+                .order('price', { ascending: true });
+              
+              console.log('Fallback without provider result:', {
+                error: fallbackWithoutProvider.error,
+                dataCount: fallbackWithoutProvider.data?.length || 0
+              });
+              
+              if (!fallbackWithoutProvider.error) {
+                plansData = fallbackWithoutProvider.data || [];
+                fallbackSuccess = true;
+                console.log('Fallback without provider succeeded, got', plansData.length, 'plans');
+              } else {
+                lastError = fallbackWithoutProvider.error;
+                console.error('Fallback without provider filter also failed:', fallbackWithoutProvider.error);
+              }
+            } catch (e) {
+              lastError = e;
+              console.error('Fallback without provider filter threw error:', e);
+            }
+          }
+          
+          if (!fallbackSuccess) {
+            console.error('All fallback attempts failed, throwing error');
+            throw lastError || plansRes.error;
+          }
+          
+          // Filter by provider in memory to ensure only the selected provider's plans are shown
+          if (resolvedProvider && plansData.length > 0) {
+            const hasProviderField = plansData.some((plan: any) => plan.provider !== undefined);
+            if (hasProviderField) {
+              const filteredPlans = plansData.filter((plan: any) => 
+                plan.provider === resolvedProvider
+              );
+              // Only use filtered results if we got matches, otherwise might be all same provider already
+              if (filteredPlans.length > 0 || plansData.length === 0) {
+                plansData = filteredPlans;
+              }
+            }
+          }
+          
+          // Map fallback data to include missing columns as null
+          plansData = (plansData || []).map((plan: any) => ({
+            ...plan,
+            provider: plan.provider || resolvedProvider || 'smeplug',
+            custom_price: plan.custom_price ?? null,
+            original_price: plan.original_price ?? null,
+          }));
         } else {
           throw plansRes.error;
         }
@@ -413,165 +551,6 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
     setShowConfirmModal(true);
   };
 
-  const handleConfirmPayment = useCallback(async () => {
-    console.log('[ConfirmPayment] handler invoked', {
-      selectedPlan: selectedPlan?.id,
-      selectedNetwork,
-      phoneNumber,
-    });
-
-    if (!selectedPlan || !selectedNetwork) {
-      console.warn('[ConfirmPayment] Missing plan or network', {
-        selectedPlan,
-        selectedNetwork,
-      });
-      return;
-    }
-
-    setIsProcessing(true);
-
-    try {
-      const validation = validateNigerianPhoneNumber(phoneNumber, selectedNetwork);
-      if (!validation.isMatch || validation.message) {
-        console.warn('[ConfirmPayment] Phone validation failed', validation);
-        Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
-        return;
-      }
-
-      const effectivePhone = validation.normalized;
-      const effectivePlanId =
-        typeof selectedPlan.id === 'string'
-          ? selectedPlan.id.trim()
-          : String(selectedPlan.id ?? '').trim();
-      const effectiveNetworkId = selectedNetwork.trim();
-
-      if (!effectivePlanId) {
-        console.warn('[ConfirmPayment] Empty plan id after normalization', {
-          selectedPlan,
-        });
-        Alert.alert('Data Purchase', 'Please select a data plan.');
-        return;
-      }
-
-      if (!effectiveNetworkId) {
-        console.warn('[ConfirmPayment] Empty network id after normalization', {
-          selectedNetwork,
-        });
-        Alert.alert('Data Purchase', 'Unable to determine the selected network. Please try again.');
-        return;
-      }
-
-      let rawNetworkId: string | null = null;
-      if (dataProvider === 'smeplug') {
-        rawNetworkId =
-          networkIdMap[effectiveNetworkId] ||
-          SMEPLUG_NETWORK_IDS[effectiveNetworkId] ||
-          networkIdMap[selectedNetworkName?.toUpperCase?.() ?? ''] ||
-          null;
-        if (!rawNetworkId) {
-          Alert.alert('Data Purchase', 'Unable to determine the network ID for this provider. Please try again.');
-          return;
-        }
-      }
-
-      const sanitizedPhoneNumber = effectivePhone.replace(/\s+/g, '').trim();
-      if (!sanitizedPhoneNumber) {
-        console.warn('[ConfirmPayment] Sanitized phone is empty', {
-          effectivePhone,
-        });
-        Alert.alert('Data Purchase', 'Phone number is required.');
-        return;
-      }
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) {
-        console.warn('[ConfirmPayment] Missing access token');
-        Alert.alert('Session Expired', 'Please sign in again to continue.');
-        router.replace('/auth/login');
-        return;
-      }
-
-      const requestId = dataProvider === 'vtpass' ? generateRequestId() : undefined;
-      const requestBody: Record<string, any> = {
-        phone_number: sanitizedPhoneNumber,
-        plan_id: effectivePlanId,
-        network_id: rawNetworkId,
-        network_name: selectedNetworkName,
-        resolved_network_key: effectiveNetworkId,
-      };
-      if (requestId) {
-        requestBody.request_id = requestId;
-      }
-      console.log('Prepared request body:', requestBody);
-
-      const functionName = dataProvider === 'vtpass' ? 'purchase-vtpass-data' : 'purchase-smeplug-data';
-      console.log(`Submitting ${functionName} request:`, requestBody);
-
-      // Direct fetch call for better error handling
-      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-      if (!supabaseUrl) {
-        throw new Error('Supabase URL is not configured');
-      }
-
-      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
-
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      const responseData = await response.json();
-      console.log(`${functionName} response:`, { status: response.status, data: responseData });
-
-      if (!response.ok) {
-        // Extract error message from response
-        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
-        throw new Error(errorMessage);
-      }
-
-      if (!responseData?.success) {
-        const detail =
-          responseData?.details?.message ||
-          responseData?.details?.error ||
-          responseData?.details?.data?.message ||
-          responseData?.details?.data?.error;
-        const message = detail || responseData?.error || responseData?.message || 'Unable to complete data purchase.';
-        throw new Error(message);
-      }
-
-      setShowConfirmModal(false);
-
-      const reference = responseData?.data?.reference || responseData?.request_id || requestId || '';
-
-      router.push({
-        pathname: '/payment-success',
-        params: {
-          amount: getEffectivePrice(selectedPlan).toString(),
-          network: selectedNetworkName,
-          recipient: sanitizedPhoneNumber,
-          serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
-          reference,
-        },
-      });
-    } catch (purchaseError) {
-      console.error('Data purchase failed:', purchaseError);
-      let message = 'Unable to complete data purchase. Please try again.';
-
-      if (purchaseError instanceof Error) {
-        message = purchaseError.message || message;
-      }
-
-      Alert.alert('Data Purchase', message);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [dataProvider, networkIdMap, phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
-
   const currentPlans = useMemo(() => {
     return selectedNetwork ? plansByNetwork[selectedNetwork] || [] : [];
   }, [selectedNetwork, plansByNetwork]);
@@ -645,6 +624,216 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         : 'Select a network first';
 
   const isContinueDisabled = loading || !selectedNetwork || !selectedPlan;
+
+  const handleConfirmPayment = useCallback(async () => {
+    console.log('[ConfirmPayment] handler invoked', {
+      selectedPlan: selectedPlan?.id,
+      selectedNetwork,
+      phoneNumber,
+    });
+
+    if (!selectedPlan || !selectedNetwork) {
+      console.warn('[ConfirmPayment] Missing plan or network', {
+        selectedPlan,
+        selectedNetwork,
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    setShowConfirmModal(false);
+
+    try {
+      const validation = validateNigerianPhoneNumber(phoneNumber, selectedNetwork);
+      if (!validation.isMatch || validation.message) {
+        console.warn('[ConfirmPayment] Phone validation failed', validation);
+        Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
+        setIsProcessing(false);
+        return;
+      }
+
+      const effectivePhone = validation.normalized;
+      const effectivePlanId =
+        typeof selectedPlan.id === 'string'
+          ? selectedPlan.id.trim()
+          : String(selectedPlan.id ?? '').trim();
+      const effectiveNetworkId = selectedNetwork.trim();
+
+      if (!effectivePlanId) {
+        console.warn('[ConfirmPayment] Empty plan id after normalization', {
+          selectedPlan,
+        });
+        Alert.alert('Data Purchase', 'Please select a data plan.');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!effectiveNetworkId) {
+        console.warn('[ConfirmPayment] Empty network id after normalization', {
+          selectedNetwork,
+        });
+        Alert.alert('Data Purchase', 'Unable to determine the selected network. Please try again.');
+        setIsProcessing(false);
+        return;
+      }
+
+      let rawNetworkId: string | null = null;
+      if (dataProvider === 'smeplug') {
+        rawNetworkId =
+          networkIdMap[effectiveNetworkId] ||
+          SMEPLUG_NETWORK_IDS[effectiveNetworkId] ||
+          networkIdMap[selectedNetworkName?.toUpperCase?.() ?? ''] ||
+          null;
+        if (!rawNetworkId) {
+          Alert.alert('Data Purchase', 'Unable to determine the network ID for this provider. Please try again.');
+          setIsProcessing(false);
+          return;
+        }
+      }
+
+      const sanitizedPhoneNumber = effectivePhone.replace(/\s+/g, '').trim();
+      if (!sanitizedPhoneNumber) {
+        console.warn('[ConfirmPayment] Sanitized phone is empty', {
+          effectivePhone,
+        });
+        Alert.alert('Data Purchase', 'Phone number is required.');
+        setIsProcessing(false);
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) {
+        console.warn('[ConfirmPayment] Missing access token');
+        Alert.alert('Session Expired', 'Please sign in again to continue.');
+        setIsProcessing(false);
+        router.replace('/auth/login');
+        return;
+      }
+
+      // Use the new unified purchase-data endpoint with automatic fallback
+      const requestBody = {
+        phone_number: sanitizedPhoneNumber,
+        plan_id: effectivePlanId,
+      };
+      console.log('Prepared request body:', requestBody);
+
+      console.log('Submitting purchase-data request with automatic fallback:', requestBody);
+
+      // Direct fetch call for better error handling
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
+      }
+
+      const functionUrl = `${supabaseUrl}/functions/v1/purchase-data`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const responseJson = await response.json();
+      // Handle both direct response and wrapped response (response.data)
+      const responseData = responseJson?.data || responseJson;
+      
+      console.log('purchase-data response:', { 
+        httpStatus: response.status, 
+        success: responseData?.success,
+        error: responseData?.error,
+        message: responseData?.message,
+        vendor: responseData?.data?.vendor,
+        fullResponse: responseJson,
+        extractedData: responseData
+      });
+
+      if (!response.ok) {
+        // Extract error message from response
+        const errorMessage = responseData?.error || responseData?.message || responseJson?.error || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+
+      // Check if transaction failed
+      if (responseData?.success === false) {
+        const detail =
+          responseData?.details?.message ||
+          responseData?.details?.error ||
+          responseData?.details?.data?.message ||
+          responseData?.details?.data?.error;
+        const message = detail || responseData?.error || responseData?.message || 'Unable to complete data purchase.';
+        throw new Error(message);
+      }
+
+      // Transaction is successful (user debited and transaction recorded)
+      // Check if transaction status is pending or delivered
+      const transactionStatus = responseData?.data?.status || 'success';
+      const vendor = responseData?.data?.vendor || 'vendor';
+      const isPending = transactionStatus?.toLowerCase() === 'pending' || 
+                       transactionStatus?.toLowerCase() === 'processing' ||
+                       transactionStatus?.toLowerCase() === 'queued';
+
+      setShowConfirmModal(false);
+
+      const reference = responseData?.data?.reference || '';
+      
+      // Navigate to success screen - user is debited and transaction is recorded
+      // If pending, transaction will be updated to success when vendor confirms
+      const navigateToSuccess = () => {
+        router.push({
+          pathname: '/payment-success',
+          params: {
+            amount: getEffectivePrice(selectedPlan).toString(),
+            network: selectedNetworkName,
+            recipient: sanitizedPhoneNumber,
+            serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
+            reference,
+          },
+        });
+      };
+
+      // If transaction is pending, show info but still navigate to success
+      // The transaction is recorded as pending and will be updated when vendor confirms
+      if (isPending) {
+        Alert.alert(
+          'Transaction Processing',
+          `Your data purchase is being processed via ${vendor}. Reference: ${reference}. You will be notified when completed.`,
+          [
+            {
+              text: 'View Transactions',
+              onPress: () => {
+                router.push('/(tabs)/transactions');
+              }
+            },
+            {
+              text: 'OK',
+              onPress: navigateToSuccess
+            }
+          ],
+          { cancelable: false }
+        );
+        // Also navigate after a short delay in case user doesn't click
+        setTimeout(navigateToSuccess, 100);
+      } else {
+        // Navigate immediately for delivered transactions
+        navigateToSuccess();
+      }
+    } catch (purchaseError) {
+      console.error('Data purchase failed:', purchaseError);
+      let message = 'Unable to complete data purchase. Please try again.';
+
+      if (purchaseError instanceof Error) {
+        message = purchaseError.message || message;
+      }
+
+      Alert.alert('Data Purchase', message);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
 
   return (
     <ThemedView style={styles.container}>

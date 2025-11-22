@@ -199,11 +199,27 @@ serve(async (req) => {
         : dataPlan.network || effectiveNetworkKey || '';
 
     const balanceBefore = Number(profile.balance) || 0;
-    // Use custom_price if set, otherwise original_price, otherwise price
-    const effectivePrice = dataPlan.custom_price ?? dataPlan.original_price ?? dataPlan.price;
-    const planPrice = Number(effectivePrice);
+    
+    // Calculate pricing: user pays admin-set price, API gets original price
+    // userCharged = what user pays (custom_price or original_price)
+    // apiCost = what SMEPLUG charges for this plan (original_price, the actual API cost)
+    // adminRevenue = difference (userCharged - apiCost)
+    const userCharged = dataPlan.custom_price ?? dataPlan.original_price ?? dataPlan.price;
+    const apiCost = dataPlan.original_price ?? dataPlan.price;
+    const userChargedAmount = Number(userCharged) || 0;
+    const apiCostAmount = Number(apiCost) || 0;
+    const adminRevenue = userChargedAmount - apiCostAmount; // Can be negative if admin sets price lower than API cost
 
-    if (balanceBefore < planPrice) {
+    console.log('Pricing breakdown:', {
+      custom_price: dataPlan.custom_price,
+      original_price: dataPlan.original_price,
+      price: dataPlan.price,
+      userCharged: userChargedAmount,
+      apiCost: apiCostAmount,
+      adminRevenue: adminRevenue
+    });
+
+    if (balanceBefore < userChargedAmount) {
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient balance' }),
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -278,12 +294,14 @@ serve(async (req) => {
       );
     }
 
-    const formattedAmount = `₦${planPrice.toFixed(2)}`;
+    const formattedAmount = `₦${userChargedAmount.toFixed(2)}`;
 
+    // Debit wallet with the amount user is charged (custom_price or original_price)
+    // This is the full amount the user pays, which includes admin markup
     const debitResult = await debitUserWallet({
       supabase,
       userId: user.id,
-      amount: planPrice,
+      amount: userChargedAmount, // Charge user the admin-set price
       transactionType: 'data_purchase',
       description: `Data purchase - ${dataPlan.plan_name} for ${sanitizedPhone}`,
       reference,
@@ -295,33 +313,68 @@ serve(async (req) => {
       },
     });
 
-    // Record transaction - CRITICAL: This must succeed
-    const { data: insertedTransaction, error: dataTxnError } = await supabase
+    // Record transaction with admin revenue tracking - CRITICAL: This must succeed
+    // Try with all columns first, fallback if api_cost/admin_revenue don't exist
+    let insertedTransaction = null;
+    let dataTxnError = null;
+    
+    const baseTransactionData = {
+      user_id: user.id,
+      phone_number: sanitizedPhone,
+      network: dataPlan.network || String(network_id),
+      plan_name: dataPlan.plan_name,
+      plan_validity: dataPlan.validity || "N/A",
+      amount: userChargedAmount,
+      balance_before: debitResult.balanceBefore,
+      balance_after: debitResult.balanceAfter,
+      status: 'success',
+      reference,
+      api_response: apiResponse,
+      performed_by: user.id,
+      provider: 'smeplug',
+    };
+
+    // First attempt: try with api_cost and admin_revenue
+    const result = await supabase
       .from('data_transactions')
       .insert({
-        user_id: user.id,
-        phone_number: sanitizedPhone,
-        network: dataPlan.network || String(network_id),
-        plan_name: dataPlan.plan_name,
-        plan_validity: dataPlan.validity || "N/A",
-        amount: planPrice,
-        balance_before: debitResult.balanceBefore,
-        balance_after: debitResult.balanceAfter,
-        status: 'success',
-        reference,
-        api_response: apiResponse,
-        performed_by: user.id,
-        provider: 'smeplug',
+        ...baseTransactionData,
+        api_cost: apiCostAmount,
+        admin_revenue: adminRevenue,
       })
       .select()
       .single();
+
+    dataTxnError = result.error;
+    insertedTransaction = result.data;
+
+    // If error is about missing columns, retry without them
+    if (dataTxnError && (
+      dataTxnError.code === '42703' ||
+      dataTxnError.message?.toLowerCase().includes('column') ||
+      dataTxnError.message?.toLowerCase().includes('does not exist') ||
+      dataTxnError.message?.toLowerCase().includes('api_cost') ||
+      dataTxnError.message?.toLowerCase().includes('admin_revenue')
+    )) {
+      console.warn('api_cost/admin_revenue columns not found, inserting without them:', dataTxnError.message);
+      const fallbackResult = await supabase
+        .from('data_transactions')
+        .insert(baseTransactionData)
+        .select()
+        .single();
+      
+      dataTxnError = fallbackResult.error;
+      insertedTransaction = fallbackResult.data;
+    }
 
     if (dataTxnError || !insertedTransaction) {
       console.error("CRITICAL: Failed to record data transaction after wallet debit:", dataTxnError);
       // This is a critical error - wallet was debited but transaction not recorded
       console.error("Data consistency issue: Wallet debited but transaction not recorded", {
         userId: user.id,
-        amount: planPrice,
+        userCharged: userChargedAmount,
+        apiCost: apiCostAmount,
+        adminRevenue: adminRevenue,
         reference,
         error: dataTxnError,
       });
@@ -348,9 +401,11 @@ serve(async (req) => {
         data: {
           reference,
           plan_name: dataPlan.plan_name,
-          amount: planPrice,
-        phone_number: sanitizedPhone,
-        network: resolvedNetworkName || dataPlan.network || String(network_id),
+          amount: userChargedAmount, // Amount user paid
+          api_cost: apiCostAmount, // Amount sent to API
+          admin_revenue: adminRevenue, // Admin profit
+          phone_number: sanitizedPhone,
+          network: resolvedNetworkName || dataPlan.network || String(network_id),
           validity: dataPlan.validity,
           balance_before: debitResult.balanceBefore,
           balance_after: debitResult.balanceAfter

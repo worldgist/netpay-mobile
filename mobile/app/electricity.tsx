@@ -342,11 +342,15 @@ export default function ElectricityScreen() {
     const providerEntry = providers.find((p) => p.id === selectedProvider);
     const providerName = providerEntry?.name || selectedProvider;
 
+    // Declare hasToken and hasReference at function scope for error logging
+    let hasToken = false;
+    let hasReference = false;
+    
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      const { data, error } = await supabase.functions.invoke('purchase-electricity', {
+      const { data: initialData, error } = await supabase.functions.invoke('purchase-electricity', {
         body: {
           meter_number: sanitizedMeter,
           provider: selectedProvider,
@@ -363,6 +367,9 @@ export default function ElectricityScreen() {
             }
           : undefined,
       });
+      
+      // Use let instead of const to allow reassignment if needed
+      let data = initialData;
 
       console.log('Electricity purchase response:', { 
         data, 
@@ -573,13 +580,13 @@ export default function ElectricityScreen() {
       
       // PRIORITY 3: Check for token or reference as fallback
       if (!isSuccess) {
-        const hasToken = 
-          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.token || responseData.data.energyToken)) ||
+        hasToken = 
+          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.token || responseData.data.energyToken)) ||                                                                                                                        
           responseData?.token ||
           false;
         
-        const hasReference = 
-          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.reference || responseData.data.transaction_id)) ||
+        hasReference = 
+          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.reference || responseData.data.transaction_id)) ||                                                                                                                 
           responseData?.reference ||
           false;
         
@@ -782,7 +789,27 @@ export default function ElectricityScreen() {
       }
 
       console.error('Final error message:', message);
-      Alert.alert('Electricity Purchase', message);
+      
+      // Check if this is a low wallet balance error and show the insufficient funds modal
+      const upperMessage = message.toUpperCase();
+      const isLowBalanceError = 
+        upperMessage.includes('LOW WALLET BALANCE') ||
+        upperMessage.includes('INSUFFICIENT BALANCE') ||
+        upperMessage.includes('INSUFFICIENT FUNDS') ||
+        (upperMessage.includes('LOW') && upperMessage.includes('BALANCE'));
+      
+      if (isLowBalanceError) {
+        const formattedBalance = `₦${Number(balance).toLocaleString('en-NG', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+        setInsufficientFundsMessage(`Your wallet balance is ${formattedBalance}. Please fund your wallet to continue.`);
+        setShowInsufficientFundsModal(true);
+        setShowConfirmModal(false); // Close the confirmation modal if open
+      } else {
+        Alert.alert('Electricity Purchase', message);
+      }
+      
       setTransactionStatus('Failed');
     }
   }, [amount, fetchBalance, meterNumber, meterType, phoneNumber, providers, router, selectedProvider, verifiedName, verifiedAddress]);

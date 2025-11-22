@@ -157,17 +157,151 @@ const PurchaseData = () => {
         }
 
         const plansRes = await plansQuery;
-        let plansData = plansRes.data || [];
+        let plansData: any[] = plansRes.data || [];
 
         if (plansRes.error) {
-          if (plansRes.error.code === '42703') {
-            const fallback = await supabase
-              .from('data_plans')
-              .select('id, network, plan_name, price, validity, api_code, custom_price, original_price')
-              .order('network', { ascending: true })
-              .order('price', { ascending: true });
-            if (fallback.error) throw fallback.error;
-            plansData = fallback.data || [];
+          const errorCode = String(plansRes.error.code || '');
+          const errorMessage = typeof plansRes.error.message === 'string' 
+            ? plansRes.error.message 
+            : JSON.stringify(plansRes.error.message || plansRes.error);
+          const statusCode = plansRes.error.status;
+          const httpStatus = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode || '0'), 10);
+          
+          console.warn('Data plans query error:', { 
+            code: errorCode, 
+            message: errorMessage, 
+            status: statusCode,
+            error: plansRes.error 
+          });
+          
+          // Handle column missing errors (42703) or 400 Bad Request (which can occur when columns don't exist)
+          const errorMsgLower = errorMessage.toLowerCase();
+          const isColumnError = errorCode === '42703' || 
+                               errorCode === 'PGRST100' ||
+                               httpStatus === 400 ||
+                               (errorMessage && (
+                                 errorMsgLower.includes('column') ||
+                                 errorMsgLower.includes('does not exist') ||
+                                 errorMsgLower.includes('custom_price') ||
+                                 errorMsgLower.includes('original_price') ||
+                                 errorMsgLower.includes('provider') ||
+                                 errorMsgLower.includes('bad request')
+                               ));
+          
+          if (isColumnError) {
+            console.warn('Column missing from data_plans, using fallback query', {
+              errorCode,
+              errorMessage,
+              isProviderColumnError: errorMsgLower.includes('provider') && errorMsgLower.includes('does not exist'),
+              isCustomPriceError: errorMsgLower.includes('custom_price'),
+              isOriginalPriceError: errorMsgLower.includes('original_price'),
+            });
+            
+            // Check if the error is about specific columns
+            const isProviderColumnError = errorMsgLower.includes('provider') && 
+                                        errorMsgLower.includes('does not exist');
+            const isCustomPriceError = errorMsgLower.includes('custom_price');
+            const isOriginalPriceError = errorMsgLower.includes('original_price');
+            
+            // Start with absolute minimum columns that should always exist
+            let fallbackSelect = 'id, network, plan_name, price, validity, api_code';
+            
+            // Only add provider if we know it exists (not the cause of error)
+            if (!isProviderColumnError) {
+              fallbackSelect += ', provider';
+            }
+            
+            console.log('Fallback select:', fallbackSelect, 'resolvedProvider:', resolvedProvider);
+            
+            // Try fallback query with provider filter first
+            let fallbackSuccess = false;
+            let lastError = null;
+            
+            // Attempt 1: Try with provider filter if provider column exists
+            if (!isProviderColumnError && resolvedProvider) {
+              try {
+                console.log('Attempt 1: Trying fallback with provider filter:', resolvedProvider);
+                const fallbackWithProvider = await supabase
+                  .from('data_plans')
+                  .select(fallbackSelect)
+                  .eq('provider', resolvedProvider)
+                  .order('network', { ascending: true })
+                  .order('price', { ascending: true });
+                
+                console.log('Fallback with provider result:', {
+                  error: fallbackWithProvider.error,
+                  dataCount: fallbackWithProvider.data?.length || 0
+                });
+                
+                if (!fallbackWithProvider.error) {
+                  plansData = fallbackWithProvider.data || [];
+                  fallbackSuccess = true;
+                  console.log('Fallback with provider succeeded, got', plansData.length, 'plans');
+                } else {
+                  lastError = fallbackWithProvider.error;
+                  console.warn('Fallback with provider filter failed:', fallbackWithProvider.error, 'trying without filter');
+                }
+              } catch (e) {
+                lastError = e;
+                console.warn('Fallback with provider filter threw error:', e, 'trying without filter');
+              }
+            }
+            
+            // Attempt 2: Try without provider filter
+            if (!fallbackSuccess) {
+              try {
+                console.log('Attempt 2: Trying fallback without provider filter');
+                const fallbackWithoutProvider = await supabase
+                  .from('data_plans')
+                  .select(fallbackSelect)
+                  .order('network', { ascending: true })
+                  .order('price', { ascending: true });
+                
+                console.log('Fallback without provider result:', {
+                  error: fallbackWithoutProvider.error,
+                  dataCount: fallbackWithoutProvider.data?.length || 0
+                });
+                
+                if (!fallbackWithoutProvider.error) {
+                  plansData = fallbackWithoutProvider.data || [];
+                  fallbackSuccess = true;
+                  console.log('Fallback without provider succeeded, got', plansData.length, 'plans');
+                } else {
+                  lastError = fallbackWithoutProvider.error;
+                  console.error('Fallback without provider filter also failed:', fallbackWithoutProvider.error);
+                }
+              } catch (e) {
+                lastError = e;
+                console.error('Fallback without provider filter threw error:', e);
+              }
+            }
+            
+            if (!fallbackSuccess) {
+              console.error('All fallback attempts failed, throwing error');
+              throw lastError || plansRes.error;
+            }
+            
+            // Filter by provider in memory to ensure only the selected provider's plans are shown
+            if (resolvedProvider && plansData.length > 0) {
+              const hasProviderField = plansData.some((plan: any) => plan.provider !== undefined);
+              if (hasProviderField) {
+                const filteredPlans = plansData.filter((plan: any) => 
+                  plan.provider === resolvedProvider
+                );
+                // Only use filtered results if we got matches, otherwise might be all same provider already
+                if (filteredPlans.length > 0 || plansData.length === 0) {
+                  plansData = filteredPlans;
+                }
+              }
+            }
+            
+            // Map fallback data to include missing columns as null
+            plansData = (plansData || []).map((plan: any) => ({
+              ...plan,
+              provider: plan.provider || resolvedProvider || 'smeplug',
+              custom_price: plan.custom_price ?? null,
+              original_price: plan.original_price ?? null,
+            }));
           } else {
             throw plansRes.error;
           }
@@ -334,25 +468,18 @@ const PurchaseData = () => {
       }
 
       const plan = dataPlans.find(p => p.id === selectedPlan);
-      const network = networks.find(n => n.id === selectedNetwork);
       
-      if (!plan || !network) throw new Error("Invalid plan or network");
+      if (!plan) throw new Error("Invalid plan");
 
-      const requestId = dataProvider === 'vtpass' ? generateVtpassRequestId() : undefined;
-      const functionName = dataProvider === 'vtpass' ? 'purchase-vtpass-data' : 'purchase-smeplug-data';
-      const requestBody: Record<string, any> = {
+      // Use the new unified purchase-data endpoint with automatic fallback
+      const requestBody = {
         phone_number: phoneNumber,
         plan_id: plan.id,
-        network_id: network.network_id,
-        network_name: network.name,
       };
-      if (requestId) {
-        requestBody.request_id = requestId;
-      }
 
       // Direct fetch call for better error handling
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+      const functionUrl = `${supabaseUrl}/functions/v1/purchase-data`;
 
       const response = await fetch(functionUrl, {
         method: 'POST',
@@ -364,6 +491,15 @@ const PurchaseData = () => {
       });
 
       const responseData = await response.json();
+      
+      console.log('Purchase response:', {
+        httpStatus: response.status,
+        success: responseData?.success,
+        error: responseData?.error,
+        message: responseData?.message,
+        data: responseData?.data,
+        fullResponse: responseData
+      });
 
       if (!response.ok) {
         // Extract error message from response
@@ -371,13 +507,40 @@ const PurchaseData = () => {
         throw new Error(errorMessage);
       }
 
-      if (!responseData?.success) {
-        throw new Error(responseData?.error || responseData?.message || 'Purchase failed');
+      // Check if transaction failed explicitly (success === false)
+      if (responseData?.success === false) {
+        const errorMessage = responseData?.error || responseData?.message || responseData?.details?.message || 'Purchase failed';
+        throw new Error(errorMessage);
       }
 
+      // Handle successful transaction (success === true or truthy)
+      // Check if transaction is pending
+      const transactionStatus = responseData?.data?.status;
+      const isPending = transactionStatus && (
+        transactionStatus.toLowerCase() === 'pending' || 
+        transactionStatus.toLowerCase() === 'processing' ||
+        transactionStatus.toLowerCase() === 'queued'
+      );
+
       const effectivePrice = getEffectivePrice(plan);
-      setTransactionDetails(responseData.data || { reference: responseData.request_id || requestId, amount: effectivePrice });
+      const reference = responseData?.data?.reference;
+      const vendor = responseData?.data?.vendor || 'vendor';
+      
+      setTransactionDetails(responseData.data || { reference, amount: effectivePrice });
       setShowSuccess(true);
+      
+      // Show appropriate message based on transaction status
+      if (isPending) {
+        toast({
+          title: "Transaction Processing",
+          description: `Your data purchase is being processed via ${vendor}. Reference: ${reference}. You will be notified when completed.`,
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: `Data purchased successfully via ${vendor}. Reference: ${reference}.`,
+        });
+      }
 
       // Refresh balance
       const { data: { session: refreshedSession } } = await supabase.auth.getSession();
@@ -393,10 +556,13 @@ const PurchaseData = () => {
         }
       }
 
-      toast({
-        title: "Success",
-        description: "Data purchased successfully",
-      });
+      // Only show generic success toast if not pending (pending already has its own toast)
+      if (!isPending) {
+        toast({
+          title: "Success",
+          description: "Data purchased successfully",
+        });
+      }
     } catch (error: any) {
       console.error('Error purchasing data:', error);
 
