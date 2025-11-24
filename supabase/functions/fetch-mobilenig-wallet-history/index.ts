@@ -6,6 +6,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function to ensure number
+function ensureNumber(value: any, defaultValue: number): number {
+  if (typeof value === 'number' && !isNaN(value) && value > 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return defaultValue;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -19,7 +33,7 @@ serve(async (req) => {
     if (!mobilenigPublicKey) {
       console.error('MOBILENIG_PUBLIC_KEY not configured');
       return new Response(
-        JSON.stringify({ error: 'Service configuration error' }),
+        JSON.stringify({ success: false, error: 'Service configuration error: MOBILENIG_PUBLIC_KEY not set' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -75,19 +89,18 @@ serve(async (req) => {
     let trans_id: string | undefined;
     
     try {
-      const contentType = req.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const bodyText = await req.text();
-        if (bodyText && bodyText.trim()) {
-          const body = JSON.parse(bodyText);
-          page = body.page || 1;
-          per_page = body.per_page || 10;
-          trans_id = body.trans_id;
+      const contentType = req.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await req.json();
+        if (body && typeof body === 'object') {
+          page = ensureNumber(body.page, 1);
+          per_page = ensureNumber(body.per_page, 10);
+          trans_id = body.trans_id || body.transId;
         }
       }
     } catch (parseError) {
-      // If body is empty or invalid JSON, use defaults
-      console.log('No request body or invalid JSON, using defaults:', parseError);
+      // If body parsing fails or no body, use defaults
+      console.log('No request body or invalid format, using defaults');
     }
     
     console.log('Request params:', { page, per_page, trans_id });
@@ -162,7 +175,8 @@ serve(async (req) => {
     
     return new Response(
       JSON.stringify({ 
-        error: 'Internal server error',
+        success: false,
+        error: errorMessage,
         ...errorDetails
       }),
       { 

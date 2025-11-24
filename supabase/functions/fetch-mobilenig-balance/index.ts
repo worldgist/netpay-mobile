@@ -19,7 +19,7 @@ serve(async (req) => {
     if (!mobilenigPublicKey) {
       console.error('MOBILENIG_PUBLIC_KEY not configured');
       return new Response(
-        JSON.stringify({ error: 'Service configuration error' }),
+        JSON.stringify({ success: false, error: 'Service configuration error: MOBILENIG_PUBLIC_KEY not set' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -221,7 +221,8 @@ serve(async (req) => {
     
     return new Response(
       JSON.stringify({ 
-        error: 'Internal server error',
+        success: false,
+        error: errorMessage,
         ...errorDetails
       }),
       { 

@@ -94,29 +94,7 @@ UPDATE public.education_services
 SET service_id = id::text
 WHERE service_id IS NULL;
 
--- Step 8: Clean up duplicates before creating unique constraint
--- Remove duplicate records, keeping the most recent one
-DO $$
-BEGIN
-  -- Delete duplicates, keeping the one with the latest created_at
-  DELETE FROM public.education_services
-  WHERE id IN (
-    SELECT id
-    FROM (
-      SELECT id,
-             ROW_NUMBER() OVER (
-               PARTITION BY exam_type, service_id, vending_provider 
-               ORDER BY created_at DESC
-             ) as rn
-      FROM public.education_services
-      WHERE service_id IS NOT NULL 
-        AND vending_provider IS NOT NULL
-    ) t
-    WHERE t.rn > 1
-  );
-END $$;
-
--- Step 9: Update the unique constraint to include vending_provider
+-- Step 8: Update the unique constraint to include vending_provider
 -- This allows the same service_id for different vendors
 DO $$
 BEGIN

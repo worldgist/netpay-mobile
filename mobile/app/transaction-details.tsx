@@ -40,6 +40,7 @@ type DetailTransaction = {
     educationSerial?: string;
     educationInstructions?: string;
     examType?: string;
+    pins?: Array<{ Serial?: string; Pin?: string }>;
   };
 };
 
@@ -394,14 +395,20 @@ function TransactionDetailsScreen() {
       } else if (category === 'education') {
         const { data, error } = await supabase
           .from('education_transactions')
-          .select('id, amount, status, reference, created_at, exam_type, phone_number, balance_before, balance_after, api_response, user_id')
+          .select('id, amount, status, reference, created_at, exam_type, phone_number, balance_before, balance_after, api_response, metadata, user_id')
           .eq('id', initialTransaction.id)
           .eq('user_id', userId)
           .maybeSingle();
 
         if (error) throw error;
         if (data) {
-          const metadata = parseEducationPurchaseMetadata((data as any)?.api_response);
+          // Get PINs from metadata first (primary source), fallback to parsing api_response
+          const metadataObj = (data as any)?.metadata || {};
+          const pinsFromMetadata = metadataObj.pins || [];
+          
+          // Also parse from api_response as fallback
+          const parsedMetadata = parseEducationPurchaseMetadata((data as any)?.api_response);
+          
           const serviceLabel = data.exam_type ? `Education • ${data.exam_type}` : 'Education';
           const description = data.phone_number
             ? `${data.exam_type || 'Education'} purchase • ${data.phone_number}`
@@ -426,10 +433,12 @@ function TransactionDetailsScreen() {
             formattedDate: formatDate(data.created_at),
             formattedTime: formatTime(data.created_at),
             metadata: {
-              ...((data as any)?.metadata || {}),
-              educationPin: metadata.pin,
-              educationSerial: metadata.serial,
-              educationInstructions: metadata.instructions,
+              ...metadataObj,
+              // Use pins from metadata if available, otherwise use parsed values
+              pins: pinsFromMetadata.length > 0 ? pinsFromMetadata : (parsedMetadata.pin ? [{ Pin: parsedMetadata.pin, Serial: parsedMetadata.serial }] : []),
+              educationPin: parsedMetadata.pin,
+              educationSerial: parsedMetadata.serial,
+              educationInstructions: parsedMetadata.instructions,
               examType: data.exam_type,
             },
           };
@@ -689,40 +698,38 @@ function TransactionDetailsScreen() {
                 </div>
               </div>
               ` : ''}
-              ${transaction.metadata?.educationPin ? `
+              ${transaction.metadata?.pins && Array.isArray(transaction.metadata.pins) && transaction.metadata.pins.length > 0 ? `
+              <div class="info-row" style="background: #E8F5E9; padding: 16px; border-radius: 8px; margin: 12px 0; border: 2px solid #4CAF50; flex-direction: column;">
+                <div style="font-size: 12px; color: #4CAF50; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">PIN Details</div>
+                ${transaction.metadata.pins.map((pinData: any, index: number) => `
+                  <div style="margin-bottom: ${index < transaction.metadata.pins.length - 1 ? '16px' : '0'}; padding-bottom: ${index < transaction.metadata.pins.length - 1 ? '16px' : '0'}; border-bottom: ${index < transaction.metadata.pins.length - 1 ? '1px solid #C8E6C9' : 'none'};">
+                    ${pinData.Serial ? `
+                      <div style="margin-bottom: 8px;">
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Serial Number</div>
+                        <div style="font-family: monospace; font-size: 14px; font-weight: 600; color: #333;">${pinData.Serial}</div>
+                      </div>
+                    ` : ''}
+                    ${pinData.Pin ? `
+                      <div>
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;">PIN</div>
+                        <div style="font-family: monospace; font-size: 18px; font-weight: bold; color: #1B5E20; letter-spacing: 1px; word-break: break-all;">${pinData.Pin}</div>
+                      </div>
+                    ` : ''}
+                  </div>
+                `).join('')}
+                <div style="font-size: 11px; color: #666; text-align: center; margin-top: 12px; font-style: italic;">Keep this PIN safe. You'll need it for your exam registration.</div>
+              </div>
+              ` : ''}
+              ${(!transaction.metadata?.pins || !Array.isArray(transaction.metadata.pins) || transaction.metadata.pins.length === 0) && transaction.metadata?.educationPin ? `
               <div class="info-row">
                 <span class="info-label">PIN</span>
                 <span class="info-value">${transaction.metadata.educationPin}</span>
               </div>
               ` : ''}
-              ${transaction.metadata?.educationSerial ? `
+              ${transaction.metadata?.educationSerial && (!transaction.metadata?.pins || !Array.isArray(transaction.metadata.pins) || transaction.metadata.pins.length === 0) ? `
               <div class="info-row">
                 <span class="info-label">Serial</span>
                 <span class="info-value">${transaction.metadata.educationSerial}</span>
-              </div>
-              ` : ''}
-              ${transaction.metadata?.educationInstructions ? `
-              <div class="info-row">
-                <span class="info-label">Instructions</span>
-                <span class="info-value">${transaction.metadata.educationInstructions}</span>
-              </div>
-              ` : ''}
-              ${transaction.metadata?.educationPin ? `
-              <div class="info-row">
-                <span class="info-label">PIN</span>
-                <span class="info-value">${transaction.metadata.educationPin}</span>
-              </div>
-              ` : ''}
-              ${transaction.metadata?.educationSerial ? `
-              <div class="info-row">
-                <span class="info-label">Serial</span>
-                <span class="info-value">${transaction.metadata.educationSerial}</span>
-              </div>
-              ` : ''}
-              ${transaction.metadata?.educationInstructions ? `
-              <div class="info-row">
-                <span class="info-label">Instructions</span>
-                <span class="info-value">${transaction.metadata.educationInstructions}</span>
               </div>
               ` : ''}
               ${transaction.sender ? `
@@ -956,49 +963,78 @@ function TransactionDetailsScreen() {
               </View>
             )}
  
-            {/* Education PIN */}
-            {transaction.metadata?.educationPin && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>PIN</ThemedText>
-                <TouchableOpacity
-                  style={styles.copyRow}
-                  onPress={() => handleCopy(transaction.metadata?.educationPin || '', 'PIN')}>
-                  <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
-                    {transaction.metadata?.educationPin}
-                  </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                </TouchableOpacity>
+            {/* Education PIN Details */}
+            {transaction.metadata?.pins && Array.isArray(transaction.metadata.pins) && transaction.metadata.pins.length > 0 && (
+              <View style={[styles.infoRow, { flexDirection: 'column', alignItems: 'stretch', paddingVertical: 16 }]}>
+                <ThemedText style={[styles.infoLabel, { marginBottom: 12, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: '#4CAF50', fontWeight: '600' }]}>
+                  PIN Details
+                </ThemedText>
+                <View style={{ backgroundColor: '#E8F5E9', borderWidth: 2, borderColor: '#4CAF50', borderRadius: 8, padding: 16 }}>
+                  {transaction.metadata.pins.map((pinData: any, index: number) => (
+                    <View key={index} style={{ marginBottom: index < transaction.metadata.pins.length - 1 ? 16 : 0, paddingBottom: index < transaction.metadata.pins.length - 1 ? 16 : 0, borderBottomWidth: index < transaction.metadata.pins.length - 1 ? 1 : 0, borderBottomColor: '#C8E6C9' }}>
+                      {pinData.Serial && (
+                        <View style={{ marginBottom: 8 }}>
+                          <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Serial Number</ThemedText>
+                          <TouchableOpacity
+                            style={styles.copyRow}
+                            onPress={() => handleCopy(pinData.Serial || '', 'Serial number')}>
+                            <ThemedText style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: '600', color: '#333' }} numberOfLines={1}>
+                              {pinData.Serial}
+                            </ThemedText>
+                            <MaterialIcons name="content-copy" size={16} color="#FF7F00" style={styles.copyIcon} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {pinData.Pin && (
+                        <View>
+                          <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>PIN</ThemedText>
+                          <TouchableOpacity
+                            style={styles.copyRow}
+                            onPress={() => handleCopy(pinData.Pin || '', 'PIN')}>
+                            <ThemedText style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }} numberOfLines={0}>
+                              {pinData.Pin}
+                            </ThemedText>
+                            <MaterialIcons name="content-copy" size={16} color="#FF7F00" style={styles.copyIcon} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>
+                  Keep this PIN safe. You'll need it for your exam registration.
+                </ThemedText>
               </View>
             )}
-
-            {/* Education Serial */}
-            {transaction.metadata?.educationSerial && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Serial Number</ThemedText>
-                <TouchableOpacity
-                  style={styles.copyRow}
-                  onPress={() => handleCopy(transaction.metadata?.educationSerial || '', 'Serial number')}>
-                  <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
-                    {transaction.metadata?.educationSerial}
-                  </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Education Instructions */}
-            {transaction.metadata?.educationInstructions && (
-              <View style={[styles.infoRow, styles.infoRowMultiline]}>
-                <ThemedText style={styles.infoLabel}>Instructions</ThemedText>
-                <TouchableOpacity
-                  style={[styles.copyRow, styles.copyRowMultiline]}
-                  onPress={() => handleCopy(transaction.metadata?.educationInstructions || '', 'Instructions')}>
-                  <ThemedText style={styles.infoValueMultiline}>
-                    {transaction.metadata?.educationInstructions}
-                  </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                </TouchableOpacity>
-              </View>
+            
+            {/* Fallback: Show single PIN if pins array not available */}
+            {(!transaction.metadata?.pins || !Array.isArray(transaction.metadata.pins) || transaction.metadata.pins.length === 0) && transaction.metadata?.educationPin && (
+              <>
+                <View style={styles.infoRow}>
+                  <ThemedText style={styles.infoLabel}>PIN</ThemedText>
+                  <TouchableOpacity
+                    style={styles.copyRow}
+                    onPress={() => handleCopy(transaction.metadata?.educationPin || '', 'PIN')}>
+                    <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
+                      {transaction.metadata?.educationPin}
+                    </ThemedText>
+                    <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                  </TouchableOpacity>
+                </View>
+                {transaction.metadata?.educationSerial && (
+                  <View style={styles.infoRow}>
+                    <ThemedText style={styles.infoLabel}>Serial Number</ThemedText>
+                    <TouchableOpacity
+                      style={styles.copyRow}
+                      onPress={() => handleCopy(transaction.metadata?.educationSerial || '', 'Serial number')}>
+                      <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
+                        {transaction.metadata?.educationSerial}
+                      </ThemedText>
+                      <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
             )}
 
             {/* Recipient */}

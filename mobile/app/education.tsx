@@ -15,26 +15,25 @@ type EducationService = {
   name: string;
   price: number;
   apiCode: string | null;
-   serviceId: string;
+  serviceId: string;
+  vtpassCode?: string | null;
+  vendingProvider?: string | null;
   logo: any;
   logoUrl?: string | null;
 };
 
 const SERVICE_LOGOS: Record<string, any> = {
   WAEC: require('@/assets/images/waec.png'),
-  NECO: require('@/assets/images/neco.png'),
   JAMB: require('@/assets/images/jamb.png'),
 };
 
 const SERVICE_ID_MAP: Record<string, string> = {
   WAEC: 'AJA',
-  NECO: 'AJC',
   JAMB: 'AJB',
 };
 
 const FALLBACK_SERVICES: EducationService[] = [
-  { id: 'waec-fallback', examType: 'WAEC', name: 'WAEC Registration', price: 4500, apiCode: 'WAEC', serviceId: SERVICE_ID_MAP.WAEC, logo: SERVICE_LOGOS.WAEC },
-  { id: 'neco-fallback', examType: 'NECO', name: 'NECO Registration', price: 4200, apiCode: 'NECO', serviceId: SERVICE_ID_MAP.NECO, logo: SERVICE_LOGOS.NECO },
+  { id: 'waec-fallback', examType: 'WAEC', name: 'WAEC Registration', price: 3900, apiCode: 'WAEC', serviceId: SERVICE_ID_MAP.WAEC, logo: SERVICE_LOGOS.WAEC },
   { id: 'jamb-fallback', examType: 'JAMB', name: 'JAMB Registration', price: 6500, apiCode: 'JAMB', serviceId: SERVICE_ID_MAP.JAMB, logo: SERVICE_LOGOS.JAMB },
 ];
 
@@ -50,6 +49,7 @@ export default function EducationScreen() {
   const [balance, setBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -85,7 +85,7 @@ export default function EducationScreen() {
           .maybeSingle(),
         supabase
           .from('education_services')
-          .select('id, exam_type, service_name, price, custom_price, original_price, api_code, service_id, is_active, logo_url, metadata')
+          .select('id, exam_type, service_name, price, custom_price, original_price, api_code, service_id, vtpass_code, vending_provider, is_active, logo_url, metadata')
           .eq('is_active', true)
           .order('exam_type', { ascending: true }),
       ]);
@@ -162,9 +162,11 @@ export default function EducationScreen() {
           .map((service) => {
             const examTypeRaw = service.exam_type || service.service_name || service.id;
             const examType = examTypeRaw ? String(examTypeRaw).toUpperCase().trim() : 'EDUCATION';
+            // Prioritize price field (user-facing price) over custom_price and original_price
+            // This matches the web app behavior
             const price = parsePrice(
-              service.custom_price,
               service.price,
+              service.custom_price,
               service.original_price,
               collectPriceCandidates(service.metadata)
             );
@@ -177,18 +179,41 @@ export default function EducationScreen() {
               service.id;
 
             const fallback = FALLBACK_SERVICES.find((s) => s.examType === examType);
+            
+            // Include vtpass_code and vending_provider for purchase
+            const vtpassCode = service.vtpass_code ? String(service.vtpass_code).trim() : null;
+            const vendingProvider = service.vending_provider ? String(service.vending_provider).trim() : null;
+            
+            // Only return valid service objects
+            if (!service.id) {
+              return null; // Skip invalid services
+            }
+            
+            // Use parsed price if valid, otherwise use fallback
+            // Use the parsed price directly - don't fallback to hardcoded prices
+            // This ensures we use the actual database price, matching web app behavior
+            const finalPrice = price > 0 ? price : 0;
+            
             return {
               id: service.id,
               examType,
               name: service.service_name || examTypeRaw || fallback?.name || 'Education Service',
-              price: price > 0 ? price : fallback?.price ?? 0,
+              price: finalPrice,
               apiCode: service.api_code,
               serviceId: providerServiceId.toUpperCase(),
+              vtpassCode,
+              vendingProvider,
               logo: localLogo,
               logoUrl,
             } as EducationService;
           })
-          .filter((service) => service.price > 0);
+          .filter((service): service is EducationService => {
+            // Only include valid services with a valid price from database
+            return service !== null && 
+                   service !== undefined && 
+                   service.id && 
+                   service.price > 0;
+          });
       } else if (servicesRes.status === 'rejected') {
         const err = servicesRes.reason;
         if (err?.code !== 'PGRST205') {
@@ -197,15 +222,19 @@ export default function EducationScreen() {
         setError('Education services unavailable. Showing default providers.');
       }
 
-      const preferredOrder = ['WAEC', 'NECO', 'JAMB'];
+      const preferredOrder = ['WAEC', 'JAMB'];
       const preferredMap = new Map<string, EducationService>();
 
-      mappedServices.forEach((service) => {
+      // Sort services by price (ascending) to prefer cheaper services, matching web app behavior
+      const sortedMappedServices = [...mappedServices].sort((a, b) => a.price - b.price);
+      
+      sortedMappedServices.forEach((service) => {
         const matchExam = preferredOrder.find((exam) => {
           const upperName = service.name.toUpperCase();
           return service.examType.includes(exam) || upperName.includes(exam);
         });
 
+        // Select the first (cheapest) service for each exam type
         if (matchExam && !preferredMap.has(matchExam)) {
           preferredMap.set(matchExam, {
             ...service,
@@ -216,13 +245,15 @@ export default function EducationScreen() {
         }
       });
 
-      const finalServices = preferredOrder.map((exam) => {
-        const remote = preferredMap.get(exam);
-        if (remote) {
-          return remote;
-        }
-        return FALLBACK_SERVICES.find((service) => service.examType === exam)!;
-      });
+      const finalServices = preferredOrder
+        .map((exam) => {
+          const remote = preferredMap.get(exam);
+          if (remote) {
+            return remote;
+          }
+          return FALLBACK_SERVICES.find((service) => service.examType === exam);
+        })
+        .filter((service): service is EducationService => service !== undefined && service !== null);
 
       const validSelection = finalServices.some((service) => service.id === selectedServiceId);
 
@@ -270,15 +301,11 @@ export default function EducationScreen() {
     const exam = selectedService.examType;
     if (exam === 'JAMB') {
       if (!referenceNumber.trim()) {
-        Alert.alert('Error', 'Please enter your JAMB registration/reference number');
-        return;
-      }
-    } else {
-      if (!phoneNumber.trim()) {
-        Alert.alert('Error', 'Please enter the phone number associated with this purchase');
+        Alert.alert('Error', 'Please enter your JAMB Profile ID');
         return;
       }
     }
+    // Phone number is optional for WAEC/NECO - the function handles it automatically
 
     const purchaseAmount = selectedService.price;
     if (!purchaseAmount || purchaseAmount <= 0) {
@@ -293,19 +320,110 @@ export default function EducationScreen() {
     setShowConfirmModal(true);
   };
 
-  const handleConfirmPayment = () => {
-    setShowConfirmModal(false);
-    const purchaseAmount = selectedService?.price ?? 0;
+  const handleConfirmPayment = async () => {
+    if (!selectedService) return;
 
-    router.push({
-      pathname: '/payment-success',
-      params: {
-        amount: purchaseAmount.toString(),
-        network: selectedServiceName,
-        recipient: selectedService?.examType === 'JAMB' ? referenceNumber : phoneNumber,
-        serviceType: `Education • ${selectedService?.examType ?? ''}`,
-      },
-    });
+    setIsProcessing(true);
+    setShowConfirmModal(false);
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        Alert.alert('Error', 'Session expired. Please login again.');
+        router.replace('/auth/login');
+        return;
+      }
+
+      const accessToken = session.access_token;
+
+      // Prepare request body - function will extract variation_code from service row if not provided
+      const requestBody: any = {
+        exam_type: selectedService.examType,
+        education_service_id: selectedService.id,
+        amount: selectedService.price,
+        quantity: 1,
+      };
+
+      // Pass variation_code if available (function will use vtpass_code from DB if not provided)
+      // For VTpass services, variation_code should be lowercase (e.g., "utme-mock", "utme-no-mock")
+      if (selectedService.vtpassCode) {
+        requestBody.variation_code = selectedService.vtpassCode.toLowerCase();
+      } else if (selectedService.apiCode) {
+        // Also pass api_code as fallback (function will convert to lowercase for VTpass if needed)
+        requestBody.api_code = selectedService.apiCode;
+      }
+      
+      // Service ID is optional - function will get it from service row
+      if (selectedService.serviceId) {
+        requestBody.service_id = selectedService.serviceId;
+      }
+
+      // For JAMB, include Profile ID (billers_code)
+      // For WAEC/NECO, phone number is optional - function will handle it
+      if (selectedService.examType === 'JAMB') {
+        requestBody.billers_code = referenceNumber.trim();
+        requestBody.phone_number = phoneNumber || ''; // Optional for JAMB
+      } else if (phoneNumber && phoneNumber.trim()) {
+        // Include phone number if provided (optional for WAEC/NECO)
+        requestBody.phone_number = phoneNumber.trim();
+      }
+
+      // Call purchase-education edge function
+      const { data, error } = await supabase.functions.invoke('purchase-education', {
+        body: requestBody,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Purchase failed');
+      }
+
+      // Refresh balance
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (profileData) {
+        setBalance(profileData.balance || 0);
+      }
+
+      // Extract PIN details from response
+      const pins = data?.data?.pins || [];
+      const reference = data?.data?.reference || '';
+      
+      // Navigate to success screen with PIN details
+      router.push({
+        pathname: '/payment-success',
+        params: {
+          amount: selectedService.price.toString(),
+          network: selectedServiceName,
+          recipient: selectedService.examType === 'JAMB' ? referenceNumber : phoneNumber,
+          serviceType: `Education • ${selectedService.examType ?? ''}`,
+          reference,
+          pins: JSON.stringify(pins),
+        },
+      });
+    } catch (purchaseError: any) {
+      console.error('Education purchase failed:', purchaseError);
+      let message = 'Unable to complete education service purchase. Please try again.';
+
+      if (purchaseError instanceof Error) {
+        message = purchaseError.message || message;
+      }
+
+      Alert.alert('Education Purchase Failed', message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -349,11 +467,16 @@ export default function EducationScreen() {
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
             <View style={styles.networkContainer}>
-              {services.map((service) => (
+              {services.filter((service) => service && service.id).map((service) => (
                 <TouchableOpacity
                   key={service.id}
                   style={styles.networkItem}
-                  onPress={() => setSelectedServiceId(service.id)}
+                  onPress={() => {
+                    setSelectedServiceId(service.id);
+                    // Reset inputs when service changes
+                    setReferenceNumber('');
+                    setPhoneNumber('');
+                  }}
                   activeOpacity={0.7}>
                   <View
                     style={[
@@ -378,30 +501,40 @@ export default function EducationScreen() {
 
           {selectedService?.examType === 'JAMB' ? (
             <View style={styles.section}>
-              <ThemedText style={styles.inputLabel}>Reference Number</ThemedText>
+              <ThemedText style={styles.inputLabel}>JAMB Profile ID</ThemedText>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter JAMB reference number"
+                  placeholder="Enter your JAMB Profile ID (e.g., 0123456789)"
                   placeholderTextColor="#999"
                   value={referenceNumber}
                   onChangeText={setReferenceNumber}
+                  keyboardType="numeric"
+                  maxLength={20}
                 />
               </View>
+              <ThemedText style={styles.helpText}>
+                Your JAMB Profile ID can be found on the JAMB Official Website
+              </ThemedText>
             </View>
           ) : (
             <View style={styles.section}>
-              <ThemedText style={styles.inputLabel}>Phone Number</ThemedText>
+              <ThemedText style={styles.inputLabel}>
+                Phone Number <ThemedText style={{ fontSize: 12, opacity: 0.7 }}>(Optional)</ThemedText>
+              </ThemedText>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter phone number"
+                  placeholder="Enter phone number (optional)"
                   placeholderTextColor="#999"
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
                   keyboardType="phone-pad"
                 />
               </View>
+              <ThemedText style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+                Phone number is optional for WAEC/NECO purchases
+              </ThemedText>
             </View>
           )}
 
@@ -419,8 +552,13 @@ export default function EducationScreen() {
 
         {/* Continue Button */}
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-            <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
+          <TouchableOpacity 
+            style={[styles.continueButton, (isProcessing || loading) && styles.continueButtonDisabled]} 
+            onPress={handleContinue}
+            disabled={isProcessing || loading}>
+            <ThemedText style={styles.continueButtonText}>
+              {isProcessing ? 'Processing...' : 'Continue'}
+            </ThemedText>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -608,6 +746,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#8B1D1D',
+  },
+  helpText: {
+    fontSize: 12,
+    color: '#777',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  continueButtonDisabled: {
+    opacity: 0.6,
   },
 });
 

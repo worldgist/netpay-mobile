@@ -96,6 +96,15 @@ export default function TransactionDetails() {
               .single();
             break;
 
+          case 'education':
+            query = supabase
+              .from('education_transactions')
+              .select('*')
+              .eq('id', id)
+              .eq('user_id', session.user.id)
+              .single();
+            break;
+
           default:
             throw new Error('Invalid transaction type');
         }
@@ -361,6 +370,28 @@ export default function TransactionDetails() {
                 <div class="token-value">${transaction.token}</div>
               </div>
               ` : ''}
+              ${transaction?.type === 'education' && transaction?.metadata?.pins && Array.isArray(transaction.metadata.pins) && transaction.metadata.pins.length > 0 ? `
+              <div class="token-section" style="background: #E8F5E9; border-color: #4CAF50;">
+                <div class="token-label" style="color: #4CAF50;">PIN Details</div>
+                ${transaction.metadata.pins.map((pinData: any, index: number) => `
+                  <div style="margin-bottom: ${index < transaction.metadata.pins.length - 1 ? '16px' : '0'}; padding-bottom: ${index < transaction.metadata.pins.length - 1 ? '16px' : '0'}; border-bottom: ${index < transaction.metadata.pins.length - 1 ? '1px solid #C8E6C9' : 'none'};">
+                    ${pinData.Serial ? `
+                      <div style="margin-bottom: 8px;">
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Serial Number</div>
+                        <div style="font-family: monospace; font-size: 14px; font-weight: 600; color: #333;">${pinData.Serial}</div>
+                      </div>
+                    ` : ''}
+                    ${pinData.Pin ? `
+                      <div>
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;">PIN</div>
+                        <div style="font-family: monospace; font-size: 18px; font-weight: bold; color: #1B5E20; letter-spacing: 1px; word-break: break-all;">${pinData.Pin}</div>
+                      </div>
+                    ` : ''}
+                  </div>
+                `).join('')}
+                <div style="font-size: 11px; color: #666; text-align: center; margin-top: 12px; font-style: italic;">Keep this PIN safe. You'll need it for your exam registration.</div>
+              </div>
+              ` : ''}
               ${transaction?.description ? `
               <div class="info-row">
                 <span class="info-label">Description</span>
@@ -448,6 +479,8 @@ export default function TransactionDetails() {
         return 'Wallet Funding';
       case 'electricity':
         return 'Electricity Purchase';
+      case 'education':
+        return `${transaction.exam_type || 'Education'} Purchase`;
       case 'user':
         return transaction.transaction_type?.includes('credit') ? 'Credit' : 'Debit';
       default:
@@ -613,6 +646,56 @@ export default function TransactionDetails() {
                   <div className="flex justify-between py-3 border-b">
                     <span className="text-gray-600 text-sm">Plan</span>
                     <span className="font-medium text-gray-900 text-sm">{transaction.plan_name}</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Education Specific */}
+            {transaction.type === 'education' && (
+              <>
+                {transaction.exam_type && (
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600 text-sm">Exam Type</span>
+                    <span className="font-medium text-gray-900 text-sm">{transaction.exam_type}</span>
+                  </div>
+                )}
+                {transaction.phone_number && (
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600 text-sm">Phone Number</span>
+                    <span className="font-medium text-gray-900 text-sm">{transaction.phone_number}</span>
+                  </div>
+                )}
+                {(transaction.metadata?.pins && Array.isArray(transaction.metadata.pins) && transaction.metadata.pins.length > 0) && (
+                  <div className="py-3 border-b">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-gray-600 text-sm font-semibold">PIN Details</span>
+                    </div>
+                    <div className="bg-green-50 border-2 border-green-200 p-4 rounded-lg space-y-3">
+                      {transaction.metadata.pins.map((pinData: any, index: number) => (
+                        <div key={index} className={index < transaction.metadata.pins.length - 1 ? 'border-b border-green-200 pb-3 mb-3' : ''}>
+                          {pinData.Serial && (
+                            <div className="mb-2">
+                              <p className="text-xs text-gray-600 mb-1">Serial Number</p>
+                              <p className="font-mono font-semibold text-sm text-gray-900">{pinData.Serial}</p>
+                            </div>
+                          )}
+                          {pinData.Pin && (
+                            <div>
+                              <p className="text-xs text-gray-600 mb-1">PIN</p>
+                              <p className="font-mono font-bold text-lg text-gray-900 tracking-wider break-all">{pinData.Pin}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 text-center">Keep this PIN safe. You'll need it for your exam registration.</p>
+                  </div>
+                )}
+                {transaction.service_id && (
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600 text-sm">Service ID</span>
+                    <span className="font-medium text-gray-900 text-sm font-mono">{transaction.service_id}</span>
                   </div>
                 )}
               </>

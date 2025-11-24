@@ -331,6 +331,25 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Delete Account Section */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.deleteAccountCard}
+            onPress={() => router.push('/delete-account')}
+            activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="delete" size={24} color="#DC2626" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.deleteAccountTitle}>Delete Account</ThemedText>
+                <ThemedText style={styles.deleteAccountDescription}>
+                  Permanently delete your account and all data
+                </ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#DC2626" />
+          </TouchableOpacity>
+        </View>
+
         {/* Logout Button */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7}>
           <MaterialIcons name="logout" size={20} color="#FF3B30" />
@@ -424,6 +443,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 2,
+  },
+  deleteAccountCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#DC2626',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  deleteAccountTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#DC2626',
+    marginBottom: 4,
+  },
+  deleteAccountDescription: {
+    fontSize: 12,
+    color: '#991B1B',
   },
   logoutButton: {
     flexDirection: 'row',

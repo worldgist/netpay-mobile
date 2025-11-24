@@ -134,141 +134,167 @@ serve(async (req) => {
 
     console.log(`Fetching VTpass data plans for ${serviceID} from ${baseUrl}...`);
 
-    // Fetch data plans from VTpass API
-    // For GET requests, VTpass requires: api-key and public-key headers
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'api-key': VTPASS_API_KEY || VTPASS_PUBLIC_KEY, // Use API key if available, fallback to public key
-        'public-key': VTPASS_PUBLIC_KEY,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    console.log('VTpass API request:', {
-      url: apiUrl,
-      method: 'GET',
-      headers: {
-        'api-key': VTPASS_API_KEY ? `${VTPASS_API_KEY.substring(0, 10)}...` : 'not set',
-        'public-key': VTPASS_PUBLIC_KEY ? `${VTPASS_PUBLIC_KEY.substring(0, 10)}...` : 'not set',
-      }
-    });
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for VTpass API
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('VTpass API error:', response.status, errorText);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `VTpass API error: ${response.status} - ${errorText}` 
-        }),
-        { status: response.status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    let data: any;
     try {
-      const responseText = await response.text();
-      console.log('VTpass API raw response:', responseText.substring(0, 500));
+      // Fetch data plans from VTpass API
+      // For GET requests, VTpass requires: api-key and public-key headers
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'api-key': VTPASS_API_KEY || VTPASS_PUBLIC_KEY, // Use API key if available, fallback to public key
+          'public-key': VTPASS_PUBLIC_KEY,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
       
-      if (!responseText || !responseText.trim()) {
-        throw new Error('Empty response from VTpass API');
-      }
+      clearTimeout(timeoutId);
       
-      data = JSON.parse(responseText);
-      console.log('VTpass data plans response:', JSON.stringify(data, null, 2));
-    } catch (parseError) {
-      console.error('Error parsing VTpass response:', parseError);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Failed to parse response from VTpass API. Please check API credentials and try again.' 
-        }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
+      console.log('VTpass API request:', {
+        url: apiUrl,
+        method: 'GET',
+        headers: {
+          'api-key': VTPASS_API_KEY ? `${VTPASS_API_KEY.substring(0, 10)}...` : 'not set',
+          'public-key': VTPASS_PUBLIC_KEY ? `${VTPASS_PUBLIC_KEY.substring(0, 10)}...` : 'not set',
+        }
+      });
 
-    // VTpass response structure can be:
-    // 1. { content: { varations: [...] }, response_description: "..." }
-    // 2. { content: [...], response_description: "..." }
-    // 3. Direct array: [...]
-    // Transform to match expected format
-    let plans = [];
-    
-    // Check if response indicates an error
-    if (data.response_description && data.response_description !== '000' && data.response_description !== 'success') {
-      console.warn('VTpass API returned non-success response:', data.response_description);
-      // Continue processing if content exists, otherwise return error
-      if (!data.content || (Array.isArray(data.content) && data.content.length === 0)) {
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('VTpass API error:', response.status, errorText);
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: data.response_description || 'VTpass API returned an error',
-            details: data
+            error: `VTpass API error: ${response.status} - ${errorText}` 
           }),
-          { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          { status: response.status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
         );
       }
-    }
-    
-    // Extract plans from various possible response structures
-    if (data.content) {
-      if (Array.isArray(data.content)) {
-        // Format: { content: [...] }
-        plans = data.content;
-      } else if (data.content.varations && Array.isArray(data.content.varations)) {
-        // Format: { content: { varations: [...] } }
-        plans = data.content.varations;
-      } else if (typeof data.content === 'object') {
-        // Try to extract array from content object
-        const contentValues = Object.values(data.content);
-        const arrays = contentValues.filter(v => Array.isArray(v)) as any[][];
-        if (arrays.length > 0) {
-          plans = arrays[0]; // Use first array found
-        }
-      }
-    } else if (Array.isArray(data)) {
-      // If response is directly an array
-      plans = data;
-    } else if (data.data && Array.isArray(data.data)) {
-      // Format: { data: [...] }
-      plans = data.data;
-    }
-    
-    // Map plans to consistent format
-    plans = plans.map((plan: any) => ({
-      id: plan.variation_code || plan.variationCode || plan.code || plan.id || '',
-      name: plan.name || plan.variation_name || plan.title || plan.plan || 'Unknown Plan',
-      variation_code: plan.variation_code || plan.variationCode || plan.code || '',
-      variation_name: plan.name || plan.variation_name || plan.title || '',
-      variation_amount: parseFloat(plan.variation_amount || plan.variationAmount || plan.amount || plan.fixedPrice || plan.price || 0),
-      fixedPrice: parseFloat(plan.fixedPrice || plan.variation_amount || plan.variationAmount || plan.amount || plan.price || 0),
-      fixedPriceDescription: plan.fixedPriceDescription || plan.name || plan.variation_name || '',
-      // Additional fields that might be useful
-      serviceID: plan.serviceID || serviceID,
-      network: network || serviceID.replace('-data', '').toUpperCase(),
-    }));
-    
-    console.log(`Mapped ${plans.length} plans from VTpass response`);
 
-    return new Response(
-      JSON.stringify({ 
-        success: true,
-        data: plans,
-        metadata: {
-          total_plans: plans.length,
-          serviceID,
-          network: network || serviceID.replace('-data', '').toUpperCase(),
-          source: 'vtpass',
-          mode: VTPASS_MODE,
-          response_description: data.response_description || data.message || 'Success',
+      let data: any;
+      try {
+        const responseText = await response.text();
+        console.log('VTpass API raw response:', responseText.substring(0, 500));
+        
+        if (!responseText || !responseText.trim()) {
+          throw new Error('Empty response from VTpass API');
         }
-      }),
-      { 
-        status: 200, 
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+        
+        data = JSON.parse(responseText);
+        console.log('VTpass data plans response:', JSON.stringify(data, null, 2));
+      } catch (parseError) {
+        console.error('Error parsing VTpass response:', parseError);
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Failed to parse response from VTpass API. Please check API credentials and try again.' 
+          }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
       }
-    );
+
+      // VTpass response structure can be:
+      // 1. { content: { varations: [...] }, response_description: "..." }
+      // 2. { content: [...], response_description: "..." }
+      // 3. Direct array: [...]
+      // Transform to match expected format
+      let plans = [];
+      
+      // Check if response indicates an error
+      if (data.response_description && data.response_description !== '000' && data.response_description !== 'success') {
+        console.warn('VTpass API returned non-success response:', data.response_description);
+        // Continue processing if content exists, otherwise return error
+        if (!data.content || (Array.isArray(data.content) && data.content.length === 0)) {
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: data.response_description || 'VTpass API returned an error',
+              details: data
+            }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+      
+      // Extract plans from various possible response structures
+      if (data.content) {
+        if (Array.isArray(data.content)) {
+          // Format: { content: [...] }
+          plans = data.content;
+        } else if (data.content.varations && Array.isArray(data.content.varations)) {
+          // Format: { content: { varations: [...] } }
+          plans = data.content.varations;
+        } else if (typeof data.content === 'object') {
+          // Try to extract array from content object
+          const contentValues = Object.values(data.content);
+          const arrays = contentValues.filter(v => Array.isArray(v)) as any[][];
+          if (arrays.length > 0) {
+            plans = arrays[0]; // Use first array found
+          }
+        }
+      } else if (Array.isArray(data)) {
+        // If response is directly an array
+        plans = data;
+      } else if (data.data && Array.isArray(data.data)) {
+        // Format: { data: [...] }
+        plans = data.data;
+      }
+      
+      // Map plans to consistent format
+      plans = plans.map((plan: any) => ({
+        id: plan.variation_code || plan.variationCode || plan.code || plan.id || '',
+        name: plan.name || plan.variation_name || plan.title || plan.plan || 'Unknown Plan',
+        variation_code: plan.variation_code || plan.variationCode || plan.code || '',
+        variation_name: plan.name || plan.variation_name || plan.title || '',
+        variation_amount: parseFloat(plan.variation_amount || plan.variationAmount || plan.amount || plan.fixedPrice || plan.price || 0),
+        fixedPrice: parseFloat(plan.fixedPrice || plan.variation_amount || plan.variationAmount || plan.amount || plan.price || 0),
+        fixedPriceDescription: plan.fixedPriceDescription || plan.name || plan.variation_name || '',
+        // Additional fields that might be useful
+        serviceID: plan.serviceID || serviceID,
+        network: network || serviceID.replace('-data', '').toUpperCase(),
+      }));
+      
+      console.log(`Mapped ${plans.length} plans from VTpass response`);
+
+      return new Response(
+        JSON.stringify({ 
+          success: true,
+          data: plans,
+          metadata: {
+            total_plans: plans.length,
+            serviceID,
+            network: network || serviceID.replace('-data', '').toUpperCase(),
+            source: 'vtpass',
+            mode: VTPASS_MODE,
+            response_description: data.response_description || data.message || 'Success',
+          }
+        }),
+        { 
+          status: 200, 
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+        }
+      );
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      // Handle timeout/abort errors
+      if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+        console.error('VTpass API request timed out');
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Request to VTpass API timed out. The API may be slow or unavailable. Please try again.' 
+          }),
+          { status: 504, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Re-throw other errors to be caught by outer catch
+      throw fetchError;
+    }
 
   } catch (error) {
     console.error('Error in fetch-vtpass-data-plans function:', error);

@@ -137,7 +137,7 @@ export default function TransactionsScreen() {
           .limit(50),
         supabase
           .from('education_transactions')
-          .select('id, amount, exam_type, status, reference, created_at, phone_number, balance_before, balance_after, api_response')
+          .select('id, amount, exam_type, status, reference, created_at, phone_number, balance_before, balance_after, api_response, metadata')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(50),
@@ -232,7 +232,13 @@ export default function TransactionsScreen() {
 
       const educationTransactions: MobileTransaction[] = (educationRes.data || []).map((txn) => {
         const createdDate = new Date(txn.created_at);
-        const metadata = parseEducationPurchaseMetadata((txn as any)?.api_response);
+        // Get PINs from metadata first (primary source), fallback to parsing api_response
+        const metadataObj = (txn as any)?.metadata || {};
+        const pinsFromMetadata = metadataObj.pins || [];
+        
+        // Also parse from api_response as fallback
+        const parsedMetadata = parseEducationPurchaseMetadata((txn as any)?.api_response);
+        
         const description = txn.phone_number
           ? `${txn.exam_type || 'Education'} purchase • ${txn.phone_number}`
           : `${txn.exam_type || 'Education'} purchase`;
@@ -252,9 +258,11 @@ export default function TransactionsScreen() {
           extra: {
             phone_number: txn.phone_number,
             examType: txn.exam_type,
-            educationPin: metadata.pin,
-            educationSerial: metadata.serial,
-            educationInstructions: metadata.instructions,
+            // Use pins from metadata if available, otherwise use parsed values
+            pins: pinsFromMetadata.length > 0 ? pinsFromMetadata : (parsedMetadata.pin ? [{ Pin: parsedMetadata.pin, Serial: parsedMetadata.serial }] : []),
+            educationPin: parsedMetadata.pin,
+            educationSerial: parsedMetadata.serial,
+            educationInstructions: parsedMetadata.instructions,
             balanceBefore: txn.balance_before,
             balanceAfter: txn.balance_after,
           },

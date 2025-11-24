@@ -18,6 +18,8 @@ interface EducationService {
   price: number;
   api_code: string | null;
   service_id: string;
+  vtpass_code?: string | null;
+  vending_provider?: string | null;
 }
 
 const PurchaseEducation = () => {
@@ -29,13 +31,14 @@ const PurchaseEducation = () => {
   const [selectedExamType, setSelectedExamType] = useState("");
   const [selectedService, setSelectedService] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [jambProfileId, setJambProfileId] = useState("");
   const [showSummary, setShowSummary] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
-  const EXAM_TYPES = ["WAEC", "JAMB", "NECO"];
+  const EXAM_TYPES = ["WAEC", "JAMB"];
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -63,9 +66,13 @@ const PurchaseEducation = () => {
         // Fetch education services
         const { data: servicesData, error: servicesError } = await supabase
           .from('education_services')
-          .select('*')
+          .select('id, exam_type, service_name, price, api_code, service_id, vtpass_code, vending_provider, is_active')
+          .eq('is_active', true)
+          .order('price', { ascending: true })
           .order('exam_type', { ascending: true })
           .order('service_name', { ascending: true });
+        
+        if (servicesError) throw servicesError;
         
         if (servicesError) throw servicesError;
         
@@ -118,14 +125,27 @@ const PurchaseEducation = () => {
   const selectedServiceData = services.find(s => s.id === selectedService);
 
   const handlePurchase = () => {
-    if (!phoneNumber || !selectedService) {
+    if (!selectedService) {
       toast({
         title: "Error",
-        description: "Please fill in all fields",
+        description: "Please select a service",
         variant: "destructive",
       });
       return;
     }
+
+    // For JAMB, require Profile ID; for WAEC/NECO, phone number is optional
+    if (selectedExamType === "JAMB") {
+      if (!jambProfileId.trim()) {
+        toast({
+          title: "Error",
+          description: "Please enter your JAMB Profile ID",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    // Phone number is optional for WAEC/NECO - the function handles it automatically
 
     if (!selectedServiceData) return;
 
@@ -144,16 +164,44 @@ const PurchaseEducation = () => {
     try {
       if (!selectedServiceData) throw new Error("Invalid service");
 
-      // Call purchase edge function (to be created)
+      // Prepare request body - function will extract variation_code from service row if not provided
+      const requestBody: any = {
+        exam_type: selectedServiceData.exam_type,
+        education_service_id: selectedServiceData.id,
+        amount: selectedServiceData.price,
+        quantity: 1,
+      };
+
+      // Pass variation_code if available (function will use vtpass_code from DB if not provided)
+      // For VTpass services, variation_code should be lowercase (e.g., "utme-mock", "utme-no-mock")
+      if (selectedServiceData.vtpass_code) {
+        requestBody.variation_code = selectedServiceData.vtpass_code.toLowerCase();
+      } else if (selectedServiceData.api_code) {
+        // Also pass api_code as fallback (function will convert to lowercase for VTpass if needed)
+        requestBody.api_code = selectedServiceData.api_code;
+      }
+      
+      // Service ID is optional - function will get it from service row
+      if (selectedServiceData.service_id) {
+        requestBody.service_id = selectedServiceData.service_id;
+      }
+
+      // For JAMB, include Profile ID (billers_code)
+      // For WAEC/NECO, phone number is optional - function will handle it
+      if (selectedServiceData.exam_type === "JAMB") {
+        requestBody.billers_code = jambProfileId.trim();
+        requestBody.phone_number = phoneNumber || ""; // Optional for JAMB
+      } else if (phoneNumber && phoneNumber.trim()) {
+        // Include phone number if provided (optional for WAEC/NECO)
+        requestBody.phone_number = phoneNumber.trim();
+      }
+      
+      // Add quantity (defaults to 1 in function if not provided)
+      requestBody.quantity = 1;
+
+      // Call purchase edge function
       const { data, error } = await supabase.functions.invoke('purchase-education', {
-        body: {
-          phone_number: phoneNumber,
-          exam_type: selectedServiceData.exam_type,
-          education_service_id: selectedServiceData.id,
-          service_id: selectedServiceData.service_id,
-          api_code: selectedServiceData.api_code,
-          amount: selectedServiceData.price
-        }
+        body: requestBody
       });
 
       if (error) throw error;
@@ -245,6 +293,7 @@ const PurchaseEducation = () => {
                   onClick={() => {
                     setSelectedExamType(examType);
                     setSelectedService("");
+                    setJambProfileId(""); // Reset Profile ID when exam type changes
                   }}
                 >
                   <img 
@@ -276,22 +325,47 @@ const PurchaseEducation = () => {
                   </select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="08012345678"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    maxLength={11}
-                  />
-                </div>
+                {selectedExamType === "JAMB" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="profileId">
+                      JAMB Profile ID <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="profileId"
+                      type="text"
+                      placeholder="Enter your JAMB Profile ID (e.g., 0123456789)"
+                      value={jambProfileId}
+                      onChange={(e) => setJambProfileId(e.target.value.trim())}
+                      maxLength={20}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Your JAMB Profile ID can be found on the JAMB Official Website
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">
+                      Phone Number 
+                      <span className="text-muted-foreground text-xs ml-1">(Optional)</span>
+                    </Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="08012345678 (optional)"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      maxLength={11}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Phone number is optional for WAEC/NECO purchases
+                    </p>
+                  </div>
+                )}
 
                 <Button 
                   className="w-full" 
                   onClick={handlePurchase}
-                  disabled={!selectedService || !phoneNumber || purchasing}
+                  disabled={!selectedService || (selectedExamType === "JAMB" ? !jambProfileId.trim() : false) || purchasing}
                 >
                   {purchasing ? "Processing..." : "Continue"}
                 </Button>
@@ -329,10 +403,17 @@ const PurchaseEducation = () => {
                 <span>Service:</span>
                 <span className="font-semibold">{selectedServiceData.service_name}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Phone Number:</span>
-                <span className="font-semibold">{phoneNumber}</span>
-              </div>
+              {selectedServiceData.exam_type === "JAMB" ? (
+                <div className="flex justify-between">
+                  <span>JAMB Profile ID:</span>
+                  <span className="font-semibold">{jambProfileId}</span>
+                </div>
+              ) : (
+                <div className="flex justify-between">
+                  <span>Phone Number:</span>
+                  <span className="font-semibold">{phoneNumber || "Optional"}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span>Amount:</span>
                 <span className="font-semibold">{formatNaira(selectedServiceData.price)}</span>
@@ -370,7 +451,28 @@ const PurchaseEducation = () => {
                   />
                 </div>
               </div>
-              {transactionDetails.pin && (
+              {transactionDetails.pins && transactionDetails.pins.length > 0 && (
+                <div className="bg-muted p-4 rounded-lg space-y-2">
+                  <p className="text-sm text-muted-foreground mb-2">PIN Details</p>
+                  {transactionDetails.pins.map((pinData: any, index: number) => (
+                    <div key={index} className="border-b border-border pb-2 last:border-0 last:pb-0">
+                      {pinData.Serial && (
+                        <div className="mb-1">
+                          <span className="text-xs text-muted-foreground">Serial: </span>
+                          <span className="font-mono font-semibold">{pinData.Serial}</span>
+                        </div>
+                      )}
+                      {pinData.Pin && (
+                        <div>
+                          <span className="text-xs text-muted-foreground">PIN: </span>
+                          <span className="font-mono font-bold text-lg">{pinData.Pin}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {transactionDetails.pin && !transactionDetails.pins && (
                 <div className="bg-muted p-4 rounded-lg">
                   <p className="text-sm text-muted-foreground mb-1">PIN</p>
                   <p className="text-lg font-mono font-bold">{transactionDetails.pin}</p>

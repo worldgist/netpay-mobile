@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { createHash } from "https://deno.land/std@0.168.0/hash/sha256.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -69,7 +68,13 @@ serve(async (req) => {
       );
     }
 
-    const hashedPin = createHash("sha256").update(pin).toString();
+    // Hash the PIN using Web Crypto API
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashedPin = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    
     if (hashedPin !== profile.pin_hash) {
       return new Response(
         JSON.stringify({ success: false, error: "Invalid PIN. Please try again." }),

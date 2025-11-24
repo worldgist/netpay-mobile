@@ -11,4 +11,16 @@ if (!SUPABASE_URL || !CLIENT_KEY) {
   throw new Error('Missing Supabase URL or anon key');
 }
 
-export const supabase = createClient<Database>(SUPABASE_URL, CLIENT_KEY);
+export const supabase = createClient<Database>(SUPABASE_URL, CLIENT_KEY, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+  },
+  global: {
+    headers: {
+      'x-client-info': 'netpay-web',
+    },
+  },
+});

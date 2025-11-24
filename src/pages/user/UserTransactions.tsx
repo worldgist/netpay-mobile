@@ -38,6 +38,7 @@ export default function UserTransactions() {
           transfersReceived,
           fundingTxns,
           electricityTxns,
+          educationTxns,
         ] = await Promise.all([
           // User transactions (credit/debit)
           supabase
@@ -80,6 +81,12 @@ export default function UserTransactions() {
             .from('electricity_transactions')
             .select('*')
             .eq('user_id', session.user.id),
+
+          // Education transactions
+          supabase
+            .from('education_transactions')
+            .select('*')
+            .eq('user_id', session.user.id),
         ]);
 
         // Combine all transactions with type information
@@ -91,6 +98,7 @@ export default function UserTransactions() {
           ...(transfersReceived.data || []).map(txn => ({ ...txn, txn_type: 'transfer_received', icon: 'receive' })),
           ...(fundingTxns.data || []).map(txn => ({ ...txn, txn_type: 'funding', icon: 'wallet' })),
           ...(electricityTxns.data || []).map(txn => ({ ...txn, txn_type: 'electricity', icon: 'electricity' })),
+          ...(educationTxns.data || []).map(txn => ({ ...txn, txn_type: 'education', icon: 'education' })),
         ];
 
         // Sort by created_at descending
@@ -141,6 +149,9 @@ export default function UserTransactions() {
     }
     if (txn.txn_type === 'electricity') {
       return `${txn.provider} Electricity - ${txn.meter_number}`;
+    }
+    if (txn.txn_type === 'education') {
+      return `${txn.exam_type} ${txn.phone_number ? `- ${txn.phone_number}` : ''}`;
     }
     return txn.description || txn.transaction_type || 'Transaction';
   };

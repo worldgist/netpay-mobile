@@ -21,6 +21,19 @@ export default function PaymentSuccessScreen() {
   const meterType = (params.meterType as string) || '';
   const customerName = (params.customerName as string) || '';
   const referenceParam = (params.reference as string) || '';
+  const pinsParam = (params.pins as string) || '';
+  
+  // Parse PINs if provided (from education purchases)
+  let pins: Array<{ Serial?: string; Pin?: string }> = [];
+  try {
+    if (pinsParam) {
+      pins = JSON.parse(pinsParam);
+    }
+  } catch (e) {
+    console.error('Failed to parse pins:', e);
+  }
+  
+  const isEducationPurchase = serviceType.toLowerCase().includes('education');
 
   const transactionReference = referenceParam || generateReference(serviceType || 'PAYMENT');
   const currentDate = new Date();
@@ -184,6 +197,28 @@ export default function PaymentSuccessScreen() {
                 <ThemedText style={[styles.detailLabel, { color: '#FF7F00', fontWeight: '600', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Electricity Token</ThemedText>
                 <ThemedText style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold', textAlign: 'center', letterSpacing: 2, marginTop: 8 }]} numberOfLines={0}>{token}</ThemedText>
                 <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 8 }}>Keep this token safe. You'll need it to recharge your meter.</ThemedText>
+              </View>
+            )}
+            {isEducationPurchase && pins.length > 0 && (
+              <View style={[styles.detailRow, { backgroundColor: '#E8F5E9', borderWidth: 2, borderColor: '#4CAF50', borderRadius: 8, padding: 16, marginVertical: 8, flexDirection: 'column' }]}>
+                <ThemedText style={[styles.detailLabel, { color: '#4CAF50', fontWeight: '600', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }]}>PIN Details</ThemedText>
+                {pins.map((pinData, index) => (
+                  <View key={index} style={{ marginBottom: index < pins.length - 1 ? 16 : 0, paddingBottom: index < pins.length - 1 ? 16 : 0, borderBottomWidth: index < pins.length - 1 ? 1 : 0, borderBottomColor: '#C8E6C9' }}>
+                    {pinData.Serial && (
+                      <View style={{ marginBottom: 8 }}>
+                        <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Serial Number</ThemedText>
+                        <ThemedText style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: '600', color: '#333' }}>{pinData.Serial}</ThemedText>
+                      </View>
+                    )}
+                    {pinData.Pin && (
+                      <View>
+                        <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>PIN</ThemedText>
+                        <ThemedText style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }}>{pinData.Pin}</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                ))}
+                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>Keep this PIN safe. You'll need it for your exam registration.</ThemedText>
               </View>
             )}
             <View style={styles.detailRow}>

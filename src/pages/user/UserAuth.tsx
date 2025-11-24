@@ -97,12 +97,30 @@ export default function UserAuth() {
         return;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
+      // Clear any corrupted session before attempting sign in
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutError) {
+        // Ignore sign out errors, just try to clear the session
+        console.warn('Error clearing session:', signOutError);
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle connection errors
+        if (error.message?.includes('Failed to fetch') || 
+            error.message?.includes('ERR_CONNECTION') ||
+            error.message?.includes('ERR_TIMED_OUT') ||
+            error.message?.includes('network')) {
+          toast.error("Connection error. Please check your internet connection and try again.");
+          return;
+        }
+        throw error;
+      }
 
       const {
         data: { session },
@@ -114,9 +132,21 @@ export default function UserAuth() {
 
       toast.success("Signed in successfully!");
     } catch (error: any) {
-      const fallbackMessage =
-        error?.message === "Invalid login credentials" ? "Invalid email or password" : error?.message;
-      toast.error(fallbackMessage || "Invalid credentials");
+      let errorMessage = "An error occurred during sign in";
+      
+      if (error?.message) {
+        if (error.message === "Invalid login credentials") {
+          errorMessage = "Invalid email or password";
+        } else if (error.message.includes("Failed to fetch") || 
+                   error.message.includes("ERR_CONNECTION") ||
+                   error.message.includes("ERR_TIMED_OUT")) {
+          errorMessage = "Connection error. Please check your internet connection and try again.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }

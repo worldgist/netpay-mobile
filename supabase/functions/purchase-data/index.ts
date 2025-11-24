@@ -160,11 +160,14 @@ serve(async (req) => {
     let successfulVendor: string | null = null;
     let lastError: string | null = null;
     const reference = `DATA-${Date.now()}-${user.id.slice(0, 8)}`;
+    const vendorErrors: Array<{ vendor: string; reason: string; error?: string }> = [];
 
     for (const vendorName of vendorOrder) {
       const vendor = vendorMap.get(vendorName.toLowerCase());
       if (!vendor || vendor.status !== 'active') {
-        console.warn(`Vendor ${vendorName} not available or inactive`);
+        const reason = !vendor ? 'not found in database' : `status is ${vendor.status}`;
+        vendorErrors.push({ vendor: vendorName, reason });
+        console.warn(`Vendor ${vendorName} not available: ${reason}`);
         continue;
       }
 
@@ -174,11 +177,36 @@ serve(async (req) => {
                         vendorName === 'mobilenig' ? dataPlan.mobilenig_code : null;
 
       if (!vendorCode) {
+        vendorErrors.push({ 
+          vendor: vendorName, 
+          reason: `data plan missing ${vendorName}_code` 
+        });
         console.warn(`Plan ${plan_id} does not have a code for vendor ${vendorName}`);
         continue;
       }
 
-      console.log(`Attempting purchase via ${vendorName}...`);
+      // Check vendor credentials (credentials can be in env vars or vendor config)
+      // The purchaseViaVendor function will handle credential checking, so we just log a warning
+      const hasConfigCredentials = vendorName === 'vtpass' 
+        ? (vendor.api_key && vendor.secret)
+        : vendorName === 'smeplug'
+        ? vendor.secret
+        : vendorName === 'mobilenig'
+        ? (vendor.api_key && vendor.secret)
+        : false;
+
+      if (!hasConfigCredentials) {
+        const envVar = vendorName === 'vtpass' 
+          ? 'VTPASS_API_KEY, VTPASS_PUBLIC_KEY'
+          : vendorName === 'smeplug'
+          ? 'SMEPLUG_SECRET_KEY'
+          : 'MOBILENIG_API_KEY, MOBILENIG_USERNAME';
+        
+        console.warn(`Vendor ${vendorName} credentials not in config - will check environment variables: ${envVar}`);
+        // Don't skip - let purchaseViaVendor handle credential validation
+      }
+
+      console.log(`Attempting purchase via ${vendorName} with code ${vendorCode}...`);
       purchaseResult = await purchaseViaVendor(vendorName, vendor, dataPlan as DataPlan, phone_number, reference);
 
       if (purchaseResult.success) {
@@ -187,8 +215,15 @@ serve(async (req) => {
         break;
       }
 
-      lastError = purchaseResult.error || 'Unknown error';
-      console.warn(`Purchase failed via ${vendorName}: ${lastError}`);
+      const errorMsg = purchaseResult.error || 'Unknown error';
+      lastError = errorMsg;
+      vendorErrors.push({ 
+        vendor: vendorName, 
+        reason: 'API call failed',
+        error: errorMsg
+      });
+      console.warn(`Purchase failed via ${vendorName}: ${errorMsg}`);
+      console.warn(`Vendor response:`, JSON.stringify(purchaseResult.vendor_response || {}, null, 2));
       
       // If status is 'pending', still consider it a success and proceed
       // (This allows pending transactions to be recorded)
@@ -198,15 +233,39 @@ serve(async (req) => {
       }
     }
 
-    // If all vendors failed, refund and return error
+    // If all vendors failed, return detailed error
     if (!purchaseResult || !purchaseResult.success || !successfulVendor) {
+      const errorSummary = vendorErrors.length > 0
+        ? vendorErrors.map(e => `- ${e.vendor}: ${e.reason}${e.error ? ` (${e.error})` : ''}`).join('\n')
+        : 'No vendors were attempted';
+      
+      console.error('All vendors failed:', JSON.stringify(vendorErrors, null, 2));
+      
+      // Create a more descriptive error message
+      let errorMessage = 'All vendors failed. ';
+      if (vendorErrors.length === 0) {
+        errorMessage += 'No vendors were attempted (check vendor configuration)';
+      } else if (lastError) {
+        errorMessage += lastError;
+      } else {
+        // All vendors were skipped (no codes, inactive, etc.)
+        const skippedReasons = vendorErrors.map(e => `${e.vendor}: ${e.reason}`).join('; ');
+        errorMessage += `All vendors were skipped. Reasons: ${skippedReasons}`;
+      }
+      
       return new Response(
         JSON.stringify({
           success: false,
-          error: `All vendors failed. Last error: ${lastError || 'Unknown error'}`,
+          error: errorMessage,
           details: {
             vendors_tried: vendorOrder,
-            last_error: lastError,
+            vendor_errors: vendorErrors,
+            last_error: lastError || 'No vendors attempted',
+            error_summary: errorSummary,
+            plan_id,
+            network: dataPlan.network,
+            plan_type: planType,
+            message: errorMessage, // Add message for easier access
           },
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }

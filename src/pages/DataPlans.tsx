@@ -377,20 +377,60 @@ const DataPlans = () => {
         requestBody
       });
 
-      const { data, error } = await supabase.functions.invoke(functionName, {
-        body: requestBody
-      });
-
-      if (error) {
-        console.error('Edge function error:', error);
-        // Provide more specific error message
-        if (error.message?.includes('Network is required') || error.message?.includes('network_id is required')) {
-          throw new Error(`Invalid network parameters. Network: ${network.name}, Network ID: ${network.network_id}. Please ensure the network is properly configured.`);
-        }
-        throw error;
+      // Get session for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Session expired. Please sign in again.');
       }
 
-      if (data?.success) {
+      // Use direct fetch for better timeout control
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
+      }
+      
+      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+      try {
+        const response = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        const responseData = await response.json();
+        
+        console.log('Edge function response:', {
+          status: response.status,
+          success: responseData?.success,
+          error: responseData?.error,
+          dataLength: responseData?.data?.length,
+        });
+
+        if (!response.ok) {
+          const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+          console.error('Edge function HTTP error:', response.status, errorMessage);
+          throw new Error(errorMessage);
+        }
+
+        const data = responseData;
+
+        if (!data?.success) {
+          const errorMsg = data?.error || data?.message || "Failed to fetch data plans from API";
+          console.error('API returned error:', { data, status: response.status });
+          throw new Error(errorMsg);
+        }
+
         // Normalize various possible response shapes into an array
         const raw = (data as any)?.data;
         let plansArray: any[] = [];
@@ -476,15 +516,46 @@ const DataPlans = () => {
                 plan.fixedPriceAmount
             );
 
-            return {
+            // Build plan object with vendor-specific codes
+            const planObj: any = {
               network: network.name,
               plan_name: typeof planName === 'string' ? planName.trim() || 'Unknown Plan' : 'Unknown Plan',
               price: priceValue,
-              original_price: priceValue, // Set original_price to the imported price
+              vendor_price: priceValue, // Store vendor price
+              user_price: priceValue, // Default user price same as vendor price
+              original_price: priceValue, // Set original_price to the imported price (for backward compatibility)
               validity: typeof validityValue === 'string' ? validityValue.trim() || 'N/A' : 'N/A',
               api_code: normalizedApiCode || `${network.name}-${Date.now()}`,
-              provider: dataProvider,
+              provider: dataProvider, // Keep provider for backward compatibility
             };
+
+            // Store vendor code in the appropriate vendor-specific column
+            if (dataProvider === 'vtpass') {
+              planObj.vtpass_code = normalizedApiCode;
+            } else if (dataProvider === 'smeplug') {
+              planObj.smeplug_code = normalizedApiCode;
+            } else if (dataProvider === 'mobilenig') {
+              planObj.mobilenig_code = normalizedApiCode;
+            }
+
+            // Extract plan type and size if available
+            if (plan.plan_type) {
+              planObj.plan_type = plan.plan_type;
+            } else if (planName.includes('SME') || planName.includes('sme')) {
+              planObj.plan_type = 'SME';
+            } else if (planName.includes('Gifting') || planName.includes('gift')) {
+              planObj.plan_type = 'Gifting';
+            } else {
+              planObj.plan_type = 'SME'; // Default
+            }
+
+            // Extract size from plan name if possible
+            const sizeMatch = planName.match(/(\d+\s*(GB|MB|TB))/i);
+            if (sizeMatch) {
+              planObj.size = sizeMatch[1];
+            }
+
+            return planObj;
           })
           .filter((plan: any) => {
             if (!plan.api_code) {
@@ -498,7 +569,7 @@ const DataPlans = () => {
             return true;
           });
 
-        // Deduplicate plans by provider + api_code to avoid Postgres conflicts
+        // Deduplicate plans within the same import batch
         const dedupedPlans: typeof plansToInsert = [];
         const seen = new Set<string>();
         for (const plan of plansToInsert) {
@@ -517,160 +588,169 @@ const DataPlans = () => {
           return;
         }
 
-        // Try upsert with all columns first, fallback if columns don't exist
-        let insertError;
-        
-        // First attempt: try with all columns including provider, original_price, custom_price
-        // PostgREST requires column names for onConflict, not constraint names
-        try {
-          const result = await supabase
-            .from('data_plans')
-            .upsert(dedupedPlans, { 
-              onConflict: 'provider,api_code', // Use column names, not constraint name
-              ignoreDuplicates: false 
-            });
-          insertError = result.error;
-        } catch (e: any) {
-          insertError = e;
-        }
-        
-        // If error is about missing constraint or on conflict, use insert and ignore duplicates
-        // This is safer than delete+insert which requires admin permissions via RLS
-        if (insertError && (
-          insertError.message?.toLowerCase().includes('on conflict') ||
-          insertError.message?.toLowerCase().includes('unique constraint') ||
-          insertError.message?.toLowerCase().includes('exclusion constraint') ||
-          insertError.message?.toLowerCase().includes('constraint') ||
-          insertError.message?.toLowerCase().includes('violate') ||
-          insertError.message?.toLowerCase().includes('duplicate') ||
-          insertError.code === 'PGRST212' ||
-          insertError.code === '23505' ||
-          insertError.code === '23503' ||
-          insertError.code === '23514'
-        )) {
-          console.warn('Unique constraint issue, using insert with duplicate handling:', insertError.message);
-          
-          // If it's an RLS error, that's a different issue - don't try insert
-          if (insertError.message?.toLowerCase().includes('row-level security') ||
-              insertError.message?.toLowerCase().includes('policy') ||
-              insertError.code === '42501') {
-            console.error('RLS policy error - admin role may not be set correctly:', insertError);
-            throw new Error(`Permission denied: ${insertError.message}. Please ensure you have admin role.`);
-          }
-          
-          try {
-            // Try to insert - duplicate key errors (23505) are acceptable
-            const result = await supabase
-              .from('data_plans')
-              .insert(dedupedPlans);
+        // Smart upsert: Match existing plans by network + plan_name and merge vendor codes
+        // First, fetch existing plans for this network to check for matches
+        const { data: existingPlans } = await supabase
+          .from('data_plans')
+          .select('id, network, plan_name, vtpass_code, smeplug_code, mobilenig_code, api_code, provider')
+          .eq('network', network.name);
+
+        const plansToUpsert: any[] = [];
+        const plansToUpdate: Array<{ id: string; updates: any }> = [];
+
+        for (const newPlan of dedupedPlans) {
+          // Try to find matching existing plan by network + plan_name
+          const matchingPlan = existingPlans?.find(
+            (existing: any) => 
+              existing.network === newPlan.network &&
+              existing.plan_name.toLowerCase().trim() === newPlan.plan_name.toLowerCase().trim()
+          );
+
+          if (matchingPlan) {
+            // Plan exists - merge vendor codes
+            const updates: any = {};
             
-            // Only treat non-duplicate errors as failures
-            if (result.error) {
-              const errorCode = result.error.code;
-              const errorMsg = result.error.message?.toLowerCase() || '';
-              
-              // Acceptable errors: duplicate key violations
-              const isDuplicateError = 
-                errorCode === '23505' ||
-                errorCode === '23503' ||
-                errorMsg.includes('duplicate') ||
-                errorMsg.includes('already exists') ||
-                errorMsg.includes('unique constraint') ||
-                errorMsg.includes('violates unique constraint');
-              
-              if (isDuplicateError) {
-                insertError = null;
-                console.log('Insert completed (some duplicates were ignored)');
-              } else {
-                insertError = result.error;
+            // Update vendor-specific code
+            if (dataProvider === 'vtpass' && newPlan.vtpass_code) {
+              updates.vtpass_code = newPlan.vtpass_code;
+            } else if (dataProvider === 'smeplug' && newPlan.smeplug_code) {
+              updates.smeplug_code = newPlan.smeplug_code;
+            } else if (dataProvider === 'mobilenig' && newPlan.mobilenig_code) {
+              updates.mobilenig_code = newPlan.mobilenig_code;
+            }
+
+            // Update price if vendor price is different
+            if (newPlan.vendor_price && newPlan.vendor_price !== matchingPlan.vendor_price) {
+              updates.vendor_price = newPlan.vendor_price;
+              // Only update user_price if it was the same as old vendor_price (auto-pricing)
+              if (!matchingPlan.user_price || matchingPlan.user_price === matchingPlan.vendor_price) {
+                updates.user_price = newPlan.vendor_price;
               }
-            } else {
-              insertError = null;
             }
-          } catch (e: any) {
-            // If it's a duplicate error, that's acceptable
-            const errorCode = e.code;
-            const errorMsg = e.message?.toLowerCase() || '';
-            const isDuplicateError = 
-              errorCode === '23505' ||
-              errorCode === '23503' ||
-              errorMsg.includes('duplicate') ||
-              errorMsg.includes('unique constraint') ||
-              errorMsg.includes('violates unique constraint');
-            
-            if (isDuplicateError) {
-              insertError = null;
-              console.log('Insert completed (duplicates ignored)');
-            } else {
-              insertError = e;
+
+            // Update validity if different
+            if (newPlan.validity && newPlan.validity !== matchingPlan.validity) {
+              updates.validity = newPlan.validity;
             }
-          }
-        }
-        
-        // If error is about missing columns, try removing them progressively
-        if (insertError && (
-          insertError.code === '42703' ||
-          insertError.message?.toLowerCase().includes('column') ||
-          insertError.message?.toLowerCase().includes('does not exist') ||
-          insertError.message?.toLowerCase().includes('original_price') ||
-          insertError.message?.toLowerCase().includes('custom_price') ||
-          insertError.message?.toLowerCase().includes('provider')
-        )) {
-          console.warn('Some columns may not exist, trying with reduced columns:', insertError.message);
-          
-          // Second attempt: remove original_price and custom_price, keep provider
-          let plansWithoutPriceColumns = dedupedPlans.map(({ original_price, custom_price, ...rest }) => rest);
-          
-          try {
-            const result = await supabase
-              .from('data_plans')
-              .insert(plansWithoutPriceColumns);
-            insertError = result.error;
-            
-            // Ignore duplicate errors
-            if (insertError && insertError.code === '23505') {
-              insertError = null;
+
+            // Update plan_type and size if available
+            if (newPlan.plan_type) updates.plan_type = newPlan.plan_type;
+            if (newPlan.size) updates.size = newPlan.size;
+
+            if (Object.keys(updates).length > 0) {
+              plansToUpdate.push({ id: matchingPlan.id, updates });
             }
-          } catch (e: any) {
-            // Don't remove provider column - it's required for the unique constraint
-            // If provider column doesn't exist, that's a schema issue that needs to be fixed
-            insertError = e;
+          } else {
+            // New plan - insert it
+            plansToUpsert.push(newPlan);
           }
         }
 
-        if (insertError) {
-          // Provide a more helpful error message for different error types
-          const errorMsg = insertError.message || insertError.toString();
+        // Perform updates for existing plans
+        for (const { id, updates } of plansToUpdate) {
+          const { error: updateError } = await supabase
+            .from('data_plans')
+            .update(updates)
+            .eq('id', id);
           
-          // RLS errors
-          if (errorMsg.toLowerCase().includes('row-level security') ||
-              errorMsg.toLowerCase().includes('policy') ||
-              insertError.code === '42501') {
-            throw new Error(`Permission denied: ${errorMsg}. Please ensure you have admin role and the RLS policies are correctly configured.`);
+          if (updateError) {
+            console.warn(`Failed to update plan ${id}:`, updateError);
           }
-          
-          // Constraint violations
-          if (errorMsg.toLowerCase().includes('violate') || 
-              errorMsg.toLowerCase().includes('unique constraint') ||
-              insertError.code === '23505') {
-            throw new Error(`Constraint violation: A plan with the same provider and API code already exists. ${errorMsg}`);
-          }
-          
-          throw insertError;
         }
+
+        // Perform upserts for new plans
+        if (plansToUpsert.length > 0) {
+          let insertError;
+          
+          // Try with all vendor code columns
+          try {
+            const result = await supabase
+              .from('data_plans')
+              .upsert(plansToUpsert, { 
+                onConflict: 'provider,api_code',
+                ignoreDuplicates: false 
+              });
+            insertError = result.error;
+          } catch (e: any) {
+            insertError = e;
+          }
+
+          // Handle column errors gracefully
+          if (insertError && (
+            insertError.code === '42703' ||
+            insertError.message?.toLowerCase().includes('column') ||
+            insertError.message?.toLowerCase().includes('does not exist')
+          )) {
+            console.warn('Some columns may not exist, trying with basic columns:', insertError.message);
+            
+            // Remove vendor-specific columns and try again
+            const basicPlans = plansToUpsert.map(({ vtpass_code, smeplug_code, mobilenig_code, vendor_price, user_price, plan_type, size, ...rest }) => rest);
+            
+            const { error: basicError } = await supabase
+              .from('data_plans')
+              .upsert(basicPlans, { 
+                onConflict: 'provider,api_code',
+                ignoreDuplicates: false 
+              });
+            
+            if (basicError) {
+              console.error('Failed to insert plans even with basic columns:', basicError);
+              throw basicError;
+            }
+          } else if (insertError) {
+            throw insertError;
+          }
+        }
+
+        const totalProcessed = plansToUpsert.length + plansToUpdate.length;
 
         await fetchDataPlans();
         setIsDialogOpen(false);
         // Filter to show only the fetched network
         setFilterNetwork(network.name);
         
+        const newCount = plansToUpsert.length;
+        const updatedCount = plansToUpdate.length;
+        let successMessage = `Imported ${totalProcessed} data plans from ${network.name} via ${dataProvider.toUpperCase()}`;
+        if (newCount > 0 && updatedCount > 0) {
+          successMessage += ` (${newCount} new, ${updatedCount} updated with ${dataProvider} codes)`;
+        } else if (updatedCount > 0) {
+          successMessage += ` (Updated ${updatedCount} existing plans with ${dataProvider} codes)`;
+        }
+        successMessage += `. Showing only ${network.name} plans.`;
+        
         toast({
           title: "Success",
-          description: `Imported ${dedupedPlans.length} data plans from ${network.name} via ${dataProvider.toUpperCase()}. Showing only ${network.name} plans.`,
+          description: successMessage,
         });
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
       }
     } catch (error: any) {
       console.error('Error fetching plans from API:', error);
+      
+      // Handle timeout/abort errors
+      if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
+        toast({
+          title: "Request Timeout",
+          description: "The request took too long. The VTpass API might be slow or unavailable. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Handle network errors
+      if (error.message?.includes('ERR_INTERNET_DISCONNECTED') || 
+          error.message?.includes('Failed to fetch') ||
+          error.message?.includes('network')) {
+        toast({
+          title: "Network Error",
+          description: "Unable to connect to the server. Please check your internet connection and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
       
       // Extract more detailed error message
       let errorMessage = "Failed to fetch plans from API";
@@ -1160,6 +1240,7 @@ const DataPlans = () => {
                             <TableHead className="font-semibold">User Pays</TableHead>
                             <TableHead>Validity</TableHead>
                             <TableHead>API Code</TableHead>
+                            <TableHead>Vendor Codes</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -1193,6 +1274,28 @@ const DataPlans = () => {
                                 </TableCell>
                                 <TableCell>{plan.validity}</TableCell>
                                 <TableCell className="font-mono text-sm">{plan.api_code}</TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {plan.vtpass_code && (
+                                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                        VTpass
+                                      </Badge>
+                                    )}
+                                    {plan.smeplug_code && (
+                                      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                        SMEPlug
+                                      </Badge>
+                                    )}
+                                    {plan.mobilenig_code && (
+                                      <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                                        Mobilenig
+                                      </Badge>
+                                    )}
+                                    {!plan.vtpass_code && !plan.smeplug_code && !plan.mobilenig_code && (
+                                      <span className="text-xs text-muted-foreground">None</span>
+                                    )}
+                                  </div>
+                                </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button

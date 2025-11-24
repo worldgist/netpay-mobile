@@ -57,6 +57,7 @@ import UserReferrals from "./pages/user/UserReferrals";
 import UserContact from "./pages/user/UserContact";
 import UserTerms from "./pages/user/UserTerms";
 import UserPrivacy from "./pages/user/UserPrivacy";
+import DeleteAccount from "./pages/user/DeleteAccount";
 
 const App = () => (
   <>
@@ -125,6 +126,7 @@ const App = () => (
         <Route path="/user/contact" element={<UserContact />} />
         <Route path="/user/terms" element={<UserTerms />} />
         <Route path="/user/privacy" element={<UserPrivacy />} />
+        <Route path="/user/delete-account" element={<DeleteAccount />} />
         <Route path="/user/support-chat" element={<SupportChat />} />
         
         <Route path="*" element={<NotFound />} />

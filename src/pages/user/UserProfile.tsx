@@ -101,6 +101,7 @@ export default function UserProfile() {
     { icon: Mail, label: "Contact us", onClick: () => navigate("/user/contact"), color: "text-brand" },
     { icon: FileText, label: "Terms & Conditions", onClick: () => navigate("/user/terms"), color: "text-brand" },
     { icon: Shield, label: "Privacy Policy", onClick: () => navigate("/user/privacy"), color: "text-brand" },
+    { icon: Trash2, label: "Delete Account", onClick: () => navigate("/user/delete-account"), color: "text-red-500" },
   ];
 
   if (loading) {
