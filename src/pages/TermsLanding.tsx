@@ -69,7 +69,7 @@ const SECTIONS = [
     icon: AlertCircle,
     title: "7. Liability Limitation",
     body: [
-      "NetPay provides services on an "as-is" basis. While we strive for uptime, we cannot guarantee uninterrupted availability.",
+      'NetPay provides services on an "as-is" basis. While we strive for uptime, we cannot guarantee uninterrupted availability.',
       "We are not liable for indirect, incidental, special or consequential damages arising from use, misuse or inability to use the platform.",
       "Our total liability for any claim will not exceed the amount paid by you for the service giving rise to the claim.",
     ],
