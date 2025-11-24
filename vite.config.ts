@@ -22,4 +22,22 @@ export default defineConfig(({ mode }) => ({
       target: "es2020",
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-select',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-toast',
+          ],
+          'supabase-vendor': ['@supabase/supabase-js', '@supabase/ssr'],
+        },
+      },
+    },
+  },
 }));
