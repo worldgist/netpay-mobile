@@ -78,49 +78,43 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground">
       {/* Header */}
-      <header className="border-b border-border/30 bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm">
+      <header className="border-b border-orange-300/50 bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 text-white sticky top-0 z-50 shadow-lg">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between transition-smooth">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-3">
               <img
                 src="/logo.png"
                 alt="NetPay"
-                className="w-10 h-10 rounded-lg border border-brand/30 shadow-elegant"
+                className="w-10 h-10 rounded-lg border border-white/40 shadow-elegant"
                 loading="lazy"
               />
-              <span className="text-2xl font-bold">
-                <span className="text-brand">NET</span>
-                <span className="text-slate-800">PAY</span>
+              <span className="text-2xl font-bold tracking-tight">
+                <span className="text-white">NET</span>
+                <span className="text-orange-200">PAY</span>
               </span>
             </div>
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-800">
-              <button onClick={() => navigate("/")} className="hover:text-brand transition-colors">
+            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-white/80">
+              <button onClick={() => navigate("/")} className="hover:text-white transition-colors">
                 Home
               </button>
-              <button onClick={() => navigate("/about")} className="hover:text-brand transition-colors">
+              <button onClick={() => navigate("/about")} className="hover:text-white transition-colors">
                 About Us
               </button>
-              <button onClick={() => navigate("/contact-us")} className="hover:text-brand transition-colors">
+              <button onClick={() => navigate("/contact-us")} className="hover:text-white transition-colors">
                 Contact Us
               </button>
-              <button onClick={() => navigate("/faq")} className="hover:text-brand transition-colors">
+              <button onClick={() => navigate("/faq")} className="hover:text-white transition-colors">
                 FAQ
               </button>
             </nav>
           </div>
-          <div className="hidden md:flex items-center gap-3">
-            <Button
-              onClick={() => navigate("/user/auth?mode=signin")}
-              variant="ghost"
-              className="text-brand hover:bg-brand/10"
-            >
-              Sign In
-            </Button>
+          <div className="flex items-center gap-3">
             <Button
               onClick={() => navigate("/user/auth?mode=signup")}
-              className="bg-brand hover:bg-brand/90 text-white shadow-elegant"
+              size="lg"
+              className="bg-white text-orange-600 hover:bg-white/90 shadow-elegant px-6"
             >
-              Sign Up
+              Get Started
             </Button>
           </div>
         </div>
@@ -301,18 +295,19 @@ const Index = () => {
             Join thousands of individuals, businesses and resellers who trust NetPay for their everyday payments.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
-            <Button
-              onClick={() => navigate("/user/auth?mode=signup")}
-              size="lg"
-              className="bg-white text-brand hover:bg-white/90 h-12 px-8 shadow-elegant"
-            >
+              <Button
+                onClick={() => navigate("/user/auth?mode=signup")}
+                size="lg"
+                className="bg-white text-brand hover:bg-white/90 h-12 px-8 shadow-elegant"
+              >
               Create Your Free Account
             </Button>
             <Button
               onClick={() => navigate("/contact-us")}
               size="lg"
               variant="outline"
-              className="border-white/60 text-white hover:bg-white/10 h-12 px-8"
+              className="border-white/0 text-white/70 bg-white/10 hover:bg-white/20 cursor-not-allowed h-12 px-8"
+              disabled
             >
               Talk To Sales
             </Button>
