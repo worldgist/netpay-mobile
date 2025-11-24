@@ -24,6 +24,7 @@ export default function ReferralScreen() {
   const insets = useSafeAreaInsets();
   const [referralCode, setReferralCode] = useState('');
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
@@ -76,9 +77,18 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
         }
 
         const userId = session.user.id;
-        const generatedCode = `REF-${userId.slice(0, 8).toUpperCase()}`;
+        
+        // Fetch user's referral code from profile
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('referral_code')
+          .eq('id', userId)
+          .single();
+        
+        // Use existing referral code or generate one from user ID
+        const code = profile?.referral_code || `REF-${userId.slice(0, 8).toUpperCase()}`;
         if (isMounted.current) {
-          setReferralCode(generatedCode);
+          setReferralCode(code);
         }
 
         const { data: referralRows, error: referralError } = await supabase
@@ -178,7 +188,7 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
   }, [fetchReferralData]);
 
 const referralLink = useMemo(
-  () => (referralCode ? `https://netpayy.ng/signup?ref=${encodeURIComponent(referralCode)}` : ''),
+  () => (referralCode ? `https://netpayy.ng/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}` : ''),
   [referralCode]
 );
 
@@ -218,16 +228,24 @@ const handleCopyCode = async () => {
   setTimeout(() => setCopied(false), 2000);
 };
 
+const handleCopyLink = async () => {
+  if (!referralLink) return;
+  await Clipboard.setStringAsync(referralLink);
+  setLinkCopied(true);
+  setTimeout(() => setLinkCopied(false), 2000);
+};
+
 const handleShareLink = () => {
   if (!referralCode) return;
 
-  const message = isReferralLinkReachable
-    ? `Use my NetPay referral code ${referralCode} to sign up and earn rewards! ${referralLink}`
+  const message = referralLink
+    ? `Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${referralLink}`
     : `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Visit netpayy.ng and enter the code during signup.`;
 
   Share.share({
     message,
     title: 'Invite to NetPay',
+    url: referralLink || undefined,
   }).catch((error) => {
     console.error('Failed to share referral link:', error);
     Alert.alert('Referral', 'Unable to share right now. Please try again.');
@@ -286,6 +304,16 @@ const handleShareLink = () => {
             <ThemedText style={styles.referralCode} numberOfLines={1} adjustsFontSizeToFit>{referralCode || 'Generating...'}</ThemedText>
             <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode} disabled={!referralCode}>
               <MaterialIcons name={copied ? "check" : "content-copy"} size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <ThemedText style={styles.referralCardSubtitle}>Referral Link</ThemedText>
+          <View style={styles.codeContainer}>
+            <ThemedText style={[styles.referralCode, { fontSize: 14 }]} numberOfLines={2} adjustsFontSizeToFit>
+              {referralLink || 'Generating...'}
+            </ThemedText>
+            <TouchableOpacity style={styles.copyButton} onPress={handleCopyLink} disabled={!referralLink}>
+              <MaterialIcons name={linkCopied ? "check" : "link"} size={20} color="#fff" />
             </TouchableOpacity>
           </View>
 

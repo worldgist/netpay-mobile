@@ -224,6 +224,23 @@ const PurchaseCableTv = () => {
     // Clear previous validation when card number changes
     setValidatedCustomer(null);
     setValidationError(null);
+    setShowWrongCardModal(false);
+
+    // Client-side validation: Check for obviously invalid card numbers
+    if (cardNumber && cardNumber.length > 0) {
+      // Check if card number is too short (less than 10 digits)
+      const digitsOnly = cardNumber.replace(/\D/g, '');
+      if (digitsOnly.length > 0 && digitsOnly.length < 10) {
+        // Don't show modal for incomplete numbers, just return
+        return;
+      }
+      
+      // Check if card number contains only non-numeric characters (after removing spaces/dashes)
+      if (digitsOnly.length === 0 && cardNumber.trim().length > 0) {
+        setShowWrongCardModal(true);
+        return;
+      }
+    }
 
     // Only validate if card number is 10+ digits and provider is selected
     if (!cardNumber || cardNumber.length < 10 || !selectedProvider) {
@@ -255,25 +272,32 @@ const PurchaseCableTv = () => {
       // Check if there's an error or unsuccessful response
       if (error || !data?.success) {
         // Use the error message from the edge function response if available
-        const errorMessage = data?.error || 'Invalid card number. Please check and try again.';
+        const errorMessage = data?.error || error?.message || 'Invalid card number. Please check and try again.';
         const errorType = data?.errorType || '';
         
         // Check if it's an invalid card number error
+        const errorLower = errorMessage.toLowerCase();
         const isInvalidCard = errorType === 'invalid_card' ||
-                             errorMessage.toLowerCase().includes('invalid') || 
-                             errorMessage.toLowerCase().includes('card number') ||
-                             errorMessage.toLowerCase().includes('smart card') ||
-                             errorMessage.toLowerCase().includes('customer not found') ||
-                             errorMessage.toLowerCase().includes('not found') ||
-                             errorMessage.toLowerCase().includes('wrong');
+                             errorType === 'INVALID_CARD' ||
+                             errorLower.includes('invalid') || 
+                             errorLower.includes('card number') ||
+                             errorLower.includes('smart card') ||
+                             errorLower.includes('customer not found') ||
+                             errorLower.includes('not found') ||
+                             errorLower.includes('wrong') ||
+                             errorLower.includes('incorrect') ||
+                             errorLower.includes('does not exist') ||
+                             errorLower.includes('unable to verify') ||
+                             errorLower.includes('verification failed');
         
         if (isInvalidCard) {
           // Show wrong card modal
           setShowWrongCardModal(true);
           setValidatedCustomer(null);
           setCustomerName('');
+          setValidationError(null);
         } else {
-          // Show inline error for other issues
+          // Show inline error for other issues (network, server errors, etc.)
           const friendlyMessage = error.message?.includes('non-2xx status code') 
             ? "Could not verify card number. Please try again."
             : errorMessage || "Could not verify card number";
@@ -290,18 +314,24 @@ const PurchaseCableTv = () => {
 
     } catch (error: any) {
       // Check if it's an invalid card error
-      const errorMessage = error.message || "Could not verify card number";
-      const isInvalidCard = errorMessage.toLowerCase().includes('invalid') || 
-                           errorMessage.toLowerCase().includes('card number') ||
-                           errorMessage.toLowerCase().includes('smart card') ||
-                           errorMessage.toLowerCase().includes('customer not found') ||
-                           errorMessage.toLowerCase().includes('not found') ||
-                           errorMessage.toLowerCase().includes('wrong');
+      const errorMessage = error.message || error?.data?.error || "Could not verify card number";
+      const errorLower = errorMessage.toLowerCase();
+      const isInvalidCard = errorLower.includes('invalid') || 
+                           errorLower.includes('card number') ||
+                           errorLower.includes('smart card') ||
+                           errorLower.includes('customer not found') ||
+                           errorLower.includes('not found') ||
+                           errorLower.includes('wrong') ||
+                           errorLower.includes('incorrect') ||
+                           errorLower.includes('does not exist') ||
+                           errorLower.includes('unable to verify') ||
+                           errorLower.includes('verification failed');
       
       if (isInvalidCard) {
         setShowWrongCardModal(true);
         setValidatedCustomer(null);
         setCustomerName('');
+        setValidationError(null);
       } else {
         const friendlyMessage = errorMessage.includes('non-2xx status code') 
           ? "Could not verify card number. Please try again."
@@ -765,42 +795,64 @@ const PurchaseCableTv = () => {
       <Dialog open={showWrongCardModal} onOpenChange={setShowWrongCardModal}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-center text-xl font-bold text-orange-600 dark:text-orange-500">
-              Wrong Card Number
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-orange-100 dark:bg-orange-900/30 p-4">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-16 w-16 text-orange-600 dark:text-orange-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+            </div>
+            <DialogTitle className="text-center text-2xl font-bold text-orange-600 dark:text-orange-500">
+              Invalid Smart Card Number
             </DialogTitle>
-            <DialogDescription className="text-center">
-              The smart card number you entered is incorrect. Please check the number and try again.
+            <DialogDescription className="text-center text-base mt-2">
+              The smart card number you entered is incorrect or invalid. Please check the number on your decoder and try again.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-center py-4">
-            <div className="rounded-full bg-orange-100 dark:bg-orange-900/20 p-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-12 w-12 text-orange-600 dark:text-orange-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
-                />
-              </svg>
+          <div className="space-y-4 py-4">
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+              <p className="text-sm text-orange-800 dark:text-orange-200 font-medium mb-2">Tips:</p>
+              <ul className="text-sm text-orange-700 dark:text-orange-300 space-y-1 list-disc list-inside">
+                <li>Make sure you're entering the correct smart card number</li>
+                <li>Check that the number matches your {selectedProvider} decoder</li>
+                <li>Remove any spaces or special characters</li>
+                <li>The card number should be at least 10 digits long</li>
+              </ul>
             </div>
-          </div>
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowWrongCardModal(false);
-                setCardNumber('');
-              }}
-            >
-              OK
-            </Button>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowWrongCardModal(false);
+                  setCardNumber('');
+                  setValidationError(null);
+                }}
+              >
+                Try Again
+              </Button>
+              <Button
+                className="flex-1 bg-orange-600 hover:bg-orange-700"
+                onClick={() => {
+                  setShowWrongCardModal(false);
+                  setCardNumber('');
+                  setValidationError(null);
+                }}
+              >
+                OK
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

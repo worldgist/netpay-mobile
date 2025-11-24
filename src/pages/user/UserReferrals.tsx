@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Copy, Users, Gift, CheckCircle, Share2, Wallet } from "lucide-react";
+import { ArrowLeft, Copy, Users, Gift, CheckCircle, Share2, Wallet, Link2, MessageCircle, Mail, Facebook, Twitter } from "lucide-react";
 import { toast } from "sonner";
 import BottomNav from "@/components/BottomNav";
 import { formatNaira } from "@/lib/currency";
@@ -44,6 +44,7 @@ export default function UserReferrals() {
   });
   const [loading, setLoading] = useState(true);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [referralLink, setReferralLink] = useState("");
 
   useEffect(() => {
     const checkAuthAndFetch = async () => {
@@ -64,14 +65,17 @@ export default function UserReferrals() {
       // Fetch user's referral code from profile
       const { data: profile } = await supabase
         .from("profiles")
-        .select("id")
+        .select("id, referral_code")
         .eq("id", userId)
         .single();
 
       if (profile) {
-        // Generate referral code from user ID (you can customize this logic)
-        const code = `REF-${userId.slice(0, 8).toUpperCase()}`;
+        // Use existing referral code or generate one from user ID
+        const code = profile.referral_code || `REF-${userId.slice(0, 8).toUpperCase()}`;
         setReferralCode(code);
+        // Set referral link
+        const link = `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(code)}`;
+        setReferralLink(link);
       }
 
       // Fetch user's referrals
@@ -113,24 +117,64 @@ export default function UserReferrals() {
     toast.success("Referral code copied to clipboard!");
   };
 
+  const copyReferralLink = () => {
+    if (referralLink) {
+      navigator.clipboard.writeText(referralLink);
+      toast.success("Referral link copied to clipboard!");
+    } else {
+      const link = `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+      navigator.clipboard.writeText(link);
+      toast.success("Referral link copied to clipboard!");
+    }
+  };
+
   const shareReferral = async () => {
+    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
     const shareData = {
       title: 'Join NetPay',
-      text: `Use my referral code ${referralCode} to sign up and earn rewards!`,
-      url: `${window.location.origin}/user/auth?ref=${referralCode}`,
+      text: `Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${link}`,
+      url: link,
     };
 
     if (navigator.share) {
       try {
         await navigator.share(shareData);
-      } catch (error) {
-        console.error("Error sharing:", error);
+      } catch (error: any) {
+        // User cancelled or error occurred
+        if (error.name !== 'AbortError') {
+          console.error("Error sharing:", error);
+          // Fallback to copy
+          copyReferralLink();
+        }
       }
     } else {
       // Fallback: copy link
-      navigator.clipboard.writeText(shareData.url);
-      toast.success("Referral link copied to clipboard!");
+      copyReferralLink();
     }
+  };
+
+  const shareViaWhatsApp = () => {
+    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const message = encodeURIComponent(`Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${link}`);
+    window.open(`https://wa.me/?text=${message}`, '_blank');
+  };
+
+  const shareViaTwitter = () => {
+    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const text = encodeURIComponent(`Join NetPay using my referral code ${referralCode} and earn rewards!`);
+    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(link)}`, '_blank');
+  };
+
+  const shareViaFacebook = () => {
+    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`, '_blank');
+  };
+
+  const shareViaEmail = () => {
+    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const subject = encodeURIComponent('Join NetPay with my referral code');
+    const body = encodeURIComponent(`Hi!\n\nJoin NetPay using my referral code ${referralCode} and earn rewards!\n\nSign up here: ${link}\n\nThanks!`);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
 
   const handleWithdraw = async () => {
@@ -209,28 +253,95 @@ export default function UserReferrals() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                value={referralCode}
-                readOnly
-                className="bg-white/20 border-white/30 text-white placeholder:text-white/60 font-mono text-lg"
-              />
-              <Button
-                onClick={copyReferralCode}
-                variant="secondary"
-                size="icon"
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-white/80 mb-1 block">Referral Code</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={referralCode}
+                    readOnly
+                    className="bg-white/20 border-white/30 text-white placeholder:text-white/60 font-mono text-lg"
+                  />
+                  <Button
+                    onClick={copyReferralCode}
+                    variant="secondary"
+                    size="icon"
+                    className="bg-white/20 hover:bg-white/30 border-white/30"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm text-white/80 mb-1 block">Referral Link</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`}
+                    readOnly
+                    className="bg-white/20 border-white/30 text-white placeholder:text-white/60 text-sm"
+                  />
+                  <Button
+                    onClick={copyReferralLink}
+                    variant="secondary"
+                    size="icon"
+                    className="bg-white/20 hover:bg-white/30 border-white/30"
+                  >
+                    <Link2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
-            <Button
-              onClick={shareReferral}
-              variant="secondary"
-              className="w-full"
-            >
-              <Share2 className="h-4 w-4 mr-2" />
-              Share Referral Link
-            </Button>
+
+            <div className="space-y-2">
+              <Button
+                onClick={shareReferral}
+                variant="secondary"
+                className="w-full bg-white/20 hover:bg-white/30 border-white/30"
+              >
+                <Share2 className="h-4 w-4 mr-2" />
+                Share via Native Share
+              </Button>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  onClick={shareViaWhatsApp}
+                  variant="secondary"
+                  size="sm"
+                  className="bg-green-500/20 hover:bg-green-500/30 border-green-500/30 text-white"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  WhatsApp
+                </Button>
+                <Button
+                  onClick={shareViaTwitter}
+                  variant="secondary"
+                  size="sm"
+                  className="bg-blue-500/20 hover:bg-blue-500/30 border-blue-500/30 text-white"
+                >
+                  <Twitter className="h-4 w-4 mr-2" />
+                  Twitter
+                </Button>
+                <Button
+                  onClick={shareViaFacebook}
+                  variant="secondary"
+                  size="sm"
+                  className="bg-blue-600/20 hover:bg-blue-600/30 border-blue-600/30 text-white"
+                >
+                  <Facebook className="h-4 w-4 mr-2" />
+                  Facebook
+                </Button>
+                <Button
+                  onClick={shareViaEmail}
+                  variant="secondary"
+                  size="sm"
+                  className="bg-gray-500/20 hover:bg-gray-500/30 border-gray-500/30 text-white"
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Email
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

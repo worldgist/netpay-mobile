@@ -54,6 +54,20 @@ export default function UserAuth() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [referralCode, setReferralCode] = useState("");
 
+  // Read referral code from URL parameters
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    if (refCode) {
+      setReferralCode(decodeURIComponent(refCode));
+      // Switch to signup mode if referral code is present
+      const mode = urlParams.get('mode');
+      if (mode === 'signup' || !mode) {
+        setIsSignUp(true);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
