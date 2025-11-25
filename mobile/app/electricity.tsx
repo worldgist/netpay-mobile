@@ -130,6 +130,8 @@ export default function ElectricityScreen() {
   const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [showVerificationErrorModal, setShowVerificationErrorModal] = useState(false);
+  const [invalidMeterMessage, setInvalidMeterMessage] = useState<string | null>(null);
+  const [showInvalidMeterModal, setShowInvalidMeterModal] = useState(false);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
   const isMounted = useRef(true);
@@ -248,8 +250,25 @@ export default function ElectricityScreen() {
 
       if (!data?.success) {
         const failedMessage = data?.error || data?.details?.message || 'Meter not found.';
-        setVerificationError(failedMessage);
-        setShowVerificationErrorModal(true);
+        
+        // Check if it's an invalid meter number error
+        const isInvalidMeter = 
+          data?.errorType === 'invalid_meter' ||
+          failedMessage.toLowerCase().includes('invalid') ||
+          failedMessage.toLowerCase().includes('meter number') ||
+          failedMessage.toLowerCase().includes('meter not found') ||
+          failedMessage.toLowerCase().includes('customer not found') ||
+          failedMessage.toLowerCase().includes('not found') ||
+          failedMessage.toLowerCase().includes('wrong') ||
+          failedMessage.toLowerCase().includes('incorrect');
+        
+        if (isInvalidMeter) {
+          setInvalidMeterMessage('Wrong meter number. Please check the meter number and try again.');
+          setShowInvalidMeterModal(true);
+        } else {
+          setVerificationError(failedMessage);
+          setShowVerificationErrorModal(true);
+        }
         return;
       }
 
@@ -260,8 +279,25 @@ export default function ElectricityScreen() {
     } catch (error) {
       console.error('Meter verification failed:', error);
       const message = error instanceof Error ? error.message : 'Unable to verify meter at the moment.';
-      setVerificationError(message);
-      setShowVerificationErrorModal(true);
+      
+      // Check if error indicates invalid meter number
+      const errorMessage = message.toLowerCase();
+      const isInvalidMeter = 
+        errorMessage.includes('invalid') ||
+        errorMessage.includes('meter number') ||
+        errorMessage.includes('meter not found') ||
+        errorMessage.includes('customer not found') ||
+        errorMessage.includes('not found') ||
+        errorMessage.includes('wrong') ||
+        errorMessage.includes('incorrect');
+      
+      if (isInvalidMeter) {
+        setInvalidMeterMessage('Wrong meter number. Please check the meter number and try again.');
+        setShowInvalidMeterModal(true);
+      } else {
+        setVerificationError(message);
+        setShowVerificationErrorModal(true);
+      }
       setVerifiedAddress(null);
     } finally {
       setVerificationLoading(false);
@@ -1127,6 +1163,57 @@ export default function ElectricityScreen() {
         />
       )}
 
+      {/* Invalid Meter Number Modal */}
+      <Modal
+        visible={showInvalidMeterModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowInvalidMeterModal(false);
+          setMeterNumber('');
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="bolt" size={64} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Wrong Meter Number</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              {invalidMeterMessage || 'The meter number you entered is incorrect. Please check the number and try again.'}
+            </ThemedText>
+            <View style={styles.modalTipsContainer}>
+              <ThemedText style={styles.modalTipsTitle}>Tips:</ThemedText>
+              <ThemedText style={styles.modalTip}>• Ensure you entered the correct meter number</ThemedText>
+              <ThemedText style={styles.modalTip}>• Check that the meter type (Prepaid/Postpaid) matches</ThemedText>
+              <ThemedText style={styles.modalTip}>• Verify the electricity provider is correct</ThemedText>
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={() => {
+                  setShowInvalidMeterModal(false);
+                  setMeterNumber('');
+                }}
+                activeOpacity={0.8}
+              >
+                <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={() => {
+                  setShowInvalidMeterModal(false);
+                  setMeterNumber('');
+                }}
+                activeOpacity={0.8}
+              >
+                <ThemedText style={styles.modalSecondaryButtonText}>OK</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         animationType="slide"
         transparent
@@ -1452,6 +1539,87 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalIconContainer: {
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FF7F00',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  modalTipsContainer: {
+    width: '100%',
+    backgroundColor: '#FFF5E6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  modalTipsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF7F00',
+    marginBottom: 8,
+  },
+  modalTip: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  modalButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalSecondaryButton: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  modalSecondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '500',
   },
   modalActions: {
     width: '100%',
