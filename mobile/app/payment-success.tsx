@@ -5,7 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { sendPushNotification } from '@/utils/push-notifications';
+import { sendTransactionNotification } from '@/utils/push-notifications';
 import { TransactionStorage, generateTransactionId, generateReference } from '@/utils/transactionStorage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -82,27 +82,18 @@ export default function PaymentSuccessScreen() {
 
     const notify = async () => {
       try {
-        const { data } = await supabase.auth.getSession();
-        const userId = data.session?.user.id;
-        if (!userId) return;
-
-        const amountValue = Number(amount);
-        const formattedAmount = Number.isFinite(amountValue) ? amountValue.toFixed(2) : amount;
-        const title = 'Payment Successful';
-        const bodyParts = [`₦${formattedAmount}`];
-        if (serviceType) bodyParts.push(serviceType);
-        bodyParts.push('completed');
-
-        await sendPushNotification({
-          user_id: userId,
-          title,
-          body: bodyParts.join(' '),
-          data: {
-            amount,
-            network,
-            serviceType,
-            recipient,
-            token,
+        await sendTransactionNotification({
+          amount: parseFloat(amount) || 0,
+          serviceType: serviceType || undefined,
+          network: network || undefined,
+          recipient: recipient || undefined,
+          reference: transactionReference,
+          transactionType: 'purchase',
+          metadata: {
+            token: token || undefined,
+            meterType: meterType || undefined,
+            customerName: customerName || undefined,
+            pins: pins.length > 0 ? pins : undefined,
           },
         });
       } catch (error) {
@@ -112,7 +103,7 @@ export default function PaymentSuccessScreen() {
 
     pushSentRef.current = true;
     notify();
-  }, [amount, network, recipient, serviceType, token]);
+  }, [amount, network, recipient, serviceType, token, meterType, customerName, transactionReference, pins]);
 
   const handleDone = () => {
     // Navigate back to home or pay bills

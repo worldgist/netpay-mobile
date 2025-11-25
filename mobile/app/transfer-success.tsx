@@ -3,9 +3,10 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { TransactionStorage, generateTransactionId, generateReference } from '@/utils/transactionStorage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { sendTransactionNotification } from '@/utils/push-notifications';
 
 export default function TransferSuccessScreen() {
   const router = useRouter();
@@ -49,6 +50,34 @@ export default function TransferSuccessScreen() {
 
     saveTransaction();
   }, [amount, recipientEmail, description, recipientName, transactionReference]);
+
+  // Send push notification
+  const notificationSentRef = useRef(false);
+  useEffect(() => {
+    if (notificationSentRef.current) return;
+
+    const notify = async () => {
+      try {
+        await sendTransactionNotification({
+          amount: parseFloat(amount) || 0,
+          serviceType: 'Money Transfer',
+          recipient: recipientName || recipientEmail || '',
+          reference: transactionReference,
+          transactionType: 'transfer',
+          metadata: {
+            description: description || '',
+            recipientEmail,
+            recipientName,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send transfer notification:', error);
+      }
+    };
+
+    notificationSentRef.current = true;
+    notify();
+  }, [amount, recipientEmail, recipientName, description, transactionReference]);
 
   const handleDone = () => {
     // Navigate back to home
