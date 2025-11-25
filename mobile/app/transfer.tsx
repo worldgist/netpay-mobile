@@ -6,6 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
+import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { supabase } from '@/lib/supabase';
 
 export default function TransferScreen() {
@@ -23,6 +24,7 @@ export default function TransferScreen() {
   const [error, setError] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [verificationSuccess, setVerificationSuccess] = useState(false);
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   const amountValue = useMemo(() => parseFloat(amount) || 0, [amount]);
   const canTransfer = !!recipientDetails && amountValue > 0 && amountValue <= balance && !transferLoading;
@@ -157,7 +159,7 @@ export default function TransferScreen() {
     }
 
     if (amountValue > balance) {
-      Alert.alert('Insufficient Balance', 'Your wallet balance is insufficient for this transfer.');
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -398,6 +400,14 @@ export default function TransferScreen() {
         recipientEmail={recipientDetails?.email || recipientEmail}
         description={description.trim() || undefined}
         loading={transferLoading}
+      />
+
+      {/* Insufficient Balance Modal */}
+      <InsufficientBalanceModal
+        visible={showInsufficientBalance}
+        onClose={() => setShowInsufficientBalance(false)}
+        currentBalance={balance}
+        requiredAmount={amountValue}
       />
 
       <Modal

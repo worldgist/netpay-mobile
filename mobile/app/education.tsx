@@ -6,6 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -46,6 +47,7 @@ export default function EducationScreen() {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
   const [balance, setBalance] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -313,7 +315,7 @@ export default function EducationScreen() {
       return;
     }
     if (purchaseAmount > balance) {
-      Alert.alert('Insufficient Balance', `Your wallet balance is ${formatCurrency(balance)}. Please fund your wallet to continue.`);
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -576,6 +578,14 @@ export default function EducationScreen() {
           serviceType={`Education • ${selectedService.examType}`}
         />
       )}
+
+      {/* Insufficient Balance Modal */}
+      <InsufficientBalanceModal
+        visible={showInsufficientBalance}
+        onClose={() => setShowInsufficientBalance(false)}
+        currentBalance={balance}
+        requiredAmount={selectedService?.price}
+      />
     </ThemedView>
   );
 }

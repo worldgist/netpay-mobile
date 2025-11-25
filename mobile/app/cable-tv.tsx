@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { Image, ImageSource } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { supabase } from '@/lib/supabase';
 
 const PROVIDER_LOGOS: Record<string, ImageSource<any>> = {
@@ -47,6 +48,7 @@ export default function CableTVScreen() {
   const [showServiceUnavailableModal, setShowServiceUnavailableModal] = useState(false);
   const [showInvalidCardModal, setShowInvalidCardModal] = useState(false);
   const [invalidCardMessage, setInvalidCardMessage] = useState('');
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   useEffect(() => {
     isMounted.current = true;
@@ -260,7 +262,7 @@ export default function CableTVScreen() {
       return;
     }
     if (selectedPlan.price > availableBalance) {
-      Alert.alert('Error', 'Insufficient balance');
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -499,6 +501,14 @@ export default function CableTVScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Insufficient Balance Modal */}
+      <InsufficientBalanceModal
+        visible={showInsufficientBalance}
+        onClose={() => setShowInsufficientBalance(false)}
+        currentBalance={balance || 0}
+        requiredAmount={selectedPlan?.price}
+      />
     </ThemedView>
   );
 }

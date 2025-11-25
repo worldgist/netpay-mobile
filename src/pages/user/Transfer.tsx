@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Mail, User, DollarSign, CheckCircle, AlertCircle, Send, X } from "lucide-react";
 import { toast } from "sonner";
+import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 
 export default function Transfer() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function Transfer() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [transferData, setTransferData] = useState<any>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -95,7 +97,7 @@ export default function Transfer() {
     }
 
     if (Number(amount) > currentBalance) {
-      toast.error("Insufficient balance");
+      setShowInsufficientBalance(true);
       return;
     }
 
@@ -442,6 +444,14 @@ export default function Transfer() {
           </div>
         </div>
       )}
+
+      {/* Insufficient Balance Modal */}
+      <InsufficientBalanceModal
+        open={showInsufficientBalance}
+        onOpenChange={setShowInsufficientBalance}
+        currentBalance={currentBalance}
+        requiredAmount={Number(amount) || undefined}
+      />
     </div>
   );
 }
