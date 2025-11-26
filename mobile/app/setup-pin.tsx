@@ -142,7 +142,7 @@ export default function SetupPinScreen() {
           <TextInput
             key={`${label}-${index}`}
             ref={(ref) => (refs[index] = ref)}
-            style={styles.pinInput}
+            style={[styles.pinInput, index === array.length - 1 && styles.lastPinInput]}
             value={digit}
             onChangeText={(value) => handlePinChange(value, index, type)}
             onKeyPress={({ nativeEvent }) => {
@@ -167,8 +167,10 @@ export default function SetupPinScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <ThemedView style={styles.card}>
           <View style={styles.header}>
-            <ThemedText style={styles.title}>Set Up Your PIN</ThemedText>
-            <ThemedText style={styles.subtitle}>
+            <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+              Set Up Your PIN
+            </ThemedText>
+            <ThemedText style={styles.subtitle} numberOfLines={3} ellipsizeMode="tail">
               Create a secure 4-digit PIN that you will use to authorize transactions and log in with your PIN.
             </ThemedText>
           </View>
@@ -233,8 +235,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     alignSelf: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 48,
+    paddingHorizontal: Platform.OS === 'ios' ? 24 : 32,
+    paddingTop: Platform.OS === 'ios' ? 56 : 48,
+    paddingBottom: 48,
     backgroundColor: '#fff',
     borderRadius: 20,
     shadowColor: '#000',
@@ -246,19 +249,33 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 32,
+    paddingHorizontal: 4,
+    width: '100%',
+    paddingTop: Platform.OS === 'ios' ? 12 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   title: {
-    fontSize: 28,
+    fontSize: Platform.OS === 'ios' ? 28 : 32,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
     textAlign: 'center',
+    includeFontPadding: true,
+    width: '100%',
+    flexShrink: 1,
+    paddingHorizontal: 4,
+    paddingTop: Platform.OS === 'ios' ? 8 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 0,
+    lineHeight: Platform.OS === 'ios' ? 38 : 40,
+    overflow: 'visible',
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
     lineHeight: 22,
+    width: '100%',
+    paddingHorizontal: 4,
   },
   section: {
     marginBottom: 32,
@@ -273,18 +290,27 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: Platform.OS === 'ios' ? 4 : 0,
   },
   pinInput: {
-    width: 56,
+    flex: 1,
+    minWidth: 0,
     height: 60,
     borderRadius: 12,
     backgroundColor: '#F5F5F5',
     borderWidth: 1,
     borderColor: '#E0E0E0',
     textAlign: 'center',
-    fontSize: 22,
+    fontSize: Platform.OS === 'ios' ? 20 : 22,
     fontWeight: '600',
     color: '#333',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    marginRight: Platform.OS === 'ios' ? 6 : 8,
+  },
+  lastPinInput: {
+    marginRight: 0,
   },
   continueButton: {
     backgroundColor: '#FF7F00',
@@ -321,11 +347,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+    paddingTop: Platform.OS === 'ios' ? 4 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   iconTick: {
     fontSize: 42,
     color: '#fff',
     fontWeight: 'bold',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    lineHeight: Platform.OS === 'ios' ? 50 : 42,
   },
   modalTitle: {
     fontSize: 22,

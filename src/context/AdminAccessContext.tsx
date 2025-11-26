@@ -96,13 +96,19 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
     try {
       await ensureProfileExists(currentSession.user);
 
+      // Query user_roles with proper error handling for 406 errors
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", currentSession.user.id);
 
       if (error) {
-        console.warn("AdminAccess: unable to load user_roles", error);
+        // Handle 406 Not Acceptable errors gracefully
+        if (error.code === '406' || error.message?.includes('406')) {
+          console.warn("AdminAccess: 406 error loading user_roles (likely Accept header issue), continuing with metadata roles only", error);
+        } else {
+          console.warn("AdminAccess: unable to load user_roles", error);
+        }
       }
 
       const dbRoles = (data ?? [])

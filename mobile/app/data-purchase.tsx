@@ -9,7 +9,6 @@ import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { supabase } from '@/lib/supabase';
-import { validateNigerianPhoneNumber } from '@/utils/phone';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -516,13 +515,14 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       return;
     }
 
-    const validation = validateNigerianPhoneNumber(phoneNumber, selectedNetwork);
-    if (!validation.isMatch || validation.message) {
-      Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
+    // Basic phone number normalization (remove spaces, format)
+    const normalizedPhone = phoneNumber.trim().replace(/\s+/g, '');
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      Alert.alert('Error', 'Please enter a valid phone number');
       return;
     }
 
-    const normalizedPhone = validation.normalized;
+    // Update phone number if it was normalized
     if (normalizedPhone !== phoneNumber) {
       setPhoneNumber(normalizedPhone);
     }
@@ -644,15 +644,13 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
     setShowConfirmModal(false);
 
     try {
-      const validation = validateNigerianPhoneNumber(phoneNumber, selectedNetwork);
-      if (!validation.isMatch || validation.message) {
-        console.warn('[ConfirmPayment] Phone validation failed', validation);
-        Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
+      // Basic phone number normalization (remove spaces, format)
+      const effectivePhone = phoneNumber.trim().replace(/\s+/g, '');
+      if (!effectivePhone || effectivePhone.length < 10) {
+        Alert.alert('Error', 'Please enter a valid phone number');
         setIsProcessing(false);
         return;
       }
-
-      const effectivePhone = validation.normalized;
       const effectivePlanId =
         typeof selectedPlan.id === 'string'
           ? selectedPlan.id.trim()

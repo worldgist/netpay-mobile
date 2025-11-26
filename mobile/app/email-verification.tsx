@@ -142,8 +142,10 @@ export default function EmailVerificationScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <ThemedView style={styles.card}>
           <View style={styles.header}>
-            <ThemedText style={styles.title}>Verify Your Email</ThemedText>
-            <ThemedText style={styles.subtitle}>
+            <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+              Verify Your Email
+            </ThemedText>
+            <ThemedText style={styles.subtitle} numberOfLines={3} ellipsizeMode="tail">
               {email
                 ? `Enter the ${CODE_LENGTH}-digit verification code we sent to ${email}.`
                 : `Enter the ${CODE_LENGTH}-digit verification code we sent to your email address.`}
@@ -152,23 +154,24 @@ export default function EmailVerificationScreen() {
 
           <View style={styles.codeContainer}>
             {token.map((digit, index) => (
-              <TextInput
-                key={index}
-                ref={(ref) => (inputRefs.current[index] = ref)}
-                style={styles.codeInput}
-                value={digit}
-                onChangeText={(value) => handleTokenChange(value, index)}
-                onKeyPress={({ nativeEvent }) => {
-                  if (nativeEvent.key === 'Backspace') {
-                    handleBackspace(index);
-                  }
-                }}
-                keyboardType="number-pad"
-                maxLength={1}
-                returnKeyType="next"
-                textContentType="oneTimeCode"
-                selectTextOnFocus
-              />
+              <View key={index} style={[styles.codeInputWrapper, index === token.length - 1 && styles.lastInputWrapper]}>
+                <TextInput
+                  ref={(ref) => (inputRefs.current[index] = ref)}
+                  style={styles.codeInput}
+                  value={digit}
+                  onChangeText={(value) => handleTokenChange(value, index)}
+                  onKeyPress={({ nativeEvent }) => {
+                    if (nativeEvent.key === 'Backspace') {
+                      handleBackspace(index);
+                    }
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  returnKeyType="next"
+                  textContentType="oneTimeCode"
+                  selectTextOnFocus
+                />
+              </View>
             ))}
           </View>
 
@@ -231,8 +234,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     alignSelf: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 48,
+    paddingHorizontal: Platform.OS === 'ios' ? 20 : 32,
+    paddingTop: Platform.OS === 'ios' ? 56 : 48,
+    paddingBottom: 48,
     backgroundColor: '#fff',
     borderRadius: 20,
     shadowColor: '#000',
@@ -244,36 +248,66 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 32,
+    paddingHorizontal: 4,
+    width: '100%',
+    paddingTop: Platform.OS === 'ios' ? 12 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   title: {
-    fontSize: 28,
+    fontSize: Platform.OS === 'ios' ? 28 : 32,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
     textAlign: 'center',
+    includeFontPadding: true,
+    width: '100%',
+    flexShrink: 1,
+    paddingHorizontal: 4,
+    paddingTop: Platform.OS === 'ios' ? 8 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 0,
+    lineHeight: Platform.OS === 'ios' ? 38 : 40,
+    overflow: 'visible',
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
     lineHeight: 22,
+    width: '100%',
+    paddingHorizontal: 4,
   },
   codeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 32,
+    paddingHorizontal: 0,
+    width: '100%',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+  },
+  codeInputWrapper: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: Platform.OS === 'ios' ? 3 : 6,
+  },
+  lastInputWrapper: {
+    marginRight: 0,
   },
   codeInput: {
-    width: 48,
+    width: '100%',
     height: 56,
     borderRadius: 12,
     backgroundColor: '#F5F5F5',
     borderWidth: 1,
     borderColor: '#E0E0E0',
     textAlign: 'center',
-    fontSize: 20,
+    fontSize: Platform.OS === 'ios' ? 18 : 20,
     fontWeight: '600',
     color: '#333',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    paddingVertical: 0,
+    paddingHorizontal: 0,
   },
   verifyButton: {
     backgroundColor: '#FF7F00',
@@ -319,11 +353,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+    paddingTop: Platform.OS === 'ios' ? 4 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   iconTick: {
     fontSize: 42,
     color: '#fff',
     fontWeight: 'bold',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    lineHeight: Platform.OS === 'ios' ? 50 : 42,
   },
   modalTitle: {
     fontSize: 22,

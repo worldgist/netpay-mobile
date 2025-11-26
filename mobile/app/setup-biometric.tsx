@@ -93,8 +93,10 @@ export default function SetupBiometricScreen() {
             <MaterialIcons name="fingerprint" size={42} color="#FF7F00" />
           </View>
 
-          <ThemedText style={styles.title}>Enable Biometric Login</ThemedText>
-          <ThemedText style={styles.subtitle}>
+          <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+            Enable Biometric Login
+          </ThemedText>
+          <ThemedText style={styles.subtitle} numberOfLines={3} ellipsizeMode="tail">
             Use your fingerprint or face ID for quick and secure access to your NetPay account.
           </ThemedText>
 
@@ -122,7 +124,11 @@ export default function SetupBiometricScreen() {
           </View>
 
           <TouchableOpacity style={styles.enableButton} onPress={handleEnableBiometric}>
-            <ThemedText style={styles.enableButtonText}>Enable Biometric Login</ThemedText>
+            <View style={styles.buttonTextContainer}>
+              <ThemedText style={styles.enableButtonText} numberOfLines={1}>
+                Enable Biometric Login
+              </ThemedText>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
@@ -137,7 +143,9 @@ export default function SetupBiometricScreen() {
             <View style={styles.successIconCircle}>
               <MaterialIcons name="fingerprint" size={40} color="#fff" />
             </View>
-            <ThemedText style={styles.modalTitle}>Biometric Enabled</ThemedText>
+            <ThemedText style={styles.modalTitle} numberOfLines={2} ellipsizeMode="tail">
+              Biometric Enabled
+            </ThemedText>
             <ThemedText style={styles.modalMessage}>
               You can now use biometric authentication the next time you log in.
             </ThemedText>
@@ -166,8 +174,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     alignSelf: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 48,
+    paddingHorizontal: Platform.OS === 'ios' ? 24 : 32,
+    paddingTop: Platform.OS === 'ios' ? 56 : 48,
+    paddingBottom: 48,
     backgroundColor: '#fff',
     borderRadius: 20,
     shadowColor: '#000',
@@ -187,13 +196,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 28,
+    paddingTop: Platform.OS === 'ios' ? 4 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   title: {
-    fontSize: 28,
+    fontSize: Platform.OS === 'ios' ? 28 : 32,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
     textAlign: 'center',
+    includeFontPadding: true,
+    width: '100%',
+    flexShrink: 1,
+    paddingHorizontal: 4,
+    paddingTop: Platform.OS === 'ios' ? 8 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 0,
+    lineHeight: Platform.OS === 'ios' ? 38 : 40,
+    overflow: 'visible',
   },
   subtitle: {
     fontSize: 16,
@@ -201,6 +220,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 28,
+    width: '100%',
+    paddingHorizontal: 4,
   },
   benefitsList: {
     width: '100%',
@@ -221,16 +242,25 @@ const styles = StyleSheet.create({
   enableButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
-    height: 56,
+    minHeight: 56,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
     marginBottom: 16,
   },
+  buttonTextContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   enableButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   skipButton: {
     alignItems: 'center',
@@ -266,11 +296,16 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: Platform.OS === 'ios' ? 20 : 22,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
     textAlign: 'center',
+    includeFontPadding: true,
+    paddingTop: Platform.OS === 'ios' ? 4 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
+    lineHeight: Platform.OS === 'ios' ? 28 : 30,
+    overflow: 'visible',
   },
   modalMessage: {
     fontSize: 16,

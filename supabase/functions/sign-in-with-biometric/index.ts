@@ -36,38 +36,63 @@ serve(async (req) => {
     const body = await req.json();
     const email = normalizeEmail(body?.email);
 
+    console.log("Biometric sign-in request received:", { email: email || body?.email, bodyKeys: Object.keys(body || {}) });
+
     if (!email) {
+      console.error("Invalid email provided:", body?.email);
       return new Response(
         JSON.stringify({ success: false, error: "Valid email is required." }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 
+    console.log("Looking up profile for email:", email);
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, biometric_enabled")
+      .select("id, biometric_enabled, email")
       .ilike("email", email)
       .maybeSingle();
 
     if (profileError) {
+      console.error("Error fetching profile:", profileError);
       throw profileError;
     }
 
-    if (!profile || !profile.biometric_enabled) {
+    console.log("Profile lookup result:", { 
+      found: !!profile, 
+      id: profile?.id, 
+      biometric_enabled: profile?.biometric_enabled,
+      email: profile?.email 
+    });
+
+    if (!profile) {
+      console.error("Profile not found for email:", email);
       return new Response(
-        JSON.stringify({ success: false, error: "Biometric login is not enabled for this account." }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        JSON.stringify({ success: false, error: "Account not found. Please sign up first." }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 
+    if (!profile.biometric_enabled) {
+      console.error("Biometric login not enabled for user:", profile.id);
+      return new Response(
+        JSON.stringify({ success: false, error: "Biometric login is not enabled for this account. Please enable it in your profile settings." }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
+
+    console.log("Generating magic link for email:", email);
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email,
     });
 
     if (linkError) {
+      console.error("Error generating magic link:", linkError);
       throw linkError;
     }
+
+    console.log("Magic link generated successfully");
 
     const actionLink =
       (linkData as any)?.properties?.action_link ||
@@ -115,12 +140,25 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("sign-in-with-biometric error:", error);
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : typeof error === 'string' 
+        ? error 
+        : "Unexpected error occurred during biometric authentication";
+    
+    console.error("Error details:", {
+      message: errorMessage,
+      type: error?.constructor?.name,
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    // Always return 200 status so client can read the error message
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : "Unexpected error",
+        error: errorMessage,
       }),
-      { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
     );
   }
 });

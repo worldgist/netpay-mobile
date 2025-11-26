@@ -37,9 +37,7 @@ import { toast } from "sonner";
 
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "MobileNig API", url: "/mobilenig", icon: Globe },
   { title: "SMEPLUG API", url: "/smeplug", icon: Globe },
-  { title: "PayVessel API", url: "/payvessel", icon: Globe },
   { title: "Transactions", url: "/transactions", icon: CreditCard },
   { title: "Airtime", url: "/airtime", icon: Smartphone },
   { title: "Data Plans", url: "/data-plans", icon: Wifi },

@@ -153,7 +153,7 @@ serve(async (req) => {
         supabase,
         userId: sender.id,
         amount: transferFee,
-        transactionType: "debit",
+        transactionType: "transfer_fee",
         description: `Transfer fee for transfer to ${recipientProfile.email}`,
         reference: feeReference,
         performedBy: sender.id,

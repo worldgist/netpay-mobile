@@ -235,7 +235,7 @@ export default function TransferScreen() {
           recipientName: data.data?.recipientName || '',
           reference: data.data?.reference || '',
           description: transferDescription,
-          transferFee: data.data?.transferFee?.toString() || TRANSFER_FEE.toString(),
+          transferFee: data.data?.transferFee?.toString() || transferFee.toString(),
           totalAmount: data.data?.totalAmount?.toString() || totalAmount.toString(),
         },
       });

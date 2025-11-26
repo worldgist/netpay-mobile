@@ -75,6 +75,13 @@ export default function MobileNig() {
           : undefined,
       });
 
+      // Check if we have data with error info first
+      if (data && !data.success) {
+        const errorMessage = data.error || data.message || 'Failed to fetch MobileNig data';
+        console.error('MobileNig API returned error:', data);
+        throw new Error(errorMessage);
+      }
+
       if (error) {
         // Try to extract error message from error object
         let errorMessage = error.message || 'Failed to fetch MobileNig balance';
@@ -86,14 +93,10 @@ export default function MobileNig() {
               ? JSON.parse(error.context.body) 
               : error.context.body;
             errorMessage = errorBody.error || errorBody.message || errorMessage;
+            console.error('Error from function response:', errorBody);
           } catch (e) {
             console.error('Failed to parse error body:', e);
           }
-        }
-        
-        // If we have data even with an error, check if it contains error info
-        if (data && !data.success) {
-          errorMessage = data.error || data.message || errorMessage;
         }
         
         throw new Error(errorMessage);

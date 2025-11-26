@@ -32,6 +32,7 @@ export default function AddMoneyScreen() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -235,6 +236,96 @@ export default function AddMoneyScreen() {
   };
 
   const bankDisplayName = selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME;
+
+  const handleCheckBalance = async () => {
+    setIsCheckingBalance(true);
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        throw new Error(`Authentication error: ${sessionError.message || 'Unable to verify session'}`);
+      }
+
+      const session = sessionData.session;
+      if (!session || !session.user) {
+        console.error('No session found');
+        router.replace('/auth/login');
+        return;
+      }
+
+      // Refresh balance
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileError) {
+        console.error('Profile error:', profileError);
+        throw new Error(`Failed to fetch balance: ${profileError.message || 'Unable to load profile'}`);
+      }
+
+      if (!profile) {
+        throw new Error('Profile not found');
+      }
+
+      const newBalance = Number(profile?.balance || 0);
+
+      // Check for recent funding transactions (last 5 minutes)
+      // Don't fail if this query fails - it's just for informational purposes
+      let recentTransactions = null;
+      try {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const { data: transactions, error: transactionsError } = await supabase
+          .from('funding_transactions')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .gte('created_at', fiveMinutesAgo)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (!transactionsError) {
+          recentTransactions = transactions;
+        } else {
+          console.warn('Could not check recent transactions:', transactionsError);
+        }
+      } catch (txError) {
+        console.warn('Error checking recent transactions (non-critical):', txError);
+        // Continue anyway - this is just for showing a message
+      }
+
+      // Navigate to home page immediately
+      router.push('/(tabs)');
+      
+      if (recentTransactions && recentTransactions.length > 0) {
+        Alert.alert(
+          'Payment Received!',
+          `Your wallet has been credited. Current balance: ₦${newBalance.toLocaleString()}`
+        );
+      } else {
+        Alert.alert(
+          'Checking Balance',
+          `Your current balance is ₦${newBalance.toLocaleString()}. If you just transferred, it may take a few moments to reflect.`
+        );
+      }
+    } catch (error) {
+      console.error('Error checking balance:', error);
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : typeof error === 'string' 
+        ? error 
+        : 'Failed to check balance. Please try again.';
+      
+      // Navigate to home page even on error
+      router.push('/(tabs)');
+      Alert.alert(
+        'Error',
+        errorMessage
+      );
+    } finally {
+      setIsCheckingBalance(false);
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -465,8 +556,16 @@ export default function AddMoneyScreen() {
       </ScrollView>
 
       <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.dashboardButton} onPress={() => router.push('/')}>
-          <ThemedText style={styles.dashboardButtonText}>I have added the money</ThemedText>
+        <TouchableOpacity 
+          style={[styles.dashboardButton, isCheckingBalance && styles.dashboardButtonDisabled]} 
+          onPress={handleCheckBalance}
+          disabled={isCheckingBalance}
+        >
+          {isCheckingBalance ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.dashboardButtonText}>I have added the money</ThemedText>
+          )}
         </TouchableOpacity>
       </View>
     </ThemedView>
@@ -821,6 +920,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  dashboardButtonDisabled: {
+    opacity: 0.6,
   },
   dashboardButtonText: {
     fontSize: 16,

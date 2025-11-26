@@ -220,14 +220,45 @@ const DataPlans = () => {
 
       console.log('Session found, checking admin role');
       // Check if user is admin
-      const { data: roles } = await supabase
+      const { data: roles, error: rolesError } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', session.user.id)
         .eq('role', 'admin')
         .maybeSingle();
 
-      if (!roles) {
+      // Handle 406 errors gracefully
+      if (rolesError && (rolesError.code === '406' || rolesError.message?.includes('406'))) {
+        console.warn('406 error checking admin role, trying alternative query:', rolesError);
+        // Try alternative query without maybeSingle
+        const { data: altRoles } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .eq('role', 'admin');
+        
+        if (!altRoles || altRoles.length === 0) {
+          console.log('Not admin, redirecting');
+          setLoading(false);
+          toast({
+            title: "Access Denied",
+            description: "You don't have permission to access this page",
+            variant: "destructive",
+          });
+          navigate('/dashboard');
+          return;
+        }
+      } else if (rolesError) {
+        console.error('Error checking admin role:', rolesError);
+        setLoading(false);
+        toast({
+          title: "Error",
+          description: "Failed to verify admin access",
+          variant: "destructive",
+        });
+        navigate('/dashboard');
+        return;
+      } else if (!roles) {
         console.log('Not admin, redirecting');
         setLoading(false);
         toast({

@@ -114,24 +114,87 @@ export default function LoginScreen() {
         return;
       }
 
-      const { data: pinData, error: pinError } = await supabase.functions.invoke('sign-in-with-biometric', {
-        body: {
-          email: storedEmail,
-        },
-      });
+      // Try using supabase.functions.invoke with better error handling
+      let pinData: any = null;
+      let errorMessage: string | null = null;
+      
+      try {
+        console.log('Calling biometric sign-in function for email:', storedEmail);
+        const response = await supabase.functions.invoke('sign-in-with-biometric', {
+          body: {
+            email: storedEmail,
+          },
+        });
+        
+        console.log('Biometric function response:', {
+          hasData: !!response.data,
+          hasError: !!response.error,
+          dataKeys: response.data ? Object.keys(response.data) : [],
+          errorType: response.error?.constructor?.name,
+        });
+        
+        // Check if there's an error in the response
+        if (response.error) {
+          console.error('Biometric sign-in function error:', {
+            error: response.error,
+            errorType: response.error?.constructor?.name,
+            errorMessage: (response.error as any)?.message,
+            errorDetails: JSON.stringify(response.error, Object.getOwnPropertyNames(response.error)),
+          });
+          
+          // Try to extract error message from error object
+          const errorObj = response.error as any;
+          errorMessage = errorObj?.message 
+            || errorObj?.error 
+            || errorObj?.context?.body?.error
+            || (typeof errorObj === 'string' ? errorObj : null)
+            || 'Authentication failed. Please check your biometric settings and try again.';
+        } else if (response.data) {
+          pinData = response.data;
+          console.log('Biometric function returned data:', {
+            success: pinData?.success,
+            hasToken: !!pinData?.token,
+            otpType: pinData?.otpType,
+          });
+        } else {
+          errorMessage = 'No response from authentication service';
+        }
+      } catch (invokeError) {
+        console.error('Biometric function invoke exception:', {
+          error: invokeError,
+          errorType: invokeError?.constructor?.name,
+          errorMessage: invokeError instanceof Error ? invokeError.message : String(invokeError),
+          errorStack: invokeError instanceof Error ? invokeError.stack : undefined,
+        });
+        
+        // Try to extract error message from various error formats
+        if (invokeError instanceof Error) {
+          errorMessage = invokeError.message || 'Failed to connect to authentication service';
+        } else if (typeof invokeError === 'object' && invokeError !== null) {
+          const errorObj = invokeError as any;
+          errorMessage = errorObj?.message 
+            || errorObj?.error 
+            || errorObj?.context?.body?.error
+            || errorObj?.toString()
+            || 'Failed to connect to authentication service';
+        } else {
+          errorMessage = 'Failed to connect to authentication service';
+        }
+      }
 
-      if (pinError) {
-        throw pinError;
+      if (errorMessage) {
+        Alert.alert('Biometric Login', errorMessage);
+        setBiometricLoading(false);
+        return;
       }
 
       if (!pinData?.success) {
         console.error('Biometric sign-in function responded with error:', pinData);
-        Alert.alert(
-          'Biometric Login',
-          typeof pinData?.error === 'string' && pinData.error.trim().length > 0
-            ? pinData.error
-            : 'Unable to authenticate with biometrics. Please sign in manually.'
-        );
+        const errorMsg = typeof pinData?.error === 'string' && pinData.error.trim().length > 0
+          ? pinData.error
+          : 'Unable to authenticate with biometrics. Please sign in manually.';
+        
+        Alert.alert('Biometric Login', errorMsg);
         setBiometricLoading(false);
         return;
       }

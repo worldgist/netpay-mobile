@@ -9,9 +9,7 @@ import Transactions from "./pages/Transactions";
 import Analytics from "./pages/Analytics";
 import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
-import MobileNig from "./pages/MobileNig";
 import Smeplug from "./pages/Smeplug";
-import PayVessel from "./pages/PayVessel";
 import ElectricityPlans from "./pages/ElectricityPlans";
 import CableTvPlans from "./pages/CableTvPlans";
 import EducationServices from "./pages/EducationServices";
@@ -73,9 +71,7 @@ const App = () => (
         <Route path="/" element={<Index />} />
         <Route path="/auth" element={<Auth />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/mobilenig" element={<MobileNig />} />
         <Route path="/smeplug" element={<Smeplug />} />
-        <Route path="/payvessel" element={<PayVessel />} />
         <Route path="/users" element={<Users />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/analytics" element={<Analytics />} />

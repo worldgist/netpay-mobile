@@ -26,9 +26,17 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const mobilenigPublicKey = Deno.env.get('MOBILENIG_PUBLIC_KEY');
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Supabase configuration missing');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!mobilenigPublicKey) {
       console.error('MOBILENIG_PUBLIC_KEY not configured');
@@ -46,14 +54,13 @@ serve(async (req) => {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
-    });
+    // Initialize Supabase client with service role
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
+    // Verify the user is authenticated by extracting token and verifying with service role
+    const token = authHeader.replace('Bearer ', '');
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !userData?.user) {
       console.error('Authentication error:', userError);
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
@@ -61,22 +68,43 @@ serve(async (req) => {
       );
     }
 
+    const user = userData.user;
+
+    // Check if user has admin role using service role client to avoid RLS issues
     const { data: roleData, error: roleError } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
       .eq('role', 'admin')
-      .maybeSingle();
+      .limit(1);
 
     if (roleError) {
       console.error('Error checking user role:', roleError);
-      return new Response(
-        JSON.stringify({ error: 'Error verifying permissions' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      // Handle 406 errors gracefully
+      if (roleError.code === '406' || roleError.message?.includes('406')) {
+        console.warn('406 error checking role, trying alternative query');
+        // Try without maybeSingle
+        const { data: altRoleData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin');
+        
+        if (!altRoleData || altRoleData.length === 0) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized - Admin access required' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      } else {
+        return new Response(
+          JSON.stringify({ error: 'Error verifying permissions' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
-    if (!roleData) {
+    if (!roleData || roleData.length === 0) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized - Admin access required' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -142,15 +170,44 @@ serve(async (req) => {
         throw new Error('Empty response from MobileNig API');
       }
       data = JSON.parse(responseText);
-      console.log('MobileNig wallet history response:', data);
+      console.log('MobileNig wallet history response:', JSON.stringify(data, null, 2));
     } catch (parseError) {
       console.error('Error parsing MobileNig response:', parseError);
       throw new Error(`Failed to parse MobileNig API response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
     }
 
+    // Validate API response structure according to documentation
+    if (data.statusCode !== "200" || data.message !== "success") {
+      const errorMsg = data.message || `API returned status code ${data.statusCode}`;
+      console.error('MobileNig API error response:', data);
+      throw new Error(`MobileNig API error: ${errorMsg}`);
+    }
+
+    // According to API docs:
+    // - wallet_history returns details as an array
+    // - search_wallet_history returns details as a single object
+    let transactions = [];
+    if (trans_id) {
+      // Search returns a single transaction object
+      if (data.details && typeof data.details === 'object' && !Array.isArray(data.details)) {
+        transactions = [data.details];
+      } else {
+        console.warn('Search response details is not an object:', data.details);
+        transactions = [];
+      }
+    } else {
+      // Wallet history returns an array
+      if (Array.isArray(data.details)) {
+        transactions = data.details;
+      } else {
+        console.warn('Wallet history details is not an array:', data.details);
+        transactions = [];
+      }
+    }
+
     const responseData = {
       success: true,
-      transactions: trans_id ? [data.details] : data.details || [],
+      transactions: transactions,
       message: data.message,
       statusCode: data.statusCode,
     };

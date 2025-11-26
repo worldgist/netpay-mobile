@@ -28,7 +28,8 @@ serve(async (req) => {
       JSON.stringify({ 
         status: 'ok', 
         function: 'payvessel-webhook',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        message: 'Webhook endpoint is active and ready to receive requests'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
@@ -38,16 +39,36 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
   console.log('=== PayVessel Webhook Called ===');
   console.log('Method:', req.method);
   console.log('URL:', req.url);
   console.log('Headers:', Object.fromEntries(req.headers.entries()));
   console.log('Timestamp:', new Date().toISOString());
+  console.log('Start time:', startTime);
 
   try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error('Missing environment variables:', {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!serviceRoleKey
+      });
+      return new Response(
+        JSON.stringify({ 
+          error: 'Server configuration error',
+          message: 'Missing required environment variables'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
+    }
+
+    console.log('Creating Supabase client...');
     const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      supabaseUrl,
+      serviceRoleKey,
       {
         auth: {
           autoRefreshToken: false,
@@ -55,6 +76,39 @@ serve(async (req) => {
         }
       }
     );
+
+    // Test database connection early with timeout
+    console.log('Testing database connection...');
+    try {
+      const connectionTest = supabaseClient.from('profiles').select('id').limit(1);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Database connection timeout')), 10000);
+      });
+      
+      const { error: testError } = await Promise.race([
+        connectionTest,
+        timeoutPromise
+      ]) as any;
+      
+      if (testError && testError.code !== 'PGRST116') { // PGRST116 is "no rows returned" which is fine
+        console.error('Database connection test failed:', testError);
+        throw new Error(`Database connection failed: ${testError.message}`);
+      }
+      console.log('Database connection test passed');
+    } catch (testErr: any) {
+      console.error('Database connection test error:', testErr);
+      if (testErr.message && testErr.message.includes('timeout')) {
+        return new Response(
+          JSON.stringify({ 
+            message: 'Cannot connect to server',
+            error: 'Database connection timeout. Please try again later.'
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 503 }
+        );
+      }
+      // Don't throw here, continue processing - connection might work for actual queries
+      console.warn('Connection test failed but continuing:', testErr.message);
+    }
 
     let payload: any;
     try {
@@ -69,49 +123,113 @@ serve(async (req) => {
 
     console.log('PayVessel webhook received:', JSON.stringify(payload, null, 2));
     console.log('Payload keys:', Object.keys(payload));
+    console.log('Payload structure check:', {
+      hasVirtualAccount: !!payload.virtualAccount,
+      hasOrder: !!payload.order,
+      hasTransaction: !!payload.transaction,
+      hasSender: !!payload.sender,
+      code: payload.code,
+      message: payload.message
+    });
 
     // Verify webhook authenticity (optional but recommended)
     // You can add signature verification here if PayVessel provides it
 
     // Extract payment details from webhook
     // PayVessel might send different payload structures, so we need to handle multiple formats
-    let event_type = payload.event_type || payload.event || payload.type || payload.status;
+    let event_type = payload.event_type || payload.event || payload.type || payload.status || payload.code;
     let data = payload.data || payload;
 
     // If payload is flat (no nested data), use the payload directly
-    if (!payload.data && (payload.account_number || payload.amount)) {
+    if (!payload.data && (payload.account_number || payload.amount || payload.virtualAccount)) {
       data = payload;
     }
 
     console.log('Extracted event_type:', event_type);
     console.log('Extracted data:', JSON.stringify(data, null, 2));
 
-    // Only process successful collections - check multiple possible event types
-    const successfulEvents = [
-      'collection.successful',
-      'successful',
-      'completed',
-      'credit',
-      'transfer.successful',
-      'transaction.successful'
-    ];
-
-    if (event_type && !successfulEvents.includes(event_type.toLowerCase())) {
-      console.log('Ignoring event type:', event_type);
+    // Process webhooks by default - only skip if explicitly marked as failure
+    // This ensures we don't miss any valid webhooks due to unexpected event_type formats
+    // Check code field - "00" typically means success in PayVessel
+    if (payload.code && payload.code !== "00") {
+      console.log('Ignoring webhook with non-success code:', payload.code);
       return new Response(
-        JSON.stringify({ message: `Event ignored: ${event_type}` }),
+        JSON.stringify({ message: `Event ignored (code: ${payload.code})` }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
 
-    // Extract fields with multiple possible names
-    const account_number = data.account_number || data.accountNumber || data.account || data.virtual_account_number;
-    const amount = data.amount || data.credit_amount || data.transaction_amount;
-    const reference = data.reference || data.transaction_reference || data.ref || data.tracking_reference;
-    const sender_name = data.sender_name || data.senderName || data.sender || data.customer_name;
-    const sender_account_number = data.sender_account_number || data.senderAccountNumber || data.sender_account;
-    const sender_bank = data.sender_bank || data.senderBank || data.bank_name || data.bank;
-    const transaction_reference = data.transaction_reference || data.transactionReference || reference;
+    if (event_type) {
+      const normalizedEventType = event_type.toLowerCase().trim();
+      // Only skip if it's explicitly a failure event
+      const failureEvents = ['failed', 'failure', 'error', 'rejected', 'declined', 'cancelled', 'canceled'];
+      if (failureEvents.some(f => normalizedEventType.includes(f))) {
+        console.log('Ignoring failure event type:', event_type);
+        return new Response(
+          JSON.stringify({ message: `Event ignored (failure): ${event_type}` }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
+      console.log('Processing webhook with event_type:', event_type);
+    } else {
+      console.log('No event_type provided, processing webhook (assuming success)');
+    }
+
+    // Extract fields with multiple possible names and nested structures
+    // Handle PayVessel's nested structure: virtualAccount.virtualAccountNumber, order.amount, etc.
+    // Check both data and payload directly since PayVessel sends at root level
+    const account_number = 
+      payload.virtualAccount?.virtualAccountNumber ||
+      data.virtualAccount?.virtualAccountNumber ||
+      data.account_number || 
+      data.accountNumber || 
+      data.account || 
+      data.virtual_account_number;
+    
+    const amount = 
+      payload.order?.amount ||
+      data.order?.amount ||
+      data.amount || 
+      data.credit_amount || 
+      data.transaction_amount;
+    
+    const reference = 
+      payload.transaction?.reference ||
+      data.transaction?.reference ||
+      data.reference || 
+      data.transaction_reference || 
+      data.ref || 
+      data.tracking_reference;
+    
+    const sender_name = 
+      payload.sender?.senderName ||
+      data.sender?.senderName ||
+      data.sender_name || 
+      data.senderName || 
+      data.sender || 
+      data.customer_name;
+    
+    const sender_account_number = 
+      payload.sender?.senderAccountNumber ||
+      data.sender?.senderAccountNumber ||
+      data.sender_account_number || 
+      data.senderAccountNumber || 
+      data.sender_account;
+    
+    const sender_bank = 
+      payload.sender?.senderBankName ||
+      data.sender?.senderBankName ||
+      data.sender_bank || 
+      data.senderBank || 
+      data.bank_name || 
+      data.bank;
+    
+    const transaction_reference = 
+      payload.transaction?.reference ||
+      data.transaction?.reference ||
+      data.transaction_reference || 
+      data.transactionReference || 
+      reference;
 
     console.log(`Processing payment: ${amount} to account ${account_number}`);
     console.log('Extracted fields:', {
@@ -124,37 +242,80 @@ serve(async (req) => {
       sender_bank
     });
 
-    // Validate required fields
+    // Validate required fields with detailed error messages
     if (!account_number) {
       console.error('Missing account_number in webhook payload');
+      console.error('Payload structure:', {
+        hasVirtualAccount: !!payload.virtualAccount,
+        virtualAccountKeys: payload.virtualAccount ? Object.keys(payload.virtualAccount) : [],
+        hasData: !!data,
+        dataKeys: data ? Object.keys(data) : []
+      });
       return new Response(
-        JSON.stringify({ error: 'Missing account_number in webhook payload' }),
+        JSON.stringify({ 
+          error: 'Missing account_number in webhook payload',
+          received: {
+            hasVirtualAccount: !!payload.virtualAccount,
+            virtualAccountNumber: payload.virtualAccount?.virtualAccountNumber
+          }
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
-    if (!amount || amount <= 0) {
-      console.error('Invalid or missing amount in webhook payload:', amount);
+    // Convert amount to number if it's a string
+    const amountValue = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
+    
+    if (!amountValue || amountValue <= 0 || !Number.isFinite(amountValue)) {
+      console.error('Invalid or missing amount in webhook payload:', {
+        rawAmount: amount,
+        parsedAmount: amountValue,
+        hasOrder: !!payload.order,
+        orderAmount: payload.order?.amount,
+        orderKeys: payload.order ? Object.keys(payload.order) : []
+      });
       return new Response(
-        JSON.stringify({ error: 'Invalid or missing amount in webhook payload' }),
+        JSON.stringify({ 
+          error: 'Invalid or missing amount in webhook payload',
+          received: {
+            rawAmount: amount,
+            parsedAmount: amountValue,
+            orderAmount: payload.order?.amount
+          }
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
     // Find the user associated with this virtual account
     // Try exact match first
-    let { data: virtualAccount, error: accountError } = await supabaseClient
-      .from('virtual_accounts')
-      .select('user_id, account_number, account_name, bank_code')
-      .eq('account_number', account_number)
-      .maybeSingle();
+    console.log(`Looking up virtual account for account_number: "${account_number}" (length: ${account_number.length})`);
+    
+    let virtualAccount: any = null;
+    let accountError: any = null;
+    
+    try {
+      const result = await supabaseClient
+        .from('virtual_accounts')
+        .select('user_id, account_number, account_name, bank_code')
+        .eq('account_number', account_number.trim())
+        .maybeSingle();
+      
+      virtualAccount = result.data;
+      accountError = result.error;
+    } catch (dbError) {
+      console.error('Database connection error when fetching virtual account:', dbError);
+      accountError = dbError;
+    }
 
     // If not found, try without leading zeros or with different formatting
     if (!virtualAccount && !accountError) {
       console.log('Account not found with exact match, trying alternative formats...');
+      
       // Try removing leading zeros
-      const accountWithoutZeros = account_number.replace(/^0+/, '');
-      if (accountWithoutZeros !== account_number) {
+      const accountWithoutZeros = account_number.trim().replace(/^0+/, '');
+      if (accountWithoutZeros !== account_number.trim() && accountWithoutZeros.length > 0) {
+        console.log(`Trying account number without leading zeros: "${accountWithoutZeros}"`);
         ({ data: virtualAccount, error: accountError } = await supabaseClient
           .from('virtual_accounts')
           .select('user_id, account_number, account_name, bank_code')
@@ -162,14 +323,28 @@ serve(async (req) => {
           .maybeSingle());
       }
       
-      // Try with leading zeros added
-      if (!virtualAccount && account_number.length < 10) {
-        const accountWithZeros = account_number.padStart(10, '0');
+      // Try with leading zeros added (if account number is shorter than 10 digits)
+      if (!virtualAccount && account_number.trim().length < 10) {
+        const accountWithZeros = account_number.trim().padStart(10, '0');
+        console.log(`Trying account number with leading zeros: "${accountWithZeros}"`);
         ({ data: virtualAccount, error: accountError } = await supabaseClient
           .from('virtual_accounts')
           .select('user_id, account_number, account_name, bank_code')
           .eq('account_number', accountWithZeros)
           .maybeSingle());
+      }
+      
+      // Try with trailing spaces removed
+      if (!virtualAccount) {
+        const accountTrimmed = account_number.trim();
+        if (accountTrimmed !== account_number) {
+          console.log(`Trying trimmed account number: "${accountTrimmed}"`);
+          ({ data: virtualAccount, error: accountError } = await supabaseClient
+            .from('virtual_accounts')
+            .select('user_id, account_number, account_name, bank_code')
+            .eq('account_number', accountTrimmed)
+            .maybeSingle());
+        }
       }
     }
 
@@ -198,16 +373,54 @@ serve(async (req) => {
     console.log(`Found user: ${virtualAccount.user_id}`);
 
     // Check if this transaction has already been processed
-    const { data: existingTransaction } = await supabaseClient
-      .from('funding_transactions')
-      .select('id')
-      .eq('reference', reference || transaction_reference)
-      .maybeSingle();
+    // Check by reference first, then by account_number + amount + timestamp if reference is missing
+    let existingTransaction = null;
+    
+    if (reference || transaction_reference) {
+      const { data: existingByRef } = await supabaseClient
+        .from('funding_transactions')
+        .select('id, reference, amount')
+        .eq('reference', reference || transaction_reference)
+        .maybeSingle();
+      existingTransaction = existingByRef;
+    }
+    
+    // If not found by reference, check by account + amount (within last 24 hours to avoid false positives)
+    // Note: amountValue is already defined above, use it instead of creditAmount
+    if (!existingTransaction && account_number && amountValue) {
+      const oneDayAgo = new Date();
+      oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+      
+      const { data: existingByAccount } = await supabaseClient
+        .from('funding_transactions')
+        .select('id, reference, amount, created_at')
+        .eq('user_id', virtualAccount.user_id)
+        .eq('amount', amountValue)
+        .gte('created_at', oneDayAgo.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (existingByAccount) {
+        console.log('Found potential duplicate transaction by account + amount:', existingByAccount);
+        // Only treat as duplicate if amounts match exactly
+        if (Math.abs(Number(existingByAccount.amount) - amountValue) < 0.01) {
+          existingTransaction = existingByAccount;
+        }
+      }
+    }
 
     if (existingTransaction) {
-      console.log('Transaction already processed:', reference || transaction_reference);
+      console.log('Transaction already processed:', {
+        reference: reference || transaction_reference,
+        existing_id: existingTransaction.id,
+        existing_reference: existingTransaction.reference
+      });
       return new Response(
-        JSON.stringify({ message: 'Transaction already processed' }),
+        JSON.stringify({ 
+          message: 'Transaction already processed',
+          existing_reference: existingTransaction.reference
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
@@ -225,7 +438,7 @@ serve(async (req) => {
     }
 
     const currentBalance = Number(profile.balance || 0);
-    const creditAmount = Number(amount);
+    const creditAmount = amountValue; // Already converted to number above
     
     // Calculate funding fee
     const fundingFee = calculateFundingFee(creditAmount);
@@ -241,8 +454,10 @@ serve(async (req) => {
     console.log(`  Current balance: ₦${currentBalance}`);
     console.log(`  Final balance: ₦${finalBalance}`);
 
-    // Update user's balance with net amount directly (simpler approach)
-    // Using service_role should bypass RLS, but let's be explicit
+    // Update user's balance with net amount directly
+    // Using service_role should bypass RLS
+    console.log(`Attempting to update balance for user ${virtualAccount.user_id} from ₦${currentBalance} to ₦${finalBalance}`);
+    
     const { data: updatedProfile, error: balanceError } = await supabaseClient
       .from('profiles')
       .update({ balance: finalBalance })
@@ -250,89 +465,97 @@ serve(async (req) => {
       .select('balance, id')
       .single();
 
-    let verifiedBalance = finalBalance;
-    
     if (balanceError) {
       console.error('Error updating balance:', balanceError);
       console.error('Balance error code:', balanceError.code);
       console.error('Balance error message:', balanceError.message);
       console.error('Balance error details:', JSON.stringify(balanceError, null, 2));
-      
-      // Try using raw SQL update as fallback (service role should have access)
-      console.log('Attempting direct SQL update as fallback...');
-      const { data: sqlResult, error: sqlError } = await supabaseClient
-        .from('profiles')
-        .update({ balance: finalBalance })
-        .eq('id', virtualAccount.user_id)
-        .select('balance')
-        .single();
-      
-      if (sqlError || !sqlResult) {
-        console.error('Direct SQL update also failed:', sqlError);
-        throw new Error(`Failed to update balance: ${balanceError.message || JSON.stringify(balanceError)}`);
-      }
-      
-      verifiedBalance = Number(sqlResult.balance || 0);
-      console.log('Direct SQL update succeeded');
-    } else if (updatedProfile) {
-      verifiedBalance = Number(updatedProfile.balance || 0);
+      throw new Error(`Failed to update balance: ${balanceError.message || JSON.stringify(balanceError)}`);
     }
 
-    if (!updatedProfile && balanceError) {
+    if (!updatedProfile) {
       console.error('Profile update returned no data');
       throw new Error('Profile update failed - no data returned');
     }
+
+    const verifiedBalance = Number(updatedProfile.balance || 0);
     console.log(`Balance updated successfully. New balance: ₦${verifiedBalance} (expected: ₦${finalBalance})`);
     
+    // Verify the balance was actually updated correctly
     if (Math.abs(verifiedBalance - finalBalance) > 0.01) {
-      console.warn(`Balance mismatch! Expected ${finalBalance}, got ${verifiedBalance}`);
+      console.error(`CRITICAL: Balance mismatch! Expected ₦${finalBalance}, got ₦${verifiedBalance}`);
+      // Try to fix it
+      const { error: fixError } = await supabaseClient
+        .from('profiles')
+        .update({ balance: finalBalance })
+        .eq('id', virtualAccount.user_id);
+      
+      if (fixError) {
+        console.error('Failed to fix balance mismatch:', fixError);
+        throw new Error(`Balance update verification failed. Expected ${finalBalance}, got ${verifiedBalance}`);
+      }
+      console.log('Balance mismatch fixed');
     }
 
-    // Create funding transaction record
-    const { error: fundingError } = await supabaseClient
-      .from('funding_transactions')
-      .insert({
-        user_id: virtualAccount.user_id,
-        amount: creditAmount,
-        status: 'completed',
-        reference: reference || transaction_reference,
-        bank_name: sender_bank || 'Unknown',
-        account_number: sender_account_number || 'Unknown',
-        account_name: sender_name || 'Unknown',
-        api_response: payload,
-      });
+    // Create all transaction records atomically
+    // If any fail, we'll rollback the balance
+    let rollbackNeeded = false;
+    
+    try {
+      // Create funding transaction record
+      const { error: fundingError } = await supabaseClient
+        .from('funding_transactions')
+        .insert({
+          user_id: virtualAccount.user_id,
+          amount: creditAmount,
+          status: 'completed',
+          reference: reference || transaction_reference,
+          bank_name: sender_bank || 'Unknown',
+          account_number: sender_account_number || 'Unknown',
+          account_name: sender_name || 'Unknown',
+          api_response: payload,
+        });
 
-    if (fundingError) {
-      console.error('Error creating funding transaction:', fundingError);
-      // Rollback balance update
-      await supabaseClient
-        .from('profiles')
-        .update({ balance: currentBalance })
-        .eq('id', virtualAccount.user_id);
-      throw fundingError;
-    }
+      if (fundingError) {
+        console.error('Error creating funding transaction:', fundingError);
+        rollbackNeeded = true;
+        throw fundingError;
+      }
 
-    // Create user transaction record for the funding (net amount credited)
-    const { error: transactionError } = await supabaseClient
-      .from('user_transactions')
-      .insert({
-        user_id: virtualAccount.user_id,
-        amount: netCreditAmount, // Record the net amount that was actually credited
-        balance_before: currentBalance,
-        balance_after: finalBalance,
-        transaction_type: 'credit',
-        description: `Wallet funding from ${sender_name || 'Bank Transfer'} (₦${creditAmount} received, ₦${fundingFee} fee)`,
-        reference: reference || transaction_reference,
-      });
+      // Create user transaction record for the funding (net amount credited)
+      const { error: transactionError } = await supabaseClient
+        .from('user_transactions')
+        .insert({
+          user_id: virtualAccount.user_id,
+          amount: netCreditAmount, // Record the net amount that was actually credited
+          balance_before: currentBalance,
+          balance_after: finalBalance,
+          transaction_type: 'credit',
+          description: `Wallet funding from ${sender_name || 'Bank Transfer'} (₦${creditAmount} received, ₦${fundingFee} fee)`,
+          reference: reference || transaction_reference,
+        });
 
-    if (transactionError) {
-      console.error('Error creating user transaction:', transactionError);
-      // Rollback balance update
-      await supabaseClient
-        .from('profiles')
-        .update({ balance: currentBalance })
-        .eq('id', virtualAccount.user_id);
-      throw transactionError;
+      if (transactionError) {
+        console.error('Error creating user transaction:', transactionError);
+        rollbackNeeded = true;
+        throw transactionError;
+      }
+    } catch (recordError) {
+      // Rollback balance update if transaction recording failed
+      if (rollbackNeeded) {
+        console.error('Rolling back balance update due to transaction recording failure');
+        const { error: rollbackError } = await supabaseClient
+          .from('profiles')
+          .update({ balance: currentBalance })
+          .eq('id', virtualAccount.user_id);
+        
+        if (rollbackError) {
+          console.error('CRITICAL: Failed to rollback balance update:', rollbackError);
+        } else {
+          console.log('Balance rollback successful');
+        }
+      }
+      throw recordError;
     }
 
     // Fee is already deducted in the calculation above, so we just need to record it
@@ -348,7 +571,7 @@ serve(async (req) => {
             amount: fundingFee,
             balance_before: finalBalance, // Balance before fee (which is after net credit)
             balance_after: finalBalance, // Balance after fee (same, since fee was already deducted)
-            transaction_type: 'debit',
+            transaction_type: 'funding_fee',
             description: `Funding fee for wallet top-up`,
             reference: feeReference,
             performed_by: virtualAccount.user_id,
@@ -363,17 +586,67 @@ serve(async (req) => {
 
     console.log(`Successfully credited ₦${netCreditAmount} (₦${creditAmount} - ₦${fundingFee} fee) to user ${virtualAccount.user_id}. Final balance: ₦${finalBalance}`);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: 'Wallet credited successfully',
-        amount: creditAmount,
-        fundingFee,
-        netAmount: netCreditAmount,
-        newBalance: finalBalance
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+    const successResponse = {
+      success: true,
+      message: 'Wallet credited successfully',
+      amount: creditAmount,
+      fundingFee,
+      netAmount: netCreditAmount,
+      newBalance: finalBalance,
+      userId: virtualAccount.user_id,
+      accountNumber: virtualAccount.account_number
+    };
+
+    const executionTime = Date.now() - startTime;
+    console.log(`Returning success response (execution time: ${executionTime}ms):`, JSON.stringify(successResponse));
+    
+    // Create and return response immediately - don't wait for verification
+    const responseBody = JSON.stringify(successResponse);
+    const finalResponse = new Response(
+      responseBody,
+      { 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'X-Execution-Time': `${executionTime}ms`
+        }, 
+        status: 200 
+      }
     );
+    
+    console.log('Response created, returning immediately to prevent EarlyDrop');
+    
+    // Do final verification asynchronously (non-blocking) after returning response
+    // This prevents EarlyDrop shutdown
+    (async () => {
+      try {
+        const { data: finalProfile, error: verifyError } = await supabaseClient
+          .from('profiles')
+          .select('balance')
+          .eq('id', virtualAccount.user_id)
+          .single();
+
+        if (verifyError) {
+          console.error('Error verifying final balance (async):', verifyError);
+        } else {
+          const actualBalance = Number(finalProfile.balance || 0);
+          console.log(`Final balance verification (async): Expected ₦${finalBalance}, Actual ₦${actualBalance}`);
+          
+          if (Math.abs(actualBalance - finalBalance) > 0.01) {
+            console.error(`CRITICAL: Final balance mismatch! Expected ₦${finalBalance}, got ₦${actualBalance}`);
+            await supabaseClient
+              .from('profiles')
+              .update({ balance: finalBalance })
+              .eq('id', virtualAccount.user_id);
+          }
+        }
+      } catch (verifyErr) {
+        console.error('Error in async verification:', verifyErr);
+      }
+    })();
+    
+    return finalResponse;
 
   } catch (error) {
     console.error('=== ERROR in payvessel-webhook ===');
@@ -382,15 +655,58 @@ serve(async (req) => {
     console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     console.error('Full error:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
-    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-    return new Response(
-      JSON.stringify({ 
-        error: errorMessage,
-        timestamp: new Date().toISOString()
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+    // Check for specific error types
+    let errorMessage = 'An unknown error occurred';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      
+      // Check for connection errors
+      if (error.message.includes('connect') || 
+          error.message.includes('network') || 
+          error.message.includes('ECONNREFUSED') ||
+          error.message.includes('fetch failed') ||
+          error.message.includes('timeout')) {
+        errorMessage = 'Cannot connect to server';
+        statusCode = 503; // Service Unavailable
+      }
+      
+      // Check for timeout errors
+      if (error.message.includes('timeout') || error.message.includes('aborted')) {
+        errorMessage = 'Request timeout';
+        statusCode = 504; // Gateway Timeout
+      }
+      
+      // Check for database errors
+      if (error.message.includes('database') || error.message.includes('SQL')) {
+        errorMessage = 'Database error';
+        statusCode = 500;
+      }
+    }
+    
+    // Always return a response - never let the function fail silently
+    try {
+      return new Response(
+        JSON.stringify({ 
+          message: errorMessage,
+          error: errorMessage,
+          timestamp: new Date().toISOString()
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: statusCode }
+      );
+    } catch (responseError) {
+      // If we can't even create a response, log it and return minimal response
+      console.error('CRITICAL: Failed to create error response:', responseError);
+      return new Response(
+        JSON.stringify({ message: 'Internal server error' }),
+        { headers: corsHeaders, status: 500 }
+      );
+    }
   } finally {
-    console.log('=== PayVessel Webhook Processing Complete ===');
+    const totalTime = Date.now() - startTime;
+    console.log(`=== PayVessel Webhook Processing Complete ===`);
+    console.log(`Total execution time: ${totalTime}ms`);
+    console.log('Function execution finished at:', new Date().toISOString());
   }
 });

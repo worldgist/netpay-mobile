@@ -75,6 +75,27 @@ serve(async (req) => {
       );
     }
 
+    // Normalize phone number (remove spaces, handle +234 format)
+    let sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim().replace(/\s+/g, '') : '';
+    
+    // Handle +234 format (convert to 0xxx format)
+    if (sanitizedPhone.startsWith('+234')) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(4);
+    } else if (sanitizedPhone.startsWith('234') && sanitizedPhone.length === 13) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(3);
+    }
+    
+    // Remove any remaining non-digit characters except leading 0
+    sanitizedPhone = sanitizedPhone.replace(/[^0-9]/g, '');
+
+    // Basic validation - let vendor API handle network-specific validation
+    if (!sanitizedPhone || sanitizedPhone.length < 10 || sanitizedPhone.length > 11) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Please enter a valid phone number (10-11 digits)' }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Fetch data plan
     const { data: dataPlan, error: planError } = await supabase
       .from('data_plans')
@@ -220,7 +241,7 @@ serve(async (req) => {
       }
 
       console.log(`Attempting purchase via ${vendorName} with code ${vendorCode}...`);
-      purchaseResult = await purchaseViaVendor(vendorName, vendor, dataPlan as DataPlan, phone_number, reference);
+      purchaseResult = await purchaseViaVendor(vendorName, vendor, dataPlan as DataPlan, sanitizedPhone, reference);
 
       if (purchaseResult.success) {
         successfulVendor = vendorName;
@@ -291,20 +312,20 @@ serve(async (req) => {
       userId: user.id,
       amount: userPrice,
       transactionType: 'data_purchase',
-      description: `Data purchase - ${dataPlan.plan_name} for ${phone_number} via ${successfulVendor}`,
+      description: `Data purchase - ${dataPlan.plan_name} for ${sanitizedPhone} via ${successfulVendor}`,
       reference: purchaseResult.reference || reference,
       performedBy: user.id,
       balanceBefore,
       notification: {
         title: purchaseResult.status === 'success' ? 'Data purchase successful' : 'Data purchase processing',
-        message: `₦${userPrice.toFixed(2)} data bundle (${dataPlan.plan_name}) ${purchaseResult.status === 'success' ? 'purchased' : 'being processed'} for ${phone_number}. Reference: ${purchaseResult.reference || reference}.`,
+        message: `₦${userPrice.toFixed(2)} data bundle (${dataPlan.plan_name}) ${purchaseResult.status === 'success' ? 'purchased' : 'being processed'} for ${sanitizedPhone}. Reference: ${purchaseResult.reference || reference}.`,
       },
     });
 
     // Record transaction
     const transactionData: any = {
       user_id: user.id,
-      phone_number: phone_number.replace(/[^\d]/g, ''),
+      phone_number: sanitizedPhone,
       network: dataPlan.network,
       plan_name: dataPlan.plan_name,
       plan_validity: dataPlan.validity || 'N/A',
@@ -368,7 +389,7 @@ serve(async (req) => {
           reference: purchaseResult.reference || reference,
           plan_name: dataPlan.plan_name,
           amount: userPrice,
-          phone_number,
+          phone_number: sanitizedPhone,
           network: dataPlan.network,
           validity: dataPlan.validity,
           balance_before: debitResult.balanceBefore,

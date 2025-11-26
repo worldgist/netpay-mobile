@@ -100,8 +100,26 @@ const Auth = () => {
               .maybeSingle();
 
             if (rolesError) {
-              console.error('Error checking user role:', rolesError);
-              // Don't sign out on query errors, just log
+              // Handle 406 Not Acceptable errors gracefully
+              if (rolesError.code === '406' || rolesError.message?.includes('406')) {
+                console.warn('406 error checking user role (likely Accept header issue), trying alternative query:', rolesError);
+                // Try alternative query without maybeSingle
+                const { data: altRoles } = await supabase
+                  .from('user_roles')
+                  .select('role')
+                  .eq('user_id', session.user.id)
+                  .eq('role', 'admin');
+                
+                if (altRoles && altRoles.length > 0) {
+                  navigate("/dashboard");
+                } else {
+                  await supabase.auth.signOut();
+                  toast.error("Admin access required. Contact administrator.");
+                }
+              } else {
+                console.error('Error checking user role:', rolesError);
+                // Don't sign out on query errors, just log
+              }
             } else if (roles) {
               navigate("/dashboard");
             } else {

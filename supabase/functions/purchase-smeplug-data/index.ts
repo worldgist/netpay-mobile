@@ -100,10 +100,31 @@ serve(async (req) => {
       return null;
     };
 
-    const sanitizedPhone =
-      typeof phone_number === 'string' ? phone_number.replace(/\s+/g, '').trim() : '';
+    // Normalize phone number (remove spaces, handle +234 format)
+    let sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim().replace(/\s+/g, '') : '';
+    
+    // Handle +234 format (convert to 0xxx format)
+    if (sanitizedPhone.startsWith('+234')) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(4);
+    } else if (sanitizedPhone.startsWith('234') && sanitizedPhone.length === 13) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(3);
+    }
+    
+    // Remove any remaining non-digit characters except leading 0
+    sanitizedPhone = sanitizedPhone.replace(/[^0-9]/g, '');
 
-    if (!sanitizedPhone || !plan_id) {
+    // Basic validation - let API handle network-specific validation
+    if (!sanitizedPhone || sanitizedPhone.length < 10 || sanitizedPhone.length > 11) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Please enter a valid phone number (10-11 digits)',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!plan_id) {
       console.error('Invalid data purchase payload:', {
         phone_number: sanitizedPhone ? '***hidden***' : sanitizedPhone,
         plan_id,

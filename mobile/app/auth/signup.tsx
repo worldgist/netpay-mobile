@@ -155,8 +155,12 @@ export default function SignupScreen() {
 
           {/* Title Section */}
           <View style={styles.titleSection}>
-            <ThemedText style={styles.title}>Create Account</ThemedText>
-            <ThemedText style={styles.subtitle}>Sign up to get started</ThemedText>
+            <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+              Create Account
+            </ThemedText>
+            <ThemedText style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
+              Sign up to get started
+            </ThemedText>
           </View>
 
           {/* Name Row */}
@@ -280,7 +284,14 @@ export default function SignupScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <ThemedText style={styles.createButtonText}>Create Account</ThemedText>
+              <View style={styles.buttonTextContainer}>
+                <ThemedText 
+                  style={styles.createButtonText}
+                  numberOfLines={1}
+                >
+                  Create Account
+                </ThemedText>
+              </View>
             )}
           </TouchableOpacity>
 
@@ -313,7 +324,7 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     alignSelf: 'center',
     paddingHorizontal: 28,
-    paddingTop: 48,
+    paddingTop: Platform.OS === 'ios' ? 56 : 48,
     paddingBottom: 40,
     backgroundColor: '#fff',
     borderRadius: 20,
@@ -345,18 +356,32 @@ const styles = StyleSheet.create({
   titleSection: {
     alignItems: 'center',
     marginBottom: 28,
+    paddingHorizontal: 4,
+    width: '100%',
+    paddingTop: Platform.OS === 'ios' ? 12 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   title: {
-    fontSize: 32,
+    fontSize: Platform.OS === 'ios' ? 28 : 32,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 8,
     textAlign: 'center',
+    includeFontPadding: true,
+    width: '100%',
+    flexShrink: 1,
+    paddingHorizontal: 4,
+    paddingTop: Platform.OS === 'ios' ? 8 : 0,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 0,
+    lineHeight: Platform.OS === 'ios' ? 38 : 40,
+    overflow: 'visible',
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
+    width: '100%',
+    paddingHorizontal: 4,
   },
   row: {
     flexDirection: 'row',
@@ -391,16 +416,26 @@ const styles = StyleSheet.create({
   createButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
-    height: 56,
+    minHeight: 56,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 8,
     marginBottom: 24,
+    width: '100%',
+  },
+  buttonTextContainer: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   createButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   signInContainer: {
     flexDirection: 'row',

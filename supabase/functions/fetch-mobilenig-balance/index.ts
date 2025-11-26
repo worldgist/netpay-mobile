@@ -12,9 +12,17 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const mobilenigPublicKey = Deno.env.get('MOBILENIG_PUBLIC_KEY');
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Supabase configuration missing');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!mobilenigPublicKey) {
       console.error('MOBILENIG_PUBLIC_KEY not configured');
@@ -33,16 +41,13 @@ serve(async (req) => {
       );
     }
 
-    // Initialize Supabase client
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
-    });
+    // Initialize Supabase client with service role
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Verify the user is authenticated
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
+    // Verify the user is authenticated by extracting token and verifying with service role
+    const token = authHeader.replace('Bearer ', '');
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !userData?.user) {
       console.error('Authentication error:', userError);
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
@@ -50,23 +55,43 @@ serve(async (req) => {
       );
     }
 
-    // Check if user has admin role
+    const user = userData.user;
+
+    // Check if user has admin role using service role client to avoid RLS issues
     const { data: roleData, error: roleError } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
       .eq('role', 'admin')
-      .maybeSingle();
+      .limit(1);
 
     if (roleError) {
       console.error('Error checking user role:', roleError);
-      return new Response(
-        JSON.stringify({ error: 'Error verifying permissions' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      // Handle 406 errors gracefully
+      if (roleError.code === '406' || roleError.message?.includes('406')) {
+        console.warn('406 error checking role, trying alternative query');
+        // Try without maybeSingle
+        const { data: altRoleData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin');
+        
+        if (!altRoleData || altRoleData.length === 0) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized - Admin access required' }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      } else {
+        return new Response(
+          JSON.stringify({ error: 'Error verifying permissions' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
-    if (!roleData) {
+    if (!roleData || roleData.length === 0) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized - Admin access required' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -79,7 +104,7 @@ serve(async (req) => {
 
     // Fetch balance from MobileNig API - Control endpoint
     let balanceResponse;
-    let balanceData;
+    let balanceData: any;
     try {
       const balanceUrl = 'https://enterprise.mobilenig.com/api/v2/control/balance';
       console.log('Calling MobileNig balance API:', balanceUrl);
@@ -99,25 +124,89 @@ serve(async (req) => {
       if (!balanceResponse.ok) {
         const errorText = await balanceResponse.text();
         console.error('MobileNig balance API error:', balanceResponse.status, errorText);
-        throw new Error(`MobileNig API returned ${balanceResponse.status}: ${errorText}`);
+        let errorMessage = `MobileNig API returned ${balanceResponse.status}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorJson.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const balanceText = await balanceResponse.text();
       console.log('Balance API raw response length:', balanceText?.length || 0);
+      console.log('Balance API raw response (first 500 chars):', balanceText?.substring(0, 500));
       
       if (!balanceText || !balanceText.trim()) {
         throw new Error('Empty response from MobileNig balance API');
       }
       
-      balanceData = JSON.parse(balanceText);
-      console.log('MobileNig balance response:', JSON.stringify(balanceData, null, 2));
+      try {
+        balanceData = JSON.parse(balanceText);
+        console.log('MobileNig balance response:', JSON.stringify(balanceData, null, 2));
+      } catch (parseError) {
+        console.error('Failed to parse balance response as JSON:', parseError);
+        console.error('Response text:', balanceText);
+        throw new Error(`Invalid JSON response from MobileNig balance API: ${parseError instanceof Error ? parseError.message : 'Parse error'}`);
+      }
+
+      // Validate API response structure according to documentation
+      // Check if response indicates success
+      const isSuccess = balanceData.statusCode === "200" || balanceData.statusCode === 200 || balanceData.message === "success";
+      
+      if (!isSuccess) {
+        const errorMsg = balanceData.message || balanceData.error || `API returned status code ${balanceData.statusCode || 'unknown'}`;
+        console.error('MobileNig API error response:', JSON.stringify(balanceData, null, 2));
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: `MobileNig API error: ${errorMsg}`,
+            details: balanceData
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      // Try to find balance in various possible locations
+      const balanceValue = balanceData.details?.balance || 
+                          balanceData.data?.balance || 
+                          balanceData.balance;
+      
+      if (balanceValue === undefined || balanceValue === null) {
+        console.error('Balance not found in expected structure. Full response:', JSON.stringify(balanceData, null, 2));
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: 'Balance not found in API response',
+            details: balanceData
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
     } catch (balanceError) {
       console.error('Error fetching balance:', balanceError);
       console.error('Balance error details:', {
         message: balanceError instanceof Error ? balanceError.message : 'Unknown',
         stack: balanceError instanceof Error ? balanceError.stack : undefined,
       });
-      throw new Error(`Failed to fetch balance: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to fetch balance: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`,
+          details: balanceError instanceof Error ? balanceError.message : 'Unknown error'
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
     }
 
     // Fetch unique account details from MobileNig API
@@ -166,12 +255,64 @@ serve(async (req) => {
       accountData = {};
     }
 
+    // Extract balance value - according to API docs: details.balance as string
+    let balanceAmount = 0;
+    try {
+      // API returns: { "message": "success", "statusCode": "200", "details": { "balance": "80500.91" } }
+      const balanceValue = balanceData.details?.balance;
+      
+      if (!balanceValue) {
+        console.error('Balance not found in details.balance. Full response:', JSON.stringify(balanceData, null, 2));
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: 'Balance not found in API response',
+            details: balanceData
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+      
+      balanceAmount = parseFloat(String(balanceValue));
+      if (isNaN(balanceAmount)) {
+        console.error('Balance value is not a valid number:', balanceValue);
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            error: `Invalid balance value: ${balanceValue}`,
+            details: balanceData
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+      console.log('Successfully parsed balance:', balanceAmount, 'from value:', balanceValue);
+    } catch (parseError) {
+      console.error('Error parsing balance:', parseError);
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: `Failed to parse balance: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+          details: balanceData
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
     // Prepare response data
     const responseData: any = {
       success: true,
       balance: {
-        amount: parseFloat(balanceData.details?.balance || balanceData.data?.balance || balanceData.balance || '0'),
-        currency: balanceData.details?.currency || balanceData.data?.currency || 'NGN',
+        amount: balanceAmount,
+        currency: 'NGN', // API docs don't specify currency, defaulting to NGN
       },
       account: {
         accountNumber:

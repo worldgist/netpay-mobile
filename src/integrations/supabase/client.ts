@@ -21,6 +21,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, CLIENT_KEY, {
   global: {
     headers: {
       'x-client-info': 'netpay-web',
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
     },
   },
 });

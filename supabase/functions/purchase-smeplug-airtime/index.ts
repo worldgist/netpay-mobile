@@ -95,28 +95,47 @@ serve(async (req) => {
       };
       return NAME_MAP[id] || null;
     };
-    const sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim() : '';
+    // Normalize phone number (remove spaces, handle +234 format)
+    let sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim().replace(/\s+/g, '') : '';
+    
+    // Handle +234 format (convert to 0xxx format)
+    if (sanitizedPhone.startsWith('+234')) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(4);
+    } else if (sanitizedPhone.startsWith('234') && sanitizedPhone.length === 13) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(3);
+    }
+    
+    // Remove any remaining non-digit characters except leading 0
+    sanitizedPhone = sanitizedPhone.replace(/[^0-9]/g, '');
+    
     const normalizedAmount = Number(amount);
 
-    if (!sanitizedPhone || !Number.isFinite(normalizedAmount) || normalizedAmount <= 0 || smeplugNetworkId === null) {
-      console.error('Invalid airtime purchase payload:', {
-        phone_number: sanitizedPhone ? '***hidden***' : sanitizedPhone,
-        amount,
-        parsedAmount: normalizedAmount,
-        network_id,
-        resolvedNetworkId: smeplugNetworkId,
-      });
+    // Basic validation - let API handle network-specific validation
+    if (!sanitizedPhone || sanitizedPhone.length < 10 || sanitizedPhone.length > 11) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'phone_number, amount, and a valid network_id are required',
-          details: {
-            phone_number: Boolean(sanitizedPhone),
-            amount,
-            parsedAmount: normalizedAmount,
-            network_id,
-            resolvedNetworkId: smeplugNetworkId,
-          },
+          error: 'Please enter a valid phone number (10-11 digits)',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Please enter a valid amount greater than 0',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (smeplugNetworkId === null) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Invalid network selected. Please try again.',
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
@@ -199,13 +218,26 @@ serve(async (req) => {
       (apiResponse?.data && typeof apiResponse.data === 'object' && !apiResponse.data.error);
 
     if (!response.ok || !normalizedStatus) {
+      // Extract error message from various possible API response formats
       const errorMessage =
         apiResponse.message ||
         apiResponse.error ||
         apiResponse.data?.message ||
         apiResponse.data?.error ||
-        'Airtime purchase failed';
-      console.error('SMEPLUG API error:', errorMessage, 'Full response:', apiResponse);
+        apiResponse.response_description ||
+        apiResponse.data?.response_description ||
+        apiResponse.status_message ||
+        apiResponse.data?.status_message ||
+        (typeof apiResponse === 'string' ? apiResponse : 'Airtime purchase failed');
+      
+      // Check for phone number validation errors specifically
+      const errorText = String(errorMessage).toLowerCase();
+      if (errorText.includes('phone') || errorText.includes('number') || errorText.includes('invalid')) {
+        console.error('SMEPLUG API phone validation error:', errorMessage, 'Phone:', sanitizedPhone, 'Network:', smeplugNetworkId);
+      } else {
+        console.error('SMEPLUG API error:', errorMessage, 'Full response:', apiResponse);
+      }
+      
       return new Response(
         JSON.stringify({ 
           success: false, 

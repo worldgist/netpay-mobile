@@ -8,7 +8,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { supabase } from '@/lib/supabase';
-import { validateNigerianPhoneNumber } from '@/utils/phone';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -225,13 +224,14 @@ export default function AirtimePurchaseScreen() {
       return;
     }
 
-    const validation = validateNigerianPhoneNumber(phoneNumber, selectedProviderDetails.network);
-    if (!validation.isMatch || validation.message) {
-      Alert.alert('Invalid Phone Number', validation.message || 'Please enter a valid phone number');
+    // Basic phone number normalization (remove spaces, format)
+    const normalizedPhone = phoneNumber.trim().replace(/\s+/g, '');
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      Alert.alert('Error', 'Please enter a valid phone number');
       return;
     }
 
-    const normalizedPhone = validation.normalized;
+    // Update phone number if it was normalized
     if (normalizedPhone !== phoneNumber) {
       setPhoneNumber(normalizedPhone);
     }
