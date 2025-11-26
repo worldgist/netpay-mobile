@@ -75,3 +75,5 @@ Go to: Supabase Dashboard → Edge Functions → Secrets
 Your database configuration is correct. The issue is with VTpass API access - specifically, your account likely doesn't have JAMB service enabled. Contact VTpass support to enable JAMB service on your account.
 
 
+
+

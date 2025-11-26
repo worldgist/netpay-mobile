@@ -249,6 +249,38 @@ export default function UserAuth() {
           biometric_enabled: false,
           pin_enabled: false,
         });
+
+        // Apply referral code if provided
+        const trimmedReferralCode = referralCode?.trim();
+        if (trimmedReferralCode && signUpData.user.id) {
+          try {
+            const { data: referralResponse, error: referralError } = await supabase.functions.invoke(
+              'apply-referral-code',
+              {
+                body: {
+                  referral_code: trimmedReferralCode,
+                  referred_user_id: signUpData.user.id,
+                  referred_email: normalizedEmail,
+                  referred_phone: sanitizedPhone || null,
+                },
+              }
+            );
+
+            if (referralError || referralResponse?.success === false) {
+              const message =
+                (referralResponse && 'error' in referralResponse && typeof referralResponse.error === 'string'
+                  ? referralResponse.error
+                  : referralError?.message) || 'Unable to apply referral code.';
+              console.warn('Referral code application failed:', message);
+              // Don't block signup if referral fails, just log it
+            } else {
+              console.log('Referral code applied successfully');
+            }
+          } catch (referralException) {
+            console.error('Failed to apply referral code:', referralException);
+            // Don't block signup if referral fails
+          }
+        }
       }
       
       toast.success("Account created! Please check your email for verification code.");
@@ -459,6 +491,11 @@ export default function UserAuth() {
                 onChange={(e) => setReferralCode(e.target.value)}
                 className="bg-gray-100 border-0 pl-10 h-12"
               />
+              {referralCode && (
+                <p className="text-xs text-green-600 mt-1 ml-1">
+                  ✓ Referral code detected from link
+                </p>
+              )}
             </div>
 
             <Button

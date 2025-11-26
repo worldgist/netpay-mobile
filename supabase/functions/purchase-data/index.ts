@@ -172,14 +172,27 @@ serve(async (req) => {
       }
 
       // Check if plan has code for this vendor
-      const vendorCode = vendorName === 'vtpass' ? dataPlan.vtpass_code :
-                        vendorName === 'smeplug' ? dataPlan.smeplug_code :
-                        vendorName === 'mobilenig' ? dataPlan.mobilenig_code : null;
+      // Fallback to api_code if vendor-specific code is missing
+      let vendorCode = vendorName === 'vtpass' ? dataPlan.vtpass_code :
+                       vendorName === 'smeplug' ? dataPlan.smeplug_code :
+                       vendorName === 'mobilenig' ? dataPlan.mobilenig_code : null;
+
+      // Fallback to api_code if vendor-specific code is missing
+      // This allows plans to work even if they only have api_code set
+      if (!vendorCode && dataPlan.api_code) {
+        // Only use api_code fallback if the plan's provider matches this vendor
+        // or if we don't have vendor-specific codes at all
+        const planProvider = (dataPlan.provider || '').toLowerCase();
+        if (planProvider === vendorName || (!dataPlan.vtpass_code && !dataPlan.smeplug_code && !dataPlan.mobilenig_code)) {
+          vendorCode = dataPlan.api_code;
+          console.log(`Using api_code as fallback for ${vendorName}: ${vendorCode}`);
+        }
+      }
 
       if (!vendorCode) {
         vendorErrors.push({ 
           vendor: vendorName, 
-          reason: `data plan missing ${vendorName}_code` 
+          reason: `data plan missing ${vendorName}_code and api_code fallback unavailable` 
         });
         console.warn(`Plan ${plan_id} does not have a code for vendor ${vendorName}`);
         continue;

@@ -6,6 +6,16 @@ import { ArrowLeft, Mail, User, DollarSign, CheckCircle, AlertCircle, Send, X } 
 import { toast } from "sonner";
 import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 
+// Transfer fee configuration (must match backend)
+const TRANSFER_FEE_PERCENTAGE = 0.05; // 5% fee (e.g., ₦50 for ₦1000 transfer)
+const MIN_TRANSFER_FEE = 10; // Minimum fee of ₦10
+
+// Calculate transfer fee based on amount
+const calculateTransferFee = (amount: number): number => {
+  const percentageFee = amount * TRANSFER_FEE_PERCENTAGE;
+  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100);
+};
+
 export default function Transfer() {
   const navigate = useNavigate();
   const [currentBalance, setCurrentBalance] = useState(0);
@@ -96,7 +106,11 @@ export default function Transfer() {
       return;
     }
 
-    if (Number(amount) > currentBalance) {
+    const transferAmount = Number(amount);
+    const transferFee = calculateTransferFee(transferAmount);
+    const totalAmount = transferAmount + transferFee;
+
+    if (totalAmount > currentBalance) {
       setShowInsufficientBalance(true);
       return;
     }
@@ -240,12 +254,23 @@ export default function Transfer() {
               min="1"
               disabled={loading || !recipientDetails}
             />
-            {amount && Number(amount) > currentBalance && (
-              <div className="flex items-start gap-2 text-sm text-red-600">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>Insufficient balance</span>
-              </div>
-            )}
+            {amount && Number(amount) > 0 && (() => {
+              const fee = calculateTransferFee(Number(amount));
+              const total = Number(amount) + fee;
+              return (
+                <>
+                  {total > currentBalance && (
+                    <div className="flex items-start gap-2 text-sm text-red-600">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>Insufficient balance (including ₦{fee.toLocaleString()} transfer fee)</span>
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">
+                    Transfer fee (5%): ₦{fee.toLocaleString()} • Total: ₦{total.toLocaleString()}
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
           {/* Description (Optional) */}
@@ -267,7 +292,11 @@ export default function Transfer() {
           {/* Transfer Button */}
           <Button
             onClick={handleTransfer}
-            disabled={loading || !recipientDetails || !amount || Number(amount) <= 0 || Number(amount) > currentBalance}
+            disabled={loading || !recipientDetails || !amount || Number(amount) <= 0 || (() => {
+              if (!amount) return true;
+              const fee = calculateTransferFee(Number(amount));
+              return (Number(amount) + fee) > currentBalance;
+            })()}
             className="w-full h-12 text-base"
           >
             {loading ? (
@@ -328,8 +357,16 @@ export default function Transfer() {
                   <span className="font-medium text-gray-700 text-sm">{recipientDetails?.email}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-t border-gray-200">
-                  <span className="text-gray-600 text-sm">Amount</span>
+                  <span className="text-gray-600 text-sm">Transfer Amount</span>
                   <span className="font-bold text-brand text-xl">₦{Number(amount).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between py-2 border-t border-gray-200">
+                  <span className="text-gray-600 text-sm">Transfer Fee (5%)</span>
+                  <span className="font-medium text-gray-700">₦{calculateTransferFee(Number(amount)).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between py-2 border-t-2 border-gray-300 pt-3">
+                  <span className="text-gray-900 font-semibold">Total Amount</span>
+                  <span className="font-bold text-brand text-xl">₦{(Number(amount) + calculateTransferFee(Number(amount))).toLocaleString()}</span>
                 </div>
                 {description && (
                   <div className="flex items-start justify-between py-2 border-t border-gray-200">
@@ -399,6 +436,18 @@ export default function Transfer() {
                   <span className="text-gray-600">Amount Sent</span>
                   <span className="font-bold text-2xl text-brand">₦{Number(transferData.amount).toLocaleString()}</span>
                 </div>
+                {transferData.transferFee && (
+                  <div className="flex justify-between py-2 border-t border-gray-200">
+                    <span className="text-gray-600">Transfer Fee</span>
+                    <span className="font-medium text-gray-700">₦{Number(transferData.transferFee).toLocaleString()}</span>
+                  </div>
+                )}
+                {transferData.totalAmount && (
+                  <div className="flex justify-between py-2 border-t-2 border-gray-300 pt-3">
+                    <span className="text-gray-900 font-semibold">Total Deducted</span>
+                    <span className="font-bold text-gray-900">₦{Number(transferData.totalAmount).toLocaleString()}</span>
+                  </div>
+                )}
                 <div className="flex justify-between py-2 border-t border-gray-200">
                   <span className="text-gray-600">Recipient</span>
                   <span className="font-semibold text-gray-900">{transferData.recipientName}</span>
@@ -450,7 +499,7 @@ export default function Transfer() {
         open={showInsufficientBalance}
         onOpenChange={setShowInsufficientBalance}
         currentBalance={currentBalance}
-        requiredAmount={Number(amount) || undefined}
+        requiredAmount={amount ? (Number(amount) + calculateTransferFee(Number(amount))) : undefined}
       />
     </div>
   );

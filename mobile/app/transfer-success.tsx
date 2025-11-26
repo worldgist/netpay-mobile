@@ -17,6 +17,8 @@ export default function TransferSuccessScreen() {
   const recipientName = (params.recipientName as string) || '';
   const description = (params.description as string) || '';
   const referenceParam = (params.reference as string) || '';
+  const transferFee = (params.transferFee as string) || '';
+  const totalAmount = (params.totalAmount as string) || '';
 
   const transactionReference = referenceParam || generateReference('TRANSFER');
 
@@ -141,6 +143,18 @@ export default function TransferSuccessScreen() {
               <View style={styles.detailRow}>
                 <ThemedText style={styles.detailLabel}>Description</ThemedText>
                 <ThemedText style={styles.detailValue} numberOfLines={2}>{description}</ThemedText>
+              </View>
+            )}
+            {transferFee && parseFloat(transferFee) > 0 && (
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Transfer Fee</ThemedText>
+                <ThemedText style={styles.detailValue}>₦{parseFloat(transferFee).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+              </View>
+            )}
+            {totalAmount && parseFloat(totalAmount) > 0 && (
+              <View style={[styles.detailRow, styles.detailRowTotal]}>
+                <ThemedText style={[styles.detailLabel, styles.detailLabelTotal]}>Total Deducted</ThemedText>
+                <ThemedText style={[styles.detailValue, styles.detailValueTotal]}>₦{parseFloat(totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
               </View>
             )}
             <View style={styles.detailRow}>
@@ -312,6 +326,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#4CAF50',
+  },
+  detailRowTotal: {
+    borderTopWidth: 2,
+    borderTopColor: '#FF7F00',
+    borderBottomWidth: 0,
+    marginTop: 8,
+    paddingTop: 12,
+  },
+  detailLabelTotal: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#333',
+  },
+  detailValueTotal: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FF7F00',
   },
   buttonContainer: {
     width: '100%',

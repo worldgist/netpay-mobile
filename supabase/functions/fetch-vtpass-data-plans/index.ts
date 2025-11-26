@@ -136,9 +136,14 @@ serve(async (req) => {
 
     // Create AbortController for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for VTpass API
+    const timeoutId = setTimeout(() => {
+      console.error('VTpass API request timeout after 30 seconds');
+      controller.abort();
+    }, 30000); // 30 second timeout for VTpass API
 
     try {
+      console.log(`Making request to VTpass API: ${apiUrl}`);
+      
       // Fetch data plans from VTpass API
       // For GET requests, VTpass requires: api-key and public-key headers
       const response = await fetch(apiUrl, {
@@ -152,6 +157,7 @@ serve(async (req) => {
       });
       
       clearTimeout(timeoutId);
+      console.log(`VTpass API response status: ${response.status}`);
       
       console.log('VTpass API request:', {
         url: apiUrl,
@@ -175,22 +181,38 @@ serve(async (req) => {
       }
 
       let data: any;
+      let responseText: string = '';
       try {
-        const responseText = await response.text();
-        console.log('VTpass API raw response:', responseText.substring(0, 500));
+        responseText = await response.text();
+        console.log('VTpass API raw response length:', responseText?.length || 0);
+        console.log('VTpass API raw response (first 1000 chars):', responseText?.substring(0, 1000) || 'empty');
         
         if (!responseText || !responseText.trim()) {
-          throw new Error('Empty response from VTpass API');
+          console.error('Empty response from VTpass API');
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Empty response from VTpass API. Please check API credentials and network configuration.' 
+            }),
+            { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
         }
         
         data = JSON.parse(responseText);
-        console.log('VTpass data plans response:', JSON.stringify(data, null, 2));
+        console.log('VTpass data plans response parsed successfully');
+        console.log('Response structure:', {
+          hasContent: !!data.content,
+          contentIsArray: Array.isArray(data.content),
+          hasVariations: !!(data.content && data.content.varations),
+          responseDescription: data.response_description,
+        });
       } catch (parseError) {
         console.error('Error parsing VTpass response:', parseError);
+        console.error('Response text that failed to parse:', responseText?.substring(0, 500) || 'No response text');
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: 'Failed to parse response from VTpass API. Please check API credentials and try again.' 
+            error: `Failed to parse response from VTpass API: ${parseError instanceof Error ? parseError.message : 'Unknown error'}. Please check API credentials and try again.` 
           }),
           { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
         );

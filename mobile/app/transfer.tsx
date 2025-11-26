@@ -9,6 +9,16 @@ import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { supabase } from '@/lib/supabase';
 
+// Transfer fee configuration (must match backend)
+const TRANSFER_FEE_PERCENTAGE = 0.05; // 5% fee (e.g., ₦50 for ₦1000 transfer)
+const MIN_TRANSFER_FEE = 10; // Minimum fee of ₦10
+
+// Calculate transfer fee based on amount
+const calculateTransferFee = (amount: number): number => {
+  const percentageFee = amount * TRANSFER_FEE_PERCENTAGE;
+  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100);
+};
+
 export default function TransferScreen() {
   const router = useRouter();
   const [recipientEmail, setRecipientEmail] = useState('');
@@ -27,7 +37,9 @@ export default function TransferScreen() {
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
   const amountValue = useMemo(() => parseFloat(amount) || 0, [amount]);
-  const canTransfer = !!recipientDetails && amountValue > 0 && amountValue <= balance && !transferLoading;
+  const transferFee = useMemo(() => calculateTransferFee(amountValue), [amountValue]);
+  const totalAmount = useMemo(() => amountValue + transferFee, [amountValue, transferFee]);
+  const canTransfer = !!recipientDetails && amountValue > 0 && totalAmount <= balance && !transferLoading;
 
   const fetchBalance = useCallback(async (isRefresh = false) => {
     try {
@@ -158,7 +170,7 @@ export default function TransferScreen() {
       return;
     }
 
-    if (amountValue > balance) {
+    if (totalAmount > balance) {
       setShowInsufficientBalance(true);
       return;
     }
@@ -223,6 +235,8 @@ export default function TransferScreen() {
           recipientName: data.data?.recipientName || '',
           reference: data.data?.reference || '',
           description: transferDescription,
+          transferFee: data.data?.transferFee?.toString() || TRANSFER_FEE.toString(),
+          totalAmount: data.data?.totalAmount?.toString() || totalAmount.toString(),
         },
       });
     } catch (err) {
@@ -340,10 +354,22 @@ export default function TransferScreen() {
                   keyboardType="numeric"
                 />
               </View>
-              {amountValue > balance && (
+              {amountValue > 0 && (
+                <View style={styles.feeInfo}>
+                  <ThemedText style={styles.feeInfoText}>
+                    Transfer fee (5%): ₦{transferFee.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </ThemedText>
+                  <ThemedText style={styles.feeInfoText}>
+                    Total: ₦{totalAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </ThemedText>
+                </View>
+              )}
+              {totalAmount > balance && (
                 <View style={styles.inlineError}>
                   <MaterialIcons name="error" size={16} color="#d32f2f" style={styles.inlineErrorIcon} />
-                  <ThemedText style={styles.inlineErrorText}>Insufficient balance</ThemedText>
+                  <ThemedText style={styles.inlineErrorText}>
+                    Insufficient balance (including ₦{transferFee.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} fee)
+                  </ThemedText>
                 </View>
               )}
             </View>
@@ -399,6 +425,7 @@ export default function TransferScreen() {
         amount={amountValue}
         recipientEmail={recipientDetails?.email || recipientEmail}
         description={description.trim() || undefined}
+        transferFee={transferFee}
         loading={transferLoading}
       />
 
@@ -407,7 +434,7 @@ export default function TransferScreen() {
         visible={showInsufficientBalance}
         onClose={() => setShowInsufficientBalance(false)}
         currentBalance={balance}
-        requiredAmount={amountValue}
+        requiredAmount={totalAmount}
       />
 
       <Modal
@@ -601,6 +628,18 @@ const styles = StyleSheet.create({
   recipientEmail: {
     fontSize: 13,
     color: '#2E7D32',
+  },
+  feeInfo: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+  },
+  feeInfoText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
   inlineError: {
     flexDirection: 'row',

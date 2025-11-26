@@ -295,6 +295,163 @@ const DataPlans = () => {
     }
   };
 
+  const fetchPlansFromAllVendors = async () => {
+    if (!selectedNetwork) {
+      toast({
+        title: "Error",
+        description: "Please select a network first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsFetching(true);
+    try {
+      const network = networks.find(n => n.id === selectedNetwork);
+      if (!network) {
+        toast({
+          title: "Error",
+          description: "Selected network not found",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const normalizedNetworkName = network.name.trim().toUpperCase();
+      const vendors = ['vtpass', 'smeplug'];
+      let totalImported = 0;
+      let totalUpdated = 0;
+
+      for (const vendor of vendors) {
+        try {
+          let functionName = 'fetch-smeplug-data-plans';
+          let requestBody: any = {};
+
+          if (vendor === 'vtpass') {
+            functionName = 'fetch-vtpass-data-plans';
+            requestBody = { network: normalizedNetworkName };
+          } else if (vendor === 'smeplug') {
+            functionName = 'fetch-smeplug-data-plans';
+            if (!network.network_id) {
+              console.warn(`Skipping ${vendor} - network_id required`);
+              continue;
+            }
+            requestBody = { network_id: network.network_id };
+          }
+
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            throw new Error('Not authenticated');
+          }
+
+          const { data: plansData, error: plansError } = await supabase.functions.invoke(functionName, {
+            body: requestBody,
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+
+          if (plansError || !plansData?.success) {
+            console.warn(`Failed to fetch from ${vendor}:`, plansError || plansData?.error);
+            continue;
+          }
+
+          const plansArray = Array.isArray(plansData.data) ? plansData.data : [];
+          if (plansArray.length === 0) {
+            console.warn(`No plans found from ${vendor} for ${network.name}`);
+            continue;
+          }
+
+          // Process and merge plans (similar to existing logic)
+          const { data: existingPlans } = await supabase
+            .from('data_plans')
+            .select('id, network, plan_name, vtpass_code, smeplug_code, mobilenig_code, api_code, provider, price, size')
+            .eq('network', network.name);
+
+          const processedPlans = plansArray.map((plan: any) => {
+            const apiCode = plan.variation_code || plan.id || plan.code || plan.plan_id || '';
+            const planName = plan.plan || plan.name || plan.variation_name || plan.fixedPriceDescription || 'Unknown Plan';
+            const price = parseFloat(plan.variation_amount || plan.amount || plan.fixedPrice || plan.price || 0);
+            const validity = plan.validity || plan.duration || 'N/A';
+
+            const planObj: any = {
+              network: network.name,
+              plan_name: planName.trim(),
+              price,
+              vendor_price: price,
+              user_price: price,
+              original_price: price,
+              validity: validity.trim(),
+              api_code: apiCode,
+              provider: vendor,
+            };
+
+            if (vendor === 'vtpass') {
+              planObj.vtpass_code = apiCode;
+            } else if (vendor === 'smeplug') {
+              planObj.smeplug_code = apiCode;
+            }
+
+            // Extract size
+            const sizeMatch = planName.match(/(\d+\s*(GB|MB|TB))/i);
+            if (sizeMatch) {
+              planObj.size = sizeMatch[1];
+            }
+            planObj.plan_type = 'SME';
+
+            return planObj;
+          }).filter((p: any) => p.api_code && Number.isFinite(p.price));
+
+          // Merge with existing plans
+          for (const newPlan of processedPlans) {
+            const matchingPlan = existingPlans?.find((existing: any) => {
+              const networkMatch = existing.network === newPlan.network;
+              const nameMatch = existing.plan_name.toLowerCase().trim() === newPlan.plan_name.toLowerCase().trim();
+              const priceMatch = existing.price && newPlan.price && 
+                Math.abs(existing.price - newPlan.price) / Math.max(existing.price, newPlan.price) < 0.05;
+              return networkMatch && nameMatch && priceMatch;
+            });
+
+            if (matchingPlan) {
+              const updates: any = {};
+              if (vendor === 'vtpass' && newPlan.vtpass_code && !matchingPlan.vtpass_code) {
+                updates.vtpass_code = newPlan.vtpass_code;
+              } else if (vendor === 'smeplug' && newPlan.smeplug_code && !matchingPlan.smeplug_code) {
+                updates.smeplug_code = newPlan.smeplug_code;
+              }
+
+              if (Object.keys(updates).length > 0) {
+                await supabase.from('data_plans').update(updates).eq('id', matchingPlan.id);
+                totalUpdated++;
+              }
+            } else {
+              await supabase.from('data_plans').upsert(newPlan, { onConflict: 'provider,api_code' });
+              totalImported++;
+            }
+          }
+        } catch (vendorError) {
+          console.error(`Error fetching from ${vendor}:`, vendorError);
+        }
+      }
+
+      await fetchDataPlans();
+      setIsDialogOpen(false);
+      setFilterNetwork(network.name);
+      
+      toast({
+        title: "Success",
+        description: `Imported ${totalImported} new plans and updated ${totalUpdated} existing plans from all vendors for ${network.name}`,
+      });
+    } catch (error: any) {
+      console.error('Error fetching plans from all vendors:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to fetch plans from all vendors",
+        variant: "destructive",
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
   const fetchPlansFromAPI = async () => {
     if (!selectedNetwork) {
       toast({
@@ -391,11 +548,19 @@ const DataPlans = () => {
       
       const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
       
-      // Create AbortController for timeout
+      // Create AbortController for timeout (reduced to 30 seconds for VTpass)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      const timeoutDuration = dataProvider === 'vtpass' ? 30000 : 60000; // 30s for VTpass, 60s for others
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.error('Request timeout after', timeoutDuration / 1000, 'seconds');
+      }, timeoutDuration);
+      
+      let timeoutDurationForError = timeoutDuration; // Store for error handling
 
       try {
+        console.log(`Calling ${functionName} with:`, requestBody);
+        
         const response = await fetch(functionUrl, {
           method: 'POST',
           headers: {
@@ -408,13 +573,40 @@ const DataPlans = () => {
 
         clearTimeout(timeoutId);
 
-        const responseData = await response.json();
+        // Check if response is ok before parsing
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+          }
+          throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        // Parse response with better error handling
+        let responseData: any;
+        try {
+          const responseText = await response.text();
+          console.log('Raw response text (first 500 chars):', responseText.substring(0, 500));
+          
+          if (!responseText || !responseText.trim()) {
+            throw new Error('Empty response from edge function');
+          }
+          
+          responseData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('Error parsing response:', parseError);
+          throw new Error(`Failed to parse response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+        }
         
         console.log('Edge function response:', {
           status: response.status,
           success: responseData?.success,
           error: responseData?.error,
           dataLength: responseData?.data?.length,
+          metadata: responseData?.metadata,
         });
 
         if (!response.ok) {
@@ -472,12 +664,21 @@ const DataPlans = () => {
         }
 
         if (!plansArray.length) {
+          console.warn('No plans found in response:', {
+            dataProvider,
+            network: network.name,
+            rawData: raw,
+            responseData: data,
+          });
           toast({
             title: 'No Plans Found',
-            description: `The ${dataProvider.toUpperCase()} provider returned no plans for this network.`,
+            description: `The ${dataProvider.toUpperCase()} provider returned no plans for ${network.name}. Check the console for details.`,
+            variant: 'destructive',
           });
           return;
         }
+
+        console.log(`Found ${plansArray.length} plans from ${dataProvider} for ${network.name}`);
 
         const normalizePrice = (value: any) => {
           if (value == null) return 0;
@@ -599,24 +800,43 @@ const DataPlans = () => {
         const plansToUpdate: Array<{ id: string; updates: any }> = [];
 
         for (const newPlan of dedupedPlans) {
-          // Try to find matching existing plan by network + plan_name
+          // Try to find matching existing plan by network + plan_name + price (more accurate matching)
+          // Also try to match by size if available
           const matchingPlan = existingPlans?.find(
-            (existing: any) => 
-              existing.network === newPlan.network &&
-              existing.plan_name.toLowerCase().trim() === newPlan.plan_name.toLowerCase().trim()
+            (existing: any) => {
+              const networkMatch = existing.network === newPlan.network;
+              const nameMatch = existing.plan_name.toLowerCase().trim() === newPlan.plan_name.toLowerCase().trim();
+              
+              // Try to match by price (within 5% tolerance for rounding differences)
+              const priceMatch = existing.price && newPlan.price && 
+                Math.abs(existing.price - newPlan.price) / Math.max(existing.price, newPlan.price) < 0.05;
+              
+              // Try to match by size if available
+              const sizeMatch = !existing.size || !newPlan.size || 
+                existing.size.toLowerCase().trim() === newPlan.size.toLowerCase().trim();
+              
+              return networkMatch && nameMatch && (priceMatch || sizeMatch);
+            }
           );
 
           if (matchingPlan) {
-            // Plan exists - merge vendor codes
+            // Plan exists - merge vendor codes (preserve existing codes, add new ones)
             const updates: any = {};
             
-            // Update vendor-specific code
+            // Update vendor-specific code (only if not already set or if we have a new one)
             if (dataProvider === 'vtpass' && newPlan.vtpass_code) {
-              updates.vtpass_code = newPlan.vtpass_code;
+              // Only update if existing code is null/empty or if we're explicitly updating
+              if (!matchingPlan.vtpass_code || matchingPlan.vtpass_code !== newPlan.vtpass_code) {
+                updates.vtpass_code = newPlan.vtpass_code;
+              }
             } else if (dataProvider === 'smeplug' && newPlan.smeplug_code) {
-              updates.smeplug_code = newPlan.smeplug_code;
+              if (!matchingPlan.smeplug_code || matchingPlan.smeplug_code !== newPlan.smeplug_code) {
+                updates.smeplug_code = newPlan.smeplug_code;
+              }
             } else if (dataProvider === 'mobilenig' && newPlan.mobilenig_code) {
-              updates.mobilenig_code = newPlan.mobilenig_code;
+              if (!matchingPlan.mobilenig_code || matchingPlan.mobilenig_code !== newPlan.mobilenig_code) {
+                updates.mobilenig_code = newPlan.mobilenig_code;
+              }
             }
 
             // Update price if vendor price is different
@@ -729,12 +949,20 @@ const DataPlans = () => {
       }
     } catch (error: any) {
       console.error('Error fetching plans from API:', error);
+      console.error('Error details:', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack,
+        status: error?.status,
+        code: error?.code,
+      });
       
       // Handle timeout/abort errors
       if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('timeout')) {
+        const timeoutSeconds = dataProvider === 'vtpass' ? 30 : 60;
         toast({
           title: "Request Timeout",
-          description: "The request took too long. The VTpass API might be slow or unavailable. Please try again.",
+          description: `The request took too long (${timeoutSeconds}s). The ${dataProvider.toUpperCase()} API might be slow or unavailable. Please try again.`,
           variant: "destructive",
         });
         return;

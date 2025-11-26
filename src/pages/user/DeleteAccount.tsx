@@ -49,17 +49,41 @@ export default function DeleteAccount() {
         return;
       }
 
-      // Call edge function to delete account
-      const { data, error } = await supabase.functions.invoke("delete-user-account", {
-        body: {
-          password: password || undefined, // Optional password verification
+      // Call edge function to delete account using direct fetch for better error handling
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error("Supabase URL is not configured");
+      }
+
+      const functionUrl = `${supabaseUrl}/functions/v1/delete-user-account`;
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          password: password || undefined,
+        }),
       });
 
-      if (error) throw error;
+      const responseData = await response.json();
+      console.log('Delete account response:', { 
+        status: response.status,
+        success: responseData?.success, 
+        error: responseData?.error || responseData?.message,
+      });
 
-      if (!data?.success) {
-        throw new Error(data?.error || "Failed to delete account");
+      if (!response.ok) {
+        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+        console.error('Delete account HTTP error:', response.status, errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      if (!responseData?.success) {
+        const errorMsg = responseData?.error || responseData?.message || "Failed to delete account";
+        console.error('Delete account returned error:', responseData);
+        throw new Error(errorMsg);
       }
 
       toast.success("Account deleted successfully");
@@ -223,12 +247,12 @@ export default function DeleteAccount() {
               Final Confirmation Required
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <p>
+              <span className="block">
                 Are you absolutely sure you want to delete your account? This action is permanent and cannot be undone.
-              </p>
-              <p className="font-semibold text-red-600">
+              </span>
+              <span className="block font-semibold text-red-600">
                 All your data, transactions, and account information will be permanently deleted.
-              </p>
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -247,5 +271,7 @@ export default function DeleteAccount() {
     </div>
   );
 }
+
+
 
 

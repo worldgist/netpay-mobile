@@ -256,7 +256,7 @@ export default function AddMoney() {
               onClick={() => navigate("/user/dashboard")}
               className="w-full"
             >
-              Back to Dashboard
+              I have added the money
             </Button>
           </div>
         )}
@@ -269,6 +269,22 @@ export default function AddMoney() {
               <p className="text-sm text-foreground">
                 Transfer to the virtual account number below
               </p>
+            </div>
+
+            {/* Funding Fee Notice */}
+            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-1">
+                    Funding Fee Notice
+                  </p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                    A 5% processing fee (minimum ₦10) will be deducted from your transfer amount. 
+                    For example, if you transfer ₦1,000, ₦50 will be charged as fee and ₦950 will be credited to your wallet.
+                  </p>
+                </div>
+              </div>
             </div>
 
             {/* Account Details Card */}
@@ -364,7 +380,7 @@ export default function AddMoney() {
               onClick={() => navigate("/user/dashboard")}
               className="w-full h-12"
             >
-              Back to Dashboard
+              I have added the money
             </Button>
           </div>
         )}

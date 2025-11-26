@@ -29,3 +29,5 @@ FROM information_schema.columns
 WHERE table_name = 'deleted_accounts'
 ORDER BY ordinal_position;
 
+
+

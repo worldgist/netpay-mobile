@@ -9,6 +9,7 @@ interface ConfirmTransferModalProps {
   amount: number;
   recipientEmail: string;
   description?: string;
+  transferFee?: number;
   loading?: boolean;
 }
 
@@ -19,8 +20,10 @@ export function ConfirmTransferModal({
   amount,
   recipientEmail,
   description,
+  transferFee = 0,
   loading = false,
 }: ConfirmTransferModalProps) {
+  const totalAmount = amount + transferFee;
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-US', {
     year: 'numeric',
@@ -71,9 +74,21 @@ export function ConfirmTransferModal({
             {/* Transaction Summary */}
             <View style={styles.summaryContainer}>
               <View style={styles.summaryRow}>
-                <ThemedText style={styles.summaryLabel}>Amount</ThemedText>
+                <ThemedText style={styles.summaryLabel}>Transfer Amount</ThemedText>
                 <ThemedText style={styles.summaryValue}>₦{amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
               </View>
+              {transferFee > 0 && (
+                <View style={styles.summaryRow}>
+                  <ThemedText style={styles.summaryLabel}>Transfer Fee</ThemedText>
+                  <ThemedText style={styles.summaryValue}>₦{transferFee.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+                </View>
+              )}
+              {transferFee > 0 && (
+                <View style={[styles.summaryRow, styles.summaryRowTotal]}>
+                  <ThemedText style={styles.summaryLabelTotal}>Total Amount</ThemedText>
+                  <ThemedText style={styles.summaryValueTotal}>₦{totalAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+                </View>
+              )}
               <View style={styles.summaryRow}>
                 <ThemedText style={styles.summaryLabel}>Recipient</ThemedText>
                 <ThemedText style={styles.summaryValue} numberOfLines={1}>{recipientEmail}</ThemedText>
@@ -223,6 +238,26 @@ const styles = StyleSheet.create({
   },
   summaryRowLast: {
     borderBottomWidth: 0,
+  },
+  summaryRowTotal: {
+    borderTopWidth: 2,
+    borderTopColor: '#FF7F00',
+    borderBottomWidth: 0,
+    marginTop: 8,
+    paddingTop: 12,
+  },
+  summaryLabelTotal: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#333',
+    flex: 1,
+  },
+  summaryValueTotal: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FF7F00',
+    flex: 1,
+    textAlign: 'right',
   },
   summaryLabel: {
     fontSize: 16,

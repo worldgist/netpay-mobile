@@ -15,6 +15,20 @@ type TransferPayload = {
 
 const normalizeEmail = (value?: string | null) => value?.trim().toLowerCase() ?? "";
 
+// Transfer fee configuration
+const TRANSFER_FEE_PERCENTAGE = 0.05; // 5% fee (e.g., ₦50 for ₦1000 transfer)
+const MIN_TRANSFER_FEE = 10; // Minimum fee of ₦10
+
+/**
+ * Calculate transfer fee based on percentage
+ * Charges 5% of transfer amount (e.g., ₦50 for ₦1000)
+ * Minimum fee is ₦10
+ */
+const calculateTransferFee = (amount: number): number => {
+  const percentageFee = amount * TRANSFER_FEE_PERCENTAGE;
+  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100); // Round to 2 decimal places
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -83,8 +97,30 @@ serve(async (req) => {
       throw new Error("You cannot transfer to your own account");
     }
 
+    // Calculate transfer fee
+    const transferFee = calculateTransferFee(amountValue);
+    const totalAmount = amountValue + transferFee;
+
+    // Check sender balance before proceeding
+    const { data: senderProfile, error: senderProfileError } = await supabase
+      .from("profiles")
+      .select("balance")
+      .eq("id", sender.id)
+      .single();
+
+    if (senderProfileError || !senderProfile) {
+      throw new Error("Unable to fetch sender balance");
+    }
+
+    const senderBalanceBefore = Number(senderProfile.balance) || 0;
+
+    if (senderBalanceBefore < totalAmount) {
+      throw new Error(`Insufficient balance. You need ₦${totalAmount.toFixed(2)} (₦${amountValue.toFixed(2)} + ₦${transferFee.toFixed(2)} fee)`);
+    }
+
     const transferReference = `TRF-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
+    // First, debit the transfer amount
     let debitResult: { balanceBefore: number; balanceAfter: number; reference: string } | null = null;
 
     try {
@@ -96,6 +132,7 @@ serve(async (req) => {
         description: description ?? `Transfer to ${recipientProfile.email}`,
         reference: transferReference,
         performedBy: sender.id,
+        balanceBefore: senderBalanceBefore,
         notification: {
           title: "Transfer Successful",
           message: `You sent ₦${amountValue.toFixed(2)} to ${recipientProfile.email}`,
@@ -105,6 +142,42 @@ serve(async (req) => {
     } catch (debitError) {
       console.error("Debit failed:", debitError);
       throw debitError instanceof Error ? debitError : new Error("Unable to debit sender wallet");
+    }
+
+    // Then, debit the transfer fee as a separate transaction
+    const feeReference = `${transferReference}-FEE`;
+    let feeDebitResult: { balanceBefore: number; balanceAfter: number; reference: string } | null = null;
+
+    try {
+      feeDebitResult = await debitUserWallet({
+        supabase,
+        userId: sender.id,
+        amount: transferFee,
+        transactionType: "debit",
+        description: `Transfer fee for transfer to ${recipientProfile.email}`,
+        reference: feeReference,
+        performedBy: sender.id,
+        balanceBefore: debitResult.balanceAfter,
+      });
+    } catch (feeDebitError) {
+      console.error("Fee debit failed:", feeDebitError);
+      // If fee debit fails, we should rollback the transfer debit
+      try {
+        await supabase.from("profiles").update({ balance: senderBalanceBefore }).eq("id", sender.id);
+        await supabase.from("user_transactions").insert({
+          user_id: sender.id,
+          transaction_type: "credit",
+          amount: amountValue,
+          balance_before: debitResult.balanceAfter,
+          balance_after: senderBalanceBefore,
+          reference: `${transferReference}-REVERSAL`,
+          description: "Transfer reversal due to fee debit failure",
+          performed_by: sender.id,
+        });
+      } catch (rollbackError) {
+        console.error("Failed to rollback transfer debit:", rollbackError);
+      }
+      throw new Error("Unable to process transfer fee");
     }
 
     const recipientBalanceBefore = Number(recipientProfile.balance) || 0;
@@ -117,21 +190,33 @@ serve(async (req) => {
 
     if (recipientUpdateError) {
       console.error("Failed to credit recipient balance:", recipientUpdateError);
-      // Attempt to roll back debit
+      // Attempt to roll back both debits (transfer + fee)
       try {
-        await supabase.from("profiles").update({ balance: debitResult.balanceBefore }).eq("id", sender.id);
+        await supabase.from("profiles").update({ balance: senderBalanceBefore }).eq("id", sender.id);
+        // Rollback transfer debit
         await supabase.from("user_transactions").insert({
           user_id: sender.id,
           transaction_type: "credit",
           amount: amountValue,
-          balance_before: debitResult.balanceAfter,
-          balance_after: debitResult.balanceBefore,
+          balance_before: feeDebitResult.balanceAfter,
+          balance_after: senderBalanceBefore,
           reference: `${transferReference}-REVERSAL`,
           description: "Transfer reversal due to credit failure",
           performed_by: sender.id,
         });
+        // Rollback fee debit
+        await supabase.from("user_transactions").insert({
+          user_id: sender.id,
+          transaction_type: "credit",
+          amount: transferFee,
+          balance_before: feeDebitResult.balanceAfter,
+          balance_after: senderBalanceBefore,
+          reference: `${feeReference}-REVERSAL`,
+          description: "Transfer fee reversal due to credit failure",
+          performed_by: sender.id,
+        });
       } catch (rollbackError) {
-        console.error("Failed to rollback sender debit:", rollbackError);
+        console.error("Failed to rollback sender debits:", rollbackError);
       }
       throw new Error("Failed to credit recipient wallet");
     }
@@ -172,11 +257,13 @@ serve(async (req) => {
       success: true,
       data: {
         amount: amountValue,
+        transferFee,
+        totalAmount: totalAmount,
         reference: transferReference,
         recipientEmail: recipientProfile.email,
         recipientName: recipientProfile.full_name,
         senderBalanceBefore: debitResult.balanceBefore,
-        senderBalanceAfter: debitResult.balanceAfter,
+        senderBalanceAfter: feeDebitResult.balanceAfter,
         recipientBalanceBefore,
         recipientBalanceAfter,
       },

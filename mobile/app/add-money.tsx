@@ -302,6 +302,20 @@ export default function AddMoneyScreen() {
           </ThemedText>
         </View>
 
+        {/* Funding Fee Notice */}
+        {virtualAccount && (
+          <View style={styles.feeNoticeBanner}>
+            <MaterialIcons name="info" size={20} color="#FF9800" style={styles.feeNoticeIcon} />
+            <View style={styles.feeNoticeContent}>
+              <ThemedText style={styles.feeNoticeTitle}>Funding Fee Notice</ThemedText>
+              <ThemedText style={styles.feeNoticeText}>
+                A 5% processing fee (minimum ₦10) will be deducted from your transfer amount. 
+                For example, if you transfer ₦1,000, ₦50 will be charged as fee and ₦950 will be credited to your wallet.
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
         {error && !loading && (
           <View style={styles.errorBanner}>
             <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
@@ -451,8 +465,8 @@ export default function AddMoneyScreen() {
       </ScrollView>
 
       <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.dashboardButton} onPress={() => router.back()}>
-          <ThemedText style={styles.dashboardButtonText}>Back to Dashboard</ThemedText>
+        <TouchableOpacity style={styles.dashboardButton} onPress={() => router.push('/')}>
+          <ThemedText style={styles.dashboardButtonText}>I have added the money</ThemedText>
         </TouchableOpacity>
       </View>
     </ThemedView>
@@ -546,6 +560,36 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#333',
+  },
+  feeNoticeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 8,
+  },
+  feeNoticeIcon: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  feeNoticeContent: {
+    flex: 1,
+  },
+  feeNoticeTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E65100',
+    marginBottom: 4,
+  },
+  feeNoticeText: {
+    fontSize: 12,
+    color: '#BF360C',
+    lineHeight: 18,
   },
   accountCard: {
     flexDirection: 'row',

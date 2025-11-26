@@ -109,3 +109,5 @@ COMMENT ON COLUMN deleted_accounts.status IS 'Status of deletion: pending, proce
 COMMENT ON COLUMN deleted_accounts.deletion_reason IS 'Reason provided by user for account deletion';
 COMMENT ON COLUMN deleted_accounts.metadata IS 'Additional metadata about the deletion (e.g., IP address, user agent, etc.)';
 
+
+
