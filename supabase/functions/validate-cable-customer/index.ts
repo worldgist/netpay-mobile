@@ -363,28 +363,50 @@ async function verifyWithMobileNig(
     );
 
     if (isSuccess) {
-      // Extract customer name
+      // Extract customer name - prioritize full name, then combine first and last
       let customerName = details.customerName || 
                         details.name || 
+                        details.fullName ||
+                        details.full_name ||
                         data.customerName ||
                         data.name ||
+                        data.fullName ||
+                        data.full_name ||
                         '';
       
-      if (!customerName) {
-        const firstName = details.firstName || '';
-        const lastName = details.lastName || '';
+      // If no full name, try to construct from first and last name
+      if (!customerName || customerName.trim() === '') {
+        const firstName = details.firstName || details.first_name || '';
+        const lastName = details.lastName || details.last_name || '';
         if (firstName && lastName) {
           customerName = `${firstName} ${lastName}`.trim();
         } else if (firstName) {
-          customerName = firstName;
+          customerName = firstName.trim();
         } else if (lastName) {
-          customerName = lastName;
+          customerName = lastName.trim();
         }
       }
       
-      if (!customerName) {
+      // Clean up the name - remove extra spaces, ensure proper capitalization
+      if (customerName) {
+        customerName = customerName.trim().replace(/\s+/g, ' ');
+        // Capitalize first letter of each word for better display
+        customerName = customerName.split(' ').map(word => {
+          if (word.length === 0) return word;
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }).join(' ');
+      }
+      
+      if (!customerName || customerName.trim() === '') {
         customerName = 'Customer';
       }
+      
+      console.log('Extracted customer name:', {
+        original: details.customerName || details.name,
+        firstName: details.firstName || details.first_name,
+        lastName: details.lastName || details.last_name,
+        final: customerName
+      });
 
       return new Response(
         JSON.stringify({
@@ -465,42 +487,35 @@ serve(async (req) => {
 
     // Initialize Supabase client for optional user authentication
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
     // Get authorization header from request
+    // Note: Authentication is optional for card validation - we log it but don't block if it fails
     const authHeader = req.headers.get('Authorization');
+    let authenticatedUserId: string | null = null;
     
-    // If auth header is present, verify user authentication
+    // If auth header is present, try to verify user authentication (optional)
     if (authHeader) {
       try {
-        const supabase = createClient(supabaseUrl, supabaseKey, {
-          global: {
-            headers: { Authorization: authHeader },
-          },
-        });
-
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        if (userError || !user) {
-          console.error('Authentication error:', userError);
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'Unauthorized - Please sign in to continue',
-            }),
-            { status: 200, headers: corsHeaders }
-          );
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        // Extract token - handle both "Bearer token" and just "token" formats
+        const token = authHeader.startsWith('Bearer ') 
+          ? authHeader.substring(7).trim() 
+          : authHeader.trim();
+        
+        if (token) {
+          const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+          
+          if (!userError && user) {
+            authenticatedUserId = user.id;
+            console.log('User authenticated:', user.id);
+          } else {
+            console.warn('Authentication check failed (non-blocking):', userError?.message || 'No user');
+          }
         }
-
-        console.log('User authenticated:', user.id);
       } catch (authErr) {
-        console.error('Authentication error:', authErr);
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: 'Authentication failed. Please try again.',
-          }),
-          { status: 200, headers: corsHeaders }
-        );
+        // Log but don't block - validation doesn't require authentication
+        console.warn('Authentication check error (non-blocking):', authErr);
       }
     }
 

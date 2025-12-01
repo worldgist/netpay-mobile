@@ -25,3 +25,4 @@ CREATE POLICY "Service role can select profiles"
 COMMENT ON POLICY "Service role can update profiles" ON public.profiles IS 
   'Allows service_role (used by Edge Functions) to update user balances for wallet funding';
 
+

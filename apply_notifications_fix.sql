@@ -19,3 +19,4 @@ ALTER TABLE public.notifications
 -- Add comment explaining the change
 COMMENT ON COLUMN public.notifications.sent_by IS 'User who sent the notification. NULL if the user has been deleted.';
 
+

@@ -18,6 +18,7 @@ import {
   UserCog,
   LifeBuoy,
   ShieldCheck,
+  Upload,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -43,6 +44,7 @@ const menuItems = [
   { title: "Data Plans", url: "/data-plans", icon: Wifi },
   { title: "Electricity", url: "/electricity", icon: Zap },
   { title: "Cable TV", url: "/cable-tv", icon: Tv },
+  { title: "Import Cable TX", url: "/import-cable-transactions", icon: Upload },
   { title: "Education", url: "/education", icon: GraduationCap },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Referrals", url: "/referrals", icon: Gift },

@@ -68,6 +68,13 @@ const PurchaseCableTv = () => {
     card_number: string;
     customer_number?: string | null;
   } | null>(null);
+  const [dueDateInfo, setDueDateInfo] = useState<{
+    due_date: string | null;
+    due_amount: number | null;
+    account_status: string | null;
+    customer_type: string | null;
+  } | null>(null);
+  const [loadingDueDate, setLoadingDueDate] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [openPackageSelect, setOpenPackageSelect] = useState(false);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
@@ -701,9 +708,6 @@ const PurchaseCableTv = () => {
           description: "Cable TV subscription successful",
         });
       }
-      
-      // Clear form after successful purchase (but keep success dialog open)
-      // Form will be fully cleared when user closes success dialog
     } catch (error: any) {
       console.error('Error purchasing cable TV:', error);
       const errorMessage = error?.message || error?.error || (typeof error === 'string' ? error : "Failed to purchase cable TV. Please try again.");
@@ -717,37 +721,9 @@ const PurchaseCableTv = () => {
     }
   };
 
-  const clearForm = () => {
-    setCardNumber('');
-    setSelectedPlan('');
-    setValidatedCustomer(null);
-    setDueDateInfo(null);
-    setValidationError(null);
-    setShowSummary(false);
-    setSubscriptionAction('purchase');
-    setTransactionDetails(null);
-    setTransactionStatus('completed');
-    setPurchasing(false);
-    setRenewing(false);
-    setChanging(false);
-    setValidatingCard(false);
-    setLoadingDueDate(false);
-    setOpenPackageSelect(false);
-    setShowWrongCardModal(false);
-    setShowInsufficientBalance(false);
-  };
-
   const handleDone = () => {
     setShowSuccess(false);
-    clearForm();
     navigate('/user/transactions');
-  };
-
-  const handleSuccessDialogClose = (open: boolean) => {
-    if (!open) {
-      clearForm();
-    }
-    setShowSuccess(open);
   };
 
   if (loading) {
@@ -926,8 +902,8 @@ const PurchaseCableTv = () => {
                       <div className="p-4 bg-green-50 dark:bg-green-950 border-2 border-green-300 dark:border-green-700 rounded-lg shadow-sm">
                         <div className="flex items-center gap-2 mb-2">
                           <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
                           <span className="text-sm text-green-600 dark:text-green-400 font-semibold">Card Verified Successfully</span>
                         </div>
                         <div className="space-y-1">
@@ -991,19 +967,14 @@ const PurchaseCableTv = () => {
                             )}
                           </div>
                           {dueDateInfo.due_amount && (
-                            <div className="space-y-2 mt-3">
-                              <Button
-                                className="w-full"
-                                onClick={handleRenewal}
-                                disabled={renewing || balance < dueDateInfo.due_amount}
-                                variant="default"
-                              >
-                                {renewing ? "Renewing..." : `Renew Subscription - ${formatNaira(dueDateInfo.due_amount)}`}
-                              </Button>
-                              <p className="text-xs text-center text-muted-foreground">
-                                Or select a package below to change subscription
-                              </p>
-                            </div>
+                            <Button
+                              className="w-full mt-3"
+                              onClick={handleRenewal}
+                              disabled={renewing || balance < dueDateInfo.due_amount}
+                              variant="default"
+                            >
+                              {renewing ? "Renewing..." : `Renew Subscription - ${formatNaira(dueDateInfo.due_amount)}`}
+                            </Button>
                           )}
                         </div>
                       )}
@@ -1026,50 +997,13 @@ const PurchaseCableTv = () => {
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  {dueDateInfo?.due_date && (
-                    <div className="p-3 bg-muted rounded-lg border">
-                      <p className="text-xs text-muted-foreground mb-2">Subscription Action:</p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant={subscriptionAction === 'purchase' ? 'default' : 'outline'}
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => setSubscriptionAction('purchase')}
-                        >
-                          New Purchase
-                        </Button>
-                        <Button
-                          variant={subscriptionAction === 'change' ? 'default' : 'outline'}
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => setSubscriptionAction('change')}
-                          disabled={!selectedPlan}
-                        >
-                          Change Package
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
                 <Button 
                   className="w-full" 
-                    onClick={subscriptionAction === 'change' ? handleChangeSubscription : handlePurchase}
-                    disabled={
-                      !cardNumber || 
-                      !validatedCustomer || 
-                      validatingCard || 
-                      purchasing || 
-                      changing ||
-                      loadingPlans ||
-                      (subscriptionAction === 'purchase' && !selectedPlan) ||
-                      (subscriptionAction === 'change' && !selectedPlan)
-                    }
-                  >
-                    {changing ? "Changing..." : purchasing ? "Processing..." : validatingCard ? "Verifying card..." : 
-                     subscriptionAction === 'change' ? "Change Subscription" : "Continue"}
+                  onClick={handlePurchase}
+                  disabled={!selectedPlan || !cardNumber || !validatedCustomer || validatingCard || purchasing || loadingPlans}
+                >
+                  {purchasing ? "Processing..." : validatingCard ? "Verifying card..." : "Continue"}
                 </Button>
-                </div>
               </>
             )}
           </CardContent>
@@ -1080,13 +1014,9 @@ const PurchaseCableTv = () => {
       <Dialog open={showSummary} onOpenChange={setShowSummary}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold">
-              {subscriptionAction === 'change' ? 'Confirm Subscription Change' : 'Confirm Purchase'}
-            </DialogTitle>
+            <DialogTitle className="text-xl font-bold">Confirm Purchase</DialogTitle>
             <DialogDescription>
-              {subscriptionAction === 'change' 
-                ? 'Please review the package change details before confirming'
-                : 'Please review your subscription details before proceeding'}
+              Please review your subscription details before proceeding
             </DialogDescription>
           </DialogHeader>
           {selectedPlanData && (
@@ -1128,43 +1058,27 @@ const PurchaseCableTv = () => {
                 </div>
               </div>
 
-              {subscriptionAction === 'change' && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-1">
-                    Changing Subscription
-                  </p>
-                  <p className="text-sm text-blue-800 dark:text-blue-200">
-                    Your subscription will be changed to the selected package. The current subscription will be replaced.
-                  </p>
-                </div>
-              )}
-
               <div className="flex gap-3 pt-2">
                 <Button 
                   variant="outline" 
                   onClick={() => setShowSummary(false)} 
                   className="flex-1"
-                  disabled={purchasing || changing}
+                  disabled={purchasing}
                 >
                   Cancel
                 </Button>
                 <Button 
-                  onClick={subscriptionAction === 'change' ? handleChangeSubscription : handleConfirmPayment} 
+                  onClick={handleConfirmPayment} 
                   className="flex-1" 
-                  disabled={purchasing || changing}
+                  disabled={purchasing}
                 >
-                  {changing ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Changing...
-                    </>
-                  ) : purchasing ? (
+                  {purchasing ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                       Processing...
                     </>
                   ) : (
-                    subscriptionAction === 'change' ? "Confirm Change" : "Confirm Payment"
+                    "Confirm Payment"
                   )}
                 </Button>
               </div>
@@ -1174,7 +1088,7 @@ const PurchaseCableTv = () => {
       </Dialog>
 
       {/* Success Dialog */}
-      <Dialog open={showSuccess} onOpenChange={handleSuccessDialogClose}>
+      <Dialog open={showSuccess} onOpenChange={setShowSuccess}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900">
@@ -1249,22 +1163,22 @@ const PurchaseCableTv = () => {
           <DialogHeader>
             <div className="flex justify-center mb-4">
               <div className="rounded-full bg-orange-100 dark:bg-orange-900/30 p-4">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
                   className="h-16 w-16 text-orange-600 dark:text-orange-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
+                  />
+                </svg>
+              </div>
             </div>
-          </div>
             <DialogTitle className="text-center text-2xl font-bold text-orange-600 dark:text-orange-500">
               Invalid Smart Card Number
             </DialogTitle>
@@ -1282,13 +1196,13 @@ const PurchaseCableTv = () => {
                 <li>The card number should be at least 10 digits long</li>
               </ul>
             </div>
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                setShowWrongCardModal(false);
-                setCardNumber('');
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowWrongCardModal(false);
+                  setCardNumber('');
                   setValidationError(null);
                 }}
               >
@@ -1300,10 +1214,10 @@ const PurchaseCableTv = () => {
                   setShowWrongCardModal(false);
                   setCardNumber('');
                   setValidationError(null);
-              }}
-            >
-              OK
-            </Button>
+                }}
+              >
+                OK
+              </Button>
             </div>
           </div>
         </DialogContent>

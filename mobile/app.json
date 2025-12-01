@@ -6,21 +6,29 @@
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "netpay",
-    "deepLinks": ["netpay://reset-password"],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.netpay.mobile",
       "infoPlist": {
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["netpay"]
+            "CFBundleURLSchemes": [
+              "netpay"
+            ]
+          },
+          {
+            "CFBundleURLSchemes": [
+              "netpay"
+            ]
           }
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "package": "com.netpay.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#FFFFFF"
@@ -61,11 +69,25 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-local-authentication",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/logo.png",
+          "color": "#ffffff"
+        }
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a962982c-3160-42f2-9e64-3ab04ced7bf5"
+      }
     }
   }
 }

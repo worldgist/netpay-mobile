@@ -15,6 +15,7 @@ import CableTvPlans from "./pages/CableTvPlans";
 import EducationServices from "./pages/EducationServices";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
+import ImportCableTransactions from "./pages/ImportCableTransactions";
 import ContactUs from "./pages/ContactUs";
 import ContactLanding from "./pages/ContactLanding";
 import PrivacyLanding from "./pages/PrivacyLanding";
@@ -83,6 +84,7 @@ const App = () => (
         <Route path="/hr" element={<HrManager />} />
         <Route path="/electricity" element={<ElectricityPlans />} />
         <Route path="/cable-tv" element={<CableTvPlans />} />
+        <Route path="/import-cable-transactions" element={<ImportCableTransactions />} />
         <Route path="/education" element={<EducationServices />} />
         <Route path="/data-plans" element={<DataPlans />} />
         <Route path="/airtime" element={<AirtimeProviders />} />
