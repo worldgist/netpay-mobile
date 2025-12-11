@@ -991,7 +991,7 @@ serve(async (req) => {
           };
           
           // Return default structures so admin can configure them
-          const formattedDefaults = defaultServices.map(formatServiceRow);
+          const formattedDefaults = [defaultService].map(formatServiceRow);
           return new Response(
             JSON.stringify({
               success: true,

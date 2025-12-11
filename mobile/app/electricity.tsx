@@ -113,6 +113,7 @@ export default function ElectricityScreen() {
   const [providers] = useState<ElectricityProvider[]>(FALLBACK_PROVIDERS);
   const [plans] = useState<ElectricityPlan[]>(FALLBACK_PLANS);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(FALLBACK_PROVIDERS[0]?.id || null);
+  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'smeplug'>('vtpass');
   const [meterType, setMeterType] = useState<'prepaid' | 'postpaid' | ''>('');
   const [meterNumber, setMeterNumber] = useState('');
   const [amount, setAmount] = useState('');
@@ -121,6 +122,7 @@ export default function ElectricityScreen() {
   const [verificationLoading, setVerificationLoading] = useState(false);
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [verifiedAddress, setVerifiedAddress] = useState<string | null>(null);
+  const [meterInfo, setMeterInfo] = useState<any>(null);
   const [token, setToken] = useState<string | null>(null);
   const [transactionReference, setTransactionReference] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<string | null>(null);
@@ -191,8 +193,35 @@ export default function ElectricityScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchBalance();
-    }, [fetchBalance])
+      fetchElectricityProvider();
+    }, [fetchBalance, fetchElectricityProvider])
   );
+
+  const fetchElectricityProvider = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'electricity_provider')
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching electricity provider setting:', error);
+        setVendingProvider('vtpass');
+        return;
+      }
+
+      if (data?.setting_value) {
+        const provider = (data.setting_value as any)?.provider || 'vtpass';
+        const validProviders = ['vtpass', 'mobilenig', 'smeplug'];
+        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'smeplug' : 'vtpass';
+        setVendingProvider(selectedProvider);
+      }
+    } catch (error) {
+      console.error('Error fetching electricity provider setting:', error);
+      setVendingProvider('vtpass');
+    }
+  }, []);
 
   useEffect(() => {
     if (providers.length) {
@@ -213,6 +242,7 @@ export default function ElectricityScreen() {
     setToken(null);
     setVerifiedName(null);
     setVerifiedAddress(null);
+    setMeterInfo(null);
   };
 
   const handleVerifyMeter = async () => {
@@ -233,34 +263,134 @@ export default function ElectricityScreen() {
       setVerificationLoading(true);
       setToken(null);
       setVerifiedName(null);
+      setVerifiedAddress(null);
       setVerificationError(null);
       setShowVerificationErrorModal(false);
-      const { data, error } = await supabase.functions.invoke('validate-meter-number', {
-        body: {
-          meter_number: meterNumber.trim(),
-          provider: selectedProvider,
-          meter_type: meterType,
-          vending_provider: 'vtpass', // Call VTpass directly
-        },
-      });
+      setMeterInfo(null);
 
-      if (error) {
-        throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Please sign in to continue');
       }
 
-      if (!data?.success) {
-        const failedMessage = data?.error || data?.details?.message || 'Meter not found.';
+      let responseData: any = null;
+
+      // Try supabase.functions.invoke first
+      try {
+        const { data, error } = await supabase.functions.invoke('validate-meter-number', {
+          body: {
+            meter_number: meterNumber.trim(),
+            provider: selectedProvider,
+            meter_type: meterType,
+            vending_provider: vendingProvider,
+          },
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data) {
+          responseData = data;
+        }
+      } catch (invokeError: any) {
+        console.log('Supabase invoke failed, trying direct fetch:', invokeError);
+
+        // Refresh session before direct fetch to ensure we have a valid token
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
+        
+        if (refreshError || !refreshedSession) {
+          throw new Error('Please sign in to continue');
+        }
+
+        // Fallback to direct fetch
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
+                           (supabase as any).supabaseUrl ||
+                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/validate-meter-number`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${refreshedSession.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            meter_number: meterNumber.trim(),
+            provider: selectedProvider,
+            meter_type: meterType,
+            vending_provider: vendingProvider,
+          }),
+        });
+
+        const responseText = await response.text();
+        
+        if (!responseText || responseText.trim().length === 0) {
+          console.error('Empty response from validate-meter-number');
+          throw new Error('No response from server. Please try again.');
+        }
+        
+        try {
+          responseData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('Failed to parse validation response:', parseError, 'Response:', responseText);
+          if (response.status >= 500) {
+            throw new Error('Server error. Please try again later.');
+          }
+          throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
+        }
+
+        if (!response.ok) {
+          // Handle 401 Unauthorized specifically
+          if (response.status === 401) {
+            throw new Error('Session expired. Please sign in again.');
+          }
+          const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+          throw new Error(errorMsg);
+        }
+      }
+
+      if (!responseData) {
+        throw new Error('No data received from server');
+      }
+
+      console.log('Meter validation response:', responseData);
+
+      if (responseData?.success) {
+        setVerifiedName(responseData.data?.customer_name || 'Customer');
+        setVerifiedAddress(responseData.data?.address || '');
+        setMeterInfo(responseData.data || null);
+        setToken(responseData.data?.token || null);
+        Alert.alert('Verified', 'Meter details confirmed.');
+      } else {
+        // Extract error message from various possible locations
+        const failedMessage = 
+          responseData?.error || 
+          responseData?.details?.details ||
+          responseData?.details?.message ||
+          responseData?.message || 
+          'Meter not found.';
+        
+        // Check status code for EXC010 (data not found)
+        const statusCode = responseData?.details?.statusCode || responseData?.statusCode;
+        const isEXC010 = statusCode === 'EXC010';
+        
+        // Check errorType from response (set by backend function)
+        const errorType = responseData?.errorType;
         
         // Check if it's an invalid meter number error
         const isInvalidMeter = 
-          data?.errorType === 'invalid_meter' ||
+          errorType === 'invalid_meter' ||
+          isEXC010 ||
           failedMessage.toLowerCase().includes('invalid') ||
           failedMessage.toLowerCase().includes('meter number') ||
           failedMessage.toLowerCase().includes('meter not found') ||
           failedMessage.toLowerCase().includes('customer not found') ||
+          failedMessage.toLowerCase().includes('cannot be found') ||
           failedMessage.toLowerCase().includes('not found') ||
           failedMessage.toLowerCase().includes('wrong') ||
-          failedMessage.toLowerCase().includes('incorrect');
+          failedMessage.toLowerCase().includes('incorrect') ||
+          failedMessage.toLowerCase().includes('data you are looking for');
         
         if (isInvalidMeter) {
           setInvalidMeterMessage('Wrong meter number. Please check the meter number and try again.');
@@ -269,16 +399,55 @@ export default function ElectricityScreen() {
           setVerificationError(failedMessage);
           setShowVerificationErrorModal(true);
         }
+      }
+    } catch (error: any) {
+      console.error('Meter verification failed:', error);
+      
+      let message = 'Unable to verify meter at the moment.';
+      
+      // Handle session/auth errors
+      if (error.message?.includes('Session expired') ||
+          error.message?.includes('Please sign in') ||
+          error.message?.includes('Unauthorized') ||
+          error.message?.toLowerCase().includes('unauthorized')) {
+        message = 'Your session has expired. Please sign in again.';
+        setVerificationError(message);
+        setShowVerificationErrorModal(true);
+        setVerifiedAddress(null);
+        setMeterInfo(null);
+        setVerificationLoading(false);
+        // Optionally redirect to login
+        setTimeout(() => {
+          router.replace('/auth/login');
+        }, 2000);
         return;
       }
-
-      setVerifiedName(data.data?.customer_name || 'Customer');
-      setVerifiedAddress(data.data?.address || '');
-      setToken(data.data?.token || null);
-      Alert.alert('Verified', 'Meter details confirmed.');
-    } catch (error) {
-      console.error('Meter verification failed:', error);
-      const message = error instanceof Error ? error.message : 'Unable to verify meter at the moment.';
+      
+      // Handle network/connection errors
+      if (error.name === 'FunctionsFetchError' || 
+          error.message?.includes('edge function') ||
+          error.message?.includes('Edge Function') ||
+          error.message?.includes('Failed to fetch') ||
+          error.message?.includes('Network request failed') ||
+          error.message?.includes('NetworkError') ||
+          error.message?.includes('timeout') ||
+          error.message?.includes('timed out') ||
+          error.message?.includes('Connection error')) {
+        message = 'Connection error. Please check your internet connection and try again.';
+        setVerificationError(message);
+        setShowVerificationErrorModal(true);
+        setVerifiedAddress(null);
+        setMeterInfo(null);
+        setVerificationLoading(false);
+        return;
+      }
+      
+      // Handle other errors
+      if (error instanceof Error) {
+        message = error.message;
+      } else if (error?.message) {
+        message = error.message;
+      }
       
       // Check if error indicates invalid meter number
       const errorMessage = message.toLowerCase();
@@ -299,6 +468,7 @@ export default function ElectricityScreen() {
         setShowVerificationErrorModal(true);
       }
       setVerifiedAddress(null);
+      setMeterInfo(null);
     } finally {
       setVerificationLoading(false);
     }
@@ -378,379 +548,126 @@ export default function ElectricityScreen() {
     const providerEntry = providers.find((p) => p.id === selectedProvider);
     const providerName = providerEntry?.name || selectedProvider;
 
-    // Declare hasToken and hasReference at function scope for error logging
-    let hasToken = false;
-    let hasReference = false;
-    
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      const { data: initialData, error } = await supabase.functions.invoke('purchase-electricity', {
-        body: {
-          meter_number: sanitizedMeter,
-          provider: selectedProvider,
-          meter_type: meterType,
-          amount: purchaseAmount,
-          phone: sanitizedPhone,
-          vending_provider: 'vtpass', // Call VTpass directly
-          customer_name: verifiedName || undefined,
-          customer_address: verifiedAddress || undefined,
-        },
-        headers: accessToken
-          ? {
-              Authorization: `Bearer ${accessToken}`,
-            }
-          : undefined,
-      });
+      const { data: { session } } = await supabase.auth.getSession();
       
-      // Use let instead of const to allow reassignment if needed
-      let data = initialData;
-
-      console.log('Electricity purchase response:', { 
-        data, 
-        error, 
-        selectedProvider, 
-        meterType, 
-        amount: purchaseAmount,
-        dataType: typeof data,
-        dataDataType: typeof data?.data,
-        dataDataIsString: typeof data?.data === 'string',
-        errorMessage: error?.message,
-        errorName: error?.name
-      });
-
-      // IMPORTANT: Even if there's an error from Supabase, check if the transaction actually succeeded
-      // Sometimes the edge function returns an error status but the transaction was successful
-      // We'll check the data first before throwing
-      const hasData = data !== null && data !== undefined;
-      
-      // Check multiple ways the data might indicate success
-      let dataHasSuccess = false;
-      let parsedSuccessData = null;
-      
-      if (hasData) {
-        // Check if data.data is a string with "success":true
-        if (data?.data && typeof data.data === 'string' && data.data.trim().length > 0) {
-          const hasSuccessInString = data.data.includes('"success":true') || data.data.includes('"success": true');
-          const hasFailure = data.data.includes('"success":false');
-          
-          if (hasSuccessInString && !hasFailure) {
-            console.log('✅ Found success in data.data string - will parse and proceed');
-            dataHasSuccess = true;
-            try {
-              parsedSuccessData = JSON.parse(data.data);
-              console.log('✅ Parsed success data:', { success: parsedSuccessData?.success, hasToken: !!parsedSuccessData?.data?.token });
-            } catch (e) {
-              console.log('Could not parse but treating as success');
-            }
-          }
-        }
-        
-        // Check if data.success is true
-        if (!dataHasSuccess && data?.success === true) {
-          console.log('✅ Found data.success === true');
-          dataHasSuccess = true;
-          parsedSuccessData = data;
-        }
-        
-        // Check if data.data is an object with success
-        if (!dataHasSuccess && data?.data && typeof data.data === 'object' && data.data !== null && data.data?.success === true) {
-          console.log('✅ Found data.data.success === true');
-          dataHasSuccess = true;
-          parsedSuccessData = data.data;
-        }
-      }
-      
-      console.log('Checking if we should proceed despite error:', {
-        hasError: !!error,
-        hasData,
-        dataHasSuccess,
-        willProceed: hasData && dataHasSuccess,
-        errorName: error?.name,
-        errorMessage: error?.message
-      });
-
-      // Only throw error if we don't have successful data
-      if (error && !(hasData && dataHasSuccess)) {
-        console.error('Electricity purchase error and no success data:', error);
-        throw error;
-      } else if (error && hasData && dataHasSuccess) {
-        console.log('⚠️ Edge function returned error BUT transaction succeeded - proceeding with success flow');
-        // If we parsed the success data, use it
-        if (parsedSuccessData) {
-          data = parsedSuccessData;
-          console.log('✅ Using parsed success data as main data');
-        }
+      if (!session) {
+        throw new Error('Please sign in to continue');
       }
 
-      // Handle case where data.data might be a JSON string (double-encoded response)
-      // Sometimes Supabase wraps the response, making data.data a stringified JSON
-      let responseData = data;
-      
-      console.log('Initial data structure:', {
-        dataType: typeof data,
-        hasData: !!data,
-        dataKeys: data ? Object.keys(data) : [],
-        dataDataType: typeof data?.data,
-        dataDataIsString: typeof data?.data === 'string',
-        dataDataLength: typeof data?.data === 'string' ? data.data.length : 0
-      });
-      
-      // First, try to parse if data itself is a string
-      if (typeof data === 'string') {
-        try {
-          console.log('data is a string, parsing...');
-          responseData = JSON.parse(data);
-          console.log('Parsed data string, success:', responseData?.success, 'keys:', Object.keys(responseData || {}));
-        } catch (e) {
-          console.error('Failed to parse data as string:', e);
-        }
-      }
-      
-      // Check if data.data or responseData.data is a string and needs parsing
-      // Try multiple sources: responseData.data, data.data
-      // Priority: check data.data first (the original response from Supabase)
-      const dataToParse = data?.data;
-      
-      console.log('Checking dataToParse from data.data:', {
-        hasDataToParse: !!dataToParse,
-        dataToParseType: typeof dataToParse,
-        isString: typeof dataToParse === 'string',
-        length: typeof dataToParse === 'string' ? dataToParse.length : 0
-      });
-      
-      // If data.data is a string, parse it - this is the most common case
-      if (dataToParse && typeof dataToParse === 'string' && dataToParse.trim().length > 0) {
-        try {
-          const sample = dataToParse.length > 100 ? dataToParse.substring(0, 100) : dataToParse;
-          console.log('Parsing data.data as JSON. Length:', dataToParse.length, 'Sample:', sample);
-          const parsed = JSON.parse(dataToParse);
-          console.log('✅ Successfully parsed data.data:', {
-            hasSuccess: 'success' in parsed,
-            successValue: parsed.success,
-            successType: typeof parsed.success,
-            hasData: 'data' in parsed,
-            keys: Object.keys(parsed)
-          });
-          // IMPORTANT: Replace responseData with parsed result
-          responseData = parsed;
-          console.log('✅ responseData updated, success:', responseData?.success);
-        } catch (e) {
-          console.error('❌ Failed to parse data.data:', e);
-          // If parsing fails, keep original responseData
-        }
-      } else if (responseData && responseData.success !== undefined) {
-        // responseData is already the response object
-        console.log('Using responseData directly, success:', responseData.success);
-      } else {
-        console.log('No parsing needed:', {
-          hasResponseData: !!responseData,
-          responseDataKeys: responseData ? Object.keys(responseData) : [],
-          responseDataSuccess: responseData?.success
-        });
-      }
-      
-      // Final verification of responseData after all parsing
-      console.log('Final responseData after parsing:', {
-        hasResponseData: !!responseData,
-        responseDataType: typeof responseData,
-        success: responseData?.success,
-        successType: typeof responseData?.success,
-        keys: responseData ? Object.keys(responseData) : []
-      });
+      let responseData: any = null;
 
-      console.log('Final responseData check:', {
-        hasResponseData: !!responseData,
-        success: responseData?.success,
-        successType: typeof responseData?.success,
-        hasData: !!responseData?.data,
-        dataType: typeof responseData?.data,
-        keys: responseData ? Object.keys(responseData) : [],
-        responseDataString: typeof responseData === 'string' ? responseData.substring(0, 100) : 'not a string'
-      });
-
-      // Determine success - check multiple sources with priority order
-      let isSuccess = false;
-      const successValue = responseData?.success;
-      
-      // PRIORITY 1: Check if data.data is a string containing "success":true
-      // This is the most reliable check for double-encoded responses
-      if (data?.data && typeof data.data === 'string' && data.data.trim().length > 0) {
-        const hasSuccessInString = data.data.includes('"success":true') || data.data.includes('"success": true');
-        const hasFailure = data.data.includes('"success":false');
-        
-        console.log('Checking data.data string for success:', {
-          hasSuccessInString,
-          hasFailure,
-          sample: data.data.substring(0, 150)
-        });
-        
-        if (hasSuccessInString && !hasFailure) {
-          console.log('✅ SUCCESS: Found "success":true in data.data string');
-          isSuccess = true;
-          // Parse it to get the full responseData
-          try {
-            const stringParsed = JSON.parse(data.data);
-            responseData = stringParsed;
-            console.log('✅ Parsed data.data, got success:', responseData?.success, 'has token:', !!responseData?.data?.token);
-          } catch (e) {
-            console.log('Could not parse data.data but treating as success based on string check');
-          }
-        }
-      }
-      
-      // PRIORITY 2: Check responseData.success directly
-      if (!isSuccess) {
-        if (successValue === true || successValue === 'true') {
-          console.log('✅ SUCCESS: responseData.success === true');
-          isSuccess = true;
-        } else if (typeof successValue === 'boolean' && successValue) {
-          console.log('✅ SUCCESS: responseData.success is truthy');
-          isSuccess = true;
-        } else if (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && responseData.data.success === true) {
-          console.log('✅ SUCCESS: responseData.data.success === true');
-          isSuccess = true;
-        }
-      }
-      
-      // PRIORITY 3: Check for token or reference as fallback
-      if (!isSuccess) {
-        hasToken = 
-          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.token || responseData.data.energyToken)) ||                                                                                                                        
-          responseData?.token ||
-          false;
-        
-        hasReference = 
-          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.reference || responseData.data.transaction_id)) ||                                                                                                                 
-          responseData?.reference ||
-          false;
-        
-        console.log('Fallback checks:', {
-          hasToken,
-          hasReference,
-          responseDataSuccess: responseData?.success,
-          hasError: !!responseData?.error
-        });
-        
-        if (hasToken) {
-          console.log('✅ SUCCESS: Token found in response');
-          isSuccess = true;
-        } else if (hasReference && !responseData?.error) {
-          console.log('✅ SUCCESS: Reference found and no error');
-          isSuccess = true;
-        }
-      }
-      
-      console.log('🎯 FINAL Success check result:', {
-        isSuccess,
-        successValue,
-        successType: typeof successValue,
-        hasResponseData: !!responseData,
-        responseDataKeys: responseData ? Object.keys(responseData) : [],
-        responseDataSuccess: responseData?.success,
-        responseDataDataType: typeof responseData?.data,
-        originalDataDataType: typeof data?.data,
-        originalDataDataIsString: typeof data?.data === 'string'
-      });
-      
-      if (!isSuccess) {
-        console.error('❌ Transaction NOT detected as successful - will show error to user');
-        // Extract error message from various possible response formats
-        const errorMessage = 
-          responseData?.error ||
-          responseData?.message ||
-          responseData?.details?.message ||
-          responseData?.details?.error ||
-          responseData?.response_description ||
-          (typeof responseData?.details === 'string' ? responseData.details : null) ||
-          'Unable to complete electricity purchase.';
-        
-        console.error('Electricity purchase failed - not successful:', {
-          isSuccess,
-          successValue: responseData?.success,
-          successType: typeof responseData?.success,
-          hasToken,
-          hasReference,
-          error: errorMessage,
-          responseDataKeys: responseData ? Object.keys(responseData) : [],
-          fullResponse: JSON.stringify(responseData, null, 2),
-          originalData: JSON.stringify(data, null, 2),
-          requestPayload: {
+      // Try supabase.functions.invoke first
+      try {
+        const { data, error } = await supabase.functions.invoke('purchase-electricity', {
+          body: {
+            meter_number: sanitizedMeter,
             provider: selectedProvider,
             meter_type: meterType,
             amount: purchaseAmount,
-            meter_number: sanitizedMeter.substring(0, 5) + '...'
-          }
+            phone: sanitizedPhone,
+            vending_provider: vendingProvider,
+            customer_name: verifiedName || undefined,
+            customer_address: verifiedAddress || undefined,
+            tariff: meterInfo?.tariff || undefined,
+            minimum_vend: meterInfo?.minimum_vend || undefined,
+            outstanding_amount: meterInfo?.outstanding_amount || undefined,
+            customer_category: meterInfo?.customer_category || undefined,
+            business_unit: meterInfo?.business_unit || undefined,
+          },
         });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data) {
+          responseData = data;
+        }
+      } catch (invokeError: any) {
+        console.log('Supabase invoke failed, trying direct fetch:', invokeError);
+
+        // Refresh session before direct fetch to ensure we have a valid token
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
         
-        throw new Error(errorMessage);
-      }
-      
-      // Log that we're proceeding with success flow
-      console.log('🎉 PROCEEDING WITH SUCCESS FLOW - Transaction was successful!');
-      
-      console.log('Electricity purchase successful!', {
-        success: responseData?.success,
-        hasData: !!responseData?.data,
-        dataKeys: responseData?.data ? Object.keys(responseData.data) : [],
-        isSuccess: isSuccess
-      });
+        if (refreshError || !refreshedSession) {
+          throw new Error('Please sign in to continue');
+        }
 
-      // Extract data from response
-      // After parsing, responseData should be {success: true, data: {...}}
-      // Handle multiple possible response structures
-      let responseDataData = responseData?.data || {};
-      
-      // If responseDataData is still a string, try parsing it
-      if (typeof responseDataData === 'string') {
+        // Fallback to direct fetch
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
+                           (supabase as any).supabaseUrl ||
+                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-electricity`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${refreshedSession.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            meter_number: sanitizedMeter,
+            provider: selectedProvider,
+            meter_type: meterType,
+            amount: purchaseAmount,
+            phone: sanitizedPhone,
+            vending_provider: vendingProvider,
+            customer_name: verifiedName || undefined,
+            customer_address: verifiedAddress || undefined,
+            tariff: meterInfo?.tariff || undefined,
+            minimum_vend: meterInfo?.minimum_vend || undefined,
+            outstanding_amount: meterInfo?.outstanding_amount || undefined,
+            customer_category: meterInfo?.customer_category || undefined,
+            business_unit: meterInfo?.business_unit || undefined,
+          }),
+        });
+
+        const responseText = await response.text();
+        
+        if (!responseText || responseText.trim().length === 0) {
+          console.error('Empty response from purchase-electricity');
+          throw new Error('No response from server. Please try again.');
+        }
+        
         try {
-          console.log('responseDataData is a string, parsing...');
-          responseDataData = JSON.parse(responseDataData);
-          console.log('Parsed responseDataData:', Object.keys(responseDataData));
-        } catch (e) {
-          console.error('Failed to parse responseDataData:', e);
+          responseData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('Failed to parse purchase response:', parseError, 'Response:', responseText);
+          if (response.status >= 500) {
+            throw new Error('Server error. Please try again later.');
+          }
+          throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
         }
-      }
-      
-      // If we still don't have data, check if responseData itself has the fields we need
-      if (!responseDataData || Object.keys(responseDataData).length === 0) {
-        console.log('responseDataData is empty, checking responseData directly');
-        // Check if responseData has the fields directly (not nested in data)
-        if (responseData.reference || responseData.token || responseData.amount) {
-          console.log('Using responseData directly as responseDataData');
-          responseDataData = responseData;
-        }
-      }
-      
-      console.log('Extracted response data:', {
-        hasData: !!responseDataData,
-        hasResponseData: !!responseData,
-        responseDataKeys: responseData ? Object.keys(responseData) : [],
-        responseDataDataKeys: responseDataData ? Object.keys(responseDataData) : [],
-        reference: responseDataData.reference,
-        token: responseDataData.token?.substring(0, 30),
-        units: responseDataData.units,
-        amount: responseDataData.amount
-      });
-      
-      const reference = responseDataData.reference || '';
-      const transactionId = responseDataData.trans_id ? String(responseDataData.trans_id) : reference;
-      const purchaseToken =
-        responseDataData.token ||
-        responseDataData.energyToken ||
-        responseDataData.token_value ||
-        '';
-      const customerName = responseDataData.customer_name || verifiedName || '';
-      const customerAddress = responseDataData.customer_address || verifiedAddress || '';
 
-      console.log('Setting up success state and navigating...', {
-        purchaseToken: purchaseToken?.substring(0, 30),
-        reference,
-        transactionId,
-        customerName,
-        amount: purchaseAmount
-      });
+        if (!response.ok && !responseData?.success) {
+          // Handle 401 Unauthorized specifically
+          if (response.status === 401) {
+            throw new Error('Session expired. Please sign in again.');
+          }
+          const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+          throw new Error(errorMsg);
+        }
+      }
+
+      if (!responseData) {
+        throw new Error('No data received from server');
+      }
+
+      if (!responseData?.success) {
+        const errorMsg = responseData?.error || responseData?.message || 'Purchase failed';
+        throw new Error(errorMsg);
+      }
+
+      const purchaseData = responseData.data || {};
+      const reference = purchaseData.reference || responseData.reference || '';
+      const transactionId = purchaseData.trans_id ? String(purchaseData.trans_id) : (purchaseData.transaction_id || reference);
+      const purchaseToken = purchaseData.token || purchaseData.energyToken || purchaseData.token_value || responseData.token || '';
+      const customerName = purchaseData.customer_name || verifiedName || '';
+      const customerAddress = purchaseData.customer_address || verifiedAddress || '';
+      const mobileNigReference = purchaseData.mobile_nig_reference || '';
+      const receiptNumber = purchaseData.receipt_number || '';
+      const serviceName = purchaseData.service_name || '';
+      const walletBalance = purchaseData.wallet_balance || '';
 
       setToken(purchaseToken || null);
       setVerifiedName(customerName || null);
@@ -763,28 +680,51 @@ export default function ElectricityScreen() {
         console.error('Failed to fetch balance, but continuing with success flow:', balanceError);
       }
 
-      console.log('Navigating to payment-success screen');
       router.push({
         pathname: '/payment-success',
         params: {
           amount: purchaseAmount.toString(),
-          network: providerName,
+          network: serviceName || providerName,
           recipient: sanitizedMeter,
           token: purchaseToken || '',
           meterType,
           customerName: customerName,
           reference,
           serviceType: `Electricity • ${meterType.toUpperCase()}`,
+          mobileNigReference: mobileNigReference,
+          receiptNumber: receiptNumber,
+          transactionId: transactionId,
+          walletBalance: walletBalance,
         },
       });
       
       setTransactionReference(transactionId);
       setTransactionStatus('Approved');
-      
-      console.log('Success flow completed - transaction status set to Approved');
-    } catch (purchaseError) {
+    } catch (purchaseError: any) {
       console.error('Electricity purchase failed:', purchaseError);
       let message = 'Unable to complete electricity purchase. Please try again.';
+
+      // Check for network errors
+      const errorMessage = purchaseError?.message || String(purchaseError);
+      const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            errorName === 'FunctionsFetchError' ||
+                            errorName === 'TypeError' ||
+                            purchaseError?.code === 'NETWORK_ERROR';
+      
+      if (isNetworkError) {
+        Alert.alert(
+          'Connection Error',
+          'Network connection failed. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
 
       if (purchaseError instanceof Error) {
         message = purchaseError.message || message;
@@ -1026,7 +966,70 @@ export default function ElectricityScreen() {
                 )}
               </TouchableOpacity>
             </View>
-            {verifiedName ? (
+            {meterInfo ? (
+              <View style={styles.meterDetailsCard}>
+                <View style={styles.meterDetailsHeader}>
+                  <MaterialIcons name="check-circle" size={20} color="#4CAF50" />
+                  <ThemedText style={styles.meterDetailsTitle}>Meter Verified</ThemedText>
+                </View>
+                <View style={styles.meterDetailsContent}>
+                  <View style={styles.meterDetailRow}>
+                    <ThemedText style={styles.meterDetailLabel}>Customer Name:</ThemedText>
+                    <ThemedText style={styles.meterDetailValue}>{meterInfo?.customer_name || verifiedName || 'N/A'}</ThemedText>
+                  </View>
+                  <View style={styles.meterDetailRow}>
+                    <ThemedText style={styles.meterDetailLabel}>Meter Number:</ThemedText>
+                    <ThemedText style={[styles.meterDetailValue, { fontFamily: 'monospace' }]}>{meterInfo?.meter_number || meterNumber || 'N/A'}</ThemedText>
+                  </View>
+                  {(meterInfo?.address && meterInfo.address.trim()) && (
+                    <View style={styles.meterDetailRow}>
+                      <ThemedText style={styles.meterDetailLabel}>Address:</ThemedText>
+                      <ThemedText style={styles.meterDetailValue}>{meterInfo.address}</ThemedText>
+                    </View>
+                  )}
+                  <View style={styles.meterDetailsGrid}>
+                    {(meterInfo?.tariff && meterInfo.tariff.trim()) && (
+                      <View style={styles.meterDetailItem}>
+                        <ThemedText style={styles.meterDetailLabel}>Tariff</ThemedText>
+                        <ThemedText style={styles.meterDetailValue}>{meterInfo.tariff}</ThemedText>
+                      </View>
+                    )}
+                    <View style={styles.meterDetailItem}>
+                      <ThemedText style={styles.meterDetailLabel}>Meter Type</ThemedText>
+                      <ThemedText style={styles.meterDetailValue}>{(meterInfo?.meter_type || meterType || '').toUpperCase()}</ThemedText>
+                    </View>
+                    {(meterInfo?.minimum_vend !== undefined && meterInfo.minimum_vend !== null) && (
+                      <View style={styles.meterDetailItem}>
+                        <ThemedText style={styles.meterDetailLabel}>Min Purchase</ThemedText>
+                        <ThemedText style={[styles.meterDetailValue, { fontWeight: 'bold' }]}>
+                          ₦{Number(meterInfo.minimum_vend).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {(meterInfo?.outstanding_amount !== undefined && meterInfo.outstanding_amount !== null && Number(meterInfo.outstanding_amount) > 0) && (
+                      <View style={styles.meterDetailItem}>
+                        <ThemedText style={styles.meterDetailLabel}>Outstanding</ThemedText>
+                        <ThemedText style={[styles.meterDetailValue, { fontWeight: 'bold', color: '#FF6B35' }]}>
+                          ₦{Number(meterInfo.outstanding_amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {(meterInfo?.customer_category && meterInfo.customer_category.trim()) && (
+                      <View style={styles.meterDetailItem}>
+                        <ThemedText style={styles.meterDetailLabel}>Category</ThemedText>
+                        <ThemedText style={styles.meterDetailValue}>{meterInfo.customer_category}</ThemedText>
+                      </View>
+                    )}
+                    {(meterInfo?.business_unit && meterInfo.business_unit.trim()) && (
+                      <View style={styles.meterDetailItem}>
+                        <ThemedText style={styles.meterDetailLabel}>Business Unit</ThemedText>
+                        <ThemedText style={styles.meterDetailValue}>{meterInfo.business_unit}</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ) : verifiedName ? (
               <View style={styles.verifiedBanner}>
                 <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
                 <ThemedText style={styles.verifiedText}>
@@ -1084,6 +1087,8 @@ export default function ElectricityScreen() {
                   onPress={() => {
                     setMeterType(type);
                     setVerifiedName(null);
+                    setVerifiedAddress(null);
+                    setMeterInfo(null);
                     setToken(null);
                   }}
                 >
@@ -1474,6 +1479,54 @@ const styles = StyleSheet.create({
   },
   meterTypeTextActive: {
     color: '#fff',
+  },
+  meterDetailsCard: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  meterDetailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  meterDetailsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2E7D32',
+  },
+  meterDetailsContent: {
+    gap: 12,
+  },
+  meterDetailRow: {
+    marginBottom: 8,
+  },
+  meterDetailLabel: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  meterDetailValue: {
+    fontSize: 14,
+    color: '#1B5E20',
+  },
+  meterDetailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#A5D6A7',
+  },
+  meterDetailItem: {
+    flex: 1,
+    minWidth: '45%',
   },
   verifiedBanner: {
     flexDirection: 'row',

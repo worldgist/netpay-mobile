@@ -60,6 +60,7 @@ const PurchaseElectricity = () => {
   const [balance, setBalance] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedProviderOption, setSelectedProviderOption] = useState("");
+  const [vendingProvider, setVendingProvider] = useState<"vtpass" | "mobilenig" | "smeplug">("vtpass");
   const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid");
   const [meterNumber, setMeterNumber] = useState("");
   const [amount, setAmount] = useState("");
@@ -92,6 +93,20 @@ const PurchaseElectricity = () => {
         if (profile) {
           setBalance(profile.balance || 0);
           setPhone(profile.phone || '');
+        }
+
+        // Fetch admin-selected vending provider
+        const { data: providerSetting } = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'electricity_provider')
+          .maybeSingle();
+
+        if (providerSetting?.setting_value) {
+          const provider = (providerSetting.setting_value as any)?.provider || 'vtpass';
+          const validProviders = ['vtpass', 'mobilenig', 'smeplug'];
+          const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'smeplug' : 'vtpass';
+          setVendingProvider(selectedProvider);
         }
 
         setLoading(false);
@@ -144,16 +159,41 @@ const PurchaseElectricity = () => {
     setMeterInfo(null);
 
     try {
-      // Use direct fetch for better error visibility
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) {
-        throw new Error('Configuration error: Supabase URL not set');
-      }
-
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
         throw new Error('Please sign in to continue');
+      }
+
+      let responseData: any = null;
+      let useDirectFetch = false;
+
+      // Try supabase.functions.invoke first
+      try {
+        const { data, error } = await supabase.functions.invoke('validate-meter-number', {
+          body: {
+            meter_number: meterNumber,
+            provider: selectedProvider,
+            meter_type: meterType,
+            vending_provider: vendingProvider
+          },
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data) {
+          responseData = data;
+        }
+      } catch (invokeError: any) {
+        console.log('Supabase invoke failed, trying direct fetch:', invokeError);
+        useDirectFetch = true;
+
+        // Fallback to direct fetch
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!supabaseUrl) {
+          throw new Error('Configuration error: Supabase URL not set');
       }
 
       const response = await fetch(`${supabaseUrl}/functions/v1/validate-meter-number`, {
@@ -166,14 +206,12 @@ const PurchaseElectricity = () => {
           meter_number: meterNumber,
           provider: selectedProvider,
           meter_type: meterType,
-          vending_provider: 'vtpass' // Call VTpass directly
+            vending_provider: vendingProvider
         }),
       });
 
       const responseText = await response.text();
-      let responseData: any = {};
       
-      // Handle empty or invalid responses
       if (!responseText || responseText.trim().length === 0) {
         console.error('Empty response from validate-meter-number');
         throw new Error('No response from server. Please try again.');
@@ -183,38 +221,83 @@ const PurchaseElectricity = () => {
         responseData = JSON.parse(responseText);
       } catch (parseError) {
         console.error('Failed to parse validation response:', parseError, 'Response:', responseText);
-        // If it's a 500 error, the response might be HTML or plain text
         if (response.status >= 500) {
           throw new Error('Server error. Please try again later.');
         }
         throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
       }
 
-      console.log('Meter validation response:', { 
-        status: response.status, 
-        success: responseData?.success, 
-        error: responseData?.error 
-      });
-
       if (!response.ok) {
         const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
         throw new Error(errorMsg);
       }
+      }
+
+      if (!responseData) {
+        throw new Error('No data received from server');
+      }
+
+      console.log('Meter validation response:', responseData);
 
       if (responseData?.success) {
         setMeterInfo(responseData.data);
         toast({
           title: "Meter Validated",
-          description: `Customer: ${responseData.data.customer_name}`,
+          description: `Customer: ${responseData.data?.customer_name || 'Verified'}`,
         });
       } else {
-        const errorMsg = responseData?.error || responseData?.message || 'Validation failed';
-        console.error('Meter validation failed:', errorMsg, responseData);
+        // Extract error message from various possible locations
+        const errorMsg = 
+          responseData?.error || 
+          responseData?.details?.details ||
+          responseData?.details?.message ||
+          responseData?.message || 
+          'Validation failed';
+        
+        // Check errorType from response (set by backend function)
+        const errorType = responseData?.errorType;
+        
+        // Check status code for EXC010 (data not found)
+        const statusCode = responseData?.details?.statusCode || responseData?.statusCode;
+        const isEXC010 = statusCode === 'EXC010';
+        
+        // Check if it's an invalid meter error
+        const isInvalidMeter = 
+          errorType === 'invalid_meter' ||
+          isEXC010 ||
+          errorMsg.toLowerCase().includes('cannot be found') ||
+          errorMsg.toLowerCase().includes('data you are looking for') ||
+          errorMsg.toLowerCase().includes('invalid meter number');
+        
+        console.error('Validation failed:', errorMsg, responseData);
+        
+        if (isInvalidMeter) {
+          throw new Error('Invalid meter number. Please check the meter number and try again.');
+        }
+        
         throw new Error(errorMsg);
       }
     } catch (error: any) {
       console.error('Error validating meter:', error);
-      const errorMessage = error.message || error.error || "Could not validate meter number";
+      
+      let errorMessage = "Could not validate meter number";
+      
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error?.error) {
+        errorMessage = error.error;
+      }
+
+      // Handle network errors
+      if (errorMessage.includes('Failed to fetch') || 
+          errorMessage.includes('NetworkError') ||
+          errorMessage.includes('Network request failed') ||
+          error?.name === 'TypeError') {
+        errorMessage = 'Connection error. Please check your internet connection and try again.';
+      }
+
       toast({
         title: "Validation Failed",
         description: errorMessage,
@@ -258,149 +341,28 @@ const PurchaseElectricity = () => {
     setShowSummary(false);
 
     try {
-      // Use direct fetch for better error visibility
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) {
-        throw new Error('Configuration error: Supabase URL not set');
-      }
-
-      // Get session once and reuse it
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Please sign in to continue');
-      }
-
-      const response = await fetch(`${supabaseUrl}/functions/v1/purchase-electricity`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const result = await electricityService.purchaseElectricity({
           meter_number: meterNumber,
           provider: selectedProvider,
           meter_type: meterType,
           amount: Number(amount),
           phone: phone,
-          vending_provider: 'vtpass', // Call VTpass directly
-          customer_name: meterInfo?.customer_name ?? null,
-          customer_address: meterInfo?.address ?? null,
-          tariff: meterInfo?.tariff ?? null,
-          minimum_vend: meterInfo?.minimum_vend ?? null,
-          outstanding_amount: meterInfo?.outstanding_amount ?? null,
-          customer_category: meterInfo?.customer_category ?? null,
-          business_unit: meterInfo?.business_unit ?? null,
-        }),
+        vending_provider: vendingProvider,
+        customer_name: meterInfo?.customer_name,
+        customer_address: meterInfo?.address,
+        tariff: meterInfo?.tariff,
+        minimum_vend: meterInfo?.minimum_vend,
+        outstanding_amount: meterInfo?.outstanding_amount,
+        customer_category: meterInfo?.customer_category,
+        business_unit: meterInfo?.business_unit,
       });
 
-      const responseText = await response.text();
-      let responseData: any = {};
-      
-      // Handle empty or invalid responses
-      if (!responseText || responseText.trim().length === 0) {
-        console.error('Empty response from purchase-electricity');
-        throw new Error('No response from server. Please try again.');
-      }
-      
-      try {
-        responseData = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Failed to parse purchase response:', parseError, 'Response:', responseText);
-        if (response.status >= 500) {
-          throw new Error('Server error. Please try again later.');
-        }
-        throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
-      }
-
-      console.log('Electricity purchase response:', { 
-        status: response.status, 
-        success: responseData?.success, 
-        error: responseData?.error,
-        dataType: typeof responseData?.data,
-        dataDataIsString: typeof responseData?.data === 'string'
-      });
-
-      // IMPORTANT: Check if transaction succeeded even if HTTP status is not OK
-      // Sometimes the edge function returns an error status but the transaction was successful
-      let isSuccess = false;
-      
-      // Check if responseData.data is a string containing "success":true
-      if (responseData?.data && typeof responseData.data === 'string' && responseData.data.trim().length > 0) {
-        const hasSuccessInString = responseData.data.includes('"success":true') || responseData.data.includes('"success": true');
-        const hasFailure = responseData.data.includes('"success":false');
-        
-        if (hasSuccessInString && !hasFailure) {
-          console.log('✅ Found success in responseData.data string - parsing');
-          isSuccess = true;
-          try {
-            const parsed = JSON.parse(responseData.data);
-            responseData = parsed;
-            console.log('✅ Parsed responseData, success:', responseData?.success, 'has token:', !!responseData?.data?.token);
-          } catch (e) {
-            console.log('Could not parse but treating as success');
-          }
-        }
-      }
-      
-      // Check other success indicators
-      if (!isSuccess && responseData?.success === true) {
-        console.log('✅ Found responseData.success === true');
-        isSuccess = true;
-      } else if (!isSuccess && responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && responseData.data?.success === true) {
-        console.log('✅ Found responseData.data.success === true');
-        isSuccess = true;
-      }
-      
-      // Check for token or reference as fallback
-      if (!isSuccess) {
-        const hasToken = 
-          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.token || responseData.data.energyToken)) ||
-          responseData?.token ||
-          false;
-        
-        const hasReference = 
-          (responseData?.data && typeof responseData.data === 'object' && responseData.data !== null && (responseData.data.reference || responseData.data.transaction_id)) ||
-          responseData?.reference ||
-          false;
-        
-        if (hasToken) {
-          console.log('✅ Token found - treating as success');
-          isSuccess = true;
-        } else if (hasReference && !responseData?.error) {
-          console.log('✅ Reference found and no error - treating as success');
-          isSuccess = true;
-        }
-      }
-      
-      console.log('🎯 Success check result:', {
-        isSuccess,
-        httpOk: response.ok,
-        responseStatus: response.status,
-        responseDataSuccess: responseData?.success
-      });
-
-      // Only throw error if HTTP is not OK AND we don't have successful data
-      if (!response.ok && !isSuccess) {
-        const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('❌ HTTP error and no success data:', errorMsg);
-        throw new Error(errorMsg);
-      } else if (!response.ok && isSuccess) {
-        console.log('⚠️ HTTP error BUT transaction succeeded - proceeding with success flow');
-      }
-
-      // Check success flag only if we haven't already determined success
-      if (!isSuccess && !responseData?.success) {
-        const errorMsg = responseData?.error || responseData?.message || 'Purchase failed';
-        console.error('❌ No success detected:', errorMsg, responseData);
-        throw new Error(errorMsg);
-      }
-      
-      console.log('🎉 Proceeding with success flow - transaction was successful!');
-
-      setTransactionDetails(responseData.data);
+      if (result.success) {
+        setTransactionDetails(result.data);
       setShowSuccess(true);
 
-      // Refresh balance - reuse existing session variable from above
+        // Refresh balance
+        const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         const { data: profile } = await supabase
           .from('profiles')
@@ -417,6 +379,9 @@ const PurchaseElectricity = () => {
         title: "Success",
         description: "Electricity token purchased successfully",
       });
+      } else {
+        throw new Error(result.error || 'Purchase failed');
+      }
     } catch (error: any) {
       console.error('Error purchasing electricity:', error);
       toast({
@@ -555,24 +520,87 @@ const PurchaseElectricity = () => {
                     <p className="text-sm text-destructive">{String(errors.meter_number.message)}</p>
                   )}
                   {meterInfo && (
-                <div className="bg-green-50 border border-green-200 p-3 rounded-lg space-y-1 text-sm text-green-700">
+                    <Card className="bg-green-50 border-green-200">
+                      <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4" />
-                    <span className="font-semibold">{meterInfo.customer_name}</span>
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                          <CardTitle className="text-lg text-green-900">Meter Verified</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-3">
+                          <div>
+                            <Label className="text-xs text-green-700 font-medium">Customer Name</Label>
+                            <p className="text-sm font-semibold text-green-900 mt-1">{meterInfo?.customer_name || 'N/A'}</p>
+                          </div>
+                          
+                          <div>
+                            <Label className="text-xs text-green-700 font-medium">Meter Number</Label>
+                            <p className="text-sm font-mono text-green-900 mt-1">{meterInfo?.meter_number || meterNumber || 'N/A'}</p>
+                          </div>
+                          
+                          {(meterInfo?.address && meterInfo.address.trim()) && (
+                            <div>
+                              <Label className="text-xs text-green-700 font-medium">Address</Label>
+                              <p className="text-sm text-green-900 mt-1">{meterInfo.address}</p>
+                            </div>
+                          )}
+                          
+                          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-green-200">
+                            {(meterInfo?.tariff && meterInfo.tariff.trim()) && (
+                              <div>
+                                <Label className="text-xs text-green-700 font-medium">Tariff</Label>
+                                <p className="text-sm text-green-900 mt-1">{meterInfo.tariff}</p>
+                              </div>
+                            )}
+                            
+                            <div>
+                              <Label className="text-xs text-green-700 font-medium">Meter Type</Label>
+                              <p className="text-sm text-green-900 mt-1 capitalize">{meterInfo?.meter_type?.toLowerCase() || meterType}</p>
+                            </div>
+                            
+                            {(meterInfo?.minimum_vend !== undefined && meterInfo.minimum_vend !== null) && (
+                              <div>
+                                <Label className="text-xs text-green-700 font-medium">Minimum Purchase</Label>
+                                <p className="text-sm font-semibold text-green-900 mt-1">
+                                  ₦{Number(meterInfo.minimum_vend).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {(meterInfo?.outstanding_amount !== undefined && meterInfo.outstanding_amount !== null && Number(meterInfo.outstanding_amount) > 0) && (
+                              <div>
+                                <Label className="text-xs text-green-700 font-medium">Outstanding Amount</Label>
+                                <p className="text-sm font-semibold text-orange-600 mt-1">
+                                  ₦{Number(meterInfo.outstanding_amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {(meterInfo?.customer_category && meterInfo.customer_category.trim()) && (
+                              <div>
+                                <Label className="text-xs text-green-700 font-medium">Customer Category</Label>
+                                <p className="text-sm text-green-900 mt-1">{meterInfo.customer_category}</p>
+                              </div>
+                            )}
+                            
+                            {(meterInfo?.business_unit && meterInfo.business_unit.trim()) && (
+                              <div>
+                                <Label className="text-xs text-green-700 font-medium">Business Unit</Label>
+                                <p className="text-sm text-green-900 mt-1">{meterInfo.business_unit}</p>
+                              </div>
+                            )}
+                            
+                            {(meterInfo?.utility_account && meterInfo.utility_account.trim()) && (
+                              <div className="col-span-2">
+                                <Label className="text-xs text-green-700 font-medium">Utility Account</Label>
+                                <p className="text-sm text-green-900 mt-1">{meterInfo.utility_account}</p>
                   </div>
-                  {meterInfo.address && <p>{meterInfo.address}</p>}
-                  <div className="grid grid-cols-2 gap-2 text-xs text-green-600">
-                    <span>Tariff: {meterInfo.tariff || '—'}</span>
-                    <span>Min Vend: ₦{meterInfo.minimum_vend?.toLocaleString?.() ?? meterInfo.minimum_vend ?? '0'}</span>
-                    <span>Category: {meterInfo.customer_category || '—'}</span>
-                    <span>Business Unit: {meterInfo.business_unit || '—'}</span>
-                    {meterInfo.outstanding_amount !== undefined && (
-                      <span className="col-span-2">
-                        Outstanding: ₦{Number(meterInfo.outstanding_amount).toLocaleString()}
-                      </span>
                     )}
                   </div>
                 </div>
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
 
@@ -651,47 +679,87 @@ const PurchaseElectricity = () => {
               <span className="font-semibold">{meterNumber}</span>
             </div>
             {meterInfo && (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Customer:</span>
-                  <span className="font-semibold text-foreground">{meterInfo.customer_name}</span>
-                </div>
-                {meterInfo.address && (
-                  <div className="text-muted-foreground">
-                    <span className="font-semibold text-foreground">Address:</span> {meterInfo.address}
+              <Card className="bg-green-50 border-green-200">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <CardTitle className="text-lg text-green-900">Customer Details</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs text-green-700 font-medium">Customer Name</Label>
+                      <p className="text-sm font-semibold text-green-900 mt-1">{meterInfo?.customer_name || 'N/A'}</p>
+                    </div>
+                    
+                    <div>
+                      <Label className="text-xs text-green-700 font-medium">Meter Number</Label>
+                      <p className="text-sm font-mono text-green-900 mt-1">{meterInfo?.meter_number || meterNumber || 'N/A'}</p>
+                    </div>
+                    
+                    {(meterInfo?.address && meterInfo.address.trim()) && (
+                      <div>
+                        <Label className="text-xs text-green-700 font-medium">Address</Label>
+                        <p className="text-sm text-green-900 mt-1">{meterInfo.address}</p>
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-green-200">
+                      {(meterInfo?.tariff && meterInfo.tariff.trim()) && (
+                        <div>
+                          <Label className="text-xs text-green-700 font-medium">Tariff</Label>
+                          <p className="text-sm text-green-900 mt-1">{meterInfo.tariff}</p>
                   </div>
                 )}
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Tariff:</span>
-                  <span className="font-medium text-foreground">{meterInfo.tariff || '—'}</span>
+                      
+                      <div>
+                        <Label className="text-xs text-green-700 font-medium">Meter Type</Label>
+                        <p className="text-sm text-green-900 mt-1 capitalize">{meterInfo?.meter_type?.toLowerCase() || meterType}</p>
+                      </div>
+                      
+                      {(meterInfo?.minimum_vend !== undefined && meterInfo.minimum_vend !== null) && (
+                        <div>
+                          <Label className="text-xs text-green-700 font-medium">Minimum Purchase</Label>
+                          <p className="text-sm font-semibold text-green-900 mt-1">
+                            ₦{Number(meterInfo.minimum_vend).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
                 </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Minimum Vend:</span>
-                  <span className="font-medium text-foreground">
-                    ₦{Number(meterInfo.minimum_vend ?? 0).toLocaleString()}
-                  </span>
+                      )}
+                      
+                      {(meterInfo?.outstanding_amount !== undefined && meterInfo.outstanding_amount !== null && Number(meterInfo.outstanding_amount) > 0) && (
+                        <div>
+                          <Label className="text-xs text-green-700 font-medium">Outstanding Amount</Label>
+                          <p className="text-sm font-semibold text-orange-600 mt-1">
+                            ₦{Number(meterInfo.outstanding_amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
                 </div>
-                {meterInfo.outstanding_amount !== undefined && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Outstanding:</span>
-                    <span className="font-medium text-foreground">
-                      ₦{Number(meterInfo.outstanding_amount ?? 0).toLocaleString()}
-                    </span>
+                      )}
+                      
+                      {(meterInfo?.customer_category && meterInfo.customer_category.trim()) && (
+                        <div>
+                          <Label className="text-xs text-green-700 font-medium">Customer Category</Label>
+                          <p className="text-sm text-green-900 mt-1">{meterInfo.customer_category}</p>
                   </div>
                 )}
-                {meterInfo.customer_category && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Category:</span>
-                    <span className="font-medium text-foreground">{meterInfo.customer_category}</span>
+                      
+                      {(meterInfo?.business_unit && meterInfo.business_unit.trim()) && (
+                        <div>
+                          <Label className="text-xs text-green-700 font-medium">Business Unit</Label>
+                          <p className="text-sm text-green-900 mt-1">{meterInfo.business_unit}</p>
                   </div>
                 )}
-                {meterInfo.business_unit && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Business Unit:</span>
-                    <span className="font-medium text-foreground">{meterInfo.business_unit}</span>
+                      
+                      {(meterInfo?.utility_account && meterInfo.utility_account.trim()) && (
+                        <div className="col-span-2">
+                          <Label className="text-xs text-green-700 font-medium">Utility Account</Label>
+                          <p className="text-sm text-green-900 mt-1">{meterInfo.utility_account}</p>
                   </div>
                 )}
               </div>
+                  </div>
+                </CardContent>
+              </Card>
             )}
             <div className="flex justify-between">
               <span>Amount:</span>
@@ -730,8 +798,9 @@ const PurchaseElectricity = () => {
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <span className="text-muted-foreground">Provider:</span>
                 <span className="font-semibold text-foreground">
-                  {providers.find(p => p.providerCode === transactionDetails.provider && p.meterType === transactionDetails.meter_type)?.name ||
-                    transactionDetails.provider}
+                  {transactionDetails.service_name ||
+                   providers.find(p => p.providerCode === transactionDetails.provider && p.meterType === transactionDetails.meter_type)?.name ||
+                   transactionDetails.provider}
                 </span>
                 <span className="text-muted-foreground">Meter Type:</span>
                 <span className="font-semibold text-foreground capitalize">{transactionDetails.meter_type}</span>
@@ -750,17 +819,43 @@ const PurchaseElectricity = () => {
                   </>
                 )}
               </div>
-              <div className="flex justify-between">
-                <span>Reference:</span>
-                <span className="font-semibold">{transactionDetails.reference}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Amount:</span>
-                <span className="font-semibold">{formatNaira(transactionDetails.amount)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>New Balance:</span>
-                <span className="font-semibold">{formatNaira(transactionDetails.balance_after)}</span>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Reference:</span>
+                  <span className="font-semibold">{transactionDetails.reference}</span>
+                </div>
+                {transactionDetails.mobile_nig_reference && (
+                  <div className="flex justify-between">
+                    <span>MobileNig Reference:</span>
+                    <span className="font-semibold text-foreground font-mono text-xs">{transactionDetails.mobile_nig_reference}</span>
+                  </div>
+                )}
+                {transactionDetails.receipt_number && (
+                  <div className="flex justify-between">
+                    <span>Receipt Number:</span>
+                    <span className="font-semibold text-foreground font-mono text-xs">{transactionDetails.receipt_number}</span>
+                  </div>
+                )}
+                {transactionDetails.trans_id && (
+                  <div className="flex justify-between">
+                    <span>Transaction ID:</span>
+                    <span className="font-semibold text-foreground font-mono text-xs">{transactionDetails.trans_id}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Amount:</span>
+                  <span className="font-semibold">{formatNaira(transactionDetails.amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>New Balance:</span>
+                  <span className="font-semibold">{formatNaira(transactionDetails.balance_after)}</span>
+                </div>
+                {transactionDetails.wallet_balance && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Provider Wallet Balance:</span>
+                    <span className="font-semibold">{formatNaira(Number(transactionDetails.wallet_balance))}</span>
+                  </div>
+                )}
               </div>
               <Button onClick={handleDone} className="w-full">
                 Done

@@ -15,3 +15,5 @@ COMMENT ON COLUMN public.user_transactions.transaction_type IS
   'Transaction type: credit (money added), debit (money removed), purchase (service purchase), refund (money returned), transfer_fee (fee for transferring money), funding_fee (fee for adding money to wallet)';
 
 
+
+

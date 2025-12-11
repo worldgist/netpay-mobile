@@ -275,102 +275,31 @@ const PurchaseEducation = () => {
           </CardHeader>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Select Exam Type</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              {EXAM_TYPES.map((examType) => (
-                <button
-                  key={examType}
-                  type="button"
-                  className={`aspect-square rounded-lg border-2 p-2 transition-all hover:scale-105 flex flex-col items-center justify-center gap-1 ${
-                    selectedExamType === examType 
-                      ? 'border-primary ring-2 ring-primary ring-offset-2' 
-                      : 'border-border hover:border-primary/50'
-                  }`}
-                  onClick={() => {
-                    setSelectedExamType(examType);
-                    setSelectedService("");
-                    setJambProfileId(""); // Reset Profile ID when exam type changes
-                  }}
-                >
-                  <img 
-                    src={getExamLogo(examType)} 
-                    alt={examType}
-                    className="w-12 h-12 object-contain"
-                  />
-                  <span className="text-xs font-medium">{examType}</span>
-                </button>
-              ))}
+        <Card className="border-2 border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12 px-6 text-center">
+            <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-6">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-10 w-10 text-muted-foreground"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
             </div>
-
-            {selectedExamType && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="service">Select Service</Label>
-                  <select
-                    id="service"
-                    className="w-full rounded-md border border-input bg-background px-3 py-2"
-                    value={selectedService}
-                    onChange={(e) => setSelectedService(e.target.value)}
-                  >
-                    <option value="">Choose a service...</option>
-                    {filteredServices.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.service_name} - {formatNaira(service.price)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedExamType === "JAMB" ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="profileId">
-                      JAMB Profile ID <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="profileId"
-                      type="text"
-                      placeholder="Enter your JAMB Profile ID (e.g., 0123456789)"
-                      value={jambProfileId}
-                      onChange={(e) => setJambProfileId(e.target.value.trim())}
-                      maxLength={20}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Your JAMB Profile ID can be found on the JAMB Official Website
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">
-                      Phone Number 
-                      <span className="text-muted-foreground text-xs ml-1">(Optional)</span>
-                    </Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="08012345678 (optional)"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      maxLength={11}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Phone number is optional for WAEC/NECO purchases
-                    </p>
-                  </div>
-                )}
-
-                <Button 
-                  className="w-full" 
-                  onClick={handlePurchase}
-                  disabled={!selectedService || (selectedExamType === "JAMB" ? !jambProfileId.trim() : false) || purchasing}
-                >
-                  {purchasing ? "Processing..." : "Continue"}
-                </Button>
-              </>
-            )}
+            <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+            <p className="text-muted-foreground mb-4">
+              Education services are currently under development. We're working hard to bring you WAEC, NECO, and JAMB result checker PINs.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Stay tuned for updates!
+            </p>
           </CardContent>
         </Card>
       </div>

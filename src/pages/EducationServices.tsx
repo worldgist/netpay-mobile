@@ -46,17 +46,19 @@ interface EducationService {
   custom_price?: number | null;
 }
 
-const EXAM_TYPES = ["WAEC", "JAMB"] as const;
+const EXAM_TYPES = ["WAEC", "NECO", "JAMB"] as const;
 const VENDOR_PROVIDERS = ["mobilenig", "vtpass", "smeplug"] as const;
 
 const DEFAULT_SERVICE_IDS: Record<string, string> = {
   WAEC: "AJA",
+  NECO: "AJC",
   JAMB: "AJB",
 };
 
 const getEducationLogo = (examType: string) => {
   const logos: Record<string, string> = {
     'WAEC': '/waec.png',
+    'NECO': '/neco.png',
     'JAMB': '/jamb.png'
   };
   return logos[examType.toUpperCase()] || '';
@@ -416,6 +418,393 @@ export default function EducationServices() {
     }
   };
 
+  const fetchServicesFromMobilenig = async (examType: 'WAEC' | 'NECO' | 'JAMB') => {
+    setIsFetchingServices(true);
+    setFetchingExamType(examType);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast({
+          title: "Authentication Required",
+          description: "You must be logged in to fetch services",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Fetching Services",
+        description: `Fetching ${examType} services from Mobilenig...`,
+      });
+
+      console.log('Fetching Mobilenig services for:', examType);
+      let responseData: any = null;
+
+      // Try supabase.functions.invoke first
+      let invokeFailed = false;
+      let invokeError: any = null;
+      
+      try {
+        const { data, error } = await supabase.functions.invoke('fetch-education-services', {
+          body: { 
+            exam_type: examType,
+            provider: 'mobilenig',
+            fetch_from_api: true // Force fetch from API
+          },
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (error) {
+          // Check if it's a network error
+          const errorMsg = error.message || String(error);
+          const isNetworkError = 
+            errorMsg.includes('Failed to fetch') ||
+            errorMsg.includes('Network request failed') ||
+            errorMsg.includes('network') ||
+            errorMsg.includes('ECONNREFUSED') ||
+            errorMsg.includes('ENOTFOUND') ||
+            errorMsg.includes('ERR_INTERNET_DISCONNECTED') ||
+            errorMsg.includes('ERR_NETWORK_CHANGED') ||
+            error?.name === 'TypeError' ||
+            error?.code === 'NETWORK_ERROR';
+          
+          if (isNetworkError) {
+            console.warn('Network error detected in invoke, will try direct fetch:', error);
+            invokeFailed = true;
+            invokeError = error;
+          } else {
+            throw error;
+          }
+        } else if (data) {
+          responseData = data;
+          console.log('Successfully fetched via invoke:', responseData);
+        }
+      } catch (err: any) {
+        console.log('Supabase invoke failed, trying direct fetch:', err);
+        console.error('Invoke error details:', {
+          name: err?.name,
+          message: err?.message,
+          context: err?.context,
+        });
+        invokeFailed = true;
+        invokeError = err;
+      }
+
+      // Only try direct fetch if invoke failed
+      if (invokeFailed && !responseData) {
+
+        // Fallback to direct fetch - get URL from supabase client or env
+        let supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        
+        // Try to get from supabase client if env var is not set
+        if (!supabaseUrl && supabase) {
+          // @ts-ignore - accessing internal property
+          supabaseUrl = supabase.supabaseUrl || supabase.rest?.url?.replace('/rest/v1', '');
+        }
+        
+        // Fallback to hardcoded URL if still not available
+        if (!supabaseUrl) {
+          supabaseUrl = 'https://rekkdwpkzkhgnejgzhac.supabase.co';
+        }
+
+        console.log('Using Supabase URL:', supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'Not configured');
+        
+        if (!supabaseUrl) {
+          throw new Error('Supabase URL is not configured. Please check your environment variables.');
+        }
+
+        const functionUrl = `${supabaseUrl}/functions/v1/fetch-education-services`;
+        console.log('Calling function URL:', functionUrl);
+
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          console.error('Request timeout after 60 seconds');
+          controller.abort();
+        }, 60000); // 60 second timeout
+
+        let response: Response;
+        try {
+          console.log('Starting fetch request...');
+          response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              exam_type: examType,
+              provider: 'mobilenig',
+              fetch_from_api: true,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          console.log('Fetch response status:', response.status, response.statusText);
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          console.error('Fetch error:', {
+            name: fetchError?.name,
+            message: fetchError?.message,
+            stack: fetchError?.stack,
+          });
+          
+          // Re-throw with better error message
+          const errorMsg = fetchError?.message || String(fetchError);
+          if (fetchError.name === 'AbortError' || errorMsg.includes('aborted')) {
+            throw new Error('Request timed out after 60 seconds. The server may be slow or unavailable. Please try again.');
+          }
+          if (errorMsg.includes('Failed to fetch') || errorMsg.includes('network') || errorMsg.includes('ERR_')) {
+            throw new Error('Unable to connect to the server. Please check your internet connection and try again. If the problem persists, the edge function may not be deployed.');
+          }
+          throw new Error(`Network error: ${errorMsg}`);
+        }
+
+        const responseText = await response.text();
+        
+        if (!responseText || responseText.trim().length === 0) {
+          console.error('Empty response from fetch-education-services');
+          toast({
+            title: "Fetch Error",
+            description: 'No response from server. Please try again.',
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        try {
+          responseData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('Failed to parse response:', parseError, 'Response:', responseText);
+          if (response.status >= 500) {
+            toast({
+              title: "Server Error",
+              description: 'Server error. Please try again later.',
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Fetch Error",
+              description: `Invalid response from server: ${responseText.substring(0, 200)}`,
+              variant: "destructive",
+            });
+          }
+          return;
+        }
+
+        if (!response.ok) {
+          // Handle 401 Unauthorized specifically
+          if (response.status === 401) {
+            toast({
+              title: "Authentication Error",
+              description: 'Session expired. Please sign in again.',
+              variant: "destructive",
+            });
+            return;
+          }
+          const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+          toast({
+            title: "Fetch Error",
+            description: errorMsg,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      if (!responseData) {
+        toast({
+          title: "Fetch Error",
+          description: 'No data received from server',
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!responseData.success) {
+        const errorMsg = responseData?.error || responseData?.message || "Failed to fetch services from Mobilenig";
+        console.error('Failed to fetch services:', errorMsg, responseData);
+        toast({
+          title: "Fetch Failed",
+          description: errorMsg,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const servicesData = responseData.data || [];
+      
+      if (!Array.isArray(servicesData)) {
+        console.error('Invalid services data format:', servicesData);
+        toast({
+          title: "Invalid Data Format",
+          description: `Unexpected data format received from Mobilenig API for ${examType}`,
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (servicesData.length === 0) {
+        const errorDetails = responseData.details ? ` Details: ${JSON.stringify(responseData.details)}` : '';
+        toast({
+          title: "No Data",
+          description: `No ${examType} services found from Mobilenig API.${errorDetails}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Import each service to the database
+      let importedCount = 0;
+      let updatedCount = 0;
+      let errors: string[] = [];
+
+      for (const service of servicesData) {
+        try {
+          const mobilenigCode = (service.mobilenig_code || service.api_code || service.service_id || '').toUpperCase();
+          const apiCode = (service.api_code || service.service_id || '').toUpperCase();
+          const serviceId = (service.service_id || DEFAULT_SERVICE_IDS[examType] || '').toUpperCase();
+          
+          // Check if service already exists by querying all Mobilenig services for this exam type
+          // and matching by service_id or api_code
+          const { data: existingServices } = await supabase
+            .from('education_services')
+            .select('id, service_id, api_code')
+            .eq('exam_type', service.exam_type)
+            .eq('vending_provider', 'mobilenig');
+
+          // Find existing service by matching service_id or api_code
+          const existingService = existingServices?.find((s: any) => {
+            const existingServiceId = s.service_id ? String(s.service_id).toUpperCase() : '';
+            const existingApiCode = s.api_code ? String(s.api_code).toUpperCase() : '';
+            return (serviceId && existingServiceId === serviceId) || 
+                   (apiCode && existingApiCode === apiCode) ||
+                   (serviceId && existingApiCode === serviceId) ||
+                   (apiCode && existingServiceId === apiCode);
+          });
+
+          const serviceData = {
+            exam_type: service.exam_type,
+            service_name: service.service_name,
+            price: service.price || service.original_price || service.vendor_price || 0,
+            service_id: serviceId,
+            api_code: apiCode || serviceId,
+            mobilenig_code: mobilenigCode,
+            vending_provider: 'mobilenig',
+            is_active: true,
+          };
+
+          if (existingService) {
+            // Update existing service
+            const { error: updateError } = await supabase
+              .from('education_services')
+              .update(serviceData)
+              .eq('id', existingService.id);
+
+            if (updateError) {
+              errors.push(`${service.service_name}: ${updateError.message}`);
+            } else {
+              updatedCount++;
+            }
+          } else {
+            // Insert new service
+            const { error: insertError } = await supabase
+              .from('education_services')
+              .insert(serviceData);
+
+            if (insertError) {
+              errors.push(`${service.service_name}: ${insertError.message}`);
+            } else {
+              importedCount++;
+            }
+          }
+        } catch (serviceError: any) {
+          errors.push(`${service.service_name}: ${serviceError.message}`);
+        }
+      }
+
+      // Refresh services list
+      await fetchServices();
+
+      // Show success message
+      const successMessage = `Successfully imported ${importedCount} new ${examType} service(s) and updated ${updatedCount} existing service(s) from Mobilenig.`;
+      if (errors.length > 0) {
+        toast({
+          title: "Partial Success",
+          description: `${successMessage} ${errors.length} error(s) occurred.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: successMessage,
+        });
+      }
+    } catch (error: any) {
+      console.error('Error fetching services from Mobilenig:', error);
+      
+      let message = 'An unexpected error occurred while fetching services';
+      
+      // Handle network/connection errors
+      const errorMessage = error?.message || String(error);
+      const errorName = error?.name || '';
+      
+      // Check for various network error patterns
+      const isNetworkError = 
+        errorName === 'FunctionsFetchError' || 
+        errorName === 'AbortError' ||
+        errorName === 'TypeError' ||
+        errorMessage?.includes('edge function') ||
+        errorMessage?.includes('Edge Function') ||
+        errorMessage?.includes('Failed to fetch') ||
+        errorMessage?.includes('Network request failed') ||
+        errorMessage?.includes('NetworkError') ||
+        errorMessage?.includes('timeout') ||
+        errorMessage?.includes('timed out') ||
+        errorMessage?.includes('Connection error') ||
+        errorMessage?.includes('Failed to send a request') ||
+        errorMessage?.includes('ERR_INTERNET_DISCONNECTED') ||
+        errorMessage?.includes('ERR_NETWORK_CHANGED') ||
+        errorMessage?.includes('ECONNREFUSED') ||
+        errorMessage?.includes('ENOTFOUND') ||
+        errorMessage?.includes('Unable to connect') ||
+        errorMessage?.includes('edge function may not be deployed');
+      
+      if (isNetworkError) {
+        if (errorMessage?.includes('edge function may not be deployed')) {
+          message = errorMessage;
+        } else if (errorMessage?.includes('timed out')) {
+          message = 'Request timed out. The server may be slow or unavailable. Please try again.';
+        } else {
+          message = 'Network connection error. Please check your internet connection and try again. If the problem persists, the edge function may not be deployed or accessible.';
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      } else if (error?.message) {
+        message = error.message;
+      } else {
+        message = `Error: ${errorMessage}`;
+      }
+      
+      console.error('Full error object:', error);
+      console.error('Error name:', errorName);
+      console.error('Error message:', errorMessage);
+      
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsFetchingServices(false);
+      setFetchingExamType(null);
+    }
+  };
+
   const fetchServicesFromVTpass = async (examType: 'WAEC' | 'JAMB') => {
     setIsFetchingServices(true);
     setFetchingExamType(examType);
@@ -618,6 +1007,37 @@ export default function EducationServices() {
                     <SelectItem value="smeplug">SMEPlug</SelectItem>
                   </SelectContent>
                 </Select>
+                {vendingProvider === 'mobilenig' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => fetchServicesFromMobilenig('WAEC')}
+                      disabled={isFetchingServices}
+                      className="gap-2"
+                    >
+                      <Download className={`h-4 w-4 ${isFetchingServices && fetchingExamType === 'WAEC' ? 'animate-spin' : ''}`} />
+                      {isFetchingServices && fetchingExamType === 'WAEC' ? 'Fetching WAEC...' : 'Fetch WAEC'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => fetchServicesFromMobilenig('NECO')}
+                      disabled={isFetchingServices}
+                      className="gap-2"
+                    >
+                      <Download className={`h-4 w-4 ${isFetchingServices && fetchingExamType === 'NECO' ? 'animate-spin' : ''}`} />
+                      {isFetchingServices && fetchingExamType === 'NECO' ? 'Fetching NECO...' : 'Fetch NECO'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => fetchServicesFromMobilenig('JAMB')}
+                      disabled={isFetchingServices}
+                      className="gap-2"
+                    >
+                      <Download className={`h-4 w-4 ${isFetchingServices && fetchingExamType === 'JAMB' ? 'animate-spin' : ''}`} />
+                      {isFetchingServices && fetchingExamType === 'JAMB' ? 'Fetching JAMB...' : 'Fetch JAMB'}
+                    </Button>
+                  </>
+                )}
                 {vendingProvider === 'vtpass' && (
                   <>
                     <Button
@@ -692,6 +1112,19 @@ export default function EducationServices() {
                               </SelectItem>
                             ))}
                           </SelectContent>
+                          {formData.exam_type && formData.vending_provider === 'mobilenig' && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => fetchPriceFromAPI(formData.exam_type)}
+                              disabled={isFetchingPrice}
+                              className="mt-2 gap-2"
+                            >
+                              <Download className={`h-3 w-3 ${isFetchingPrice ? 'animate-spin' : ''}`} />
+                              {isFetchingPrice ? 'Fetching Price...' : 'Fetch Price from Mobilenig'}
+                            </Button>
+                          )}
                         </Select>
                       </div>
                       <div className="grid gap-2">
@@ -745,7 +1178,7 @@ export default function EducationServices() {
                             required
                           />
                           <p className="text-xs text-muted-foreground">
-                            Mobilenig: AJA(WAEC), AJC(NECO), AJB(JAMB)
+                            Mobilenig: AJA (WAEC), AJC (NECO), AJB (JAMB)
                           </p>
                         </div>
                         <div className="grid gap-2">
@@ -823,7 +1256,7 @@ export default function EducationServices() {
               <CardHeader>
                 <CardTitle>All Education Services</CardTitle>
                 <CardDescription>
-                  Manage education services for WAEC, NECO, and JAMB
+                  Manage education services for WAEC, NECO, and JAMB. Use the fetch buttons above to import services from Mobilenig or VTpass.
                 </CardDescription>
               </CardHeader>
               <CardContent>

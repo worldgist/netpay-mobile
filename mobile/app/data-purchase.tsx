@@ -762,7 +762,33 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           responseData?.details?.error ||
           responseData?.details?.data?.message ||
           responseData?.details?.data?.error;
-        const message = detail || responseData?.error || responseData?.message || 'Unable to complete data purchase.';
+        let message = detail || responseData?.error || responseData?.message || 'Unable to complete data purchase.';
+        
+        // Parse vendor error details for better user feedback
+        const errorSummary = responseData?.details?.error_summary;
+        
+        // Check if it's a configuration issue (check both message and errorSummary)
+        const isConfigError = message.includes('credentials not configured') ||
+                            message.includes('not configured') ||
+                            message.includes('missing') ||
+                            message.includes('All vendors failed') ||
+                            (errorSummary && (
+                              errorSummary.includes('credentials not configured') ||
+                              errorSummary.includes('missing') ||
+                              errorSummary.includes('fallback unavailable')
+                            ));
+        
+        if (isConfigError) {
+          message = 'Service temporarily unavailable. Please contact support or try again later.';
+        } else if (errorSummary) {
+          // Extract the most relevant error from summary for non-config errors
+          const lines = errorSummary.split('\n');
+          const lastError = lines[lines.length - 1] || message;
+          if (lastError && !lastError.startsWith('-')) {
+            message = lastError.replace(/^-\s*/, '');
+          }
+        }
+        
         throw new Error(message);
       }
 
@@ -819,7 +845,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         // Navigate immediately for delivered transactions
         navigateToSuccess();
       }
-    } catch (purchaseError) {
+    } catch (purchaseError: any) {
       console.error('Data purchase failed:', purchaseError);
       let message = 'Unable to complete data purchase. Please try again.';
 
@@ -827,7 +853,34 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         message = purchaseError.message || message;
       }
 
-      Alert.alert('Data Purchase', message);
+      // Check for network errors
+      const errorMessage = purchaseError?.message || String(purchaseError);
+      const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            errorName === 'FunctionsFetchError' ||
+                            errorName === 'TypeError' ||
+                            purchaseError?.code === 'NETWORK_ERROR';
+      
+      // Check for configuration errors
+      const isConfigError = errorMessage.includes('credentials not configured') ||
+                           errorMessage.includes('not configured') ||
+                           errorMessage.includes('missing') ||
+                           errorMessage.includes('Service temporarily unavailable');
+      
+      if (isNetworkError) {
+        message = 'Network connection failed. Please check your internet connection and try again.';
+        Alert.alert('Connection Error', message);
+      } else if (isConfigError) {
+        // Configuration errors are already handled with user-friendly message
+        Alert.alert('Service Unavailable', message);
+      } else {
+        Alert.alert('Data Purchase', message);
+      }
     } finally {
       setIsProcessing(false);
     }

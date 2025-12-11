@@ -82,10 +82,27 @@ export default function AddMoneyScreen() {
           setShowCreateForm(true);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load virtual account:', err);
       if (isMounted.current) {
-        setError(err instanceof Error ? err.message : 'Failed to load account information.');
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        
+        // Check for network errors
+        const errorName = err?.name || err?.constructor?.name || '';
+        const isNetworkError = errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('Failed to send a request to the Edge Function') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                              errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                              errorMessage.includes('TypeError') ||
+                              errorName === 'FunctionsFetchError' ||
+                              errorName === 'TypeError' ||
+                              err?.code === 'NETWORK_ERROR';
+        
+        setError(isNetworkError 
+          ? 'Network connection failed. Please check your internet connection and try again.'
+          : errorMessage || 'Failed to load account information.'
+        );
         setVirtualAccount(null);
         setShowCreateForm(true);
       }

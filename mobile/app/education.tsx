@@ -418,6 +418,28 @@ export default function EducationScreen() {
       console.error('Education purchase failed:', purchaseError);
       let message = 'Unable to complete education service purchase. Please try again.';
 
+      // Check for network errors
+      const errorMessage = purchaseError?.message || String(purchaseError);
+      const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            errorName === 'FunctionsFetchError' ||
+                            errorName === 'TypeError' ||
+                            purchaseError?.code === 'NETWORK_ERROR';
+      
+      if (isNetworkError) {
+        Alert.alert(
+          'Connection Error',
+          'Network connection failed. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       if (purchaseError instanceof Error) {
         message = purchaseError.message || message;
       }
@@ -458,111 +480,20 @@ export default function EducationScreen() {
             </View>
           </View>
 
-          {error && !loading ? (
-            <View style={styles.errorBanner}>
-              <MaterialIcons name="error-outline" size={20} color="#B3261E" />
-              <ThemedText style={styles.errorText}>{error}</ThemedText>
+          {/* Coming Soon Card */}
+          <View style={styles.comingSoonCard}>
+            <View style={styles.comingSoonIconContainer}>
+              <MaterialIcons name="schedule" size={48} color="#FF7F00" />
             </View>
-          ) : null}
-
-          {/* Select Service Provider */}
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
-            <View style={styles.networkContainer}>
-              {services.filter((service) => service && service.id).map((service) => (
-                <TouchableOpacity
-                  key={service.id}
-                  style={styles.networkItem}
-                  onPress={() => {
-                    setSelectedServiceId(service.id);
-                    // Reset inputs when service changes
-                    setReferenceNumber('');
-                    setPhoneNumber('');
-                  }}
-                  activeOpacity={0.7}>
-                  <View
-                    style={[
-                      styles.networkLogoContainer,
-                      {
-                        borderWidth: selectedServiceId === service.id ? 2.5 : 1,
-                        borderColor: selectedServiceId === service.id ? '#FF7F00' : '#E0E0E0',
-                      },
-                    ]}>
-                    <Image
-                      source={service.logoUrl ? { uri: service.logoUrl } : service.logo}
-                      style={styles.networkLogoImage}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <ThemedText style={styles.networkName}>{service.examType}</ThemedText>
-                  <ThemedText style={styles.networkHint}>{formatCurrency(service.price)}</ThemedText>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {selectedService?.examType === 'JAMB' ? (
-            <View style={styles.section}>
-              <ThemedText style={styles.inputLabel}>JAMB Profile ID</ThemedText>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your JAMB Profile ID (e.g., 0123456789)"
-                  placeholderTextColor="#999"
-                  value={referenceNumber}
-                  onChangeText={setReferenceNumber}
-                  keyboardType="numeric"
-                  maxLength={20}
-                />
-              </View>
-              <ThemedText style={styles.helpText}>
-                Your JAMB Profile ID can be found on the JAMB Official Website
-              </ThemedText>
-            </View>
-          ) : (
-            <View style={styles.section}>
-              <ThemedText style={styles.inputLabel}>
-                Phone Number <ThemedText style={{ fontSize: 12, opacity: 0.7 }}>(Optional)</ThemedText>
-              </ThemedText>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter phone number (optional)"
-                  placeholderTextColor="#999"
-                  value={phoneNumber}
-                  onChangeText={setPhoneNumber}
-                  keyboardType="phone-pad"
-                />
-              </View>
-              <ThemedText style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
-                Phone number is optional for WAEC/NECO purchases
-              </ThemedText>
-            </View>
-          )}
-
-          <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Amount</ThemedText>
-            <View style={[styles.inputContainer, styles.readOnlyContainer]}>
-              {loading ? (
-                <ActivityIndicator color="#FF7F00" />
-              ) : (
-                <ThemedText style={styles.readOnlyAmount}>{amountDisplay}</ThemedText>
-              )}
-            </View>
+            <ThemedText style={styles.comingSoonTitle}>Coming Soon</ThemedText>
+            <ThemedText style={styles.comingSoonMessage}>
+              Education services are currently under development. We're working hard to bring you WAEC, NECO, and JAMB result checker PINs.
+            </ThemedText>
+            <ThemedText style={styles.comingSoonSubtext}>
+              Stay tuned for updates!
+            </ThemedText>
           </View>
         </ScrollView>
-
-        {/* Continue Button */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity 
-            style={[styles.continueButton, (isProcessing || loading) && styles.continueButtonDisabled]} 
-            onPress={handleContinue}
-            disabled={isProcessing || loading}>
-            <ThemedText style={styles.continueButtonText}>
-              {isProcessing ? 'Processing...' : 'Continue'}
-            </ThemedText>
-          </TouchableOpacity>
-        </View>
       </KeyboardAvoidingView>
 
       {/* Confirm Payment Modal */}
@@ -765,6 +696,46 @@ const styles = StyleSheet.create({
   },
   continueButtonDisabled: {
     opacity: 0.6,
+  },
+  comingSoonCard: {
+    backgroundColor: '#FFF5E6',
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    marginTop: 24,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFE0B2',
+    borderStyle: 'dashed',
+  },
+  comingSoonIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  comingSoonTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FF7F00',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  comingSoonMessage: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  comingSoonSubtext: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });
 

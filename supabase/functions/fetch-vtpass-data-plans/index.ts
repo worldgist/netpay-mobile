@@ -242,13 +242,19 @@ serve(async (req) => {
       }
       
       // Extract plans from various possible response structures
+      // According to VTpass docs: content.variations (note: API sometimes returns "variations" and sometimes "varations" - typo)
       if (data.content) {
         if (Array.isArray(data.content)) {
           // Format: { content: [...] }
           plans = data.content;
+        } else if (data.content.variations && Array.isArray(data.content.variations)) {
+          // Format: { content: { variations: [...] } } - correct spelling (preferred)
+          plans = data.content.variations;
+          console.log(`Found ${plans.length} plans in content.variations`);
         } else if (data.content.varations && Array.isArray(data.content.varations)) {
-          // Format: { content: { varations: [...] } }
+          // Format: { content: { varations: [...] } } - typo in some responses (fallback)
           plans = data.content.varations;
+          console.log(`Found ${plans.length} plans in content.varations (typo)`);
         } else if (typeof data.content === 'object') {
           // Try to extract array from content object
           const contentValues = Object.values(data.content);
@@ -265,8 +271,167 @@ serve(async (req) => {
         plans = data.data;
       }
       
-      // Map plans to consistent format
-      plans = plans.map((plan: any) => ({
+      console.log(`Extracted ${plans.length} plans from VTpass response`);
+      
+      if (plans.length === 0) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'No data plans found in VTpass response',
+            data: [],
+            details: data
+          }),
+          { 
+            status: 200, 
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      // Determine network name
+      const networkName = network || serviceID.replace('-data', '').toUpperCase();
+      console.log(`Processing ${plans.length} plans for network: ${networkName}`);
+
+      // Store plans in database
+      let imported = 0;
+      let updated = 0;
+      const errors: string[] = [];
+
+      for (const plan of plans) {
+        try {
+          // Extract plan information from VTpass response
+          const variationCode = String(plan.variation_code || plan.variationCode || plan.code || '');
+          const planName = String(plan.name || plan.variation_name || plan.title || 'Unknown Plan').trim();
+          const planPrice = parseFloat(plan.variation_amount || plan.variationAmount || plan.amount || plan.fixedPrice || plan.price || 0);
+
+          // Extract validity from plan name (e.g., "24 hrs", "30 days", "1 Month")
+          let validity = 'N/A';
+          const validityMatch = planName.match(/(\d+\s*(hrs?|days?|months?|years?))/i);
+          if (validityMatch) {
+            validity = validityMatch[1];
+          } else if (planName.includes('24 hrs') || planName.includes('24hrs')) {
+            validity = '24 hrs';
+          } else if (planName.includes('30 days') || planName.includes('30days')) {
+            validity = '30 days';
+          } else if (planName.includes('7 days') || planName.includes('7days')) {
+            validity = '7 days';
+          } else if (planName.includes('2 days') || planName.includes('2days')) {
+            validity = '2 days';
+          } else if (planName.includes('Month')) {
+            validity = '1 Month';
+          } else if (planName.includes('Months')) {
+            const monthsMatch = planName.match(/(\d+)\s*Months?/i);
+            if (monthsMatch) {
+              validity = `${monthsMatch[1]} Months`;
+            }
+          } else if (planName.includes('Year')) {
+            validity = '1 Year';
+          }
+
+          // Extract size from plan name (e.g., "100MB", "1.5GB", "10GB")
+          const sizeMatch = planName.match(/(\d+(?:\.\d+)?\s*(GB|MB|TB))/i);
+          const size = sizeMatch ? sizeMatch[1] : null;
+
+          const dbPlan: any = {
+            network: networkName,
+            plan_name: planName,
+            price: planPrice,
+            original_price: planPrice,
+            validity: validity.trim(),
+            api_code: variationCode,
+            vtpass_code: variationCode,
+            provider: 'vtpass',
+            is_active: true,
+            plan_type: 'SME',
+          };
+
+          if (size) {
+            dbPlan.size = size;
+          }
+
+          // Check if plan already exists (match by network and api_code or vtpass_code)
+          let existing: any = null;
+          
+          if (variationCode) {
+            // First try to find by api_code or vtpass_code
+            const { data: byCode } = await supabase
+              .from('data_plans')
+              .select('id, vtpass_code, api_code, plan_name, price')
+              .eq('network', networkName)
+              .or(`api_code.eq.${variationCode},vtpass_code.eq.${variationCode}`)
+              .maybeSingle();
+            
+            existing = byCode;
+          }
+          
+          // If not found by code, try to find by similar name and price
+          if (!existing && planName) {
+            const { data: similar } = await supabase
+              .from('data_plans')
+              .select('id, vtpass_code, api_code, plan_name, price')
+              .eq('network', networkName)
+              .ilike('plan_name', `%${planName.substring(0, 20)}%`)
+              .maybeSingle();
+            
+            if (similar && similar.price && planPrice && 
+                Math.abs(similar.price - planPrice) / Math.max(similar.price, planPrice) < 0.1) {
+              existing = similar;
+            }
+          }
+
+          if (existing) {
+            // Update existing plan - add vtpass_code if missing
+            const updateData: any = {};
+            if (!existing.vtpass_code && variationCode) {
+              updateData.vtpass_code = variationCode;
+            }
+            if (!existing.api_code && variationCode) {
+              updateData.api_code = variationCode;
+            }
+            // Update price if significantly different (more than 10%)
+            if (existing.price && planPrice && 
+                Math.abs(existing.price - planPrice) / Math.max(existing.price, planPrice) > 0.1) {
+              updateData.price = planPrice;
+              updateData.original_price = planPrice;
+            }
+
+            if (Object.keys(updateData).length > 0) {
+              const { error: updateError } = await supabase
+                .from('data_plans')
+                .update(updateData)
+                .eq('id', existing.id);
+
+              if (updateError) {
+                errors.push(`Failed to update plan ${planName}: ${updateError.message}`);
+                console.error(`Update error for ${planName}:`, updateError);
+              } else {
+                updated++;
+                console.log(`Updated plan: ${planName}`);
+              }
+            }
+          } else {
+            // Insert new plan
+            const { error: insertError } = await supabase
+              .from('data_plans')
+              .insert(dbPlan);
+
+            if (insertError) {
+              errors.push(`Failed to insert plan ${planName}: ${insertError.message}`);
+              console.error(`Insert error for ${planName}:`, insertError);
+            } else {
+              imported++;
+              console.log(`Imported plan: ${planName}`);
+            }
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          errors.push(`Failed to process plan: ${errorMsg}`);
+          console.error('Error processing plan:', error);
+        }
+      }
+
+      // Map plans to consistent format for response (for backward compatibility)
+      const mappedPlans = plans.map((plan: any) => ({
         id: plan.variation_code || plan.variationCode || plan.code || plan.id || '',
         name: plan.name || plan.variation_name || plan.title || plan.plan || 'Unknown Plan',
         variation_code: plan.variation_code || plan.variationCode || plan.code || '',
@@ -274,25 +439,28 @@ serve(async (req) => {
         variation_amount: parseFloat(plan.variation_amount || plan.variationAmount || plan.amount || plan.fixedPrice || plan.price || 0),
         fixedPrice: parseFloat(plan.fixedPrice || plan.variation_amount || plan.variationAmount || plan.amount || plan.price || 0),
         fixedPriceDescription: plan.fixedPriceDescription || plan.name || plan.variation_name || '',
-        // Additional fields that might be useful
         serviceID: plan.serviceID || serviceID,
-        network: network || serviceID.replace('-data', '').toUpperCase(),
+        network: networkName,
       }));
       
-      console.log(`Mapped ${plans.length} plans from VTpass response`);
+      console.log(`Mapped ${mappedPlans.length} plans from VTpass response`);
 
       return new Response(
         JSON.stringify({ 
           success: true,
-          data: plans,
+          data: mappedPlans,
           metadata: {
-            total_plans: plans.length,
+            total_plans: mappedPlans.length,
+            imported: imported,
+            updated: updated,
+            errors: errors.length,
             serviceID,
-            network: network || serviceID.replace('-data', '').toUpperCase(),
+            network: networkName,
             source: 'vtpass',
             mode: VTPASS_MODE,
             response_description: data.response_description || data.message || 'Success',
-          }
+          },
+          errors: errors.length > 0 ? errors : undefined
         }),
         { 
           status: 200, 

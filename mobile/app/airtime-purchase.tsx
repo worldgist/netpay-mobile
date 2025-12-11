@@ -299,6 +299,28 @@ export default function AirtimePurchaseScreen() {
       });
 
       if (error) {
+        // Check for network errors before throwing
+        const errorMessage = error?.message || String(error);
+        const errorName = error?.name || error?.constructor?.name || '';
+        const isNetworkError = errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('Failed to send a request to the Edge Function') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                              errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                              errorMessage.includes('TypeError') ||
+                              errorName === 'FunctionsFetchError' ||
+                              errorName === 'TypeError' ||
+                              error?.code === 'NETWORK_ERROR';
+        
+        if (isNetworkError) {
+          Alert.alert(
+            'Connection Error',
+            'Network connection failed. Please check your internet connection and try again.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        
         throw error;
       }
 
@@ -329,9 +351,31 @@ export default function AirtimePurchaseScreen() {
           reference,
         },
       });
-    } catch (purchaseError) {
+    } catch (purchaseError: any) {
       console.error('Airtime purchase failed:', purchaseError);
       let message = 'Unable to complete airtime purchase. Please try again.';
+
+      // Check for network errors
+      const errorMessage = purchaseError?.message || String(purchaseError);
+      const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            errorName === 'FunctionsFetchError' ||
+                            errorName === 'TypeError' ||
+                            purchaseError?.code === 'NETWORK_ERROR';
+      
+      if (isNetworkError) {
+        Alert.alert(
+          'Connection Error',
+          'Network connection failed. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
 
       if (purchaseError instanceof Error) {
         message = purchaseError.message || message;

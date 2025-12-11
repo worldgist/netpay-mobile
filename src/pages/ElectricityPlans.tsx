@@ -10,6 +10,7 @@ import { Search, Plus, Pencil, Trash2, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,8 @@ export default function ElectricityPlans() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<ElectricityService | null>(null);
   const [isFetching, setIsFetching] = useState(false);
+  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'smeplug'>('vtpass');
+  const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [formData, setFormData] = useState({
     provider: "",
     package_name: "",
@@ -48,8 +51,76 @@ export default function ElectricityPlans() {
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchPlans();
+    fetchElectricityProvider();
   }, []);
+
+  const fetchElectricityProvider = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'electricity_provider')
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching electricity provider setting:', error);
+        setVendingProvider('vtpass');
+        await fetchPlans();
+        return;
+      }
+
+      if (data?.setting_value) {
+        const provider = (data.setting_value as any)?.provider || 'vtpass';
+        const validProviders = ['vtpass', 'mobilenig', 'smeplug'];
+        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'smeplug' : 'vtpass';
+        console.log('Setting electricity vending provider to:', selectedProvider);
+        setVendingProvider(selectedProvider);
+      } else {
+        console.log('No electricity provider setting found, defaulting to vtpass');
+        setVendingProvider('vtpass');
+      }
+      await fetchPlans();
+    } catch (error) {
+      console.error('Error fetching electricity provider setting:', error);
+      setVendingProvider('vtpass');
+      await fetchPlans();
+    }
+  };
+
+  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'smeplug') => {
+    setIsUpdatingProvider(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          setting_key: 'electricity_provider',
+          setting_value: { provider: newProvider },
+          setting_category: 'system',
+          description: 'Electricity vending provider: vtpass, mobilenig, or smeplug'
+        }, {
+          onConflict: 'setting_key'
+        });
+
+      if (error) throw error;
+
+      console.log('Updating electricity provider to:', newProvider);
+      setVendingProvider(newProvider);
+      
+      toast({
+        title: "Success",
+        description: `Electricity vending provider switched to ${newProvider.toUpperCase()}. This will be used as the default for all electricity purchases.`,
+      });
+    } catch (error: any) {
+      console.error('Error updating electricity provider:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update electricity provider",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingProvider(false);
+    }
+  };
 
   const fetchPlans = async () => {
     try {
@@ -315,6 +386,43 @@ export default function ElectricityPlans() {
           </header>
 
           <div className="p-6 space-y-6">
+            {/* Vending Provider Selector */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Vending Provider Settings</CardTitle>
+                <CardDescription>
+                  Choose the default vending provider for electricity purchases
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <Label htmlFor="vending-provider" className="min-w-[150px]">
+                    Vending Provider:
+                  </Label>
+                  <Select
+                    value={vendingProvider}
+                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'smeplug')}
+                    disabled={isUpdatingProvider}
+                  >
+                    <SelectTrigger id="vending-provider" className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="vtpass">VTpass</SelectItem>
+                      <SelectItem value="mobilenig">MobileNig</SelectItem>
+                      <SelectItem value="smeplug">SMEPLUG</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {isUpdatingProvider && (
+                    <span className="text-sm text-muted-foreground">Updating...</span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  This setting determines which vendor API will be used for electricity purchases when no specific provider is selected by the user.
+                </p>
+              </CardContent>
+            </Card>
+
             <div className="flex items-center justify-between">
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />

@@ -76,8 +76,26 @@ serve(async (req) => {
     // Parse request body - provider is optional, if not provided, fetch all
     const { provider } = await req.json().catch(() => ({}));
 
+    // MobileNig Service IDs for Electricity Providers
+    // Per MobileNig API documentation:
+    // - Ikeja Electricity Token Purchase (Prepaid): AMA
+    // - Ikeja Electricity Bills (Postpaid): AMB
+    // - Eko Electricity Prepaid: ANA
+    // - Eko Electricity Postpaid: ANB
+    // - Abuja Electricity Prepaid: AHB
+    // - Abuja Electricity Postpaid: AHA
+    // - Kaduna Electricity Prepaid: AGB
+    // - Kaduna Electricity Postpaid: AGA
+    // - Ibadan Electricity Prepaid: AEA
+    // - Ibadan Electricity Postpaid: AEB
+    // - Kano Electricity Distribution Prepaid: AFA
+    // - Kano Electricity Distribution Postpaid: AFB
+    // - Port-Harcourt Prepaid: ADB
+    // - Port-Harcourt Postpaid: ADA
+    // - Jos Electricity Prepaid: ACB
+    // - Jos Electricity Postpaid: ACA
     const canonicalMap: Record<string, { prepaid: string; postpaid: string }> = {
-      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
+      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' }, // Token Purchase / Bills
       EKO: { prepaid: 'ANA', postpaid: 'ANB' },
       ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
       KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },

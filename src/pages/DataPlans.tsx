@@ -69,7 +69,7 @@ const DataPlans = () => {
     mobilenig_code: "",
     is_active: true
   });
-  const [dataProvider, setDataProvider] = useState<'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa'>('smeplug');
+  const [dataProvider, setDataProvider] = useState<'anyone' | 'vtpass' | 'ebills.africa'>('vtpass');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [filterNetwork, setFilterNetwork] = useState<string | null>(null);
 
@@ -153,6 +153,43 @@ const DataPlans = () => {
     await fetchDataPlansForProvider(dataProvider);
   }, [dataProvider, fetchDataPlansForProvider]);
 
+  // Function to fetch all plans regardless of provider (for after import)
+  const fetchAllDataPlans = useCallback(async (networkFilter?: string | null) => {
+    try {
+      const { data, error } = await supabase
+        .from('data_plans')
+        .select('*')
+        .order('network', { ascending: true })
+        .order('price', { ascending: true });
+
+      if (error) throw error;
+
+      // Apply network filter if set
+      const filterToUse = networkFilter || filterNetwork;
+      const filtered = filterToUse 
+        ? (data || []).filter((p: any) => p.network === filterToUse)
+        : (data || []);
+
+      const sortedData = filtered.sort((a: any, b: any) => {
+        if (a.network !== b.network) {
+          return a.network.localeCompare(b.network);
+        }
+        return (a.price || 0) - (b.price || 0);
+      });
+
+      console.log('Fetched all data plans:', sortedData.length, 'plans');
+      setDataPlans(sortedData);
+    } catch (error: any) {
+      console.error('Error fetching all data plans:', error);
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to load data plans",
+        variant: "destructive",
+      });
+      setDataPlans([]);
+    }
+  }, [filterNetwork, toast]);
+
   const fetchNetworks = useCallback(async () => {
     try {
       const { data, error } = await supabase.functions.invoke('fetch-smeplug-networks');
@@ -180,31 +217,35 @@ const DataPlans = () => {
         console.error('Error fetching data provider setting:', error);
         // Default to smeplug on error
         setDataProvider('smeplug');
-        await fetchDataPlansForProvider('smeplug');
         return;
       }
 
       if (data?.setting_value) {
-        const provider = (data.setting_value as any)?.provider || 'smeplug';
+        // Handle both string and object formats (for backward compatibility)
+        let provider: string;
+        if (typeof data.setting_value === 'string') {
+          provider = data.setting_value;
+        } else if (typeof data.setting_value === 'object' && data.setting_value !== null && 'provider' in data.setting_value) {
+          provider = (data.setting_value as any).provider;
+        } else {
+          provider = 'smeplug'; // Default fallback
+        }
+        
         const validProviders = ['smeplug', 'anyone', 'vtpass', 'mobilenig', 'ebills.africa'];
-        const selectedProvider = validProviders.includes(provider) ? provider as any : 'smeplug';
+        const selectedProvider = validProviders.includes(provider) ? provider as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa' : 'smeplug';
         console.log('Setting data provider to:', selectedProvider);
         setDataProvider(selectedProvider);
-        // Fetch plans for the selected provider
-        await fetchDataPlansForProvider(selectedProvider);
       } else {
         console.log('No data provider setting found, defaulting to smeplug');
         // Default to smeplug if no setting found
         setDataProvider('smeplug');
-        await fetchDataPlansForProvider('smeplug');
       }
     } catch (error) {
       console.error('Error fetching data provider setting:', error);
       // Default to smeplug on error
       setDataProvider('smeplug');
-      await fetchDataPlansForProvider('smeplug');
     }
-  }, [fetchDataPlansForProvider]);
+  }, []);
 
   const checkAdminAndFetch = useCallback(async () => {
     console.log('checkAdminAndFetch called');
@@ -271,51 +312,81 @@ const DataPlans = () => {
       }
 
       console.log('Admin confirmed, fetching data');
+      console.log('User ID:', session.user.id);
+      
+      // Verify admin role exists
+      const { data: roleCheck } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+      
+      console.log('Admin role check:', roleCheck);
+      
+      if (!roleCheck) {
+        console.warn('WARNING: User does not have admin role in user_roles table!');
+        toast({
+          title: "Warning",
+          description: "Your account may not have admin permissions. Please contact an administrator.",
+          variant: "destructive",
+        });
+      }
+      
       await Promise.all([fetchDataProvider(), fetchNetworks()]);
-      console.log('Data fetched, setting loading to false');
+      console.log('Data fetched, fetching data plans');
+      // Fetch data plans after provider and networks are loaded
+      // Use a small delay to ensure dataProvider state is updated from fetchDataProvider
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await fetchDataPlans();
+      console.log('Data plans fetched, setting loading to false');
       setLoading(false);
     } catch (error) {
       console.error('Error in checkAdminAndFetch:', error);
       setLoading(false);
     }
-  }, [navigate, toast, fetchDataProvider, fetchNetworks]);
+  }, [navigate, toast, fetchNetworks, fetchDataPlans]);
 
-  useEffect(() => {
-    checkAdminAndFetch();
-  }, [checkAdminAndFetch]);
-
-  // Initial load effect
   useEffect(() => {
     checkAdminAndFetch();
   }, [checkAdminAndFetch]);
 
   const updateDataProvider = async (newProvider: 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa') => {
+    // Don't update if it's already set to the same provider
+    if (dataProvider === newProvider) {
+      return;
+    }
+    
     setIsUpdatingProvider(true);
     try {
       const { error } = await supabase
         .from('app_settings')
         .upsert({
           setting_key: 'data_provider',
-          setting_value: { provider: newProvider },
+          setting_value: newProvider, // Store as string, not object
           setting_category: 'system',
-          description: 'Data vending provider: smeplug or anyone'
+          description: 'Data vending provider: smeplug, vtpass, mobilenig, anyone, or ebills.africa'
         }, {
           onConflict: 'setting_key'
         });
 
       if (error) throw error;
 
-      setDataProvider(newProvider);
+      // State is already updated in onValueChange, but ensure it's set
       // Fetch plans for the new provider
       await fetchDataPlansForProvider(newProvider);
+      
       // Clear network filter when switching providers
       setFilterNetwork(null);
+      
       toast({
         title: "Success",
         description: `Data provider switched to ${newProvider === 'ebills.africa' ? 'eBills.Africa' : newProvider.toUpperCase()}. Showing plans from ${newProvider === 'ebills.africa' ? 'eBills.Africa' : newProvider.toUpperCase()}.`,
       });
     } catch (error: any) {
       console.error('Error updating data provider:', error);
+      // Revert state on error
+      setDataProvider(dataProvider);
       toast({
         title: "Error",
         description: error.message || "Failed to update data provider",
@@ -349,7 +420,7 @@ const DataPlans = () => {
       }
 
       const normalizedNetworkName = network.name.trim().toUpperCase();
-      const vendors = ['vtpass', 'smeplug'];
+      const vendors = ['vtpass', 'smeplug', 'mobilenig'];
       let totalImported = 0;
       let totalUpdated = 0;
 
@@ -368,6 +439,9 @@ const DataPlans = () => {
               continue;
             }
             requestBody = { network_id: network.network_id };
+          } else if (vendor === 'mobilenig') {
+            functionName = 'fetch-mobilenig-data-plans';
+            requestBody = { network: normalizedNetworkName };
           }
 
           const { data: { session } } = await supabase.auth.getSession();
@@ -382,6 +456,10 @@ const DataPlans = () => {
 
           if (plansError || !plansData?.success) {
             console.warn(`Failed to fetch from ${vendor}:`, plansError || plansData?.error);
+            console.warn(`Full response from ${vendor}:`, plansData);
+            if (plansData?.debug) {
+              console.warn(`Debug info from ${vendor}:`, plansData.debug);
+            }
             continue;
           }
 
@@ -398,8 +476,9 @@ const DataPlans = () => {
             .eq('network', network.name);
 
           const processedPlans = plansArray.map((plan: any) => {
-            const apiCode = plan.variation_code || plan.id || plan.code || plan.plan_id || '';
-            const planName = plan.plan || plan.name || plan.variation_name || plan.fixedPriceDescription || 'Unknown Plan';
+            // Handle different vendor response formats
+            const apiCode = plan.variation_code || plan.code || plan.productCode || plan.id || plan.plan_id || '';
+            const planName = plan.plan || plan.name || plan.variation_name || plan.fixedPriceDescription || plan.planName || 'Unknown Plan';
             const price = parseFloat(plan.variation_amount || plan.amount || plan.fixedPrice || plan.price || 0);
             const validity = plan.validity || plan.duration || 'N/A';
 
@@ -419,6 +498,8 @@ const DataPlans = () => {
               planObj.vtpass_code = apiCode;
             } else if (vendor === 'smeplug') {
               planObj.smeplug_code = apiCode;
+            } else if (vendor === 'mobilenig') {
+              planObj.mobilenig_code = apiCode;
             }
 
             // Extract size
@@ -445,8 +526,22 @@ const DataPlans = () => {
               const updates: any = {};
               if (vendor === 'vtpass' && newPlan.vtpass_code && !matchingPlan.vtpass_code) {
                 updates.vtpass_code = newPlan.vtpass_code;
+                // Also update api_code if it's missing
+                if (!matchingPlan.api_code) {
+                  updates.api_code = newPlan.api_code;
+                }
               } else if (vendor === 'smeplug' && newPlan.smeplug_code && !matchingPlan.smeplug_code) {
                 updates.smeplug_code = newPlan.smeplug_code;
+                // Also update api_code if it's missing
+                if (!matchingPlan.api_code) {
+                  updates.api_code = newPlan.api_code;
+                }
+              } else if (vendor === 'mobilenig' && newPlan.mobilenig_code && !matchingPlan.mobilenig_code) {
+                updates.mobilenig_code = newPlan.mobilenig_code;
+                // Also update api_code if it's missing
+                if (!matchingPlan.api_code) {
+                  updates.api_code = newPlan.api_code;
+                }
               }
 
               if (Object.keys(updates).length > 0) {
@@ -454,8 +549,39 @@ const DataPlans = () => {
                 totalUpdated++;
               }
             } else {
-              await supabase.from('data_plans').upsert(newPlan, { onConflict: 'provider,api_code' });
-              totalImported++;
+              // Use upsert with column names (Supabase format)
+              const { error: upsertError } = await supabase
+                .from('data_plans')
+                .upsert(newPlan, { 
+                  onConflict: 'provider,api_code',
+                  ignoreDuplicates: false 
+                });
+              
+              if (upsertError) {
+                // If constraint doesn't exist, fallback to manual insert/update
+                if (upsertError.message?.includes('no unique or exclusion constraint')) {
+                  console.warn('Unique constraint not found, using manual insert/update:', upsertError.message);
+                  const { data: existing } = await supabase
+                    .from('data_plans')
+                    .select('id')
+                    .eq('provider', newPlan.provider)
+                    .eq('api_code', newPlan.api_code)
+                    .maybeSingle();
+                  
+                  if (!existing) {
+                    const { error: insertError } = await supabase.from('data_plans').insert(newPlan);
+                    if (!insertError) {
+                      totalImported++;
+                    } else {
+                      console.warn('Insert error:', insertError);
+                    }
+                  }
+                } else {
+                  console.warn('Upsert error:', upsertError);
+                }
+              } else {
+                totalImported++;
+              }
             }
           }
         } catch (vendorError) {
@@ -463,13 +589,16 @@ const DataPlans = () => {
         }
       }
 
-      await fetchDataPlans();
+      // Refresh plans - fetch all plans regardless of provider to show newly imported ones
+      await fetchAllDataPlans(network.name);
+      
       setIsDialogOpen(false);
       setFilterNetwork(network.name);
+      setIsFetching(false);
       
       toast({
         title: "Success",
-        description: `Imported ${totalImported} new plans and updated ${totalUpdated} existing plans from all vendors for ${network.name}`,
+        description: `Imported ${totalImported} new plans and updated ${totalUpdated} existing plans from all vendors for ${network.name}. Showing all plans.`,
       });
     } catch (error: any) {
       console.error('Error fetching plans from all vendors:', error);
@@ -526,12 +655,12 @@ const DataPlans = () => {
           }
           break;
         case 'mobilenig':
-          // TODO: Create fetch-mobilenig-data-plans function
-          functionName = 'fetch-smeplug-data-plans';
-          if (!network.network_id) {
-            throw new Error('Network ID is required for SMEPLUG. Please ensure the network has a valid network_id.');
+          functionName = 'fetch-mobilenig-data-plans';
+          if (!network.name || !network.name.trim()) {
+            throw new Error('Network name is required for MobileNig. Please ensure the network is properly configured.');
           }
-          requestBody = { network_id: network.network_id };
+          const normalizedNetworkName = network.name.trim().toUpperCase();
+          requestBody = { network: normalizedNetworkName };
           break;
         case 'ebills.africa':
           // TODO: Create fetch-ebills-data-plans function
@@ -571,91 +700,212 @@ const DataPlans = () => {
         throw new Error('Session expired. Please sign in again.');
       }
 
-      // Use direct fetch for better timeout control
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl) {
-        throw new Error('Supabase URL is not configured');
-      }
+      // Try using Supabase function invoke first (better error handling)
+      let responseData: any;
+      let useDirectFetch = false;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       
-      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
-      
-      // Create AbortController for timeout (reduced to 30 seconds for VTpass)
-      const controller = new AbortController();
-      const timeoutDuration = dataProvider === 'vtpass' ? 30000 : 60000; // 30s for VTpass, 60s for others
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-        console.error('Request timeout after', timeoutDuration / 1000, 'seconds');
-      }, timeoutDuration);
-      
-      let timeoutDurationForError = timeoutDuration; // Store for error handling
-
       try {
-        console.log(`Calling ${functionName} with:`, requestBody);
+        console.log(`Calling ${functionName} with Supabase invoke:`, requestBody);
         
-        const response = await fetch(functionUrl, {
-          method: 'POST',
+        const { data, error: invokeError } = await supabase.functions.invoke(functionName, {
+          body: requestBody,
           headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify(requestBody),
-          signal: controller.signal,
         });
 
-        clearTimeout(timeoutId);
-
-        // Check if response is ok before parsing
-        if (!response.ok) {
-          const errorText = await response.text();
-          let errorData;
-          try {
-            errorData = JSON.parse(errorText);
-          } catch {
-            errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+        if (invokeError) {
+          // If invoke fails with network error, try direct fetch
+          if (invokeError.message?.includes('Failed to fetch') || 
+              invokeError.message?.includes('network') ||
+              invokeError.message?.includes('ECONNREFUSED') ||
+              invokeError.message?.includes('ENOTFOUND')) {
+            console.warn('Supabase invoke failed with network error, trying direct fetch:', invokeError);
+            useDirectFetch = true;
+          } else {
+            console.error('Supabase invoke error:', invokeError);
+            throw invokeError;
           }
-          throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        } else {
+          console.log('Supabase invoke successful, response data:', {
+            hasData: !!data,
+            dataType: typeof data,
+            dataKeys: data ? Object.keys(data) : [],
+            success: data?.success,
+            error: data?.error,
+            dataLength: data?.data?.length,
+            metadata: data?.metadata,
+            fullData: JSON.stringify(data).substring(0, 1000)
+          });
+          
+          // Check if response indicates failure
+          if (data && typeof data === 'object' && 'success' in data && !data.success) {
+            const errorMsg = data.error || data.message || 'Unknown error from API';
+            console.error('API returned failure:', errorMsg, data);
+            throw new Error(errorMsg);
+          }
+          
+          responseData = data;
         }
+      } catch (invokeError: any) {
+        // If invoke completely fails, try direct fetch
+        if (invokeError.message?.includes('Failed to fetch') || 
+            invokeError.message?.includes('network') ||
+            invokeError.name === 'TypeError') {
+          console.warn('Supabase invoke failed, trying direct fetch:', invokeError);
+          useDirectFetch = true;
+        } else {
+          throw invokeError;
+        }
+      }
 
-        // Parse response with better error handling
-        let responseData: any;
-        try {
-          const responseText = await response.text();
-          console.log('Raw response text (first 500 chars):', responseText.substring(0, 500));
-          
-          if (!responseText || !responseText.trim()) {
-            throw new Error('Empty response from edge function');
-          }
-          
-          responseData = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error('Error parsing response:', parseError);
-          throw new Error(`Failed to parse response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+      // Fallback to direct fetch if invoke fails
+      if (useDirectFetch) {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!supabaseUrl) {
+          throw new Error('Supabase URL is not configured');
         }
         
+        const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+        
+        // Create AbortController for timeout (reduced to 30 seconds for VTpass)
+        const controller = new AbortController();
+        const timeoutDuration = dataProvider === 'vtpass' ? 30000 : 60000; // 30s for VTpass, 60s for others
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          console.error('Request timeout after', timeoutDuration / 1000, 'seconds');
+        }, timeoutDuration);
+
+        try {
+          console.log(`Calling ${functionName} with direct fetch:`, requestBody);
+          
+          let response: Response;
+          try {
+            response = await fetch(functionUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(requestBody),
+              signal: controller.signal,
+            });
+          } catch (fetchError: any) {
+            if (timeoutId) clearTimeout(timeoutId);
+            // Handle network-level errors (connection refused, DNS failure, etc.)
+            if (fetchError.name === 'TypeError' && fetchError.message?.includes('fetch')) {
+              throw new Error('Unable to connect to the server. Please check your internet connection and try again.');
+            }
+            if (fetchError.name === 'AbortError') {
+              throw new Error(`Request timeout after ${timeoutDuration / 1000} seconds. The server may be slow or unavailable.`);
+            }
+            throw fetchError;
+          }
+
+          if (timeoutId) clearTimeout(timeoutId);
+
+          // Check if response is ok before parsing
+          if (!response.ok) {
+            const errorText = await response.text();
+            let errorData;
+            try {
+              errorData = JSON.parse(errorText);
+            } catch {
+              errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+            }
+            throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          // Parse response with better error handling
+          try {
+            const responseText = await response.text();
+            console.log('Raw response text (first 500 chars):', responseText.substring(0, 500));
+            
+            if (!responseText || !responseText.trim()) {
+              throw new Error('Empty response from edge function');
+            }
+            
+            responseData = JSON.parse(responseText);
+          } catch (parseError) {
+            console.error('Error parsing response:', parseError);
+            throw new Error(`Failed to parse response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+          }
+          
         console.log('Edge function response:', {
           status: response.status,
           success: responseData?.success,
           error: responseData?.error,
           dataLength: responseData?.data?.length,
           metadata: responseData?.metadata,
+          fullResponse: JSON.stringify(responseData).substring(0, 1000),
         });
 
-        if (!response.ok) {
-          const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
-          console.error('Edge function HTTP error:', response.status, errorMessage);
-          throw new Error(errorMessage);
+          if (!response.ok) {
+            const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+            console.error('Edge function HTTP error:', response.status, errorMessage);
+            throw new Error(errorMessage);
+          }
+        } catch (fetchError: any) {
+          if (timeoutId) clearTimeout(timeoutId);
+          // Re-throw fetch errors to be handled by outer catch
+          throw fetchError;
         }
+      }
 
-        const data = responseData;
+      // At this point, responseData should be set (either from invoke or direct fetch)
+      if (!responseData) {
+        throw new Error('No response data received from server');
+      }
 
-        if (!data?.success) {
-          const errorMsg = data?.error || data?.message || "Failed to fetch data plans from API";
-          console.error('API returned error:', { data, status: response.status });
-          throw new Error(errorMsg);
-        }
+      console.log('Processing responseData:', {
+        hasSuccess: !!responseData.success,
+        hasError: !!responseData.error,
+        error: responseData.error,
+        hasData: !!responseData.data,
+        dataType: typeof responseData.data,
+        isArray: Array.isArray(responseData.data),
+        dataLength: Array.isArray(responseData.data) ? responseData.data.length : 'not array',
+        keys: responseData.data && typeof responseData.data === 'object' ? Object.keys(responseData.data) : [],
+        metadata: responseData.metadata,
+        sample: JSON.stringify(responseData).substring(0, 1000)
+      });
+
+      const data = responseData;
+
+      // Check for success flag
+      if (data && typeof data === 'object' && 'success' in data && !data.success) {
+        const errorMsg = data.error || data.message || "Failed to fetch data plans from API";
+        console.error('API returned error:', { 
+          error: errorMsg,
+          fullResponse: data,
+          dataProvider,
+          network: network.name 
+        });
+        throw new Error(errorMsg);
+      }
+
+      // If no success flag but has error, treat as failure
+      if (data?.error && !data?.success) {
+        console.error('API response contains error:', data.error);
+        throw new Error(data.error);
+      }
+
+      // If no success flag and no data, might be a different response format
+      if (!data?.success && !data?.data && !data?.error) {
+        console.warn('Response missing success flag and data field. Full response:', data);
+        // Try to continue anyway - might be a different format
+      }
 
         // Normalize various possible response shapes into an array
         const raw = (data as any)?.data;
+        console.log('Raw data extracted:', {
+          rawType: typeof raw,
+          isArray: Array.isArray(raw),
+          rawLength: Array.isArray(raw) ? raw.length : 'not array',
+          rawKeys: raw && typeof raw === 'object' ? Object.keys(raw) : [],
+          sampleRaw: Array.isArray(raw) && raw.length > 0 ? JSON.stringify(raw[0]).substring(0, 200) : JSON.stringify(raw).substring(0, 200)
+        });
         let plansArray: any[] = [];
 
         if (Array.isArray(raw)) {
@@ -698,12 +948,27 @@ const DataPlans = () => {
           console.warn('No plans found in response:', {
             dataProvider,
             network: network.name,
+            network_id: network.network_id,
             rawData: raw,
+            rawDataType: typeof raw,
+            rawDataIsArray: Array.isArray(raw),
+            rawDataKeys: raw && typeof raw === 'object' ? Object.keys(raw) : [],
             responseData: data,
+            responseDataKeys: data ? Object.keys(data) : [],
+            fullResponse: JSON.stringify(data).substring(0, 2000)
           });
+          
+          // Provide more helpful error message
+          let errorMessage = `The ${dataProvider.toUpperCase()} provider returned no plans for ${network.name}.`;
+          if (data?.error) {
+            errorMessage += ` Error: ${data.error}`;
+          } else if (data?.details) {
+            errorMessage += ` Details: ${JSON.stringify(data.details).substring(0, 200)}`;
+          }
+          
           toast({
             title: 'No Plans Found',
-            description: `The ${dataProvider.toUpperCase()} provider returned no plans for ${network.name}. Check the console for details.`,
+            description: errorMessage + ' Check the browser console for more details.',
             variant: 'destructive',
           });
           return;
@@ -915,6 +1180,7 @@ const DataPlans = () => {
           
           // Try with all vendor code columns
           try {
+            // Supabase upsert uses column names, not constraint names
             const result = await supabase
               .from('data_plans')
               .upsert(plansToUpsert, { 
@@ -926,28 +1192,72 @@ const DataPlans = () => {
             insertError = e;
           }
 
+          // Handle RLS policy errors
+          if (insertError && (
+            insertError.message?.includes('row-level security') ||
+            insertError.message?.includes('RLS') ||
+            insertError.code === '42501'
+          )) {
+            console.error('RLS policy violation:', insertError);
+            console.error('This usually means the user does not have admin role in user_roles table');
+            
+            // Check admin role again
+            const { data: { session: rlsSession } } = await supabase.auth.getSession();
+            if (rlsSession) {
+              const { data: roleData, error: roleError } = await supabase
+                .from('user_roles')
+                .select('*')
+                .eq('user_id', rlsSession.user.id);
+              
+              console.error('User roles:', roleData);
+              console.error('Role check error:', roleError);
+            }
+            
+            throw new Error('Permission denied: You do not have admin permissions to insert data plans. Please ensure your account has the admin role assigned in the user_roles table.');
+          }
+          
           // Handle column errors gracefully
           if (insertError && (
             insertError.code === '42703' ||
             insertError.message?.toLowerCase().includes('column') ||
-            insertError.message?.toLowerCase().includes('does not exist')
+            insertError.message?.toLowerCase().includes('does not exist') ||
+            insertError.message?.includes('no unique or exclusion constraint')
           )) {
-            console.warn('Some columns may not exist, trying with basic columns:', insertError.message);
+            console.warn('Upsert with constraint failed, trying manual insert/update:', insertError.message);
             
-            // Remove vendor-specific columns and try again
-            const basicPlans = plansToUpsert.map(({ vtpass_code, smeplug_code, mobilenig_code, vendor_price, user_price, plan_type, size, ...rest }) => rest);
-            
-            const { error: basicError } = await supabase
-              .from('data_plans')
-              .upsert(basicPlans, { 
-                onConflict: 'provider,api_code',
-                ignoreDuplicates: false 
-              });
-            
-            if (basicError) {
-              console.error('Failed to insert plans even with basic columns:', basicError);
-              throw basicError;
+            // Fallback: Manual insert/update by checking for existing plans
+            for (const plan of plansToUpsert) {
+              const { data: existing } = await supabase
+                .from('data_plans')
+                .select('id')
+                .eq('provider', plan.provider)
+                .eq('api_code', plan.api_code)
+                .maybeSingle();
+              
+              if (existing) {
+                const { error: updateError } = await supabase
+                  .from('data_plans')
+                  .update(plan)
+                  .eq('id', existing.id);
+                if (updateError) {
+                  console.warn(`Failed to update plan ${existing.id}:`, updateError);
+                  if (updateError.message?.includes('row-level security') || updateError.message?.includes('RLS')) {
+                    throw new Error('Permission denied: You do not have admin permissions to update data plans.');
+                  }
+                }
+              } else {
+                const { error: insertError2 } = await supabase
+                  .from('data_plans')
+                  .insert(plan);
+                if (insertError2) {
+                  console.warn(`Failed to insert plan:`, insertError2);
+                  if (insertError2.message?.includes('row-level security') || insertError2.message?.includes('RLS')) {
+                    throw new Error('Permission denied: You do not have admin permissions to insert data plans. Please ensure your account has the admin role assigned.');
+                  }
+                }
+              }
             }
+            insertError = null; // Clear error since we handled it manually
           } else if (insertError) {
             throw insertError;
           }
@@ -974,11 +1284,8 @@ const DataPlans = () => {
           title: "Success",
           description: successMessage,
         });
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        throw fetchError;
-      }
     } catch (error: any) {
+      if (timeoutId) clearTimeout(timeoutId);
       console.error('Error fetching plans from API:', error);
       console.error('Error details:', {
         name: error?.name,
@@ -1002,10 +1309,16 @@ const DataPlans = () => {
       // Handle network errors
       if (error.message?.includes('ERR_INTERNET_DISCONNECTED') || 
           error.message?.includes('Failed to fetch') ||
-          error.message?.includes('network')) {
+          error.message?.includes('network') ||
+          error.message?.includes('Unable to connect') ||
+          error.message?.includes('connection') ||
+          error.message?.includes('ECONNREFUSED') ||
+          error.message?.includes('ENOTFOUND') ||
+          error.message?.includes('ETIMEDOUT') ||
+          error.name === 'TypeError') {
         toast({
           title: "Network Error",
-          description: "Unable to connect to the server. Please check your internet connection and try again.",
+          description: error.message || "Unable to connect to the server. Please check your internet connection and try again.",
           variant: "destructive",
         });
         return;
@@ -1313,6 +1626,7 @@ const DataPlans = () => {
     );
   }
 
+  // Group plans by network, showing all plans regardless of provider filter
   const groupedPlans = dataPlans.reduce((acc, plan) => {
     // Filter by network if filterNetwork is set
     if (filterNetwork && plan.network !== filterNetwork) {
@@ -1324,6 +1638,9 @@ const DataPlans = () => {
     acc[plan.network].push(plan);
     return acc;
   }, {} as Record<string, DataPlan[]>);
+
+  // Calculate total plans count
+  const totalPlansCount = Object.values(groupedPlans).reduce((sum, plans) => sum + plans.length, 0);
 
   return (
     <SidebarProvider>
@@ -1337,7 +1654,10 @@ const DataPlans = () => {
                 <div>
                   <h1 className="text-3xl font-bold">Data Plans Management</h1>
                   <p className="text-muted-foreground">
-                    Manage data plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}
+                    {totalPlansCount > 0 
+                      ? `Showing ${totalPlansCount} data plan${totalPlansCount !== 1 ? 's' : ''} from all providers`
+                      : `Manage data plans from ${dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}`
+                    }
                     {filterNetwork && ` - ${filterNetwork} network`}
                   </p>
                   <div className="mt-2 flex items-center gap-2 text-sm bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
@@ -1361,8 +1681,12 @@ const DataPlans = () => {
                     <Label htmlFor="data-provider" className="text-sm font-medium">Data Provider:</Label>
                     <Select
                       value={dataProvider}
-                      onValueChange={(value) => {
-                        updateDataProvider(value as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa');
+                      onValueChange={async (value) => {
+                        const provider = value as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa';
+                        // Update state immediately to prevent UI flicker
+                        setDataProvider(provider);
+                        // Then save to database
+                        await updateDataProvider(provider);
                       }}
                       disabled={isUpdatingProvider}
                     >
@@ -1494,10 +1818,12 @@ const DataPlans = () => {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Plan Name</TableHead>
-                            <TableHead>Original Price</TableHead>
-                            <TableHead>Custom Price</TableHead>
-                            <TableHead className="font-semibold">User Pays</TableHead>
+                            <TableHead>Provider</TableHead>
+                            <TableHead className="text-right">Original Price</TableHead>
+                            <TableHead className="text-right">Custom Price</TableHead>
+                            <TableHead className="font-semibold text-right">User Pays</TableHead>
                             <TableHead>Validity</TableHead>
+                            <TableHead>Size</TableHead>
                             <TableHead>API Code</TableHead>
                             <TableHead>Vendor Codes</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -1511,18 +1837,30 @@ const DataPlans = () => {
                             return (
                               <TableRow key={plan.id}>
                                 <TableCell className="font-medium">{plan.plan_name}</TableCell>
-                                <TableCell>₦{originalPrice.toFixed(2)}</TableCell>
                                 <TableCell>
+                                  <Badge variant="outline" className={
+                                    plan.provider === 'vtpass' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                    plan.provider === 'mobilenig' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                    plan.provider === 'smeplug' ? 'bg-green-50 text-green-700 border-green-200' :
+                                    'bg-gray-50 text-gray-700 border-gray-200'
+                                  }>
+                                    {plan.provider ? plan.provider.toUpperCase() : 'N/A'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <span className="font-medium">₦{originalPrice.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </TableCell>
+                                <TableCell className="text-right">
                                   {hasCustomPrice ? (
-                                    <span className="text-primary font-medium">₦{plan.custom_price!.toFixed(2)}</span>
+                                    <span className="text-primary font-medium">₦{plan.custom_price!.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                   ) : (
                                     <span className="text-muted-foreground">-</span>
                                   )}
                                 </TableCell>
-                                <TableCell className="font-semibold">
-                                  <div className="flex items-center gap-2">
+                                <TableCell className="font-semibold text-right">
+                                  <div className="flex items-center justify-end gap-2">
                                     <span className={hasCustomPrice ? "text-primary" : ""}>
-                                      ₦{effectivePrice.toFixed(2)}
+                                      ₦{effectivePrice.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                     {hasCustomPrice && (
                                       <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary">
@@ -1531,8 +1869,21 @@ const DataPlans = () => {
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell>{plan.validity}</TableCell>
-                                <TableCell className="font-mono text-sm">{plan.api_code}</TableCell>
+                                <TableCell>{plan.validity || 'N/A'}</TableCell>
+                                <TableCell>
+                                  {plan.size ? (
+                                    <Badge variant="outline" className="text-xs">
+                                      {plan.size}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground text-sm">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                                    {plan.api_code || 'N/A'}
+                                  </code>
+                                </TableCell>
                                 <TableCell>
                                   <div className="flex flex-wrap gap-1">
                                     {plan.vtpass_code && (

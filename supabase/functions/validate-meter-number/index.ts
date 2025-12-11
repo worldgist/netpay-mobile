@@ -211,35 +211,186 @@ async function verifyWithVTpass(
         });
       }
       
-      // Map VTpass response fields exactly as per documentation
-      // Expected fields: Customer_Name, Address, MeterNumber, Min_Purchase_Amount, 
-      // Outstanding, Customer_Arrears, Meter_Type, WrongBillersCode, commission_details
+      // Log full VTpass response for debugging
+      console.log("VTpass merchant-verify full response:", JSON.stringify(responseJson, null, 2));
+      console.log("VTpass content object:", JSON.stringify(content, null, 2));
+      console.log("VTpass content keys:", Object.keys(content || {}));
+      console.log("Checking for Customer_Name:", content.Customer_Name, "Address:", content.Address);
+      
+      // Per VTpass API documentation, merchant-verify SHOULD return Customer_Name and Address
+      // However, when WrongBillersCode is true, these fields may not be present
+      
+      // Check for wrong billers code flag - this might indicate meter format issues
+      const wrongBillersCode = 
+        content.WrongBillersCode !== undefined ? content.WrongBillersCode : 
+        (content.wrong_billers_code !== undefined ? content.wrong_billers_code : 
+        (content.WrongBillersCode !== undefined ? content.WrongBillersCode : false));
+      
+      if (wrongBillersCode) {
+        console.warn("VTpass flagged WrongBillersCode: true - meter number format may be incorrect");
+        console.warn("When WrongBillersCode is true, VTpass may not return Customer_Name and Address");
+      }
+      
+      // Map VTpass response fields as per API documentation
+      // VTpass merchant-verify DOES return Customer_Name and Address per documentation
+      // Response structure: { code: "000", content: { Customer_Name, Address, MeterNumber, ... } }
+      const customerName = 
+        content.Customer_Name ||  // Primary field name per VTpass docs
+        content.customer_name || 
+        content.Name || 
+        content.name ||
+        content.CustomerName ||
+        content.customerName ||
+        responseJson.Customer_Name ||
+        responseJson.customer_name ||
+        responseJson.Name ||
+        responseJson.name ||
+        null; // Use null to indicate details not available
+      
+      const address = 
+        content.Address ||  // Primary field name per VTpass docs
+        content.address || 
+        content.Customer_Address ||
+        content.customer_address ||
+        content.CustomerAddress ||
+        content.customerAddress ||
+        responseJson.Address ||
+        responseJson.address ||
+        null; // Use null to indicate details not available
+      
+      // Extract fields as per VTpass API documentation
+      const meterNumberFromResponse = 
+        content.MeterNumber ||  // Primary field name per VTpass docs
+        content.Meter_Number || 
+        content.meter_number ||
+        content.meterNumber ||
+        sanitizedMeter;
+      
+      const meterTypeFromResponse = 
+        content.Meter_Type ||  // Primary field name per VTpass docs
+        content.meter_type || 
+        content.MeterType ||
+        content.meterType ||
+        type.toUpperCase();
+      
+      const minimumVend = Number(
+        content.Min_Purchase_Amount ||  // Primary field name per VTpass docs
+        content.min_purchase_amount || 
+        content.MinPurchaseAmount ||
+        content.minPurchaseAmount ||
+        content.Minimum_Purchase ||
+        content.minimum_purchase ||
+        0
+      );
+      
+      const outstandingAmount = Number(
+        content.Outstanding ||  // Primary field name per VTpass docs
+        content.outstanding || 
+        content.Outstanding_Amount ||
+        content.outstanding_amount ||
+        content.OutstandingAmount ||
+        content.outstandingAmount ||
+        0
+      );
+      
+      const customerArrears = 
+        content.Customer_Arrears !== undefined ? content.Customer_Arrears :  // Primary field name per VTpass docs
+        (content.customer_arrears !== undefined ? content.customer_arrears : 
+        (content.CustomerArrears !== undefined ? content.CustomerArrears : null));
+      
+      // Additional fields that might be in the response
+      const tariff = 
+        content.Tariff || 
+        content.tariff || 
+        content.Tariff_Rate ||
+        content.tariff_rate ||
+        null;
+      
+      const customerCategory = 
+        content.Customer_Category || 
+        content.customer_category || 
+        content.CustomerCategory ||
+        content.customerCategory ||
+        null;
+      
+      const businessUnit = 
+        content.Business_Unit || 
+        content.business_unit || 
+        content.BusinessUnit ||
+        content.businessUnit ||
+        null;
+      
+      const utilityAccount = 
+        content.Utility_Account || 
+        content.utility_account || 
+        content.UtilityAccount ||
+        content.utilityAccount ||
+        null;
+      
+      // Per VTpass API documentation, merchant-verify DOES return Customer_Name and Address
+      // However, some providers or meter types may not return these fields
+      // We'll use what's available and provide fallbacks
+      
+      // Determine warning/note messages
+      let warningMessage = null;
+      if (wrongBillersCode) {
+        // VTpass flagged the meter format, but verification still succeeded (code "000")
+        // When WrongBillersCode is true, VTpass typically doesn't return Customer_Name/Address
+        // This is a warning - the meter might be valid but format is not optimal
+        warningMessage = 'Meter number format may not be optimal. Customer details not available. Please verify the meter number is correct.';
+      } else if (!customerName && !address) {
+        // Some providers may not return customer details in merchant-verify
+        warningMessage = 'Customer details not returned by provider. Details may be available after purchase.';
+      }
+      
+      // Log what we extracted
+      console.log("Extracted customer details:", {
+        customerName: customerName || 'NOT FOUND',
+        address: address || 'NOT FOUND',
+        wrongBillersCode: wrongBillersCode,
+        hasCustomerName: !!customerName,
+        hasAddress: !!address,
+      });
+      
       const responseData = {
-        customer_name: content.Customer_Name || content.customer_name || 'Customer',
-        address: content.Address || content.address || '',
-        meter_number: content.MeterNumber || content.Meter_Number || sanitizedMeter,
-        meter_type: content.Meter_Type || content.meter_type || type.toUpperCase(),
-        minimum_vend: Number(content.Min_Purchase_Amount || content.min_purchase_amount || 0),
-        outstanding_amount: Number(content.Outstanding || content.outstanding || 0),
-        customer_arrears: content.Customer_Arrears !== undefined ? content.Customer_Arrears : (content.customer_arrears !== undefined ? content.customer_arrears : null),
-        wrong_billers_code: content.WrongBillersCode !== undefined ? content.WrongBillersCode : (content.wrong_billers_code !== undefined ? content.wrong_billers_code : false),
+        customer_name: customerName || `Meter ${meterNumberFromResponse}`, // Fallback to meter number if name not available
+        address: address || '', // Empty string if not available
+        meter_number: meterNumberFromResponse,
+        meter_type: meterTypeFromResponse,
+        minimum_vend: minimumVend,
+        outstanding_amount: outstandingAmount,
+        customer_arrears: customerArrears,
+        wrong_billers_code: wrongBillersCode,
         // Commission details if available
         commission_rate: content.commission_details?.rate || null,
         commission_rate_type: content.commission_details?.rate_type || null,
-        // Additional fields for compatibility
-        tariff: null, // VTpass doesn't provide tariff in merchant-verify
-        customer_category: null,
-        business_unit: null,
-        utility_account: null,
-        response_message: null,
+        // Additional fields
+        tariff: tariff,
+        customer_category: customerCategory,
+        business_unit: businessUnit,
+        utility_account: utilityAccount,
+        response_message: content.response_message || content.Response_Message || null,
+        // Flag to indicate customer details availability
+        customer_details_available: !!(customerName && address),
+        // Warning/note message
+        warning: warningMessage,
+        note: warningMessage, // Keep for backward compatibility
       };
       
-      console.log("VTpass verification successful:", {
+      console.log("VTpass verification successful - extracted data:", {
         meter_number: responseData.meter_number,
         customer_name: responseData.customer_name,
+        address: responseData.address,
         meter_type: responseData.meter_type,
         minimum_vend: responseData.minimum_vend,
-        outstanding: responseData.outstanding_amount
+        outstanding: responseData.outstanding_amount,
+        tariff: responseData.tariff,
+        customer_category: responseData.customer_category,
+        business_unit: responseData.business_unit,
+        utility_account: responseData.utility_account,
+        wrong_billers_code: responseData.wrong_billers_code,
+        customer_details_available: responseData.customer_details_available,
+        note: responseData.note,
       });
       
       return new Response(
@@ -435,6 +586,8 @@ async function verifyWithMobileNig(
   meterType: string,
   corsHeaders: Record<string, string>
 ): Promise<Response> {
+  // Per MobileNig API documentation, validation endpoint requires public_key
+  // POST /api/v2/services/proxy requires: Authorization: Bearer {{public_key}}
   const mobilenigPublicKey = Deno.env.get('MOBILENIG_PUBLIC_KEY');
 
   if (!mobilenigPublicKey) {
@@ -447,9 +600,29 @@ async function verifyWithMobileNig(
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
+  
+  console.log('Using MobileNig PUBLIC_KEY for validation (as per API documentation)');
 
+  // MobileNig Service IDs for Electricity Providers
+  // Per MobileNig API documentation:
+  // - Ikeja Electricity Token Purchase (Prepaid): AMA
+  // - Ikeja Electricity Bills (Postpaid): AMB
+  // - Eko Electricity Prepaid: ANA
+  // - Eko Electricity Postpaid: ANB
+  // - Abuja Electricity Prepaid: AHB
+  // - Abuja Electricity Postpaid: AHA
+  // - Kaduna Electricity Prepaid: AGB
+  // - Kaduna Electricity Postpaid: AGA
+  // - Ibadan Electricity Prepaid: AEA
+  // - Ibadan Electricity Postpaid: AEB
+  // - Kano Electricity Distribution Prepaid: AFA
+  // - Kano Electricity Distribution Postpaid: AFB
+  // - Port-Harcourt Prepaid: ADB
+  // - Port-Harcourt Postpaid: ADA
+  // - Jos Electricity Prepaid: ACB
+  // - Jos Electricity Postpaid: ACA
   const canonicalMap: Record<string, { prepaid: string; postpaid: string }> = {
-    IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
+    IKEJA: { prepaid: 'AMA', postpaid: 'AMB' }, // Token Purchase / Bills
     EKO: { prepaid: 'ANA', postpaid: 'ANB' },
     ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
     KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
@@ -520,17 +693,32 @@ async function verifyWithMobileNig(
 
   try {
     // Validate meter with MobileNig API using proxy endpoint
+    // Per MobileNig API documentation: POST /api/v2/services/proxy
+    // Required fields: service_id, customerAccountId (ONLY - do not include customerReference)
+    // Authorization: Bearer {{public_key}}
+    const requestBody = {
+      service_id: serviceId,
+      customerAccountId: meterNumber,
+    };
+    
+    console.log('MobileNig validation request:', {
+      service_id: serviceId,
+      customerAccountId: meterNumber,
+      provider: provider,
+      meterType: meterType,
+      endpoint: 'https://enterprise.mobilenig.com/api/v2/services/proxy',
+      using_key: 'PUBLIC_KEY',
+    });
+    
+    console.log('MobileNig validation request body:', JSON.stringify(requestBody, null, 2));
+    
     const response = await fetch('https://enterprise.mobilenig.com/api/v2/services/proxy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${mobilenigPublicKey}`,
       },
-      body: JSON.stringify({
-        service_id: serviceId,
-        customerAccountId: meterNumber,
-        customerReference: meterNumber,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     // Read response as text first to handle potential JSON parsing errors
@@ -572,12 +760,14 @@ async function verifyWithMobileNig(
       );
     }
 
+    // Check for success: statusCode "200" and message "success"
+    // Per MobileNig API response structure:
+    // { message: "success", statusCode: "200", details: { customerName, customerAddress, customerReference, minimumVend, tariff, responseMessage, responseCode } }
     if (response.ok && data.statusCode === '200' && data.message === 'success') {
       const details = data.details || {};
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
+      
+      // Extract all fields from MobileNig response
+      const responseData = {
             customer_name: details.customerName || 'Customer',
             address: details.customerAddress || '',
             meter_number: details.customerReference || meterNumber,
@@ -588,38 +778,95 @@ async function verifyWithMobileNig(
             business_unit: details.businessUnit || '',
             utility_account: details.utilityAccount || '',
             response_message: details.responseMessage || '',
-          },
+        response_code: details.responseCode || null,
+      };
+      
+      console.log('MobileNig validation successful - extracted data:', {
+        customer_name: responseData.customer_name,
+        address: responseData.address,
+        meter_number: responseData.meter_number,
+        tariff: responseData.tariff,
+        minimum_vend: responseData.minimum_vend,
+        response_message: responseData.response_message,
+        response_code: responseData.response_code,
+      });
+      
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: responseData,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     } else {
       // Extract error message from MobileNig response
+      // MobileNig error structure can be:
+      // 1. { message: "failure", statusCode: "EXC010", details: "error message string" }
+      // 2. { details: { details: "...", message: "...", statusCode: "..." }, error: "..." }
       let errorMessage = 'Validation failed';
+      const statusCode = data.statusCode || data.details?.statusCode;
       
-      if (typeof data.details === 'string') {
-        errorMessage = data.details;
-      } else if (data.details?.responseMessage) {
-        errorMessage = data.details.responseMessage;
-      } else if (data.details?.message) {
-        errorMessage = data.details.message;
-      } else if (data.message) {
-        errorMessage = data.message;
-      } else if (data.error) {
-        errorMessage = data.error;
-      } else if (data.response_description) {
-        errorMessage = data.response_description;
+      // Log full response for debugging
+      console.log('MobileNig validation failed - full response:', JSON.stringify(data, null, 2));
+      
+      // Check for EXC010 - "The data you are looking for cannot be found"
+      if (statusCode === 'EXC010') {
+        // For EXC010, details is usually a string with the error message
+        if (typeof data.details === 'string') {
+          errorMessage = 'Invalid meter number. Please check the meter number and try again.';
+        } else if (data.details?.details) {
+          // If details is an object with nested details
+          const detailsMsg = data.details.details;
+          errorMessage = typeof detailsMsg === 'string' 
+            ? 'Invalid meter number. Please check the meter number and try again.'
+            : detailsMsg;
+        } else {
+          errorMessage = 'Invalid meter number. Please check the meter number and try again.';
+        }
+      } else {
+        // Try multiple locations for error message
+        if (typeof data.details === 'string') {
+          errorMessage = data.details;
+        } else if (data.details?.details) {
+          // Nested details field (common in MobileNig responses)
+          const detailsMsg = data.details.details;
+          errorMessage = typeof detailsMsg === 'string' ? detailsMsg : (detailsMsg?.message || detailsMsg);
+        } else if (data.details?.responseMessage) {
+          errorMessage = data.details.responseMessage;
+        } else if (data.details?.message) {
+          errorMessage = data.details.message;
+        } else if (data.message) {
+          errorMessage = data.message;
+        } else if (data.error) {
+          errorMessage = data.error;
+        } else if (data.response_description) {
+          errorMessage = data.response_description;
+        }
       }
       
       console.log('MobileNig validation failed:', {
-        statusCode: data.statusCode,
+        statusCode: statusCode,
         message: errorMessage,
-        fullResponse: data
+        detailsType: typeof data.details,
+        detailsValue: typeof data.details === 'string' ? data.details : JSON.stringify(data.details),
+        fullResponse: JSON.stringify(data, null, 2)
       });
+      
+      // Check if it's an invalid meter error
+      const isInvalidMeter = 
+        statusCode === 'EXC010' ||
+        errorMessage.toLowerCase().includes('cannot be found') ||
+        errorMessage.toLowerCase().includes('not found') ||
+        errorMessage.toLowerCase().includes('invalid') ||
+        errorMessage.toLowerCase().includes('meter number') ||
+        (typeof data.details === 'string' && data.details.toLowerCase().includes('cannot be found'));
       
       return new Response(
         JSON.stringify({ 
           success: false, 
           error: errorMessage,
+          errorType: isInvalidMeter ? 'invalid_meter' : 'api_error',
+          statusCode: statusCode,
           details: data
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

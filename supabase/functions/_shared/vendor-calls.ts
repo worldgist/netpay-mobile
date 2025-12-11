@@ -16,6 +16,7 @@ export interface DataPlan {
   size?: string;
   vendor_price?: number;
   user_price?: number;
+  api_code?: string; // Generic API code (fallback for vendor-specific codes)
   vtpass_code?: string;
   smeplug_code?: string;
   mobilenig_code?: string;
@@ -293,6 +294,7 @@ export async function purchaseViaSMEPlug(
 
 /**
  * Call Mobilenig API to purchase data
+ * Uses the new API format: POST /api/v2/services/
  */
 export async function purchaseViaMobilenig(
   config: VendorConfig,
@@ -300,10 +302,9 @@ export async function purchaseViaMobilenig(
   phone: string,
   requestId?: string
 ): Promise<PurchaseResult> {
-  const API_KEY = Deno.env.get('MOBILENIG_API_KEY') || config.api_key;
-  const API_USERNAME = Deno.env.get('MOBILENIG_USERNAME') || config.secret;
+  const SECRET_KEY = Deno.env.get('MOBILENIG_SECRET_KEY') || config.secret;
 
-  if (!API_KEY || !API_USERNAME) {
+  if (!SECRET_KEY) {
     return {
       success: false,
       status: 'failed',
@@ -311,28 +312,97 @@ export async function purchaseViaMobilenig(
     };
   }
 
-  const reference = requestId || `MB-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+  // Map network to service_id
+  // BCA = MTN, ACA = Airtel, GCA = Glo, 9CA = 9Mobile
+  const networkServiceMap: Record<string, string> = {
+    'MTN': 'BCA',
+    'MTN NIGERIA': 'BCA',
+    'AIRTEL': 'ACA',
+    'AIRTEL NIGERIA': 'ACA',
+    'GLO': 'GCA',
+    'GLOBACOM': 'GCA',
+    '9MOBILE': '9CA',
+    '9 MOBILE': '9CA',
+    'ETISALAT': '9CA',
+  };
+
+  const normalizedNetwork = plan.network.toUpperCase().trim();
+  const serviceId = networkServiceMap[normalizedNetwork] || 'BCA';
+
+  // Determine service_type based on plan_type
+  // If plan_type contains "GIFTING" or "Gifting", use "GIFTING", otherwise "SME"
+  const planTypeUpper = (plan.plan_type || '').toUpperCase();
+  const serviceType = planTypeUpper.includes('GIFTING') ? 'GIFTING' : 'SME';
+
+  // Get plan code (prefer mobilenig_code, fallback to api_code)
+  const planCode = plan.mobilenig_code || plan.api_code || '';
+  if (!planCode) {
+    return {
+      success: false,
+      status: 'failed',
+      error: 'Data plan missing MobileNig code',
+    };
+  }
+
+  // Get amount (prefer vendor_price, fallback to user_price)
+  const amount = plan.vendor_price || plan.user_price || 0;
+  if (amount <= 0) {
+    return {
+      success: false,
+      status: 'failed',
+      error: 'Invalid plan amount',
+    };
+  }
+
+  // Generate transaction ID
+  const transId = requestId 
+    ? parseInt(requestId.replace(/[^\d]/g, '')) || Date.now()
+    : Date.now();
+
+  // Normalize phone number
+  const beneficiary = phone.replace(/[^\d]/g, '');
+
+  const reference = requestId || `MB-${transId}`;
 
   try {
-    const response = await fetch(`${config.base_url}v2/services/proxy`, {
+    const requestBody = {
+      service_id: serviceId,
+      service_type: serviceType,
+      beneficiary: beneficiary,
+      trans_id: transId,
+      code: planCode,
+      amount: amount.toString(),
+    };
+
+    console.log('MobileNig data purchase request:', JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch('https://enterprise.mobilenig.com/api/v2/services/', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SECRET_KEY}`,
       },
-      body: JSON.stringify({
-        service: 'databundle',
-        coded: plan.mobilenig_code || '',
-        phone: phone.replace(/[^\d]/g, ''),
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const responseText = await response.text();
+    console.log('MobileNig API response status:', response.status);
+    console.log('MobileNig API response text (first 1000 chars):', responseText.substring(0, 1000));
+
     let apiResponse: any;
 
     try {
       apiResponse = JSON.parse(responseText);
     } catch (e) {
+      // Check if response is HTML (error page)
+      if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
+        return {
+          success: false,
+          status: 'failed',
+          error: 'MobileNig API returned an error page',
+          vendor_response: responseText.substring(0, 500),
+        };
+      }
       return {
         success: false,
         status: 'failed',
@@ -341,24 +411,52 @@ export async function purchaseViaMobilenig(
       };
     }
 
-    if (apiResponse?.status === 'successful' || apiResponse?.status === 'success') {
+    // Check response format
+    // Success response: { message: "success", statusCode: "200", details: { trans_id, service, status, details, wallet_balance } }
+    if (apiResponse?.statusCode === '200' && apiResponse?.message === 'success') {
+      const details = apiResponse.details || {};
+      const status = details.status || '';
+      const statusLower = status.toLowerCase();
+
+      // Check if transaction is approved/successful
+      if (statusLower === 'approved' || statusLower === 'success') {
+        return {
+          success: true,
+          status: 'success',
+          reference: details.trans_id?.toString() || transId.toString(),
+          transaction_id: details.trans_id?.toString(),
+          message: `Data purchased successfully: ${details.details?.description || ''}`,
+          vendor_response: apiResponse,
+        };
+      }
+
+      // Check if pending/processing
+      if (statusLower === 'pending' || statusLower === 'processing') {
+        return {
+          success: true,
+          status: 'pending',
+          reference: details.trans_id?.toString() || transId.toString(),
+          transaction_id: details.trans_id?.toString(),
+          message: 'Transaction is being processed',
+          vendor_response: apiResponse,
+        };
+      }
+
+      // Other statuses (failed, cancelled, etc.)
       return {
-        success: true,
-        status: 'success',
-        reference: apiResponse.transaction_id || reference,
-        transaction_id: apiResponse.transaction_id,
-        message: apiResponse.message || 'Data purchased successfully',
+        success: false,
+        status: 'failed',
+        error: details.details?.message || apiResponse.details?.details?.description || `Transaction ${status}`,
         vendor_response: apiResponse,
       };
     }
 
-    if (apiResponse?.status === 'pending' || apiResponse?.status === 'processing') {
+    // Error response: { message: "failure", statusCode: "XXX", details: "error message" }
+    if (apiResponse?.statusCode && apiResponse?.statusCode !== '200') {
       return {
-        success: true,
-        status: 'pending',
-        reference: apiResponse.transaction_id || reference,
-        transaction_id: apiResponse.transaction_id,
-        message: 'Transaction is being processed',
+        success: false,
+        status: 'failed',
+        error: apiResponse.details || apiResponse.message || 'Data purchase failed',
         vendor_response: apiResponse,
       };
     }
@@ -374,6 +472,75 @@ export async function purchaseViaMobilenig(
       success: false,
       status: 'failed',
       error: error instanceof Error ? error.message : 'Unknown error calling Mobilenig',
+    };
+  }
+}
+
+/**
+ * Query MobileNig transaction status
+ * GET /api/v2/services/query?trans_id={trans_id}
+ */
+export async function queryMobilenigTransaction(
+  transId: string | number,
+  secretKey?: string
+): Promise<{ success: boolean; status?: string; details?: any; error?: string }> {
+  const SECRET_KEY = secretKey || Deno.env.get('MOBILENIG_SECRET_KEY');
+
+  if (!SECRET_KEY) {
+    return {
+      success: false,
+      error: 'MobileNig secret key not configured',
+    };
+  }
+
+  try {
+    const queryUrl = `https://enterprise.mobilenig.com/api/v2/services/query?trans_id=${transId}`;
+    const queryResponse = await fetch(queryUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SECRET_KEY}`,
+      },
+    });
+
+    if (!queryResponse.ok) {
+      const errorText = await queryResponse.text();
+      return {
+        success: false,
+        error: `Failed to query transaction: ${errorText.substring(0, 200)}`,
+      };
+    }
+
+    const queryText = await queryResponse.text();
+    let queryResult: any;
+
+    try {
+      queryResult = JSON.parse(queryText);
+    } catch (e) {
+      return {
+        success: false,
+        error: 'Invalid response from MobileNig',
+      };
+    }
+
+    if (queryResult.statusCode === '200' && queryResult.message === 'success') {
+      const details = queryResult.details || {};
+      return {
+        success: true,
+        status: details.status,
+        details: details,
+      };
+    }
+
+    return {
+      success: false,
+      error: queryResult.details || queryResult.message || 'Query failed',
+      details: queryResult,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error querying transaction',
     };
   }
 }

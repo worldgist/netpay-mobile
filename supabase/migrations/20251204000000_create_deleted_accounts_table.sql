@@ -27,6 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_deleted_accounts_requested_at ON deleted_accounts
 ALTER TABLE deleted_accounts ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Only admins can view all deleted accounts
+DROP POLICY IF EXISTS "Admins can view all deleted accounts" ON deleted_accounts;
 CREATE POLICY "Admins can view all deleted accounts"
   ON deleted_accounts
   FOR SELECT
@@ -40,6 +41,7 @@ CREATE POLICY "Admins can view all deleted accounts"
   );
 
 -- Policy: Users can view their own deletion requests
+DROP POLICY IF EXISTS "Users can view their own deletion requests" ON deleted_accounts;
 CREATE POLICY "Users can view their own deletion requests"
   ON deleted_accounts
   FOR SELECT
@@ -47,6 +49,7 @@ CREATE POLICY "Users can view their own deletion requests"
   USING (user_id = auth.uid());
 
 -- Policy: Users can insert their own deletion requests
+DROP POLICY IF EXISTS "Users can create their own deletion requests" ON deleted_accounts;
 CREATE POLICY "Users can create their own deletion requests"
   ON deleted_accounts
   FOR INSERT
@@ -54,6 +57,7 @@ CREATE POLICY "Users can create their own deletion requests"
   WITH CHECK (user_id = auth.uid());
 
 -- Policy: Only admins can update deletion records
+DROP POLICY IF EXISTS "Admins can update deletion records" ON deleted_accounts;
 CREATE POLICY "Admins can update deletion records"
   ON deleted_accounts
   FOR UPDATE
@@ -76,6 +80,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to automatically update updated_at
+DROP TRIGGER IF EXISTS update_deleted_accounts_updated_at ON deleted_accounts;
 CREATE TRIGGER update_deleted_accounts_updated_at
   BEFORE UPDATE ON deleted_accounts
   FOR EACH ROW
@@ -98,6 +103,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to populate user details
+DROP TRIGGER IF EXISTS populate_deleted_account_user_details ON deleted_accounts;
 CREATE TRIGGER populate_deleted_account_user_details
   BEFORE INSERT ON deleted_accounts
   FOR EACH ROW
@@ -108,6 +114,7 @@ COMMENT ON TABLE deleted_accounts IS 'Tracks account deletion requests and compl
 COMMENT ON COLUMN deleted_accounts.status IS 'Status of deletion: pending, processing, completed, or cancelled';
 COMMENT ON COLUMN deleted_accounts.deletion_reason IS 'Reason provided by user for account deletion';
 COMMENT ON COLUMN deleted_accounts.metadata IS 'Additional metadata about the deletion (e.g., IP address, user agent, etc.)';
+
 
 
 

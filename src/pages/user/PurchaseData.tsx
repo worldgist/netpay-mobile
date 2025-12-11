@@ -511,35 +511,34 @@ const PurchaseData = () => {
       if (responseData?.success === false) {
         // Extract detailed error information
         let errorMessage = responseData?.error || responseData?.message || responseData?.details?.message || 'Purchase failed';
+        const errorSummary = responseData?.details?.error_summary;
         
-        // Build detailed error message from vendor errors
-        let detailedMessage = errorMessage;
+        // Check if it's a configuration issue (missing credentials, missing plan codes)
+        const isConfigError = errorMessage.includes('credentials not configured') ||
+                            errorMessage.includes('not configured') ||
+                            errorMessage.includes('missing') ||
+                            errorMessage.includes('All vendors failed') ||
+                            (errorSummary && (
+                              errorSummary.includes('credentials not configured') ||
+                              errorSummary.includes('missing') ||
+                              errorSummary.includes('fallback unavailable')
+                            ));
         
-        // Check for detailed vendor errors
-        if (responseData?.details?.vendor_errors && Array.isArray(responseData.details.vendor_errors) && responseData.details.vendor_errors.length > 0) {
-          const vendorErrorMessages = responseData.details.vendor_errors.map((e: any) => {
-            if (e.error) {
-              return `${e.vendor}: ${e.reason} - ${e.error}`;
-            }
-            return `${e.vendor}: ${e.reason}`;
-          }).join('\n');
-          
-          detailedMessage = `${errorMessage}\n\nVendor failures:\n${vendorErrorMessages}`;
-        }
-        
-        // Also check for error_summary
-        if (responseData?.details?.error_summary) {
-          detailedMessage = detailedMessage + '\n\n' + responseData.details.error_summary;
-        }
-        
-        // Log full details for debugging
+        // Log full details for debugging (but don't show to user)
         console.error('Purchase failed with details:', {
           error: errorMessage,
           details: responseData.details,
           fullResponse: responseData
         });
         
-        throw new Error(detailedMessage);
+        // Show user-friendly message for configuration errors
+        if (isConfigError) {
+          throw new Error('Service temporarily unavailable. Please contact support or try again later.');
+        }
+        
+        // For other errors, show a clean message without technical details
+        // Extract the main error message without vendor details
+        throw new Error(errorMessage);
       }
 
       // Handle successful transaction (success === true or truthy)
@@ -594,29 +593,59 @@ const PurchaseData = () => {
       }
     } catch (error: any) {
       console.error('Error purchasing data:', error);
-      console.error('Full error object:', JSON.stringify(error, null, 2));
+      console.error('Full error object:', error);
 
-      // Extract error message - now we have direct access to the response
+      // Extract error message
       let message = error?.message || "Failed to purchase data. Please try again.";
       
-      // Check for specific errors and provide helpful guidance
-      if (message.includes('VARIATION CODE DOES NOT EXIST')) {
-        message = message + '\n\n💡 Solution: The data plan\'s VTpass variation code is invalid or outdated. Please update the plan in the admin panel with a valid variation code from VTpass.';
-      } else if (message.includes('data plan missing') || message.includes('missing smeplug_code') || message.includes('missing mobilenig_code')) {
-        message = message + '\n\n💡 Solution: This data plan is missing vendor codes. Please ensure the plan has at least one valid vendor code (vtpass_code, smeplug_code, or mobilenig_code) in the admin panel.';
-      }
+      // Check for network errors
+      const errorMessage = message || String(error);
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            error?.name === 'FunctionsFetchError' ||
+                            error?.name === 'TypeError' ||
+                            error?.code === 'NETWORK_ERROR';
       
-      // If message contains newlines (detailed error), show first line in toast title and full message in description
-      const messageLines = message.split('\n');
-      const title = messageLines[0] || "Purchase Failed";
-      const description = messageLines.length > 1 ? messageLines.slice(1).join('\n') : message;
-
-      toast({
-        title: title,
-        description: description,
-        variant: "destructive",
-        duration: 15000, // Show for 15 seconds for detailed errors with solutions
-      });
+      // Check for configuration errors (already handled in the response check, but double-check here)
+      const isConfigError = errorMessage.includes('Service temporarily unavailable') ||
+                          errorMessage.includes('credentials not configured') ||
+                          errorMessage.includes('not configured') ||
+                          errorMessage.includes('missing') ||
+                          errorMessage.includes('All vendors failed');
+      
+      // Show appropriate error message
+      if (isNetworkError) {
+        message = 'Network connection failed. Please check your internet connection and try again.';
+        toast({
+          title: "Connection Error",
+          description: message,
+          variant: "destructive",
+        });
+      } else if (isConfigError) {
+        // Configuration errors already have user-friendly messages
+        toast({
+          title: "Service Unavailable",
+          description: message,
+          variant: "destructive",
+        });
+      } else {
+        // For other errors, show the message but clean it up if it has technical details
+        // Remove vendor failure details and error summaries from user-facing messages
+        const cleanMessage = message.split('\n\nVendor failures:')[0]
+                                   .split('\n\n- ')[0]
+                                   .split('\n\n')[0]
+                                   .trim();
+        
+        toast({
+          title: "Purchase Failed",
+          description: cleanMessage || message,
+          variant: "destructive",
+        });
+      }
     } finally {
       setPurchasing(false);
     }

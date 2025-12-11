@@ -137,10 +137,26 @@ export default function CableTVScreen() {
             }
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to load cable plans:', error);
         if (isMounted.current) {
-          setFetchError(error instanceof Error ? error.message : 'Unable to fetch cable TV plans');
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          // Check for network errors
+          const isNetworkError = errorMessage.includes('Network request failed') ||
+                                errorMessage.includes('network') ||
+                                errorMessage.includes('fetch') ||
+                                errorMessage.includes('Failed to fetch') ||
+                                errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                                errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                                errorMessage.includes('TypeError') ||
+                                error?.code === 'NETWORK_ERROR' ||
+                                error?.name === 'TypeError';
+          
+          setFetchError(isNetworkError 
+            ? 'Network connection failed. Please check your internet connection.'
+            : errorMessage || 'Unable to fetch cable TV plans'
+          );
           setPlansByProvider({});
           setProviders([]);
           setSelectedProvider(null);
@@ -197,7 +213,29 @@ export default function CableTVScreen() {
       if (error) {
         console.error('Edge function error:', error);
         setVerifiedName(null);
-        setShowServiceUnavailableModal(true);
+        
+        // Check for network errors
+        const errorMessage = error?.message || String(error);
+        const errorName = error?.name || error?.constructor?.name || '';
+        const isNetworkError = errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('Failed to send a request to the Edge Function') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                              errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                              errorMessage.includes('TypeError') ||
+                              errorName === 'FunctionsFetchError' ||
+                              errorName === 'TypeError' ||
+                              error?.code === 'NETWORK_ERROR';
+        
+        if (isNetworkError) {
+          Alert.alert(
+            'Connection Error',
+            'Network connection failed. Please check your internet connection and try again.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          setShowServiceUnavailableModal(true);
+        }
         return;
       }
 
@@ -233,10 +271,31 @@ export default function CableTVScreen() {
           setShowServiceUnavailableModal(true);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Smart card verification failed:', error);
       setVerifiedName(null);
-      setShowServiceUnavailableModal(true);
+      
+      // Check for network errors
+      const errorMessage = error?.message || String(error);
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('fetch') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            error?.code === 'NETWORK_ERROR' ||
+                            error?.name === 'TypeError';
+      
+      if (isNetworkError) {
+        Alert.alert(
+          'Connection Error',
+          'Network connection failed. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        setShowServiceUnavailableModal(true);
+      }
     } finally {
       setVerifying(false);
     }

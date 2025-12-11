@@ -288,9 +288,24 @@ const PurchaseCableTv = () => {
         // Use the error message from the edge function response if available
         const errorMessage = data?.error || error?.message || 'Invalid card number. Please check and try again.';
         const errorType = data?.errorType || '';
+        const errorLower = errorMessage.toLowerCase();
+        
+        // Network error detection
+        const isNetworkError = errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('network') ||
+                              errorMessage.includes('fetch') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                              errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                              error?.code === 'NETWORK_ERROR' ||
+                              error?.name === 'TypeError';
+        
+        if (isNetworkError) {
+          setValidationError("Network connection failed. Please check your internet connection and try again.");
+          return;
+        }
         
         // Check if it's an invalid card number error
-        const errorLower = errorMessage.toLowerCase();
         const isInvalidCard = errorType === 'invalid_card' ||
                              errorType === 'INVALID_CARD' ||
                              errorLower.includes('invalid') || 
@@ -330,9 +345,28 @@ const PurchaseCableTv = () => {
       await fetchDueDateInfo(cardNumber, selectedProvider);
 
     } catch (error: any) {
-      // Check if it's an invalid card error
+      console.error('Error validating card number:', error);
+      
+      // Check for network errors
       const errorMessage = error?.message || error?.data?.error || error?.error || (typeof error === 'string' ? error : "Could not verify card number");
       const errorLower = errorMessage.toLowerCase();
+      
+      // Network error detection
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('fetch') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            error?.code === 'NETWORK_ERROR' ||
+                            error?.name === 'TypeError';
+      
+      if (isNetworkError) {
+        setValidationError("Network connection failed. Please check your internet connection and try again.");
+        return;
+      }
+      
+      // Check if it's an invalid card error
       const isInvalidCard = errorLower.includes('invalid') || 
                            errorLower.includes('card number') ||
                            errorLower.includes('smart card') ||
@@ -389,8 +423,10 @@ const PurchaseCableTv = () => {
           setShowRenewalOption(true);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching due date info:', error);
+      // Silently fail for due date - it's not critical for purchase
+      // Network errors are handled gracefully
     } finally {
       setLoadingDueDate(false);
     }
@@ -470,10 +506,28 @@ const PurchaseCableTv = () => {
       });
     } catch (error: any) {
       console.error('Error renewing subscription:', error);
+      
       const errorMessage = error?.message || error?.error || "Failed to renew subscription. Please try again.";
+      const errorLower = errorMessage.toLowerCase();
+      
+      // Network error detection
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('fetch') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('timeout') ||
+                            error?.code === 'NETWORK_ERROR' ||
+                            error?.name === 'TypeError';
+      
+      const friendlyMessage = isNetworkError
+        ? "Network connection failed. Please check your internet connection and try again."
+        : errorMessage;
+      
       toast({
-        title: "Renewal Failed",
-        description: errorMessage,
+        title: isNetworkError ? "Connection Error" : "Renewal Failed",
+        description: friendlyMessage,
         variant: "destructive",
       });
     } finally {
@@ -567,10 +621,28 @@ const PurchaseCableTv = () => {
       });
     } catch (error: any) {
       console.error('Error changing subscription:', error);
+      
       const errorMessage = error?.message || error?.error || "Failed to change subscription. Please try again.";
+      const errorLower = errorMessage.toLowerCase();
+      
+      // Network error detection
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('fetch') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('timeout') ||
+                            error?.code === 'NETWORK_ERROR' ||
+                            error?.name === 'TypeError';
+      
+      const friendlyMessage = isNetworkError
+        ? "Network connection failed. Please check your internet connection and try again."
+        : errorMessage;
+      
       toast({
-        title: "Change Failed",
-        description: errorMessage,
+        title: isNetworkError ? "Connection Error" : "Change Failed",
+        description: friendlyMessage,
         variant: "destructive",
       });
     } finally {
@@ -706,10 +778,28 @@ const PurchaseCableTv = () => {
       // Form will be fully cleared when user closes success dialog
     } catch (error: any) {
       console.error('Error purchasing cable TV:', error);
+      
       const errorMessage = error?.message || error?.error || (typeof error === 'string' ? error : "Failed to purchase cable TV. Please try again.");
+      const errorLower = errorMessage.toLowerCase();
+      
+      // Network error detection
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('fetch') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('timeout') ||
+                            error?.code === 'NETWORK_ERROR' ||
+                            error?.name === 'TypeError';
+      
+      const friendlyMessage = isNetworkError
+        ? "Network connection failed. Please check your internet connection and try again."
+        : errorMessage;
+      
       toast({
-        title: "Purchase Failed",
-        description: errorMessage,
+        title: isNetworkError ? "Connection Error" : "Purchase Failed",
+        description: friendlyMessage,
         variant: "destructive",
       });
     } finally {

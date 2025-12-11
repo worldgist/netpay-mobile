@@ -136,9 +136,26 @@ serve(async (req) => {
       );
     }
 
-    // Map provider to service IDs
+    // Map provider to MobileNig Service IDs
+    // Per MobileNig API documentation:
+    // - Ikeja Electricity Token Purchase (Prepaid): AMA
+    // - Ikeja Electricity Bills (Postpaid): AMB
+    // - Eko Electricity Prepaid: ANA
+    // - Eko Electricity Postpaid: ANB
+    // - Abuja Electricity Prepaid: AHB
+    // - Abuja Electricity Postpaid: AHA
+    // - Kaduna Electricity Prepaid: AGB
+    // - Kaduna Electricity Postpaid: AGA
+    // - Ibadan Electricity Prepaid: AEA
+    // - Ibadan Electricity Postpaid: AEB
+    // - Kano Electricity Distribution Prepaid: AFA
+    // - Kano Electricity Distribution Postpaid: AFB
+    // - Port-Harcourt Prepaid: ADB
+    // - Port-Harcourt Postpaid: ADA
+    // - Jos Electricity Prepaid: ACB
+    // - Jos Electricity Postpaid: ACA
     const canonicalMap: Record<string, { prepaid: string; postpaid: string }> = {
-      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' },
+      IKEJA: { prepaid: 'AMA', postpaid: 'AMB' }, // Token Purchase / Bills
       EKO: { prepaid: 'ANA', postpaid: 'ANB' },
       ABUJA: { prepaid: 'AHB', postpaid: 'AHA' },
       KADUNA: { prepaid: 'AGB', postpaid: 'AGA' },
@@ -233,8 +250,27 @@ serve(async (req) => {
       );
     }
 
-    // Default to MobileNig/SMEPLUG purchase
-    console.log('Routing to MobileNig/SMEPLUG purchase function');
+    if (vendingProvider === 'mobilenig') {
+      console.log('Routing to MobileNig purchase function');
+      return await purchaseWithMobileNig(
+        supabase,
+        user.id,
+        sanitizedMeter,
+        providerCode,
+        meterKind,
+        purchaseAmount,
+        sanitizedPhone,
+        requestedCustomerName,
+        requestedCustomerAddress,
+        profile,
+        reference,
+        serviceId,
+        corsHeaders
+      );
+    }
+
+    // Default to MobileNig/SMEPLUG purchase (for backward compatibility)
+    console.log('Routing to MobileNig/SMEPLUG purchase function (default)');
     return await purchaseWithMobileNig(
       supabase,
       user.id,
@@ -710,6 +746,10 @@ async function purchaseWithMobileNig(
       (Deno.env.get('MOBILENIG_TEST_MODE') || Deno.env.get('MOBILENIG_TESTING') || '').toLowerCase() === 'true';
     const mobilenigTestPhone = Deno.env.get('MOBILENIG_TEST_PHONE');
 
+    // MobileNig electricity purchase payload as per API documentation
+    // POST /api/v2/services/
+    // Required fields: service_id, trans_id, customerReference, amount, customerName, customerAddress
+    // Authorization: Bearer {{secret_key}}
     const purchasePayload: Record<string, unknown> = {
       service_id: serviceId,
       trans_id: Number(transId),
@@ -717,8 +757,16 @@ async function purchaseWithMobileNig(
       amount: amount,
       customerName: customerName || meterNumber,
       customerAddress: customerAddress || 'Not Provided',
-      phone: mobilenigTestMode ? (mobilenigTestPhone || phone) : phone,
     };
+    
+    console.log('MobileNig electricity purchase payload:', {
+      service_id: purchasePayload.service_id,
+      trans_id: purchasePayload.trans_id,
+      customerReference: purchasePayload.customerReference,
+      amount: purchasePayload.amount,
+      customerName: purchasePayload.customerName,
+      customerAddress: purchasePayload.customerAddress,
+    });
 
     const purchaseResponse = await fetch('https://enterprise.mobilenig.com/api/v2/services/', {
       method: 'POST',
@@ -745,11 +793,19 @@ async function purchaseWithMobileNig(
     }
     console.log('MobileNig purchase response:', JSON.stringify(purchaseData, null, 2));
 
-    if (!purchaseResponse.ok || purchaseData.statusCode !== '200') {
+    // Check for success: statusCode should be "200" and status should be "Approved"
+    // Per MobileNig API documentation:
+    // { message: "success", statusCode: "200", details: { status: "Approved", details: { token, reference, receiptNumber } } }
+    const statusCode = purchaseData.statusCode;
+    const transactionStatus = purchaseData.details?.status;
+    const isSuccess = statusCode === '200' && (transactionStatus === 'Approved' || transactionStatus === 'Success');
+    
+    if (!purchaseResponse.ok || !isSuccess) {
       const providerError =
+        purchaseData.details?.details?.message ||
+        purchaseData.details?.message ||
         purchaseData.message ||
         purchaseData.error ||
-        purchaseData.details?.message ||
         'Purchase failed';
       return new Response(
         JSON.stringify({
@@ -761,10 +817,44 @@ async function purchaseWithMobileNig(
       );
     }
 
+    // Extract response data as per MobileNig API documentation
+    // Response structure: 
+    // {
+    //   "message": "success",
+    //   "statusCode": "200",
+    //   "details": {
+    //     "trans_id": 3647824372323,
+    //     "service": "AbujaPrepaid",
+    //     "status": "Approved",
+    //     "details": {
+    //       "amount": 900,
+    //       "customerReference": "42328955339",
+    //       "token": 9630107556,
+    //       "reference": "T2032434490141eef176efef59b2bc00",
+    //       "receiptNumber": "7011502065525210692"
+    //     },
+    //     "wallet_balance": "328012"
+    //   }
+    // }
+    const transactionDetails = purchaseData.details?.details || {};
+    const token = transactionDetails.token || null;
+    const mobileNigReference = transactionDetails.reference || null;
+    const receiptNumber = transactionDetails.receiptNumber || null;
+    const customerReference = transactionDetails.customerReference || meterNumber;
+    const transactionId = purchaseData.details?.trans_id || transId;
+    const serviceName = purchaseData.details?.service || null;
+    const walletBalance = purchaseData.details?.wallet_balance || null;
+    
     const providerCustomerAddress =
       purchaseData.details?.details?.customerAddress ||
       purchaseData.details?.customerAddress ||
       customerAddress ||
+      '';
+    
+    const providerCustomerName =
+      purchaseData.details?.customerName ||
+      purchaseData.details?.details?.customerName ||
+      customerName ||
       '';
 
     const formattedAmount = `₦${amount.toFixed(2)}`;
@@ -796,20 +886,19 @@ async function purchaseWithMobileNig(
         meter_number: meterNumber,
         provider: provider,
         meter_type: meterType,
-        customer_name:
-          purchaseData.details?.customerName ||
-          purchaseData.data?.customerName ||
-          customerName ||
-          '',
-        token:
-          purchaseData.details?.details?.token ||
-          purchaseData.details?.details?.energyToken ||
-          purchaseData.data?.token ||
-          purchaseData.details?.creditToken ||
-          null,
+        customer_name: providerCustomerName,
+        token: token,
         status: 'completed',
         reference: reference,
-        api_response: purchaseData,
+        api_response: {
+          ...purchaseData,
+          // Extract key fields for easy access
+          mobile_nig_reference: mobileNigReference,
+          receipt_number: receiptNumber,
+          trans_id: transactionId,
+          service_name: serviceName,
+          wallet_balance: walletBalance,
+        },
       });
 
     if (elecTxnError) {
@@ -829,25 +918,22 @@ async function purchaseWithMobileNig(
       JSON.stringify({
         success: true,
         data: {
-          reference: reference,
+          reference: reference, // Internal reference
           amount: amount,
           balance_after: debitResult.balanceAfter,
-          trans_id: purchaseData.details?.trans_id || transId,
-          token:
-            purchaseData.details?.details?.token ||
-            purchaseData.details?.details?.energyToken ||
-            purchaseData.data?.token ||
-            purchaseData.details?.creditToken ||
-            null,
+          trans_id: transactionId,
+          token: token,
           meter_number: meterNumber,
           provider: provider,
           meter_type: meterType,
-          customer_name:
-            purchaseData.details?.customerName ||
-            purchaseData.data?.customerName ||
-            customerName ||
-            '',
+          customer_name: providerCustomerName,
           customer_address: providerCustomerAddress,
+          // Additional MobileNig response fields
+          mobile_nig_reference: mobileNigReference,
+          receipt_number: receiptNumber,
+          customer_reference: customerReference,
+          service_name: serviceName,
+          wallet_balance: walletBalance,
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

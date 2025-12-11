@@ -239,10 +239,27 @@ export default function TransferScreen() {
           totalAmount: data.data?.totalAmount?.toString() || totalAmount.toString(),
         },
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Transfer error:', err);
-      const message = err instanceof Error ? err.message : 'Transfer failed. Please try again later.';
-      Alert.alert('Transfer Failed', message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      // Check for network errors
+      const errorName = err?.name || err?.constructor?.name || '';
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError') ||
+                            errorName === 'FunctionsFetchError' ||
+                            errorName === 'TypeError' ||
+                            err?.code === 'NETWORK_ERROR';
+      
+      const message = isNetworkError
+        ? 'Network connection failed. Please check your internet connection and try again.'
+        : errorMessage || 'Transfer failed. Please try again later.';
+      
+      Alert.alert(isNetworkError ? 'Connection Error' : 'Transfer Failed', message);
     } finally {
       setTransferLoading(false);
     }

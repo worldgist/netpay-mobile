@@ -54,3 +54,5 @@ END $$;
 COMMENT ON COLUMN public.deleted_accounts.deleted_by IS 'User who performed the deletion. NULL if the user has been deleted.';
 
 
+
+
