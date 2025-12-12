@@ -1,0 +1,180 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Parse request body
+    const bodyText = await req.text();
+    let requestBody: { phone_number?: string; plan_id?: string } = {};
+    
+    if (bodyText && bodyText.trim().length > 0) {
+      try {
+        requestBody = JSON.parse(bodyText);
+      } catch (parseError) {
+        console.error('Unable to parse request body:', parseError);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid request body' }),
+          { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    const { phone_number, plan_id } = requestBody;
+
+    if (!phone_number || !plan_id) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'phone_number and plan_id are required' }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Get data provider preference from app_settings
+    const { data: providerSetting } = await supabase
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'data_provider')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let preferredProvider = 'smeplug'; // default
+    if (providerSetting?.setting_value) {
+      const providerValue = typeof providerSetting.setting_value === 'string' 
+        ? providerSetting.setting_value 
+        : (providerSetting.setting_value as any)?.provider;
+      if (providerValue && ['smeplug', 'vtpass', 'anyone'].includes(providerValue.toLowerCase())) {
+        preferredProvider = providerValue.toLowerCase();
+      }
+    }
+
+    // Fetch data plan to determine which provider to use
+    const { data: dataPlan, error: planError } = await supabase
+      .from('data_plans')
+      .select('*')
+      .eq('id', plan_id)
+      .single();
+
+    if (planError || !dataPlan) {
+      console.error('Error fetching data plan:', planError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Data plan not found' }),
+        { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Determine which provider to use based on preference and plan availability
+    const providers = preferredProvider === 'anyone' 
+      ? ['smeplug', 'vtpass'] 
+      : [preferredProvider];
+
+    // Try each provider in order
+    let lastError: any = null;
+    let lastResponse: any = null;
+
+    for (const provider of providers) {
+      console.log(`Attempting purchase via ${provider}...`);
+      
+      try {
+        // Call the appropriate purchase function
+        const functionName = provider === 'vtpass' ? 'purchase-vtpass-data' : 'purchase-smeplug-data';
+        const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+        const response = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            phone_number,
+            plan_id,
+          }),
+        });
+
+        const responseData = await response.json();
+        lastResponse = responseData;
+
+        if (response.ok && responseData?.success === true) {
+          // Success - return the result
+          return new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                ...responseData.data,
+                vendor: provider,
+              },
+              message: responseData.message || 'Data purchased successfully',
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
+        } else if (response.ok && responseData?.success === false) {
+          // Provider returned an error - save it and try next provider if available
+          lastError = responseData.error || responseData.message || 'Purchase failed';
+          console.log(`${provider} purchase failed:`, lastError);
+          continue; // Try next provider
+        } else {
+          // HTTP error
+          lastError = responseData?.error || responseData?.message || `HTTP ${response.status}`;
+          console.log(`${provider} HTTP error:`, lastError);
+          continue; // Try next provider
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`Error calling ${provider} function:`, error);
+        continue; // Try next provider
+      }
+    }
+
+    // All providers failed
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: lastError || 'All vendors failed to process the purchase',
+        details: {
+          error_summary: `Attempted ${providers.join(' and ')}, all failed`,
+          last_response: lastResponse,
+        },
+      }),
+      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('Error in purchase-data function:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    return new Response(
+      JSON.stringify({ success: false, error: message }),
+      { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+    );
+  }
+});
+

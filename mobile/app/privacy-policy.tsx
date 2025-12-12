@@ -29,112 +29,158 @@ export default function PrivacyPolicyScreen() {
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>1. Introduction</ThemedText>
             <ThemedText style={styles.sectionText}>
-              NetPay ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and services.
+              NetPay ("we," "our," "us," or "the Company") operates the NetPay mobile application and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.
             </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>2. Information We Collect</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We collect information that you provide directly to us, including:
+              We collect the following categories of information:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Personal information (name, email, phone number)</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Financial information (bank account details, transaction history)</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Device information (device type, operating system, unique device identifiers)</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Usage data (how you interact with our app, features used)</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Location data (with your permission)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Personal Information: Name, email address, phone number, date of birth, government-issued identification (when required for KYC compliance)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Account Information: Username, password (encrypted), PIN, biometric authentication data (Face ID/Touch ID - stored securely on your device only)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Financial Information: Bank account details, virtual account numbers, transaction history, payment card information (processed securely through payment processors)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Device Information: Device type, operating system version, unique device identifiers (UDID, advertising ID), IP address, mobile network information</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Usage Information: App features accessed, transaction patterns, time spent in app, error logs, crash reports</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Location Information: Approximate location based on IP address (we do not collect precise GPS location without your explicit consent)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Cookies and Similar Technologies: Session data, authentication tokens stored securely on your device</ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>3. How We Use Your Information</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We use the information we collect to:
+              We use collected information for the following purposes:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Provide, maintain, and improve our services</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Process transactions and send related information</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Send you technical notices and support messages</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Respond to your comments and questions</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Detect, prevent, and address technical issues and fraud</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Comply with legal obligations</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Service Delivery: Process transactions (airtime, data, cable TV, electricity, education services), manage your account, provide customer support</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Security and Fraud Prevention: Verify identity, detect and prevent fraudulent transactions, ensure account security</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Legal and Compliance: Comply with applicable laws, regulations, and legal processes; satisfy KYC/AML requirements</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Service Improvement: Analyze usage patterns, improve app functionality, develop new features, conduct internal research</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Communication: Send transaction confirmations, account alerts, service updates, respond to inquiries (marketing communications only with your consent)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Business Operations: Manage our business operations, enforce our terms of service, resolve disputes</ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>4. Information Sharing and Disclosure</ThemedText>
+            <ThemedText style={styles.sectionTitle}>4. Data Sharing and Third-Party Services</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We do not sell your personal information. We may share your information only in the following circumstances:
+              We may share your information with:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• With service providers who assist us in operating our platform</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• To comply with legal obligations or respond to lawful requests</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• To protect our rights, privacy, safety, or property</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• In connection with a business transfer or merger</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• With your explicit consent</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Payment Processors: Third-party payment service providers (e.g., Paystack, Flutterwave) to process transactions - they are required to maintain similar privacy protections</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Service Providers: Cloud hosting providers (Supabase), analytics services, customer support platforms - all bound by confidentiality agreements</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Telecommunications Vendors: Airtime and data providers (MTN, Airtel, Glo, 9mobile), electricity distribution companies, cable TV providers - necessary to fulfill service requests</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Legal and Regulatory: Government agencies, law enforcement, regulatory bodies when required by law or to protect rights</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Business Transfers: In event of merger, acquisition, or sale of assets (with notice to users)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• With Your Consent: When you explicitly authorize sharing with specific third parties</ThemedText>
+            <ThemedText style={styles.noteText}>
+              Note: We do not sell your personal information to third parties for their marketing purposes. We do not share biometric data with any third party - it remains stored securely on your device.
+            </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>5. Data Security</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We implement appropriate technical and organizational security measures to protect your personal information against unauthorized access, alteration, disclosure, or destruction. However, no method of transmission over the internet or electronic storage is 100% secure.
+              We employ industry-standard security measures:
             </ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Encryption: All data transmitted between your device and our servers is encrypted using TLS/SSL. Sensitive data is encrypted at rest</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Authentication: Multi-factor authentication, PIN protection, optional biometric authentication (Face ID/Touch ID)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Access Controls: Limited employee access on need-to-know basis, regular access audits, secure credential management</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Security Monitoring: Continuous monitoring for suspicious activity, intrusion detection systems, regular security assessments</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Data Breach Procedures: Established incident response procedures, prompt notification to affected users and authorities if required by law</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Compliance: Regular security audits, adherence to PCI DSS standards for payment processing, compliance with Nigerian data protection regulations</ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>6. Data Retention</ThemedText>
+            <ThemedText style={styles.sectionTitle}>6. Data Retention and Deletion</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We retain your personal information for as long as necessary to fulfill the purposes outlined in this Privacy Policy, unless a longer retention period is required or permitted by law. When we no longer need your information, we will securely delete or anonymize it.
+              We retain your data as follows:
             </ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Active Accounts: Data retained while your account is active and for 7 years after last transaction (as required by Nigerian financial regulations)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Inactive Accounts: Data retained for 3 years after account closure, then anonymized or securely deleted</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Legal Requirements: Transaction records retained for minimum 7 years as required by law</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• You may request deletion of your account and associated data by contacting support@netpayy.ng. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Upon account deletion request, we will process within 30 days, subject to legal retention requirements</ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>7. Your Rights</ThemedText>
+            <ThemedText style={styles.sectionTitle}>7. Your Privacy Rights</ThemedText>
             <ThemedText style={styles.sectionText}>
               You have the right to:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Access and receive a copy of your personal information</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Request correction of inaccurate or incomplete information</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Request deletion of your personal information</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Object to or restrict processing of your information</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Withdraw consent at any time</ThemedText>
-            <ThemedText style={styles.sectionText}>
-              To exercise these rights, please contact us at support@netpayy.ng.
+            <ThemedText style={styles.bulletPoint}>• Access: Request a copy of your personal information we hold</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Correction: Request correction of inaccurate or incomplete information</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Deletion: Request deletion of your personal information (subject to legal requirements)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Data Portability: Request transfer of your data in a machine-readable format</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Objection: Object to processing of your information for certain purposes</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Restriction: Request restriction of processing in certain circumstances</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Withdraw Consent: Withdraw consent for data processing where consent is the legal basis</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Lodge Complaints: File a complaint with the Nigerian Data Protection Commission or relevant supervisory authority</ThemedText>
+            <ThemedText style={styles.noteText}>
+              To exercise these rights, contact us at support@netpayy.ng. We will respond within 30 days.
             </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>8. Cookies and Tracking Technologies</ThemedText>
+            <ThemedText style={styles.sectionTitle}>8. Biometric Authentication</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We use cookies and similar tracking technologies to track activity on our app and hold certain information. You can instruct your device to refuse all cookies or to indicate when a cookie is being sent.
+              Our app offers optional biometric authentication (Face ID/Touch ID on iOS, fingerprint on Android):
+            </ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Storage: Biometric data is stored securely on your device only - we do not receive, store, or transmit your biometric data</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Privacy: Apple/Google handles biometric authentication through their secure enclave/systems</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Control: You can enable or disable biometric authentication at any time in app settings</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Purpose: Used solely for device authentication to access the app - not shared with third parties</ThemedText>
+            <ThemedText style={styles.noteText}>
+              If you disable biometric authentication, you can still use PIN or password to access the app.
             </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>9. Third-Party Links</ThemedText>
+            <ThemedText style={styles.sectionTitle}>9. Age Restrictions and Children's Privacy</ThemedText>
             <ThemedText style={styles.sectionText}>
-              Our app may contain links to third-party websites or services. We are not responsible for the privacy practices of these third parties. We encourage you to read their privacy policies.
+              Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netpayy.ng.
             </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>10. Children's Privacy</ThemedText>
+            <ThemedText style={styles.sectionTitle}>10. International Data Transfers</ThemedText>
             <ThemedText style={styles.sectionText}>
-              Our service is not intended for individuals under the age of 18. We do not knowingly collect personal information from children. If you become aware that a child has provided us with personal information, please contact us immediately.
+              Your information may be:
+            </ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Stored: Primarily stored on servers located in Nigeria and cloud infrastructure (Supabase) which may have servers in other jurisdictions</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Transferred: May be transferred to service providers in other countries who have adequate data protection measures</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Safeguards: We ensure appropriate safeguards through contractual agreements requiring equivalent data protection standards</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Your Rights: Regardless of where data is stored, your privacy rights under this policy remain the same</ThemedText>
+            <ThemedText style={styles.noteText}>
+              By using our services, you consent to such transfers.
             </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>11. Changes to This Privacy Policy</ThemedText>
             <ThemedText style={styles.sectionText}>
-              We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last Updated" date. You are advised to review this Privacy Policy periodically for any changes.
+              We may update this Privacy Policy periodically to reflect changes in our practices, technology, legal requirements, or other factors. We will:
+            </ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Notify you of material changes via email, in-app notification, or prominent notice in the app</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Update the "Last updated" date at the top of this policy</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Your continued use after changes constitutes acceptance - we encourage periodic review</ThemedText>
+            <ThemedText style={styles.noteText}>
+              Material changes affecting your rights will be communicated at least 30 days in advance when possible.
             </ThemedText>
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>12. Contact Us</ThemedText>
+            <ThemedText style={styles.sectionTitle}>12. Contact Information and Data Controller</ThemedText>
             <ThemedText style={styles.sectionText}>
-              If you have any questions about this Privacy Policy, please contact us at:
+              For privacy-related questions, requests, or complaints:
             </ThemedText>
-            <ThemedText style={styles.contactInfo}>Email: support@netpayy.ng</ThemedText>
+            <ThemedText style={styles.contactInfo}>Data Controller: NetPay (registered in Nigeria)</ThemedText>
+            <ThemedText style={styles.contactInfo}>Email: support@netpayy.ng (include "Privacy Request" in subject line)</ThemedText>
             <ThemedText style={styles.contactInfo}>Phone: +234 706 739 8399</ThemedText>
-            <ThemedText style={styles.contactInfo}>Address: 123 Business Street, Lagos, Nigeria</ThemedText>
+            <ThemedText style={styles.contactInfo}>Address: Lagos, Nigeria (specific address available upon request)</ThemedText>
+            <ThemedText style={styles.contactInfo}>Response Time: We aim to respond to privacy requests within 30 days</ThemedText>
+            <ThemedText style={styles.contactInfo}>Data Protection Officer: Contact support@netpayy.ng for data protection inquiries</ThemedText>
+            <ThemedText style={styles.noteText}>
+              For complaints not resolved directly, you may contact the Nigerian Data Protection Commission.
+            </ThemedText>
           </View>
         </View>
       </ScrollView>
@@ -229,6 +275,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginLeft: 12,
     fontWeight: '500',
+  },
+  noteText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#FFF8F0',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF7F00',
   },
 });
 

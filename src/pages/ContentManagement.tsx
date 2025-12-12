@@ -72,7 +72,13 @@ export default function ContentManagement() {
       return;
     }
 
-    setPages(data || []);
+    // Filter out about_us, faq, and support pages
+    const excludedTypes = ['about_us', 'faq', 'support'];
+    const filteredPages = (data || []).filter(
+      (page) => !excludedTypes.includes(page.page_type.toLowerCase())
+    );
+
+    setPages(filteredPages);
   };
 
   const handleEdit = (page: ContentPage) => {

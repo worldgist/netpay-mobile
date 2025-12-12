@@ -17,3 +17,4 @@ COMMENT ON COLUMN public.data_plans.size IS 'Data size (e.g., "1GB", "500MB")';
 COMMENT ON COLUMN public.data_plans.vendor_price IS 'Price from the vendor (same as original_price)';
 
 
+

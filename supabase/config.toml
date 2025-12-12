@@ -84,3 +84,6 @@ verify_jwt = false
 [functions.get-data-provider]
 verify_jwt = true
 
+[functions.create-demo-user]
+verify_jwt = false
+
