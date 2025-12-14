@@ -7,7 +7,9 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
+import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import * as Clipboard from 'expo-clipboard';
 
 // Transfer fee configuration (must match backend)
 const TRANSFER_FEE_PERCENTAGE = 0.05; // 5% fee (e.g., ₦50 for ₦1000 transfer)
@@ -35,11 +37,14 @@ export default function TransferScreen() {
   const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [verificationSuccess, setVerificationSuccess] = useState(false);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
   const amountValue = useMemo(() => parseFloat(amount) || 0, [amount]);
   const transferFee = useMemo(() => calculateTransferFee(amountValue), [amountValue]);
   const totalAmount = useMemo(() => amountValue + transferFee, [amountValue, transferFee]);
-  const canTransfer = !!recipientDetails && amountValue > 0 && totalAmount <= balance && !transferLoading;
+  // For demo users, allow transfer if using demo email even without verification
+  const canTransfer = (isDemoUser && recipientEmail.trim().toLowerCase() === 'demo-recipient@netpayy.ng' && amountValue > 0 && totalAmount <= balance && !transferLoading) ||
+                      (!!recipientDetails && amountValue > 0 && totalAmount <= balance && !transferLoading);
 
   const fetchBalance = useCallback(async (isRefresh = false) => {
     try {
@@ -59,7 +64,11 @@ export default function TransferScreen() {
         return;
       }
 
-      setCurrentUserEmail(session.user.email || '');
+      const userEmail = session.user.email || '';
+      setCurrentUserEmail(userEmail);
+      
+      // Check if user is demo user
+      setIsDemoUser(userEmail === 'demo@netpayy.ng');
 
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
@@ -160,9 +169,18 @@ export default function TransferScreen() {
   };
 
   const handleTransfer = () => {
-    if (!recipientDetails) {
+    // For demo users, allow transfer without verification if using demo recipient email
+    if (!isDemoUser && !recipientDetails) {
       Alert.alert('Verification Required', 'Please verify the recipient before transferring.');
       return;
+    }
+    
+    // Auto-set recipient details for demo users using demo email
+    if (isDemoUser && !recipientDetails && recipientEmail.trim().toLowerCase() === 'demo-recipient@netpayy.ng') {
+      setRecipientDetails({
+        email: 'demo-recipient@netpayy.ng',
+        full_name: 'Demo Recipient',
+      });
     }
 
     if (amountValue <= 0) {
@@ -179,7 +197,12 @@ export default function TransferScreen() {
   };
 
   const handleConfirmTransfer = async () => {
-    if (!recipientDetails || transferLoading) return;
+    // For demo users, use recipient email directly if not verified
+    const finalRecipientEmail = isDemoUser && !recipientDetails && recipientEmail.trim().toLowerCase() === 'demo-recipient@netpayy.ng'
+      ? recipientEmail.trim().toLowerCase()
+      : recipientDetails?.email.toLowerCase();
+    
+    if (!finalRecipientEmail || transferLoading) return;
 
     try {
       setTransferLoading(true);
@@ -197,7 +220,7 @@ export default function TransferScreen() {
 
       const { data, error: transferError } = await supabase.functions.invoke('transfer-funds', {
         body: {
-          recipientEmail: recipientDetails.email.toLowerCase(),
+          recipientEmail: finalRecipientEmail,
           amount: amountValue,
           description: description.trim() || undefined,
         },
@@ -298,6 +321,9 @@ export default function TransferScreen() {
             </View>
           )}
 
+          {/* Demo Numbers Banner */}
+          {isDemoUser && <DemoNumbersBanner type="transfer" />}
+
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
@@ -310,6 +336,35 @@ export default function TransferScreen() {
               )}
             </View>
           </View>
+
+          {/* Demo Email Display - Prominent for Apple Reviewers */}
+          {isDemoUser && (
+            <View style={styles.demoEmailCard}>
+              <View style={styles.demoEmailHeader}>
+                <MaterialIcons name="info" size={24} color="#FF7F00" />
+                <ThemedText style={styles.demoEmailTitle}>Test Recipient Email for Apple Review</ThemedText>
+              </View>
+              <View style={styles.demoEmailBox}>
+                <ThemedText style={styles.demoEmailLabel}>Use this recipient email:</ThemedText>
+                <View style={styles.demoEmailValueContainer}>
+                  <ThemedText style={styles.demoEmailValue}>demo-recipient@netpayy.ng</ThemedText>
+                  <TouchableOpacity
+                    style={styles.demoEmailCopyButton}
+                    onPress={async () => {
+                      await Clipboard.setStringAsync('demo-recipient@netpayy.ng');
+                      Alert.alert('Copied!', 'Recipient email copied to clipboard');
+                      setRecipientEmail('demo-recipient@netpayy.ng');
+                    }}
+                    activeOpacity={0.7}>
+                    <MaterialIcons name="content-copy" size={20} color="#FF7F00" />
+                  </TouchableOpacity>
+                </View>
+                <ThemedText style={styles.demoEmailNote}>
+                  This test email works for all money transfers. Click copy to auto-fill the email field.
+                </ThemedText>
+              </View>
+            </View>
+          )}
 
           <View style={styles.inputSection}>
             <View style={styles.inputGroup}>
@@ -329,17 +384,19 @@ export default function TransferScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
-                <TouchableOpacity
-                  style={[styles.verifyButton, verifying && styles.verifyButtonDisabled]}
-                  onPress={handleVerify}
-                  disabled={verifying || !recipientEmail.trim()}
-                >
-                  {verifying ? (
-                    <ActivityIndicator size="small" color="#333" />
-                  ) : (
-                    <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
-                  )}
-                </TouchableOpacity>
+                {!isDemoUser && (
+                  <TouchableOpacity
+                    style={[styles.verifyButton, verifying && styles.verifyButtonDisabled]}
+                    onPress={handleVerify}
+                    disabled={verifying || !recipientEmail.trim()}
+                  >
+                    {verifying ? (
+                      <ActivityIndicator size="small" color="#333" />
+                    ) : (
+                      <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
@@ -760,6 +817,72 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  demoEmailCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoEmailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoEmailTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoEmailBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoEmailLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  demoEmailValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  demoEmailValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+    flex: 1,
+  },
+  demoEmailCopyButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFF8E1',
+  },
+  demoEmailNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });
 

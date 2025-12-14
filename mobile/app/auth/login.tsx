@@ -6,7 +6,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseInitialized, getSupabaseConfigStatus } from '@/lib/supabase';
 import * as SecureStore from 'expo-secure-store';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
@@ -29,6 +29,17 @@ export default function LoginScreen() {
       return;
     }
 
+    // Check if Supabase is configured
+    if (!isSupabaseInitialized()) {
+      const configStatus = getSupabaseConfigStatus();
+      Alert.alert(
+        'Configuration Error',
+        configStatus.message + '\n\nThis usually means the app was built without the required environment variables. Please contact support or rebuild the app with proper configuration.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -40,6 +51,22 @@ export default function LoginScreen() {
         setLoading(false);
 
         const message = error.message || 'Unable to sign in. Please try again.';
+        
+        // Check for network/configuration errors
+        const errorMessage = message.toLowerCase();
+        if (errorMessage.includes('network') || 
+            errorMessage.includes('fetch') || 
+            errorMessage.includes('connection') ||
+            errorMessage.includes('failed to send') ||
+            errorMessage.includes('placeholder')) {
+          Alert.alert(
+            'Connection Error',
+            'Unable to connect to the server. This may be due to:\n\n• Missing app configuration\n• Network connectivity issues\n• Server maintenance\n\nPlease check your internet connection and try again. If the problem persists, contact support.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        
         if (message.toLowerCase().includes('email not confirmed')) {
           Alert.alert('Email Not Verified', 'Please verify your email to continue. We will redirect you to the verification screen.');
           router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
@@ -69,6 +96,40 @@ export default function LoginScreen() {
         await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
       } catch (storageError) {
         console.warn('Unable to persist Supabase session for biometrics:', storageError);
+      }
+
+      // Check if user is demo user and setup demo mode
+      if (data?.user?.email === 'demo@netpayy.ng') {
+        try {
+          // Setup demo user data if needed - wait for completion
+          const { data: setupData, error: setupError } = await supabase.functions.invoke('setup-demo-user', {
+            body: {},
+          });
+          if (setupError) {
+            console.warn('Demo setup error (non-critical):', setupError);
+          } else {
+            console.log('Demo setup completed:', setupData);
+            // Small delay to ensure transactions are committed
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (demoError) {
+          console.warn('Demo setup error (non-critical):', demoError);
+          // Continue anyway - demo user can still use the app
+        }
+      }
+
+      // Register for push notifications after successful login
+      try {
+        const { registerForPushNotifications } = await import('@/utils/push-notifications');
+        const result = await registerForPushNotifications();
+        if (result.registered) {
+          console.log('Push notifications registered after login');
+        } else {
+          console.log('Push notification registration after login:', result.reason);
+        }
+      } catch (pushError) {
+        console.warn('Failed to register push notifications after login:', pushError);
+        // Non-critical, continue with login
       }
 
       router.replace('/(tabs)');
@@ -234,6 +295,20 @@ export default function LoginScreen() {
         await SecureStore.setItemAsync(EMAIL_KEY, storedEmail);
       } catch (storageError) {
         console.warn('Unable to persist session after biometric login:', storageError);
+      }
+
+      // Register for push notifications after successful biometric login
+      try {
+        const { registerForPushNotifications } = await import('@/utils/push-notifications');
+        const result = await registerForPushNotifications();
+        if (result.registered) {
+          console.log('Push notifications registered after biometric login');
+        } else {
+          console.log('Push notification registration after biometric login:', result.reason);
+        }
+      } catch (pushError) {
+        console.warn('Failed to register push notifications after biometric login:', pushError);
+        // Non-critical, continue with login
       }
 
       setBiometricLoading(false);

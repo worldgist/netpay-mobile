@@ -18,3 +18,8 @@ COMMENT ON COLUMN public.data_plans.vendor_price IS 'Price from the vendor (same
 
 
 
+
+
+
+
+

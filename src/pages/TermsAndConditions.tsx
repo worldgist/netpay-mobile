@@ -184,7 +184,7 @@ const TermsAndConditions = () => {
       list: [
         "Email: support@netpayy.ng (include transaction reference if applicable)",
         "Phone: +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)",
-        "In-App: Use the \"Contact Us\" or \"Support Chat\" feature",
+        "In-App: Use the \"Contact Us\" feature",
         "Address: Lagos, Nigeria (specific address available upon request)"
       ],
       content2: "Response times:",

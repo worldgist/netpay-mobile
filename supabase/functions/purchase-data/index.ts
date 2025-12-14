@@ -59,6 +59,96 @@ serve(async (req) => {
       );
     }
 
+    // Check if user is demo user - get profile to check email
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('email, balance')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to fetch user profile' }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const isDemoUser = profile.email === 'demo@netpayy.ng';
+
+    // For demo users, return mock successful response
+    if (isDemoUser) {
+      console.log('Demo user detected - using mock API response for data purchase');
+      
+      // Fetch data plan for reference
+      const { data: dataPlan } = await supabase
+        .from('data_plans')
+        .select('*')
+        .eq('id', plan_id)
+        .single();
+
+      const reference = `DATA-${Date.now()}-${user.id.slice(0, 8)}`;
+      const planName = dataPlan?.plan_name || 'Data Plan';
+      const planAmount = dataPlan?.price || 0;
+
+      // Check balance
+      const balanceBefore = Number(profile.balance) || 0;
+      if (balanceBefore < planAmount) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Insufficient balance' }),
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Debit wallet using shared function
+      const { debitUserWallet } = await import('../_shared/wallet.ts');
+      const debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: planAmount,
+        transactionType: 'data_purchase',
+        description: `Data purchase - ${planName}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+        notification: {
+          title: 'Data purchase successful (Demo)',
+          message: `${planName} purchased for ${phone_number}. Reference: ${reference}.`,
+        },
+      });
+
+      // Record transaction
+      await supabase.from('data_transactions').insert({
+        user_id: user.id,
+        phone_number: phone_number,
+        plan_id: plan_id,
+        plan_name: planName,
+        amount: planAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        status: 'success',
+        reference,
+        vendor: 'demo',
+        performed_by: user.id
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            reference,
+            phone_number,
+            plan_name: planName,
+            amount: planAmount,
+            vendor: 'demo',
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter
+          },
+          message: 'Data purchased successfully (Demo)',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Get data provider preference from app_settings
     const { data: providerSetting } = await supabase
       .from('app_settings')
@@ -177,4 +267,9 @@ serve(async (req) => {
     );
   }
 });
+
+
+
+
+
 

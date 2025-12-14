@@ -163,6 +163,30 @@ export default function SignupScreen() {
             </ThemedText>
           </View>
 
+          {/* Demo User Banner */}
+          <View style={styles.demoUserCard}>
+            <View style={styles.demoUserHeader}>
+              <MaterialIcons name="info" size={20} color="#FF7F00" />
+              <ThemedText style={styles.demoUserTitle}>Demo Account Available</ThemedText>
+            </View>
+            <View style={styles.demoUserContent}>
+              <ThemedText style={styles.demoUserText}>
+                For testing purposes, a demo account is already available. You can sign in with:
+              </ThemedText>
+              <View style={styles.demoCredentialsBox}>
+                <ThemedText style={styles.demoCredentialText}>
+                  Email: <ThemedText style={styles.demoCredentialValue}>demo@netpayy.ng</ThemedText>
+                </ThemedText>
+                <ThemedText style={styles.demoCredentialText}>
+                  Password: <ThemedText style={styles.demoCredentialValue}>Demo@1234</ThemedText>
+                </ThemedText>
+              </View>
+              <TouchableOpacity onPress={() => router.push('/auth/login')} style={styles.demoLoginLink}>
+                <ThemedText style={styles.demoLoginLinkText}>Sign in with demo account →</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           {/* Name Row */}
           <View style={styles.row}>
             <View style={[styles.inputContainer, styles.halfWidth]}>
@@ -449,6 +473,67 @@ const styles = StyleSheet.create({
     color: '#FF7F00',
     fontSize: 16,
     fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  demoUserCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoUserTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 12,
+  },
+  demoUserText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  demoCredentialsBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoCredentialText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  demoCredentialValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+  },
+  demoLoginLink: {
+    marginTop: 4,
+  },
+  demoLoginLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF7F00',
     textDecorationLine: 'underline',
   },
 });

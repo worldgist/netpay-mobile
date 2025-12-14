@@ -302,11 +302,35 @@ serve(async (req) => {
       );
     }
 
+    // Check response code according to VTpass API documentation
+    // Code "000" indicates success, other codes indicate various error conditions
+    const responseCode = payJson?.code;
+    const responseDescription = payJson?.response_description || "";
+    
+    // If code is not "000", it's an error
+    if (responseCode && responseCode !== "000") {
+      const errorMessage = responseDescription || payJson?.error || `VTpass API error: ${responseCode}`;
+      console.error("VTpass API error response:", { code: responseCode, description: responseDescription, fullResponse: payJson });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: errorMessage,
+          details: {
+            code: responseCode,
+            response_description: responseDescription,
+            full_response: payJson,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
+
     let transaction = payJson?.content?.transactions || null;
     let status = transaction?.status || payJson?.status || "";
 
+    // If transaction is missing or status is pending/processing, requery
     if ((!transaction || REQUERY_STATUSES.has(status?.toLowerCase?.() ?? "")) && vtpassRequestId) {
-      console.log("VTpass status pending, requerying...");
+      console.log("VTpass status pending or missing transaction, requerying...");
       const requeryResponse = await fetch(`${baseUrl}/api/requery`, {
         method: "POST",
         headers,
@@ -314,17 +338,30 @@ serve(async (req) => {
       });
 
       if (requeryResponse.ok) {
-        const requeryJson = await requeryResponse.json();
-        if (requeryJson?.content?.transactions) {
-          transaction = requeryJson.content.transactions;
-          status = transaction?.status || status;
+        const requeryText = await requeryResponse.text();
+        try {
+          const requeryJson = JSON.parse(requeryText);
+          
+          // Check requery response code
+          const requeryCode = requeryJson?.code;
+          if (requeryCode === "000" && requeryJson?.content?.transactions) {
+            transaction = requeryJson.content.transactions;
+            status = transaction?.status || status;
+            payJson.requery = requeryJson;
+            console.log("VTpass requery successful, status:", status);
+          } else {
+            console.warn("VTpass requery returned error code:", requeryCode, requeryJson?.response_description);
+            // Keep original transaction if available
+          }
+        } catch (parseError) {
+          console.warn("Failed to parse VTpass requery response:", requeryText);
         }
-        payJson.requery = requeryJson;
       } else {
+        const requeryErrorText = await requeryResponse.text();
         console.warn(
           "VTpass requery failed:",
           requeryResponse.status,
-          await requeryResponse.text(),
+          requeryErrorText,
         );
       }
     }
@@ -334,9 +371,13 @@ serve(async (req) => {
         JSON.stringify({
           success: false,
           error: "VTpass did not return transaction details",
-          details: payJson,
+          details: {
+            response_code: responseCode,
+            response_description: responseDescription,
+            full_response: payJson,
+          },
         }),
-        { status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 

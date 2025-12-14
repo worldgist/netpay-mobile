@@ -14,6 +14,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { supabase } from '@/lib/supabase';
 
 const getBiometricLabel = (type: LocalAuthentication.AuthenticationType) => {
   switch (type) {
@@ -33,6 +34,7 @@ export default function SetupBiometricScreen() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricTypes, setBiometricTypes] = useState<LocalAuthentication.AuthenticationType[]>([]);
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
   useEffect(() => {
     const checkHardware = async () => {
@@ -50,7 +52,15 @@ export default function SetupBiometricScreen() {
       }
     };
 
+    const checkDemoUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email === 'demo@netpayy.ng') {
+        setIsDemoUser(true);
+      }
+    };
+
     checkHardware();
+    checkDemoUser();
   }, []);
 
   const handleEnableBiometric = () => {
@@ -99,6 +109,24 @@ export default function SetupBiometricScreen() {
           <ThemedText style={styles.subtitle} numberOfLines={3} ellipsizeMode="tail">
             Use your fingerprint or face ID for quick and secure access to your NetPay account.
           </ThemedText>
+
+          {/* Demo User Banner */}
+          {isDemoUser && (
+            <View style={styles.demoUserCard}>
+              <View style={styles.demoUserHeader}>
+                <MaterialIcons name="info" size={20} color="#FF7F00" />
+                <ThemedText style={styles.demoUserTitle}>Demo Account Information</ThemedText>
+              </View>
+              <View style={styles.demoUserContent}>
+                <ThemedText style={styles.demoUserText}>
+                  You are currently using a demo account (demo@netpayy.ng). Biometric login works normally with demo accounts.
+                </ThemedText>
+                <ThemedText style={styles.demoUserText}>
+                  After enabling biometric login, you can use it to quickly sign in to your demo account.
+                </ThemedText>
+              </View>
+            </View>
+          )}
 
           <View style={styles.benefitsList}>
             <View style={styles.benefitItem}>
@@ -325,5 +353,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  demoUserCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+    width: '100%',
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoUserTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 8,
+  },
+  demoUserText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
   },
 });

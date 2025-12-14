@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -118,10 +119,10 @@ serve(async (req) => {
       amount: purchaseAmount,
     });
 
-    // Get user balance
+    // Get user balance and email
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('balance')
+      .select('balance, email')
       .eq('id', user.id)
       .single();
 
@@ -129,9 +130,71 @@ serve(async (req) => {
       throw new Error('Failed to fetch user profile');
     }
 
-    if (Number(profile.balance) < purchaseAmount) {
+    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const balanceBefore = Number(profile.balance) || 0;
+
+    if (balanceBefore < purchaseAmount) {
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient balance' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // For demo users, return mock successful response
+    if (isDemoUser) {
+      console.log('Demo user detected - using mock API response for electricity purchase');
+      
+      const reference = `ELECTRICITY-${Date.now()}-${user.id.slice(0, 8)}`;
+
+      // Debit wallet using shared function
+      const { debitUserWallet } = await import('../_shared/wallet.ts');
+      const debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: purchaseAmount,
+        transactionType: 'electricity_purchase',
+        description: `Electricity purchase - ${providerCode} ${meterKind}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+        notification: {
+          title: 'Electricity purchase successful (Demo)',
+          message: `₦${purchaseAmount.toFixed(2)} electricity purchased for ${sanitizedMeter}. Reference: ${reference}.`,
+        },
+      });
+
+      // Record transaction
+      await supabase.from('electricity_transactions').insert({
+        user_id: user.id,
+        meter_number: sanitizedMeter,
+        provider: providerCode,
+        meter_type: meterKind,
+        amount: purchaseAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        status: 'success',
+        reference,
+        token: `DEMO-TOKEN-${Date.now()}`,
+        vendor: 'demo',
+        performed_by: user.id
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            reference,
+            meter_number: sanitizedMeter,
+            provider: providerCode,
+            meter_type: meterKind,
+            amount: purchaseAmount,
+            token: `DEMO-TOKEN-${Date.now()}`,
+            vendor: 'demo',
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter
+          },
+          message: 'Electricity purchase successful (Demo)',
+        }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -638,6 +701,23 @@ async function purchaseWithVTpass(
         );
       }
 
+      // Send push notification
+      await sendPushNotification(
+        supabase,
+        user.id,
+        'Electricity Payment Successful',
+        `₦${amount.toFixed(2)} electricity payment successful for meter ${meterNumberFromResponse || meterNumber}. Token: ${token}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+        {
+          type: 'electricity_payment',
+          reference,
+          amount,
+          meter_number: meterNumberFromResponse || meterNumber,
+          token,
+          provider,
+          meter_type: meterType,
+        }
+      );
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -911,19 +991,36 @@ async function purchaseWithMobileNig(
           details: elecTxnError.message,
         }),
         { status: 200, headers: corsHeaders }
-      );
-    }
+        );
+      }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        data: {
-          reference: reference, // Internal reference
-          amount: amount,
-          balance_after: debitResult.balanceAfter,
-          trans_id: transactionId,
-          token: token,
+      // Send push notification
+      await sendPushNotification(
+        supabase,
+        user.id,
+        'Electricity Payment Successful',
+        `₦${amount.toFixed(2)} electricity payment successful for meter ${meterNumber}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+        {
+          type: 'electricity_payment',
+          reference,
+          amount,
           meter_number: meterNumber,
+          provider,
+          meter_type: meterType,
+          transaction_id: transactionId,
+        }
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            reference: reference, // Internal reference
+            amount: amount,
+            balance_after: debitResult.balanceAfter,
+            trans_id: transactionId,
+            token: token,
+            meter_number: meterNumber,
           provider: provider,
           meter_type: meterType,
           customer_name: providerCustomerName,

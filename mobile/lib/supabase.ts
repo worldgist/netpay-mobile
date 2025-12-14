@@ -1,28 +1,50 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
+// Create a dummy client that will fail gracefully if env vars are missing
+// This prevents immediate crash while still allowing the app to load
+let supabaseInstance: SupabaseClient;
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error('Missing Supabase environment variables. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in mobile/.env');
+  console.error('Missing Supabase environment variables. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  // Create a dummy client with placeholder values to prevent TypeScript errors
+  // All operations will fail gracefully with clear error messages
+  supabaseInstance = createClient('https://placeholder.supabase.co', 'placeholder-key', {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  });
+} else {
+  supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  });
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+export const supabase = supabaseInstance;
 
 const SESSION_KEY = 'supabase_session';
 const EMAIL_KEY = 'supabase_email';
 
+// Set up auth state change listener
 supabase.auth.onAuthStateChange(async (event, session) => {
   try {
+    // Skip if using placeholder client
+    if (SUPABASE_URL === undefined || SUPABASE_ANON_KEY === undefined) {
+      return;
+    }
+
     if (!session || event === 'SIGNED_OUT') {
       await SecureStore.deleteItemAsync(SESSION_KEY);
 
@@ -47,3 +69,28 @@ supabase.auth.onAuthStateChange(async (event, session) => {
     console.warn('Failed to synchronize secure session store:', error);
   }
 });
+
+// Helper function to check if Supabase is properly initialized
+export const isSupabaseInitialized = (): boolean => {
+  return SUPABASE_URL !== undefined && SUPABASE_ANON_KEY !== undefined && 
+         SUPABASE_URL !== 'https://placeholder.supabase.co' && 
+         SUPABASE_ANON_KEY !== 'placeholder-key';
+};
+
+// Get configuration status for error messages
+export const getSupabaseConfigStatus = () => {
+  const hasUrl = SUPABASE_URL !== undefined && SUPABASE_URL !== 'https://placeholder.supabase.co';
+  const hasKey = SUPABASE_ANON_KEY !== undefined && SUPABASE_ANON_KEY !== 'placeholder-key';
+  
+  if (!hasUrl || !hasKey) {
+    return {
+      configured: false,
+      message: 'Supabase is not configured. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY environment variables.',
+    };
+  }
+  
+  return {
+    configured: true,
+    message: 'Supabase is properly configured.',
+  };
+};

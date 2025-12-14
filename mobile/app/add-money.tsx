@@ -270,6 +270,35 @@ export default function AddMoneyScreen() {
         return;
       }
 
+      // Check if user is demo user
+      const isDemoUser = session.user.email === 'demo@netpayy.ng';
+      
+      // If demo user, auto-credit wallet
+      if (isDemoUser) {
+        try {
+          const { data, error: creditError } = await supabase.functions.invoke('demo-auto-credit', {
+            body: {},
+          });
+
+          if (creditError) {
+            console.warn('Demo auto-credit failed:', creditError);
+            // Continue to check balance anyway
+          } else if (data?.success) {
+            // Demo credit successful
+            router.push('/(tabs)');
+            Alert.alert(
+              'Demo Wallet Credited!',
+              `₦50,000 has been credited to your demo wallet. Current balance: ₦${data.balanceAfter?.toLocaleString() || '50,000'}`
+            );
+            setIsCheckingBalance(false);
+            return;
+          }
+        } catch (demoError) {
+          console.warn('Demo auto-credit error:', demoError);
+          // Continue to check balance anyway
+        }
+      }
+
       // Refresh balance
       const { data: profile, error: profileError } = await supabase
         .from('profiles')

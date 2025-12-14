@@ -218,7 +218,7 @@ export default function TermsAndConditionsScreen() {
             </ThemedText>
             <ThemedText style={styles.bulletPoint}>• Email: support@netpayy.ng (include transaction reference if applicable)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Phone: +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• In-App: Use the "Contact Us" or "Support Chat" feature</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• In-App: Use the "Contact Us" feature</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Address: Lagos, Nigeria (specific address available upon request)</ThemedText>
             <ThemedText style={styles.sectionText}>
               Response times:

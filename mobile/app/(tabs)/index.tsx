@@ -18,6 +18,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { registerForPushNotifications } from '@/utils/push-notifications';
 
 const NETWORK_LOGOS: Record<string, any> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -143,6 +144,26 @@ export default function HomeScreen() {
 
   useEffect(() => {
     isMounted.current = true;
+    
+    // Register for push notifications when home screen loads
+    const registerPush = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const result = await registerForPushNotifications();
+          if (result.registered) {
+            console.log('Push notifications registered from home screen');
+          } else {
+            console.log('Push notification registration from home:', result.reason);
+          }
+        }
+      } catch (error) {
+        console.error('Error registering push notifications from home:', error);
+      }
+    };
+    
+    registerPush();
+    
     return () => {
       isMounted.current = false;
     };
@@ -221,6 +242,22 @@ export default function HomeScreen() {
             .limit(2),
         ]);
 
+        // Log transaction counts for debugging
+        console.log('Transaction fetch results:', {
+          user: userTxns.data?.length || 0,
+          airtime: airtimeTxns.data?.length || 0,
+          data: dataTxns.data?.length || 0,
+          transfersSent: transfersSent.data?.length || 0,
+          transfersReceived: transfersReceived.data?.length || 0,
+          errors: {
+            user: userTxns.error?.message,
+            airtime: airtimeTxns.error?.message,
+            data: dataTxns.error?.message,
+            transfersSent: transfersSent.error?.message,
+            transfersReceived: transfersReceived.error?.message,
+          },
+        });
+
         const combined: CombinedTransaction[] = [
           ...((userTxns.data || []).map((txn) => ({ ...txn, type: 'user' })) as CombinedTransaction[]),
           ...((airtimeTxns.data || []).map((txn) => ({ ...txn, type: 'airtime' })) as CombinedTransaction[]),
@@ -230,6 +267,8 @@ export default function HomeScreen() {
         ]
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, 5);
+
+        console.log('Combined transactions count:', combined.length);
 
         if (isMounted.current) {
           setTransactions(combined);

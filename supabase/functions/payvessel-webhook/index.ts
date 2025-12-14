@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -585,6 +586,21 @@ serve(async (req) => {
     }
 
     console.log(`Successfully credited ₦${netCreditAmount} (₦${creditAmount} - ₦${fundingFee} fee) to user ${virtualAccount.user_id}. Final balance: ₦${finalBalance}`);
+
+    // Send push notification
+    await sendPushNotification(
+      supabaseClient,
+      virtualAccount.user_id,
+      'Wallet Funded Successfully',
+      `₦${creditAmount.toFixed(2)} added to your wallet. Funding fee: ₦${fundingFee.toFixed(2)}. Net credit: ₦${netCreditAmount.toFixed(2)}. Your new balance is ₦${finalBalance.toFixed(2)}.`,
+      {
+        type: 'add_money',
+        reference: reference || transaction_reference,
+        amount: creditAmount,
+        funding_fee: fundingFee,
+        net_amount: netCreditAmount,
+      }
+    );
 
     const successResponse = {
       success: true,

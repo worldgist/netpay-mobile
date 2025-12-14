@@ -16,7 +16,6 @@ import EducationServices from "./pages/EducationServices";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
 import ImportCableTransactions from "./pages/ImportCableTransactions";
-import ContactUs from "./pages/ContactUs";
 import ContactLanding from "./pages/ContactLanding";
 import PrivacyLanding from "./pages/PrivacyLanding";
 import TermsLanding from "./pages/TermsLanding";
@@ -29,7 +28,6 @@ import FAQ from "./pages/FAQ";
 import Security from "./pages/Security";
 import HrManager from "./pages/HrManager";
 import ComplianceOfficer from "./pages/ComplianceOfficer";
-import SupportChat from "./pages/user/SupportChat";
 import NotFound from "./pages/NotFound";
 import UserAuth from "./pages/user/UserAuth";
 import UserDashboard from "./pages/user/UserDashboard";
@@ -91,7 +89,6 @@ const App = () => (
         <Route path="/about" element={<About />} />
         <Route path="/careers" element={<Careers />} />
         <Route path="/pricing" element={<Pricing />} />
-        <Route path="/contact" element={<ContactUs />} />
         <Route path="/contact-us" element={<ContactLanding />} />
         <Route path="/privacy" element={<PrivacyLanding />} />
         <Route path="/terms" element={<TermsLanding />} />
@@ -125,7 +122,6 @@ const App = () => (
         <Route path="/user/terms" element={<UserTerms />} />
         <Route path="/user/privacy" element={<UserPrivacy />} />
         <Route path="/user/delete-account" element={<DeleteAccount />} />
-        <Route path="/user/support-chat" element={<SupportChat />} />
         
         <Route path="*" element={<NotFound />} />
       </Routes>

@@ -8,7 +8,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import * as Clipboard from 'expo-clipboard';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -159,6 +161,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
   const [dataProvider, setDataProvider] = useState<'smeplug' | 'vtpass' | 'anyone' | 'mobilenig' | 'ebills.africa'>('smeplug');
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
   const isMounted = useRef(true);
   const selectedNetworkRef = useRef<string | null>(null);
@@ -192,6 +195,12 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       if (!session) {
         router.replace('/auth/login');
         return;
+      }
+
+      // Check if user is demo user
+      const userEmail = session.user.email;
+      if (isMounted.current) {
+        setIsDemoUser(userEmail === 'demo@netpayy.ng');
       }
 
       const userId = session.user.id;
@@ -766,19 +775,36 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         
         // Parse vendor error details for better user feedback
         const errorSummary = responseData?.details?.error_summary;
+        const lastResponse = responseData?.details?.last_response;
+        
+        // Check for "all vendors failed" scenarios
+        const allVendorsFailed = (errorSummary && (
+                                errorSummary.includes('all failed') ||
+                                (errorSummary.includes('Attempted') && errorSummary.includes('failed'))
+                              )) ||
+                                message.includes('All vendors failed') ||
+                                message.includes('all failed') ||
+                                responseData?.error?.includes('all failed');
         
         // Check if it's a configuration issue (check both message and errorSummary)
         const isConfigError = message.includes('credentials not configured') ||
                             message.includes('not configured') ||
                             message.includes('missing') ||
-                            message.includes('All vendors failed') ||
                             (errorSummary && (
                               errorSummary.includes('credentials not configured') ||
                               errorSummary.includes('missing') ||
                               errorSummary.includes('fallback unavailable')
                             ));
         
-        if (isConfigError) {
+        // Check for vendor-specific errors
+        const isVendorError = message.includes('VTpass did not return') ||
+                             message.includes('did not return transaction details') ||
+                             (lastResponse && typeof lastResponse === 'object' && lastResponse.error);
+        
+        if (allVendorsFailed || isVendorError) {
+          // All vendors failed - provide user-friendly message
+          message = 'Unable to complete your data purchase at this time. All payment providers are currently unavailable. Please try again in a few minutes or contact support if the issue persists.';
+        } else if (isConfigError) {
           message = 'Service temporarily unavailable. Please contact support or try again later.';
         } else if (errorSummary) {
           // Extract the most relevant error from summary for non-config errors
@@ -787,6 +813,11 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           if (lastError && !lastError.startsWith('-')) {
             message = lastError.replace(/^-\s*/, '');
           }
+        }
+        
+        // Ensure we have a user-friendly message
+        if (!message || message.length < 10) {
+          message = 'Unable to complete data purchase. Please try again or contact support.';
         }
         
         throw new Error(message);
@@ -866,6 +897,13 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                             errorName === 'TypeError' ||
                             purchaseError?.code === 'NETWORK_ERROR';
       
+      // Check for vendor failures
+      const isVendorFailure = errorMessage.includes('All vendors') ||
+                             errorMessage.includes('all failed') ||
+                             errorMessage.includes('payment providers are currently unavailable') ||
+                             errorMessage.includes('VTpass did not return') ||
+                             errorMessage.includes('did not return transaction details');
+      
       // Check for configuration errors
       const isConfigError = errorMessage.includes('credentials not configured') ||
                            errorMessage.includes('not configured') ||
@@ -875,6 +913,18 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       if (isNetworkError) {
         message = 'Network connection failed. Please check your internet connection and try again.';
         Alert.alert('Connection Error', message);
+      } else if (isVendorFailure) {
+        // Vendor failures are already handled with user-friendly message in the response check
+        Alert.alert(
+          'Purchase Unavailable', 
+          message, 
+          [
+            {
+              text: 'OK',
+              style: 'default'
+            }
+          ]
+        );
       } else if (isConfigError) {
         // Configuration errors are already handled with user-friendly message
         Alert.alert('Service Unavailable', message);
@@ -920,6 +970,38 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
             <View style={styles.errorBanner}>
               <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
               <ThemedText style={styles.errorText}>{error}</ThemedText>
+            </View>
+          )}
+
+          {/* Demo Numbers Banner */}
+          {isDemoUser && <DemoNumbersBanner type="data" />}
+
+          {/* Demo Phone Number Display - Prominent for Apple Reviewers */}
+          {isDemoUser && (
+            <View style={styles.demoPhoneCard}>
+              <View style={styles.demoPhoneHeader}>
+                <MaterialIcons name="info" size={24} color="#FF7F00" />
+                <ThemedText style={styles.demoPhoneTitle}>Test Phone Number for Apple Review</ThemedText>
+              </View>
+              <View style={styles.demoPhoneNumberBox}>
+                <ThemedText style={styles.demoPhoneLabel}>Use this phone number:</ThemedText>
+                <View style={styles.demoPhoneValueContainer}>
+                  <ThemedText style={styles.demoPhoneValue}>08012345678</ThemedText>
+                  <TouchableOpacity
+                    style={styles.demoPhoneCopyButton}
+                    onPress={async () => {
+                      await Clipboard.setStringAsync('08012345678');
+                      Alert.alert('Copied!', 'Phone number copied to clipboard');
+                      setPhoneNumber('08012345678');
+                    }}
+                    activeOpacity={0.7}>
+                    <MaterialIcons name="content-copy" size={20} color="#FF7F00" />
+                  </TouchableOpacity>
+                </View>
+                <ThemedText style={styles.demoPhoneNote}>
+                  This test number works for all networks (MTN, AIRTEL, GLO, 9MOBILE)
+                </ThemedText>
+              </View>
             </View>
           )}
 
@@ -1366,6 +1448,73 @@ const styles = StyleSheet.create({
     color: '#d32f2f',
     fontSize: 13,
     flex: 1,
+  },
+  demoPhoneCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoPhoneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoPhoneTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoPhoneNumberBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoPhoneLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  demoPhoneValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  demoPhoneValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+    flex: 1,
+    letterSpacing: 1,
+  },
+  demoPhoneCopyButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFF8E1',
+  },
+  demoPhoneNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });
 

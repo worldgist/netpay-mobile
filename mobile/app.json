@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "netpay",
+    "name": "Netpay",
     "slug": "netpay",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/logo.png",
+    "icon": "./assets/images/favicon.png",
     "scheme": "netpay",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.netpay.mobile",
@@ -25,7 +25,8 @@
           }
         ],
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "usesAppleSignIn": false
     },
     "android": {
       "package": "com.netpay.mobile",
@@ -74,7 +75,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/logo.png",
+          "icon": "./assets/images/favicon.png",
           "color": "#ffffff"
         }
       ],

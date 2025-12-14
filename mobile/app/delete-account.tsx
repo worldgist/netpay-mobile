@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -11,8 +11,19 @@ export default function DeleteAccountScreen() {
   const [loading, setLoading] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [password, setPassword] = useState('');
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
   const requiredText = 'DELETE MY ACCOUNT';
+
+  useEffect(() => {
+    const checkDemoUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email === 'demo@netpayy.ng') {
+        setIsDemoUser(true);
+      }
+    };
+    checkDemoUser();
+  }, []);
 
   const handleDeleteAccount = () => {
     if (confirmText !== requiredText) {
@@ -45,17 +56,95 @@ export default function DeleteAccountScreen() {
         return;
       }
 
-      // Call edge function to delete account
-      const { data, error } = await supabase.functions.invoke('delete-user-account', {
-        body: {
-          password: password || undefined,
-        },
-      });
+      // Try supabase.functions.invoke first
+      let data: any = null;
+      let invokeError: any = null;
+      
+      try {
+        // For demo users, password is optional
+        const result = await supabase.functions.invoke('delete-user-account', {
+          body: {
+            password: isDemoUser ? undefined : (password || undefined),
+          },
+        });
+        
+        data = result.data;
+        invokeError = result.error;
+        
+        if (invokeError) {
+          throw invokeError;
+        }
+      } catch (err: any) {
+        invokeError = err;
+        console.error('Supabase invoke failed, trying direct fetch:', err);
+        
+        // Fallback to direct fetch to get better error messages
+        try {
+          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
+                             'https://rekkdwpkzkhgnejgzhac.supabase.co';
+          
+          const response = await fetch(`${supabaseUrl}/functions/v1/delete-user-account`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              password: isDemoUser ? undefined : (password || undefined),
+            }),
+          });
 
-      if (error) throw error;
+          const responseText = await response.text();
+          
+          if (!response.ok) {
+            // Parse error response
+            let errorBody: any = {};
+            try {
+              errorBody = JSON.parse(responseText);
+            } catch (e) {
+              errorBody = { message: responseText || `HTTP ${response.status}: ${response.statusText}` };
+            }
+            
+            const errorMsg = errorBody.error || errorBody.message || `HTTP ${response.status}: ${response.statusText}`;
+            console.error('Direct fetch error:', errorMsg);
+            throw new Error(errorMsg);
+          }
+          
+          // Parse success response
+          try {
+            data = JSON.parse(responseText);
+          } catch (e) {
+            throw new Error('Invalid response from server');
+          }
+        } catch (fetchError: any) {
+          // If direct fetch also fails, use the original error
+          console.error('Direct fetch also failed:', fetchError);
+          
+          // Extract error message from fetch error
+          let errorMessage = fetchError?.message || 'Failed to delete account. Please try again.';
+          
+          // Try to extract from the original invoke error
+          const errorObj = invokeError as any;
+          if (errorObj?.message && !errorObj.message.includes('non-2xx')) {
+            errorMessage = errorObj.message;
+          } else if (errorObj?.context?.message) {
+            errorMessage = errorObj.context.message;
+          } else if (errorObj?.error) {
+            if (typeof errorObj.error === 'string') {
+              errorMessage = errorObj.error;
+            } else if (errorObj.error.message) {
+              errorMessage = errorObj.error.message;
+            }
+          }
+          
+          throw new Error(errorMessage);
+        }
+      }
 
       if (!data?.success) {
-        throw new Error(data?.error || 'Failed to delete account');
+        const errorMsg = data?.error || data?.message || 'Failed to delete account';
+        console.error('Delete account returned error:', data);
+        throw new Error(errorMsg);
       }
 
       Alert.alert('Success', 'Account deleted successfully', [
@@ -69,7 +158,24 @@ export default function DeleteAccountScreen() {
       ]);
     } catch (error: any) {
       console.error('Error deleting account:', error);
-      Alert.alert('Error', error.message || 'Failed to delete account. Please try again.');
+      
+      // Provide more user-friendly error messages
+      let errorMessage = 'Failed to delete account. Please try again.';
+      
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('non-2xx') || errorMessage.includes('Edge Function')) {
+        errorMessage = 'The delete account service is currently unavailable. Please contact support at support@netpayy.ng or try again later.';
+      } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('Session')) {
+        errorMessage = 'Your session has expired. Please log in again and try deleting your account.';
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -102,6 +208,24 @@ export default function DeleteAccountScreen() {
             </ThemedText>
           </View>
         </View>
+
+        {/* Demo User Banner */}
+        {isDemoUser && (
+          <View style={styles.demoUserCard}>
+            <View style={styles.demoUserHeader}>
+              <MaterialIcons name="info" size={24} color="#FF7F00" />
+              <ThemedText style={styles.demoUserTitle}>Demo Account Information</ThemedText>
+            </View>
+            <View style={styles.demoUserContent}>
+              <ThemedText style={styles.demoUserText}>
+                You are currently using a demo account (demo@netpayy.ng). This account is designed for testing purposes.
+              </ThemedText>
+              <ThemedText style={styles.demoUserText}>
+                Account deletion for demo accounts may be restricted or handled differently. If you need to delete a demo account, please contact support.
+              </ThemedText>
+            </View>
+          </View>
+        )}
 
         {/* What Will Be Deleted */}
         <View style={styles.sectionCard}>
@@ -365,7 +489,43 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 4,
   },
+  demoUserCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoUserTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 8,
+  },
+  demoUserText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
 });
+
+
+
 
 
 

@@ -1,168 +1,108 @@
-# Demo User Setup for Apple App Review
+# Demo User Setup for Apple Review Testing
 
-This document explains how to set up a demo user account for Apple App Review and testing purposes.
+This document explains how to set up a demo user account for Apple App Store review testing.
 
 ## Demo User Credentials
 
 - **Email**: `demo@netpayy.ng`
-- **Password**: `Demo@1234`
-- **PIN**: `1234`
-- **Initial Balance**: ₦50,000.00
+- **Password**: (Set when creating the auth user)
+- **Virtual Account**: `1234567890`
+- **Initial Balance**: ₦50,000
 
-## Setup Methods
+## Setup Steps
 
-### Method 1: Using Edge Function (Recommended)
+### 1. Create Auth User
 
-1. Deploy the edge function:
-   ```bash
-   supabase functions deploy create-demo-user
-   ```
+Create the demo user via Supabase Auth API or Dashboard:
 
-2. Call the function (no authentication required):
-   ```bash
-   curl -X POST https://<your-project>.supabase.co/functions/v1/create-demo-user \
-     -H "Content-Type: application/json"
-   ```
-
-   Or from your browser/Postman, make a POST request to:
-   ```
-   https://<your-project>.supabase.co/functions/v1/create-demo-user
-   ```
-
-3. The function will:
-   - Create the user in `auth.users` if it doesn't exist
-   - Create/update the profile in `profiles` table
-   - Set up PIN authentication (PIN: 1234)
-   - Set initial balance to ₦50,000
-
-### Method 2: Manual Setup via Supabase Dashboard
-
-1. Go to Supabase Dashboard → Authentication → Users
-2. Click "Add user" → "Create new user"
-3. Enter:
-   - Email: `demo@netpayy.ng`
-   - Password: `Demo@1234`
-   - Auto Confirm User: ✅ (checked)
-4. After user is created, run the SQL migration:
-   ```sql
-   SELECT public.setup_demo_user();
-   ```
-
-### Method 3: Direct SQL (Advanced)
-
-Run these SQL commands in Supabase SQL Editor:
-
-```sql
--- First, create the user via Supabase Auth API or Dashboard
--- Then run:
-SELECT public.setup_demo_user();
+```bash
+# Using Supabase CLI (if available)
+# Or use Supabase Dashboard > Authentication > Users > Add User
 ```
 
-## Verification
+**Required fields:**
+- Email: `demo@netpayy.ng`
+- Password: (choose a secure password for testing)
+- Email confirmed: `true` (to skip email verification)
 
-After setup, verify the demo user:
+### 2. Initialize Demo Data
 
-```sql
--- Check profile
-SELECT 
-  id, 
-  email, 
-  full_name, 
-  phone, 
-  balance, 
-  pin_enabled, 
-  biometric_enabled, 
-  status 
-FROM profiles 
-WHERE email = 'demo@netpayy.ng';
+After creating the auth user, call the setup function to create all demo data:
 
--- Check auth user
-SELECT id, email, email_confirmed_at, created_at
-FROM auth.users
-WHERE email = 'demo@netpayy.ng';
+```bash
+# Using curl or Postman
+curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/setup-demo-user \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json"
 ```
 
-## Testing Features
+Or use the Supabase Dashboard:
+1. Go to Edge Functions
+2. Find `setup-demo-user`
+3. Click "Invoke" with empty body `{}`
 
-The demo user can test:
+### 3. Verify Setup
 
-1. **Login**: Use email/password to login
-2. **PIN Setup/Login**: PIN is already set to `1234`
-3. **Biometric Login**: Can be enabled in app settings
-4. **Transactions**: With ₦50,000 balance, can test:
-   - Airtime purchases
-   - Data purchases
-   - Cable TV subscriptions
-   - Electricity bill payments
-   - Education services (WAEC, JAMB)
-   - Fund transfers
-   - Add money features
+The setup function creates:
+- ✅ Profile with ₦50,000 balance
+- ✅ Virtual account (1234567890)
+- ✅ Sample transactions (airtime, data, cable, electricity, transfer)
+- ✅ Funding transaction record
 
-## Resetting Demo User
+## Demo Features
 
-To reset the demo user's balance and settings:
+### Auto-Credit on Add Money
 
-```sql
-UPDATE profiles 
-SET 
-  balance = 50000.00,
-  status = 'active',
-  pin_enabled = true,
-  biometric_enabled = false,
-  updated_at = now()
-WHERE email = 'demo@netpayy.ng';
+When the demo user clicks "I have added the money" in the Add Money screen:
+- Automatically credits ₦50,000 to their wallet
+- No actual bank transfer needed
+- Works instantly for testing
 
--- Reset PIN
-SELECT public.setup_demo_user_pin(
-  (SELECT id FROM profiles WHERE email = 'demo@netpayy.ng'),
-  '1234'
-);
-```
+### Demo Mode on Login
 
-## Security Notes
+When demo user logs in:
+- Automatically calls `setup-demo-user` to ensure all data exists
+- Sets up demo mode for seamless testing
 
-⚠️ **Important**: 
-- This is a demo account with simple credentials
-- Only use in development/staging environments
-- Do NOT use in production
-- Consider disabling this account after App Review
-- The credentials are intentionally simple for Apple reviewers
+## Demo Data Created
 
-## Apple App Review Notes
+The setup creates sample transactions for:
 
-When submitting for review, provide these credentials in the App Review Information section:
+1. **Initial Funding** - ₦50,000 credit
+2. **Airtime Purchase** - MTN ₦1,000
+3. **Data Purchase** - 5GB MTN ₦2,000
+4. **Cable TV** - DStv Compact ₦1,500
+5. **Electricity** - EKEDC ₦5,000
+6. **Transfer Received** - ₦10,000 credit
 
-```
-Demo Account Credentials:
-Email: demo@netpayy.ng
-Password: Demo@1234
-PIN: 1234
-Referral Code: Check profile after login (format: DEMO-XXXX)
+## Testing Checklist
 
-This account has been pre-loaded with ₦50,000 balance for testing all app features including:
-- Airtime and data purchases
-- Cable TV subscriptions
-- Electricity bill payments
-- Education services (WAEC, JAMB)
-- Fund transfers
-- Add money to wallet
-- Referral code system
-- Biometric authentication
-- Account deletion (⚠️ permanent - account can be recreated via create-demo-user function)
-- Transaction history
+Use the demo user to test:
 
-All features are functional and can be tested with this account.
+- [ ] Login/Logout
+- [ ] View balance
+- [ ] Add money (auto-credits ₦50,000)
+- [ ] Transfer money
+- [ ] Purchase airtime
+- [ ] Purchase data
+- [ ] Purchase cable TV
+- [ ] Purchase electricity
+- [ ] Change PIN
+- [ ] Delete account
+- [ ] View transaction history
 
-For detailed testing instructions, please refer to APPLE_APP_REVIEW_GUIDE.md
-```
+## Notes
 
-**Important:** Include the APPLE_APP_REVIEW_GUIDE.md file with your submission for comprehensive testing instructions.
+- Demo user is identified by email: `demo@netpayy.ng`
+- Auto-credit only works for demo user
+- All demo transactions are marked with "DEMO-" prefix in reference
+- Demo user can perform all normal app functions
+- Virtual account is fake (1234567890) - no real bank account needed
 
-## Demo Test Numbers
+## Troubleshooting
 
-For quick reference, see **DEMO_TEST_NUMBERS.md** which contains all test numbers for:
-- Phone numbers (Airtime/Data)
-- Electricity meter numbers
-- Cable TV smart card numbers
-- Education service test IDs
-
+If demo user setup fails:
+1. Verify auth user exists with email `demo@netpayy.ng`
+2. Check edge function logs in Supabase Dashboard
+3. Ensure RLS policies allow the operations
+4. Verify all required tables exist (profiles, virtual_accounts, user_transactions, funding_transactions)

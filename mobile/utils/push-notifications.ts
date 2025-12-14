@@ -1,25 +1,68 @@
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { supabase } from '@/lib/supabase';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
+// Check if running in Expo Go (where push notifications are limited)
+const isExpoGo = Constants.executionEnvironment === 'storeClient';
+const isAndroidExpoGo = isExpoGo && Platform.OS === 'android';
+
+// Lazy load expo-notifications to avoid errors in Expo Go
+let Notifications: typeof import('expo-notifications') | null = null;
+let notificationsInitialized = false;
+
+const initializeNotifications = () => {
+  if (notificationsInitialized) {
+    return Notifications;
+  }
+  
+  notificationsInitialized = true;
+  
+  // Skip initialization if Android in Expo Go
+  if (isAndroidExpoGo) {
+    console.warn('Android push notifications are not available in Expo Go. Use a development build for full functionality.');
+    return null;
+  }
+  
+  try {
+    // Use require to avoid import-time errors
+    Notifications = require('expo-notifications');
+    
+    if (Notifications) {
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+        }),
+      });
+    }
+  } catch (error) {
+    console.warn('expo-notifications not available:', error);
+    Notifications = null;
+  }
+  
+  return Notifications;
+};
 
 const isPhysicalDevice = () => Platform.OS !== 'web';
 
 const getDeviceIdentifier = async () => {
-  if (Platform.OS === 'android') {
-    const { data } = await Notifications.getDevicePushTokenAsync();
-    return data;
+  const notifications = initializeNotifications();
+  if (!notifications) {
+    return undefined;
   }
-  if (Platform.OS === 'ios') {
-    const { data } = await Notifications.getDevicePushTokenAsync();
-    return data;
+  
+  try {
+    if (Platform.OS === 'android') {
+      const { data } = await notifications.getDevicePushTokenAsync();
+      return data;
+    }
+    if (Platform.OS === 'ios') {
+      const { data } = await notifications.getDevicePushTokenAsync();
+      return data;
+    }
+  } catch (error) {
+    console.warn('Failed to get device identifier:', error);
   }
   return undefined;
 };
@@ -31,39 +74,64 @@ export type PushRegistrationResult = {
 };
 
 export const registerForPushNotifications = async (): Promise<PushRegistrationResult> => {
-  if (!isPhysicalDevice()) {
-    return { registered: false, reason: 'Push notifications require a physical device.' };
+  try {
+    const notifications = initializeNotifications();
+    
+    if (!notifications) {
+      if (isAndroidExpoGo) {
+        return { 
+          registered: false, 
+          reason: 'Android push notifications are not available in Expo Go. Please use a development build.' 
+        };
+      }
+      return { 
+        registered: false, 
+        reason: 'Push notifications are not available in this environment.' 
+      };
+    }
+
+    if (!isPhysicalDevice()) {
+      return { registered: false, reason: 'Push notifications require a physical device.' };
+    }
+
+    const { status: existingStatus } = await notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== 'granted') {
+      const { status } = await notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== 'granted') {
+      return { registered: false, reason: 'Notification permission was not granted.' };
+    }
+
+    // Get Expo project ID from Constants (required for EAS builds)
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId || 'a962982c-3160-42f2-9e64-3ab04ced7bf5';
+    
+    const { data: expoToken } = await notifications.getExpoPushTokenAsync({
+      projectId,
+    });
+    const deviceId = await getDeviceIdentifier();
+    const platform = Platform.OS;
+
+    const { error } = await supabase.functions.invoke('register-push-token', {
+      body: {
+        expo_push_token: expoToken,
+        device_id: deviceId,
+        platform,
+      },
+    });
+
+    if (error) {
+      return { registered: false, reason: error.message };
+    }
+
+    return { registered: true, token: expoToken };
+  } catch (error) {
+    console.error('Error registering for push notifications:', error);
+    return { registered: false, reason: error instanceof Error ? error.message : 'Unknown error' };
   }
-
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') {
-    return { registered: false, reason: 'Notification permission was not granted.' };
-  }
-
-  const { data: expoToken } = await Notifications.getExpoPushTokenAsync();
-  const deviceId = await getDeviceIdentifier();
-  const platform = Platform.OS;
-
-  const { error } = await supabase.functions.invoke('register-push-token', {
-    body: {
-      expo_push_token: expoToken,
-      device_id: deviceId,
-      platform,
-    },
-  });
-
-  if (error) {
-    return { registered: false, reason: error.message };
-  }
-
-  return { registered: true, token: expoToken };
 };
 
 export const scheduleLocalNotification = async (
@@ -72,14 +140,24 @@ export const scheduleLocalNotification = async (
   data?: Record<string, unknown>,
   seconds = 2,
 ) => {
-  return Notifications.scheduleNotificationAsync({
-    content: {
-      title,
-      body,
-      data,
-    },
-    trigger: { seconds },
-  });
+  const notifications = initializeNotifications();
+  if (!notifications) {
+    console.warn('Notifications not available, skipping local notification');
+    return;
+  }
+  
+  try {
+    return await notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data,
+      },
+      trigger: { seconds },
+    });
+  } catch (error) {
+    console.warn('Failed to schedule local notification:', error);
+  }
 };
 
 export type PushMessage = {

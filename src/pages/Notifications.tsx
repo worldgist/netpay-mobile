@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Bell, Send, Users, User, Circle, Eye, EyeOff } from "lucide-react";
+import { Bell, Send, Users, User, Circle, Eye, EyeOff, Smartphone, TestTube } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -51,11 +52,18 @@ export default function Notifications() {
   const [isSending, setIsSending] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [logoFailed, setLogoFailed] = useState(false);
+  const [enablePushNotifications, setEnablePushNotifications] = useState(true);
+  const [pushNotificationStats, setPushNotificationStats] = useState<{
+    totalTokens: number;
+    activeTokens: number;
+    platforms: { ios: number; android: number };
+  } | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchUsers();
     fetchNotifications();
+    fetchPushNotificationStats();
 
     // Realtime: Listen for new notifications
     const notificationsChannel = supabase
@@ -141,6 +149,80 @@ export default function Notifications() {
     setNotifications(sorted);
   };
 
+  const fetchPushNotificationStats = async () => {
+    try {
+      const { data: tokens, error } = await supabase
+        .from("user_push_tokens")
+        .select("platform, is_active");
+
+      if (error) {
+        console.error("Error fetching push token stats:", error);
+        return;
+      }
+
+      const activeTokens = (tokens || []).filter(t => t.is_active);
+      const iosCount = activeTokens.filter(t => t.platform === 'ios').length;
+      const androidCount = activeTokens.filter(t => t.platform === 'android').length;
+
+      setPushNotificationStats({
+        totalTokens: tokens?.length || 0,
+        activeTokens: activeTokens.length,
+        platforms: {
+          ios: iosCount,
+          android: androidCount,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching push notification stats:", error);
+    }
+  };
+
+  const handleTestPushNotification = async () => {
+    if (!title.trim() || !message.trim()) {
+      toast({
+        title: "Error",
+        description: "Please fill in both title and message to test",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error("Not authenticated");
+      }
+
+      const { data, error } = await supabase.functions.invoke('admin-send-push-notification', {
+        body: {
+          title: `[TEST] ${title}`,
+          body: message,
+          user_ids: [user.id], // Send test to current admin user
+          data: {
+            type: 'test_notification',
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Test Push Sent",
+        description: data?.recipients 
+          ? `Test push notification sent to ${data.recipients} device(s)`
+          : "Test push notification sent",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Test Failed",
+        description: error.message || "Failed to send test push notification",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleUserSelect = (userId: string, checked: boolean) => {
     if (checked) {
       setSelectedUsers([...selectedUsers, userId]);
@@ -215,26 +297,49 @@ export default function Notifications() {
         }
       }
 
-      try {
-        await supabase.functions.invoke('admin-send-push-notification', {
-          body: {
-            title,
-            body: message,
-            user_ids: recipientType === 'all' ? undefined : recipientsToNotify,
-            data: {
-              notification_id: notification.id,
-              type: 'admin_notification',
+      // Send push notification if enabled
+      if (enablePushNotifications) {
+        try {
+          const { data: pushData, error: pushError } = await supabase.functions.invoke('admin-send-push-notification', {
+            body: {
+              title,
+              body: message,
+              user_ids: recipientType === 'all' ? undefined : recipientsToNotify,
+              data: {
+                notification_id: notification.id,
+                type: 'admin_notification',
+              },
             },
-          },
+          });
+
+          if (pushError) {
+            console.error('Error sending push notification:', pushError);
+            toast({
+              title: "Warning",
+              description: "In-app notification sent, but push notification failed. Check console for details.",
+              variant: "destructive",
+            });
+          } else if (pushData?.recipients) {
+            toast({
+              title: "Success",
+              description: `Notification sent to ${recipientsToNotify.length} user(s). Push notifications delivered to ${pushData.recipients} device(s).`,
+            });
+          }
+        } catch (pushError: any) {
+          console.error('Error sending push notification:', pushError);
+          toast({
+            title: "Warning",
+            description: "In-app notification sent, but push notification failed. Check console for details.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Success",
+          description: `In-app notification sent to ${recipientsToNotify.length} user(s) (push notifications disabled)`,
         });
-      } catch (pushError) {
-        console.error('Error sending push notification:', pushError);
       }
 
-      toast({
-        title: "Success",
-        description: `Notification sent to ${recipientsToNotify.length} user(s)`,
-      });
 
       // Reset form
       setTitle("");
@@ -410,6 +515,50 @@ export default function Notifications() {
                       )}
                     </div>
                   )}
+
+                  {/* Push Notification Settings */}
+                  <div className="border rounded-lg p-4 space-y-4 bg-[#FFF8F0]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="h-5 w-5 text-[#FF7F00]" />
+                        <Label htmlFor="push-toggle" className="text-base font-semibold">
+                          Push Notifications
+                        </Label>
+                      </div>
+                      <Switch
+                        id="push-toggle"
+                        checked={enablePushNotifications}
+                        onCheckedChange={setEnablePushNotifications}
+                      />
+                    </div>
+                    {enablePushNotifications && pushNotificationStats && (
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div className="text-center">
+                          <p className="font-semibold text-[#FF7F00]">{pushNotificationStats.activeTokens}</p>
+                          <p className="text-muted-foreground">Active Devices</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="font-semibold text-[#FF7F00]">{pushNotificationStats.platforms.ios}</p>
+                          <p className="text-muted-foreground">iOS Devices</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="font-semibold text-[#FF7F00]">{pushNotificationStats.platforms.android}</p>
+                          <p className="text-muted-foreground">Android Devices</p>
+                        </div>
+                      </div>
+                    )}
+                    {enablePushNotifications && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleTestPushNotification}
+                        className="w-full border-[#FF7F00] text-[#FF7F00] hover:bg-[#FFF4E6]"
+                      >
+                        <TestTube className="h-4 w-4 mr-2" />
+                        Test Push Notification
+                      </Button>
+                    )}
+                  </div>
 
                   <Button
                     onClick={handleSendNotification}

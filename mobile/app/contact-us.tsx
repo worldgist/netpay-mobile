@@ -3,13 +3,10 @@ import {
   View,
   TouchableOpacity,
   ScrollView,
-  TextInput,
   Platform,
-  Alert,
-  Modal,
   Linking,
   ActivityIndicator,
-  FlatList,
+  Alert,
 } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -19,24 +16,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '@/lib/supabase';
 
-type SupportMessage = {
-  id: string;
-  created_at: string;
-  user_id: string;
-  name: string;
-  email: string;
-  subject: string;
-  message: string;
-  status?: string | null;
-};
-
 export default function ContactUsScreen() {
   const router = useRouter();
-  const [userId, setUserId] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
   const [supportEmail, setSupportEmail] = useState('support@netpayy.ng');
   const [supportPhone, setSupportPhone] = useState('07067398399');
   const [supportPhoneDisplay, setSupportPhoneDisplay] = useState('+234 706 739 8399');
@@ -47,11 +28,9 @@ export default function ContactUsScreen() {
     { day: 'Sunday', time: 'Closed' },
   ]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const isMounted = useRef(true);
 
-  // Auto-fill user details when screen loads
+  // Load contact settings when screen loads
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -65,24 +44,6 @@ export default function ContactUsScreen() {
         }
 
         if (!isMounted.current) return;
-
-        setUserId(session.user.id);
-        setEmail(session.user.email || '');
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('full_name')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (profileError) throw profileError;
-
-        if (isMounted.current && profile?.full_name) {
-          setName(profile.full_name);
-        } else if (isMounted.current && !profile?.full_name && session.user.email) {
-          const fallbackName = session.user.email.split('@')[0];
-          setName(fallbackName);
-        }
 
         try {
           const { data: settingsRow, error: settingsError } = await supabase
@@ -135,10 +96,6 @@ export default function ContactUsScreen() {
         }
       } catch (error) {
         console.error('Failed to load contact data:', error);
-        if (isMounted.current) {
-          const message = error instanceof Error ? error.message : 'Unable to load contact information. Please try again later.';
-          Alert.alert('Contact Us', message);
-        }
       } finally {
         if (isMounted.current) setLoading(false);
       }
@@ -151,83 +108,6 @@ export default function ContactUsScreen() {
       isMounted.current = false;
     };
   }, [router]);
-
-  const handleSendMessage = async () => {
-    if (submitting) return;
-
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
-    const trimmedSubject = subject.trim();
-    const trimmedMessage = message.trim();
-
-    if (!trimmedName || !trimmedEmail || !trimmedSubject || !trimmedMessage) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      Alert.alert('Error', 'Please enter a valid email address');
-      return;
-    }
-
-    if (!userId) {
-      Alert.alert('Contact Us', 'Please sign in again to send a message.');
-      return;
-    }
-
-    setSubmitting(true);
-
-    try {
-      const { error } = await supabase
-        .from('support_messages')
-        .insert({
-          user_id: userId,
-          name: trimmedName,
-          email: trimmedEmail,
-          subject: trimmedSubject,
-          message: trimmedMessage,
-        });
-
-      if (error) {
-        throw error;
-      }
-
-      const { error: notificationError } = await supabase.functions.invoke('send-support-email', {
-        body: {
-          name: trimmedName,
-          email: trimmedEmail,
-          subject: trimmedSubject,
-          message: trimmedMessage,
-        },
-      });
-
-      if (notificationError) {
-        console.error('send-support-email failed:', notificationError);
-        Alert.alert(
-          'Contact Us',
-          'Your message was saved, but we were unable to email support automatically. We will review it shortly.'
-        );
-      } else {
-        setShowSuccessModal(true);
-      }
-    } catch (error) {
-      console.error('Failed to send support message:', error);
-      const message =
-        error instanceof Error ? error.message : 'Unable to send your message right now. Please try again later.';
-      Alert.alert('Contact Us', message);
-    } finally {
-      if (isMounted.current) setSubmitting(false);
-    }
-  };
-
-  const handleCloseModal = () => {
-    setShowSuccessModal(false);
-    // Clear form fields
-    setName('');
-    setEmail('');
-    setSubject('');
-    setMessage('');
-  };
 
   const handleEmailAction = async () => {
     const url = `mailto:${supportEmail}`;
@@ -291,83 +171,6 @@ export default function ContactUsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
         
-        {/* Contact Form Card */}
-        <View style={styles.formCard}>
-          <ThemedText style={styles.formTitle}>Send us a message</ThemedText>
-          <ThemedText style={styles.formDescription}>
-            Fill out the form below and we'll get back to you as soon as possible
-          </ThemedText>
-
-          {/* Name Field */}
-          <View style={styles.fieldContainer}>
-            <ThemedText style={styles.fieldLabel}>Name</ThemedText>
-              <TextInput
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="Your name"
-                placeholderTextColor="#999"
-              />
-          </View>
-
-          {/* Email Field */}
-          <View style={styles.fieldContainer}>
-            <ThemedText style={styles.fieldLabel}>Email</ThemedText>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="your.email@example.com"
-                placeholderTextColor="#999"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-          </View>
-
-          {/* Subject Field */}
-          <View style={styles.fieldContainer}>
-            <ThemedText style={styles.fieldLabel}>Subject</ThemedText>
-            <TextInput
-              style={styles.input}
-              value={subject}
-              onChangeText={setSubject}
-              placeholder="How can we help?"
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          {/* Message Field */}
-          <View style={styles.fieldContainer}>
-            <ThemedText style={styles.fieldLabel}>Message</ThemedText>
-            <TextInput
-              style={[styles.input, styles.messageInput]}
-              value={message}
-              onChangeText={setMessage}
-              placeholder="Your message..."
-              placeholderTextColor="#999"
-              multiline
-              numberOfLines={6}
-              textAlignVertical="top"
-            />
-          </View>
-
-          {/* Send Message Button */}
-          <TouchableOpacity
-            style={[styles.sendButton, submitting && styles.sendButtonDisabled]}
-            onPress={handleSendMessage}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <MaterialIcons name="send" size={20} color="#fff" style={styles.sendIcon} />
-                <ThemedText style={styles.sendButtonText}>Send Message</ThemedText>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-
         {/* Contact Information Card */}
         <View style={styles.infoCard}>
           <ThemedText style={styles.infoCardTitle}>Contact Information</ThemedText>
@@ -431,34 +234,21 @@ export default function ContactUsScreen() {
               <ThemedText style={styles.contactNote}>Visit our office during business hours</ThemedText>
             </View>
           </View>
-        </View>
 
-
-      </ScrollView>
-
-      {/* Success Modal */}
-      <Modal
-        visible={showSuccessModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCloseModal}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.successIconContainer}>
-              <View style={styles.successIconCircle}>
-                <MaterialIcons name="check" size={48} color="#fff" />
-              </View>
+          {/* Business Hours */}
+          {businessHours.length > 0 && (
+            <View style={styles.businessHoursContainer}>
+              <ThemedText style={styles.businessHoursTitle}>Business Hours</ThemedText>
+              {businessHours.map((hour, index) => (
+                <View key={index} style={styles.businessHourRow}>
+                  <ThemedText style={styles.businessHourDay}>{hour.day}</ThemedText>
+                  <ThemedText style={styles.businessHourTime}>{hour.time}</ThemedText>
+                </View>
+              ))}
             </View>
-            <ThemedText style={styles.modalTitle}>Message Sent!</ThemedText>
-            <ThemedText style={styles.modalMessage}>
-              Your message has been sent successfully. We'll get back to you as soon as possible.
-            </ThemedText>
-            <TouchableOpacity style={styles.modalButton} onPress={handleCloseModal}>
-              <ThemedText style={styles.modalButtonText}>OK</ThemedText>
-            </TouchableOpacity>
-          </View>
+          )}
         </View>
-      </Modal>
+      </ScrollView>
     </ThemedView>
   );
 }
@@ -509,78 +299,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
-  formCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    marginHorizontal: 20,
-    padding: 24,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 8,
-  },
-  formDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  fieldContainer: {
-    marginBottom: 20,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  messageInput: {
-    minHeight: 120,
-    paddingTop: 14,
-  },
-  sendButton: {
-    backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    shadowColor: '#FF7F00',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  sendButtonDisabled: {
-    opacity: 0.7,
-  },
-  sendIcon: {
-    marginRight: 8,
-  },
-  sendButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
   infoCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -597,12 +315,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 4,
-  },
-  infoCardSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   contactItem: {
     flexDirection: 'row',
@@ -652,68 +365,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FF7F00',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  businessHoursContainer: {
+    marginTop: 8,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 32,
-    marginHorizontal: 40,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    minWidth: 280,
-  },
-  successIconContainer: {
-    marginBottom: 24,
-  },
-  successIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#4CAF50',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#4CAF50',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  businessHoursTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
     marginBottom: 12,
-    textAlign: 'center',
   },
-  modalMessage: {
-    fontSize: 16,
+  businessHourRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  businessHourDay: {
+    fontSize: 14,
     color: '#666',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 22,
-    paddingHorizontal: 8,
   },
-  modalButton: {
-    backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 48,
-    minWidth: 120,
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
+  businessHourTime: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
   },
 });
 

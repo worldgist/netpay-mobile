@@ -8,7 +8,9 @@ import { Image, ImageSource } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
+import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import * as Clipboard from 'expo-clipboard';
 
 const PROVIDER_LOGOS: Record<string, ImageSource<any>> = {
   DSTV: require('@/assets/images/dstv.png'),
@@ -49,6 +51,7 @@ export default function CableTVScreen() {
   const [showInvalidCardModal, setShowInvalidCardModal] = useState(false);
   const [invalidCardMessage, setInvalidCardMessage] = useState('');
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
   useEffect(() => {
     isMounted.current = true;
@@ -77,6 +80,12 @@ export default function CableTVScreen() {
           }
           router.replace('/auth/login');
           return;
+        }
+
+        // Check if user is demo user
+        const userEmail = session.user.email;
+        if (isMounted.current) {
+          setIsDemoUser(userEmail === 'demo@netpayy.ng');
         }
 
         const userId = session.user.id;
@@ -393,6 +402,75 @@ export default function CableTVScreen() {
               </View>
             ) : null}
 
+            {/* Demo Numbers Banner */}
+            {isDemoUser && <DemoNumbersBanner type="cable" />}
+
+            {/* Demo Smartcard Number Display - Prominent for Apple Reviewers */}
+            {isDemoUser && (
+              <View style={styles.demoSmartcardCard}>
+                <View style={styles.demoSmartcardHeader}>
+                  <MaterialIcons name="info" size={24} color="#FF7F00" />
+                  <ThemedText style={styles.demoSmartcardTitle}>Test Smartcard Numbers for Apple Review</ThemedText>
+                </View>
+                <View style={styles.demoSmartcardBox}>
+                  <ThemedText style={styles.demoSmartcardLabel}>Use these smartcard numbers:</ThemedText>
+                  <View style={styles.demoSmartcardNumbersList}>
+                    <View style={styles.demoSmartcardItem}>
+                      <ThemedText style={styles.demoSmartcardProvider}>DStv:</ThemedText>
+                      <View style={styles.demoSmartcardValueRow}>
+                        <ThemedText style={styles.demoSmartcardValue}>1234567890</ThemedText>
+                        <TouchableOpacity
+                          style={styles.demoSmartcardCopyButton}
+                          onPress={async () => {
+                            await Clipboard.setStringAsync('1234567890');
+                            Alert.alert('Copied!', 'DStv smartcard number copied');
+                            setSmartCardNumber('1234567890');
+                          }}
+                          activeOpacity={0.7}>
+                          <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <View style={styles.demoSmartcardItem}>
+                      <ThemedText style={styles.demoSmartcardProvider}>GOtv:</ThemedText>
+                      <View style={styles.demoSmartcardValueRow}>
+                        <ThemedText style={styles.demoSmartcardValue}>3456789012</ThemedText>
+                        <TouchableOpacity
+                          style={styles.demoSmartcardCopyButton}
+                          onPress={async () => {
+                            await Clipboard.setStringAsync('3456789012');
+                            Alert.alert('Copied!', 'GOtv smartcard number copied');
+                            setSmartCardNumber('3456789012');
+                          }}
+                          activeOpacity={0.7}>
+                          <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <View style={styles.demoSmartcardItem}>
+                      <ThemedText style={styles.demoSmartcardProvider}>StarTimes:</ThemedText>
+                      <View style={styles.demoSmartcardValueRow}>
+                        <ThemedText style={styles.demoSmartcardValue}>5678901234</ThemedText>
+                        <TouchableOpacity
+                          style={styles.demoSmartcardCopyButton}
+                          onPress={async () => {
+                            await Clipboard.setStringAsync('5678901234');
+                            Alert.alert('Copied!', 'StarTimes smartcard number copied');
+                            setSmartCardNumber('5678901234');
+                          }}
+                          activeOpacity={0.7}>
+                          <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                  <ThemedText style={styles.demoSmartcardNote}>
+                    Click copy next to any provider to auto-fill the smartcard number field.
+                  </ThemedText>
+                </View>
+              </View>
+            )}
+
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
@@ -451,13 +529,15 @@ export default function CableTVScreen() {
                   onChangeText={setSmartCardNumber}
                   keyboardType="numeric"
                 />
-                <TouchableOpacity style={styles.verifyButton} onPress={handleVerifySmartCard}>
-                  {verifying ? (
-                    <ActivityIndicator size="small" color="#FF7F00" />
-                  ) : (
-                    <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
-                  )}
-                </TouchableOpacity>
+                {!isDemoUser && (
+                  <TouchableOpacity style={styles.verifyButton} onPress={handleVerifySmartCard}>
+                    {verifying ? (
+                      <ActivityIndicator size="small" color="#FF7F00" />
+                    ) : (
+                      <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
               {verifiedName ? (
                 <View style={styles.verifiedBanner}>
@@ -820,6 +900,86 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  demoSmartcardCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoSmartcardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoSmartcardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoSmartcardBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoSmartcardLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 12,
+  },
+  demoSmartcardNumbersList: {
+    gap: 12,
+    marginBottom: 8,
+  },
+  demoSmartcardItem: {
+    gap: 6,
+  },
+  demoSmartcardProvider: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E65100',
+    marginBottom: 4,
+  },
+  demoSmartcardValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    gap: 12,
+  },
+  demoSmartcardValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+    flex: 1,
+    letterSpacing: 1,
+  },
+  demoSmartcardCopyButton: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: '#FFF8E1',
+  },
+  demoSmartcardNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 16,
+    marginTop: 4,
   },
 });
 

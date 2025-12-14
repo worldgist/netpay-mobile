@@ -111,26 +111,64 @@ serve(async (req) => {
     // Create deletion record
     let deletionRecord = null;
     try {
+      // Build insert payload with only fields that exist in the table
+      const insertPayload: any = {
+        user_id: user.id,
+        email: profile?.email || user.email || null,
+        full_name: profile?.full_name || null,
+        phone: profile?.phone || null,
+        deletion_reason: deletion_reason || null,
+        status: 'processing',
+        metadata: metadata || {},
+      };
+
+      // Only include deleted_by if the column exists (it might not in all schemas)
+      // We'll try to add it, but if it fails, we'll continue without it
+      try {
+        insertPayload.deleted_by = user.id;
+      } catch (e) {
+        // deleted_by column might not exist, skip it
+        console.log('deleted_by column not available, skipping');
+      }
+
       const { data: recordData, error: recordError } = await supabase
         .from('deleted_accounts')
-        .insert({
-          user_id: user.id,
-          email: profile?.email || user.email || null,
-          full_name: profile?.full_name || null,
-          phone: profile?.phone || null,
-          balance: profile?.balance || 0,
-          deletion_reason: deletion_reason || null,
-          reason: deletion_reason || null, // Also populate 'reason' column if it exists
-          status: 'processing',
-          deleted_by: user.id, // User deleting their own account
-          metadata: metadata || {},
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
       if (recordError) {
         console.error('Error creating deletion record:', recordError);
-        // Continue with deletion even if record creation fails
+        console.error('Record error details:', JSON.stringify(recordError, null, 2));
+        
+        // If the error is due to missing columns, try without optional fields
+        if (recordError.message?.includes('column') || recordError.code === 'PGRST204') {
+          console.log('Retrying without optional fields...');
+          const minimalPayload = {
+            user_id: user.id,
+            email: profile?.email || user.email || null,
+            full_name: profile?.full_name || null,
+            phone: profile?.phone || null,
+            deletion_reason: deletion_reason || null,
+            status: 'processing',
+            metadata: metadata || {},
+          };
+          
+          const { data: retryData, error: retryError } = await supabase
+            .from('deleted_accounts')
+            .insert(minimalPayload)
+            .select()
+            .single();
+            
+          if (retryError) {
+            console.error('Retry also failed:', retryError);
+            // Continue with deletion even if record creation fails
+          } else {
+            deletionRecord = retryData;
+          }
+        } else {
+          // Continue with deletion even if record creation fails
+        }
       } else {
         deletionRecord = recordData;
       }
@@ -152,20 +190,30 @@ serve(async (req) => {
       console.warn('Exception during sign out (continuing anyway):', signOutErr);
     }
 
-    // Fix notifications foreign key constraint issue by deleting notifications sent by this user
+    // Fix notifications.sent_by foreign key constraint by setting it to NULL
     // This prevents the foreign key constraint error when deleting the user
-    // Note: Once the migration is applied, we can set sent_by to NULL instead of deleting
-    console.log(`Deleting notifications sent by user ${user.id}`);
+    console.log(`Updating notifications.sent_by for user ${user.id}`);
     try {
-      const { error: deleteNotificationsError } = await supabase
+      const { error: updateSentByError } = await supabase
         .from('notifications')
-        .delete()
+        .update({ sent_by: null })
         .eq('sent_by', user.id);
       
-      if (deleteNotificationsError) {
-        console.warn('Error deleting notifications (continuing anyway):', deleteNotificationsError);
+      if (updateSentByError) {
+        // If update fails, try deleting as fallback (for older schemas)
+        console.warn('Error updating sent_by, trying delete as fallback:', updateSentByError);
+        const { error: deleteNotificationsError } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('sent_by', user.id);
+        
+        if (deleteNotificationsError) {
+          console.warn('Error deleting notifications (continuing anyway):', deleteNotificationsError);
+        } else {
+          console.log(`Deleted notifications sent by user ${user.id}`);
+        }
       } else {
-        console.log(`Deleted notifications sent by user ${user.id}`);
+        console.log(`Updated sent_by to NULL for notifications where user ${user.id} was the sender`);
       }
     } catch (notificationsErr) {
       console.warn('Exception handling notifications (continuing anyway):', notificationsErr);
@@ -173,6 +221,7 @@ serve(async (req) => {
 
     // Fix deleted_accounts.deleted_by foreign key constraint by setting it to NULL
     // This prevents the foreign key constraint error when deleting the user
+    // Only do this if the deleted_by column exists
     console.log(`Updating deleted_accounts.deleted_by for user ${user.id}`);
     try {
       const { error: updateDeletedByError } = await supabase
@@ -181,12 +230,35 @@ serve(async (req) => {
         .eq('deleted_by', user.id);
       
       if (updateDeletedByError) {
-        console.warn('Error updating deleted_by (continuing anyway):', updateDeletedByError);
+        // If error is due to column not existing, that's okay
+        if (updateDeletedByError.message?.includes('column') || updateDeletedByError.code === 'PGRST204') {
+          console.log('deleted_by column does not exist, skipping update');
+        } else {
+          console.warn('Error updating deleted_by (continuing anyway):', updateDeletedByError);
+        }
       } else {
         console.log(`Updated deleted_by to NULL for records where user ${user.id} was the deleter`);
       }
     } catch (deletedByErr) {
       console.warn('Exception handling deleted_by (continuing anyway):', deletedByErr);
+    }
+
+    // Fix user_transactions.performed_by foreign key constraint by setting it to NULL
+    // This prevents the foreign key constraint error when deleting the user
+    console.log(`Updating user_transactions.performed_by for user ${user.id}`);
+    try {
+      const { error: updatePerformedByError } = await supabase
+        .from('user_transactions')
+        .update({ performed_by: null })
+        .eq('performed_by', user.id);
+      
+      if (updatePerformedByError) {
+        console.warn('Error updating performed_by (continuing anyway):', updatePerformedByError);
+      } else {
+        console.log(`Updated performed_by to NULL for transactions where user ${user.id} was the performer`);
+      }
+    } catch (performedByErr) {
+      console.warn('Exception handling performed_by (continuing anyway):', performedByErr);
     }
 
     // Delete user from auth.users using REST API directly

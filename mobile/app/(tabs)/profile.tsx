@@ -184,6 +184,8 @@ export default function ProfileScreen() {
     router.push('/contact-us');
   }, [router]);
 
+
+
   const handleTerms = useCallback(() => {
     router.push('/terms-and-conditions');
   }, [router]);
@@ -248,6 +250,7 @@ export default function ProfileScreen() {
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
+
 
           {/* Contact Us */}
           <TouchableOpacity style={styles.optionCard} onPress={handleContactUs} activeOpacity={0.7}>

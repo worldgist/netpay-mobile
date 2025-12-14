@@ -551,6 +551,7 @@ serve(async (req) => {
     }
 
     const balanceBefore = ensureNumber(profile.balance);
+    const isDemoUser = profile.email === 'demo@netpayy.ng';
 
     const unitPrice =
       ensureNumber(serviceRow.price) || ensureNumber(serviceRow.original_price) || ensureNumber(amount);
@@ -571,6 +572,76 @@ serve(async (req) => {
     }
 
     const reference = `EDU-${Date.now()}-${user.id.slice(0, 8)}`;
+
+    // For demo users, return mock successful response
+    if (isDemoUser) {
+      console.log('Demo user detected - using mock API response for education purchase');
+      
+      const normalizedExam = examType.toUpperCase();
+      const mockPins = Array.from({ length: quantity }, (_, i) => ({
+        Pin: `DEMO-${normalizedExam}-${Date.now()}-${i + 1}`,
+        Serial: `DEMO-SERIAL-${Date.now()}-${i + 1}`
+      }));
+
+      // Debit wallet using shared function
+      const debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: totalAmount,
+        transactionType: 'education_purchase',
+        description: `Education purchase - ${normalizedExam}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+        notification: {
+          title: 'Education purchase successful (Demo)',
+          message: `₦${totalAmount.toFixed(2)} paid for ${normalizedExam}. Ref: ${reference}.`,
+        },
+      });
+
+      // Record transaction
+      await supabase.from('education_transactions').insert({
+        user_id: user.id,
+        exam_type: normalizedExam,
+        service_id: serviceRowId,
+        variation_code: variationCode || '',
+        quantity: quantity,
+        amount: totalAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        status: 'success',
+        reference,
+        api_response: { success: true, demo: true },
+        metadata: {
+          pins: mockPins,
+          wallet_balance: debitResult.balanceAfter,
+          provider: 'demo',
+          provider_service_id: serviceRow.service_id || '',
+          education_service_id: serviceRowId,
+          variation_code: variationCode || '',
+          billers_code: billersCode || '',
+        },
+        performed_by: user.id
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            reference,
+            exam_type: normalizedExam,
+            quantity: quantity,
+            amount: totalAmount,
+            pins: mockPins,
+            vendor: 'demo',
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter
+          },
+          message: 'Education purchase successful (Demo)',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
 
     let rechargePayload: Record<string, unknown> = {};
     let pins: Array<Record<string, unknown>> = [];

@@ -15,15 +15,34 @@ export default function ChangePinScreen() {
   const [currentPin, setCurrentPin] = useState(Array(PIN_LENGTH).fill(''));
   const [newPin, setNewPin] = useState(Array(PIN_LENGTH).fill(''));
   const [confirmPin, setConfirmPin] = useState(Array(PIN_LENGTH).fill(''));
-  const [activeSection, setActiveSection] = useState<'current' | 'new' | 'confirm'>('current');
+  const [step, setStep] = useState<'current' | 'new' | 'confirm'>('current');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showWrongPinModal, setShowWrongPinModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [verifying, setVerifying] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [verifiedCurrentPin, setVerifiedCurrentPin] = useState(false);
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
-  const currentPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<TextInput>(null));
-  const newPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<TextInput>(null));
-  const confirmPinRefs = Array.from({ length: PIN_LENGTH }, () => useRef<TextInput>(null));
+  // Create refs for PIN inputs - must be created at component level, not in callbacks
+  const currentPinRefs = [
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+  ];
+  const newPinRefs = [
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+  ];
+  const confirmPinRefs = [
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+    useRef<TextInput>(null),
+  ];
 
   useEffect(() => {
     const loadPinState = async () => {
@@ -38,6 +57,11 @@ export default function ChangePinScreen() {
         }
 
         setUserId(session.user.id);
+
+        // Check if user is demo user
+        if (session.user.email === 'demo@netpayy.ng') {
+          setIsDemoUser(true);
+        }
 
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
@@ -89,18 +113,135 @@ export default function ChangePinScreen() {
       refs[index + 1].current?.focus();
     }
 
+    // Auto-verify and move to next step when PIN is complete
     if (type === 'current' && next.every((digit) => digit) && index === PIN_LENGTH - 1) {
+      // Use setTimeout to ensure state is updated before verification
       setTimeout(() => {
-        setActiveSection('new');
-        newPinRefs[0].current?.focus();
+        verifyCurrentPin(next.join(''));
       }, 100);
     }
 
     if (type === 'new' && next.every((digit) => digit) && index === PIN_LENGTH - 1) {
       setTimeout(() => {
-        setActiveSection('confirm');
+        setStep('confirm');
         confirmPinRefs[0].current?.focus();
-      }, 100);
+      }, 200);
+    }
+
+    if (type === 'confirm' && next.every((digit) => digit) && index === PIN_LENGTH - 1) {
+      // Auto-submit when confirm PIN is complete
+      setTimeout(() => {
+        handleChangePin();
+      }, 200);
+    }
+  };
+
+  const verifyCurrentPin = async (pinString: string) => {
+    if (!userId || verifying || pinString.length !== PIN_LENGTH) {
+      return;
+    }
+
+    try {
+      setVerifying(true);
+
+      // For demo users, try both bcrypt (via RPC) and SHA256 verification
+      if (isDemoUser) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.email) {
+          // First, try RPC function for bcrypt verification
+          const { data: verifyData, error: verifyError } = await supabase.rpc('verify_user_pin', {
+            user_email: user.email,
+            user_pin: pinString,
+          });
+
+          // If RPC succeeds and returns a UUID, PIN is correct (bcrypt)
+          if (!verifyError && verifyData) {
+            // PIN is correct, move to next step
+            setVerifiedCurrentPin(true);
+            setStep('new');
+            setTimeout(() => {
+              newPinRefs[0].current?.focus();
+            }, 200);
+            setVerifying(false);
+            return;
+          }
+
+          // If RPC fails, try SHA256 verification (in case PIN was changed to SHA256)
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('pin_hash')
+            .eq('id', userId)
+            .maybeSingle();
+
+          if (!profileError && profile?.pin_hash) {
+            const storedHash = profile.pin_hash;
+            const currentHash = await Crypto.digestStringAsync(
+              Crypto.CryptoDigestAlgorithm.SHA256,
+              pinString,
+            );
+
+            if (storedHash === currentHash) {
+              // PIN is correct (SHA256), move to next step
+              setVerifiedCurrentPin(true);
+              setStep('new');
+              setTimeout(() => {
+                newPinRefs[0].current?.focus();
+              }, 200);
+              setVerifying(false);
+              return;
+            }
+          }
+
+          // Both methods failed, show wrong PIN modal
+          setShowWrongPinModal(true);
+          setCurrentPin(Array(PIN_LENGTH).fill(''));
+          setVerifying(false);
+          return;
+        }
+      }
+
+      // For non-demo users, use SHA256 verification
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('pin_hash')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      if (!profile?.pin_hash) {
+        Alert.alert('Error', 'No PIN found. Please set up a PIN first.');
+        setCurrentPin(Array(PIN_LENGTH).fill(''));
+        setVerifying(false);
+        return;
+      }
+
+      const storedHash = profile.pin_hash;
+      const currentHash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        pinString,
+      );
+
+      if (storedHash !== currentHash) {
+        setShowWrongPinModal(true);
+        setCurrentPin(Array(PIN_LENGTH).fill(''));
+        setVerifying(false);
+        return;
+      }
+
+      // PIN is correct, move to next step
+      setVerifiedCurrentPin(true);
+      setStep('new');
+      setTimeout(() => {
+        newPinRefs[0].current?.focus();
+      }, 200);
+    } catch (error) {
+      console.error('Failed to verify PIN:', error);
+      Alert.alert('Error', 'Failed to verify PIN. Please try again.');
+      setCurrentPin(Array(PIN_LENGTH).fill(''));
+      setStep('current');
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -132,82 +273,48 @@ export default function ChangePinScreen() {
       return;
     }
 
-    const currentPinString = currentPin.join('');
-    if (currentPinString.length !== PIN_LENGTH) {
-      Alert.alert('Error', 'Please enter your current PIN');
-      setActiveSection('current');
-      currentPinRefs[0].current?.focus();
-      return;
-    }
-
-    try {
-      setUpdating(true);
-
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('pin_hash')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (profileError) throw profileError;
-
-      const storedHash = profile?.pin_hash || '';
-      const currentHash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        currentPinString,
-      );
-
-      if (!storedHash || storedHash !== currentHash) {
-        setShowWrongPinModal(true);
-        setCurrentPin(Array(PIN_LENGTH).fill(''));
-        setActiveSection('current');
-        setUpdating(false);
-        return;
-      }
-    } catch (error) {
-      console.error('Failed to verify PIN:', error);
-      setUpdating(false);
-      Alert.alert('Error', 'Failed to verify PIN. Please try again.');
+    if (!verifiedCurrentPin) {
+      Alert.alert('Error', 'Please verify your current PIN first');
+      setStep('current');
       return;
     }
 
     const newPinString = newPin.join('');
     if (newPinString.length !== PIN_LENGTH) {
       Alert.alert('Error', 'Please enter a new 4-digit PIN');
-      setActiveSection('new');
+      setStep('new');
       newPinRefs[0].current?.focus();
-      setUpdating(false);
       return;
     }
 
+    const currentPinString = currentPin.join('');
     if (newPinString === currentPinString) {
       Alert.alert('Error', 'New PIN must be different from current PIN');
       setNewPin(Array(PIN_LENGTH).fill(''));
-      setActiveSection('new');
+      setStep('new');
       newPinRefs[0].current?.focus();
-      setUpdating(false);
       return;
     }
 
     const confirmPinString = confirmPin.join('');
     if (confirmPinString.length !== PIN_LENGTH) {
       Alert.alert('Error', 'Please confirm your new PIN');
-      setActiveSection('confirm');
+      setStep('confirm');
       confirmPinRefs[0].current?.focus();
-      setUpdating(false);
       return;
     }
 
     if (newPinString !== confirmPinString) {
       Alert.alert('Error', 'New PIN and confirm PIN do not match');
       setConfirmPin(Array(PIN_LENGTH).fill(''));
-      setActiveSection('confirm');
+      setStep('confirm');
       confirmPinRefs[0].current?.focus();
-      setUpdating(false);
       return;
     }
 
     try {
+      setUpdating(true);
+
       const newHash = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
         newPinString,
@@ -228,12 +335,33 @@ export default function ChangePinScreen() {
       setNewPin(Array(PIN_LENGTH).fill(''));
       setConfirmPin(Array(PIN_LENGTH).fill(''));
       setCurrentPin(Array(PIN_LENGTH).fill(''));
-      setActiveSection('current');
+      setStep('current');
+      setVerifiedCurrentPin(false);
     } catch (error) {
       console.error('Failed to save new PIN:', error);
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save new PIN');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleBack = () => {
+    if (step === 'confirm') {
+      setStep('new');
+      setConfirmPin(Array(PIN_LENGTH).fill(''));
+      setTimeout(() => {
+        newPinRefs[0].current?.focus();
+      }, 100);
+    } else if (step === 'new') {
+      setStep('current');
+      setNewPin(Array(PIN_LENGTH).fill(''));
+      setVerifiedCurrentPin(false);
+      // Don't clear currentPin - user might want to go back and verify again
+      setTimeout(() => {
+        currentPinRefs[0].current?.focus();
+      }, 100);
+    } else {
+      router.back();
     }
   };
 
@@ -245,34 +373,91 @@ export default function ChangePinScreen() {
   const handleCloseWrongPinModal = () => {
     setShowWrongPinModal(false);
     setCurrentPin(Array(PIN_LENGTH).fill(''));
-    setActiveSection('current');
+    setStep('current');
+    setVerifiedCurrentPin(false);
     setTimeout(() => {
       currentPinRefs[0].current?.focus();
     }, 100);
   };
 
-  const renderPinInputs = (pin: string[], refs: React.RefObject<TextInput>[], type: 'current' | 'new' | 'confirm') => {
-    const isActive = activeSection === type;
-    const label = type === 'current' ? 'Current PIN' : type === 'new' ? 'New PIN' : 'Confirm New PIN';
-
+  const renderCurrentPinScreen = () => {
     return (
-      <View style={styles.pinSection}>
-        <ThemedText style={styles.pinLabel}>{label}</ThemedText>
+      <View style={styles.screenContainer}>
+        <View style={styles.iconContainer}>
+          <MaterialIcons name="lock" size={64} color="#FF7F00" />
+        </View>
+        <ThemedText style={styles.screenTitle}>Enter Current PIN</ThemedText>
+        <ThemedText style={styles.screenDescription}>
+          Please enter your current 4-digit PIN to continue
+        </ThemedText>
+        {isDemoUser && (
+          <View style={styles.demoPinHint}>
+            <MaterialIcons name="info" size={16} color="#FF7F00" />
+            <ThemedText style={styles.demoPinHintText}>
+              Demo account default PIN: 1234
+            </ThemedText>
+          </View>
+        )}
         <View style={styles.pinContainer}>
-          {pin.map((digit, index) => (
+          {currentPin.map((digit, index) => (
             <TextInput
               key={index}
-              ref={refs[index]}
+              ref={currentPinRefs[index]}
               style={[
                 styles.pinInput,
-                isActive && digit && styles.pinInputFilled,
-                isActive && !digit && styles.pinInputActive,
+                digit && styles.pinInputFilled,
+                !digit && styles.pinInputActive,
               ]}
               value={digit}
-              onChangeText={(value) => handlePinChange(value, index, type)}
+              onChangeText={(value) => handlePinChange(value, index, 'current')}
               onKeyPress={({ nativeEvent }) => {
                 if (nativeEvent.key === 'Backspace') {
-                  handleBackspace(index, type);
+                  handleBackspace(index, 'current');
+                }
+              }}
+              keyboardType="number-pad"
+              maxLength={1}
+              secureTextEntry
+              selectTextOnFocus
+              editable={!loading && !verifying && !updating}
+            />
+          ))}
+        </View>
+        {verifying && (
+          <View style={styles.verifyingContainer}>
+            <ActivityIndicator size="small" color="#FF7F00" />
+            <ThemedText style={styles.verifyingText}>Verifying...</ThemedText>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderNewPinScreen = () => {
+    return (
+      <View style={styles.screenContainer}>
+        <View style={styles.iconContainer}>
+          <MaterialIcons name="lock-outline" size={64} color="#FF7F00" />
+        </View>
+        <ThemedText style={styles.screenTitle}>Enter New PIN</ThemedText>
+        <ThemedText style={styles.screenDescription}>
+          Create a new 4-digit PIN for your account
+        </ThemedText>
+        <View style={styles.pinContainer}>
+          {newPin.map((digit, index) => (
+            <TextInput
+              key={index}
+              ref={newPinRefs[index]}
+              style={[
+                styles.pinInput,
+                digit && styles.pinInputFilled,
+                !digit && styles.pinInputActive,
+              ]}
+              value={digit}
+              onChangeText={(value) => handlePinChange(value, index, 'new')}
+              onKeyPress={({ nativeEvent }) => {
+                if (nativeEvent.key === 'Backspace') {
+                  handleBackspace(index, 'new');
                 }
               }}
               keyboardType="number-pad"
@@ -287,6 +472,65 @@ export default function ChangePinScreen() {
     );
   };
 
+  const renderConfirmPinScreen = () => {
+    return (
+      <View style={styles.screenContainer}>
+        <View style={styles.iconContainer}>
+          <MaterialIcons name="lock" size={64} color="#FF7F00" />
+        </View>
+        <ThemedText style={styles.screenTitle}>Confirm New PIN</ThemedText>
+        <ThemedText style={styles.screenDescription}>
+          Please confirm your new 4-digit PIN
+        </ThemedText>
+        <View style={styles.pinContainer}>
+          {confirmPin.map((digit, index) => (
+            <TextInput
+              key={index}
+              ref={confirmPinRefs[index]}
+              style={[
+                styles.pinInput,
+                digit && styles.pinInputFilled,
+                !digit && styles.pinInputActive,
+              ]}
+              value={digit}
+              onChangeText={(value) => handlePinChange(value, index, 'confirm')}
+              onKeyPress={({ nativeEvent }) => {
+                if (nativeEvent.key === 'Backspace') {
+                  handleBackspace(index, 'confirm');
+                }
+              }}
+              keyboardType="number-pad"
+              maxLength={1}
+              secureTextEntry
+              selectTextOnFocus
+              editable={!loading && !updating}
+            />
+          ))}
+        </View>
+        {updating && (
+          <View style={styles.verifyingContainer}>
+            <ActivityIndicator size="small" color="#FF7F00" />
+            <ThemedText style={styles.verifyingText}>Updating PIN...</ThemedText>
+          </View>
+        )}
+        <TouchableOpacity
+          style={[
+            styles.changeButton,
+            (!confirmPin.every((digit) => digit) || updating) && styles.changeButtonDisabled,
+          ]}
+          onPress={handleChangePin}
+          disabled={updating || !confirmPin.every((digit) => digit)}
+        >
+          {updating ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.changeButtonText}>Change PIN</ThemedText>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <ThemedView style={styles.loadingContainer}>
@@ -295,15 +539,42 @@ export default function ChangePinScreen() {
     );
   }
 
+  const getStepTitle = () => {
+    switch (step) {
+      case 'current':
+        return 'Current PIN';
+      case 'new':
+        return 'New PIN';
+      case 'confirm':
+        return 'Confirm PIN';
+      default:
+        return 'Change PIN';
+    }
+  };
+
+  const getStepIndicator = () => {
+    return (
+      <View style={styles.stepIndicator}>
+        <View style={[styles.stepDot, step === 'current' && styles.stepDotActive]} />
+        <View style={[styles.stepLine, step !== 'current' && styles.stepLineActive]} />
+        <View style={[styles.stepDot, step === 'new' && styles.stepDotActive]} />
+        <View style={[styles.stepLine, step === 'confirm' && styles.stepLineActive]} />
+        <View style={[styles.stepDot, step === 'confirm' && styles.stepDotActive]} />
+      </View>
+    );
+  };
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <ThemedText style={styles.headerTitle}>Change PIN</ThemedText>
+        <ThemedText style={styles.headerTitle}>{getStepTitle()}</ThemedText>
         <View style={styles.placeholder} />
       </View>
+
+      {getStepIndicator()}
 
       <ScrollView
         style={styles.scrollView}
@@ -311,34 +582,28 @@ export default function ChangePinScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Demo User Banner */}
+        {isDemoUser && (
+          <View style={styles.demoUserCard}>
+            <View style={styles.demoUserHeader}>
+              <MaterialIcons name="info" size={24} color="#FF7F00" />
+              <ThemedText style={styles.demoUserTitle}>Demo Account Information</ThemedText>
+            </View>
+            <View style={styles.demoUserContent}>
+              <ThemedText style={styles.demoUserText}>
+                You are currently using a demo account (demo@netpayy.ng). This account is designed for testing purposes.
+              </ThemedText>
+              <ThemedText style={styles.demoUserText}>
+                PIN changes for demo accounts work normally. You can change your PIN as needed for testing.
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
         <View style={styles.content}>
-          <ThemedText style={styles.description}>
-            Enter your current PIN and create a new 4-digit PIN
-          </ThemedText>
-
-          {renderPinInputs(currentPin, currentPinRefs, 'current')}
-          {renderPinInputs(newPin, newPinRefs, 'new')}
-          {renderPinInputs(confirmPin, confirmPinRefs, 'confirm')}
-
-          <TouchableOpacity
-            style={[
-              styles.changeButton,
-              ((!currentPin.every((digit) => digit) || !newPin.every((digit) => digit) || !confirmPin.every((digit) => digit)) || updating) && styles.changeButtonDisabled,
-            ]}
-            onPress={handleChangePin}
-            disabled={
-              updating ||
-              !currentPin.every((digit) => digit) ||
-              !newPin.every((digit) => digit) ||
-              !confirmPin.every((digit) => digit)
-            }
-          >
-            {updating ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <ThemedText style={styles.changeButtonText}>Change PIN</ThemedText>
-            )}
-          </TouchableOpacity>
+          {step === 'current' && renderCurrentPinScreen()}
+          {step === 'new' && renderNewPinScreen()}
+          {step === 'confirm' && renderConfirmPinScreen()}
         </View>
       </ScrollView>
 
@@ -426,38 +691,91 @@ const styles = StyleSheet.create({
   placeholder: {
     width: 40,
   },
+  stepIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#F9F9F9',
+  },
+  stepDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#E0E0E0',
+  },
+  stepDotActive: {
+    backgroundColor: '#FF7F00',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  stepLine: {
+    width: 40,
+    height: 2,
+    backgroundColor: '#E0E0E0',
+    marginHorizontal: 8,
+  },
+  stepLineActive: {
+    backgroundColor: '#FF7F00',
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 32,
+    paddingTop: 40,
     paddingBottom: 48,
   },
   content: {
     flex: 1,
   },
-  description: {
+  screenContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 400,
+  },
+  iconContainer: {
+    marginBottom: 32,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#FFF3E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  screenTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  screenDescription: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: 48,
     lineHeight: 22,
-  },
-  pinSection: {
-    marginBottom: 32,
-  },
-  pinLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   pinContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 12,
+    gap: 16,
+    marginBottom: 32,
+  },
+  verifyingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  verifyingText: {
+    fontSize: 14,
+    color: '#666',
   },
   pinInput: {
     width: 60,
@@ -578,6 +896,57 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  demoUserCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    marginHorizontal: 20,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoUserTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 8,
+  },
+  demoUserText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  demoPinHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF8E1',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoPinHintText: {
+    fontSize: 13,
+    color: '#E65100',
+    fontWeight: '500',
   },
 });
 

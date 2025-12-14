@@ -7,7 +7,9 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import * as Clipboard from 'expo-clipboard';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -86,6 +88,7 @@ export default function AirtimePurchaseScreen() {
   const [error, setError] = useState<string | null>(null);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
   const isMounted = useRef(true);
   const providerRef = useRef<string | null>(null);
@@ -127,6 +130,12 @@ export default function AirtimePurchaseScreen() {
       if (!session) {
         router.replace('/auth/login');
         return;
+      }
+
+      // Check if user is demo user
+      const userEmail = session.user.email;
+      if (isMounted.current) {
+        setIsDemoUser(userEmail === 'demo@netpayy.ng');
       }
 
       const userId = session.user.id;
@@ -491,6 +500,38 @@ export default function AirtimePurchaseScreen() {
             <View style={styles.errorBanner}>
               <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
               <ThemedText style={styles.errorText}>{error}</ThemedText>
+            </View>
+          )}
+
+          {/* Demo Numbers Banner */}
+          {isDemoUser && <DemoNumbersBanner type="airtime" />}
+
+          {/* Demo Phone Number Display - Prominent for Apple Reviewers */}
+          {isDemoUser && (
+            <View style={styles.demoPhoneCard}>
+              <View style={styles.demoPhoneHeader}>
+                <MaterialIcons name="info" size={24} color="#FF7F00" />
+                <ThemedText style={styles.demoPhoneTitle}>Test Phone Number for Apple Review</ThemedText>
+              </View>
+              <View style={styles.demoPhoneNumberBox}>
+                <ThemedText style={styles.demoPhoneLabel}>Use this phone number:</ThemedText>
+                <View style={styles.demoPhoneValueContainer}>
+                  <ThemedText style={styles.demoPhoneValue}>08012345678</ThemedText>
+                  <TouchableOpacity
+                    style={styles.demoPhoneCopyButton}
+                    onPress={async () => {
+                      await Clipboard.setStringAsync('08012345678');
+                      Alert.alert('Copied!', 'Phone number copied to clipboard');
+                      setPhoneNumber('08012345678');
+                    }}
+                    activeOpacity={0.7}>
+                    <MaterialIcons name="content-copy" size={20} color="#FF7F00" />
+                  </TouchableOpacity>
+                </View>
+                <ThemedText style={styles.demoPhoneNote}>
+                  This test number works for all networks (MTN, AIRTEL, GLO, 9MOBILE)
+                </ThemedText>
+              </View>
             </View>
           )}
 
@@ -894,6 +935,73 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  demoPhoneCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoPhoneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoPhoneTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoPhoneNumberBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoPhoneLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  demoPhoneValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  demoPhoneValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+    flex: 1,
+    letterSpacing: 1,
+  },
+  demoPhoneCopyButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFF8E1',
+  },
+  demoPhoneNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });
 

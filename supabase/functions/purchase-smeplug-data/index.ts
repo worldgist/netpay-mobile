@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -414,6 +415,22 @@ serve(async (req) => {
         { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
       );
     }
+
+    // Send push notification
+    await sendPushNotification(
+      supabase,
+      user.id,
+      'Data Purchase Successful',
+      `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+      {
+        type: 'data_purchase',
+        reference,
+        amount: userChargedAmount,
+        plan_name: dataPlan.plan_name,
+        phone_number: sanitizedPhone,
+        network: resolvedNetworkName || dataPlan.network || String(network_id),
+      }
+    );
 
     return new Response(
       JSON.stringify({ 

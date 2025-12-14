@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -174,37 +175,63 @@ serve(async (req) => {
       `Purchasing airtime: ${normalizedAmount} for ${sanitizedPhone} on network ${smeplugNetworkId} (${normalizedNetworkName ?? 'UNKNOWN'})`
     );
 
-    // Purchase airtime via SMEPLUG API
-    const response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        network_id: smeplugNetworkId,
-        phone: sanitizedPhone,
-        amount: normalizedAmount,
-        customer_reference: reference
-      }),
-    });
-
-    const responseText = await response.text();
+    // Check if user is demo user - mock the API response for demo users
+    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    
     let apiResponse;
-    try {
-      apiResponse = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse SMEPLUG response:', responseText);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `Invalid response from airtime provider: ${responseText.substring(0, 100)}`
+    let response;
+
+    if (isDemoUser) {
+      // Mock successful response for demo users
+      console.log('Demo user detected - using mock API response');
+      apiResponse = {
+        success: true,
+        status: true,
+        message: 'Airtime purchase successful (Demo)',
+        data: {
+          status: true,
+          success: true,
+          reference: reference,
+          phone: sanitizedPhone,
+          amount: normalizedAmount,
+          network: normalizedNetworkName || String(smeplugNetworkId),
+        },
+      };
+      response = { ok: true };
+    } else {
+      // Purchase airtime via SMEPLUG API for real users
+      response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          network_id: smeplugNetworkId,
+          phone: sanitizedPhone,
+          amount: normalizedAmount,
+          customer_reference: reference
         }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+      });
+
+      const responseText = await response.text();
+      try {
+        apiResponse = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse SMEPLUG response:', responseText);
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: `Invalid response from airtime provider: ${responseText.substring(0, 100)}`
+          }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
     }
     
-    console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
+    console.log('Airtime purchase API response:', JSON.stringify(apiResponse, null, 2));
 
     const apiStatus =
       apiResponse?.success === true ||
@@ -284,6 +311,21 @@ serve(async (req) => {
       api_response: apiResponse,
       performed_by: user.id
     });
+
+    // Send push notification
+    await sendPushNotification(
+      supabase,
+      user.id,
+      'Airtime Purchase Successful',
+      `${formattedAmount} airtime purchased for ${sanitizedPhone} on ${displayNetwork}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+      {
+        type: 'airtime_purchase',
+        reference,
+        amount: normalizedAmount,
+        phone_number: sanitizedPhone,
+        network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
+      }
+    );
 
     return new Response(
       JSON.stringify({ 

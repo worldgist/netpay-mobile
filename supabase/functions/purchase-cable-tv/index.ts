@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -174,10 +175,10 @@ serve(async (req) => {
       }
     }
 
-    // Get user balance
+    // Get user balance and email
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('balance')
+      .select('balance, email')
       .eq('id', user.id)
       .single();
 
@@ -188,7 +189,73 @@ serve(async (req) => {
       );
     }
 
+    const isDemoUser = profile.email === 'demo@netpayy.ng';
     const effectivePrice = Number(plan.custom_price || plan.original_price || plan.price || 0);
+
+    // For demo users, return mock successful response
+    if (isDemoUser) {
+      console.log('Demo user detected - using mock API response for cable TV purchase');
+      
+      const balanceBefore = Number(profile.balance) || 0;
+      if (balanceBefore < effectivePrice) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Insufficient balance' }),
+          { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const reference = `CABLE-${Date.now()}-${user.id.substring(0, 8)}`;
+
+      // Debit wallet using shared function
+      const { debitUserWallet } = await import('../_shared/wallet.ts');
+      const debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: effectivePrice,
+        transactionType: 'cable_purchase',
+        description: `Cable TV purchase - ${plan.package_name || provider}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+        notification: {
+          title: 'Cable TV purchase successful (Demo)',
+          message: `${plan.package_name || provider} subscription purchased. Reference: ${reference}.`,
+        },
+      });
+
+      // Record transaction
+      await supabase.from('cable_tv_transactions').insert({
+        user_id: user.id,
+        smartcard_number: card_number,
+        provider: provider,
+        package_name: plan.package_name,
+        amount: effectivePrice,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        status: 'success',
+        reference,
+        vendor: 'demo',
+        performed_by: user.id
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            reference,
+            smartcard_number: card_number,
+            provider: provider,
+            package_name: plan.package_name,
+            amount: effectivePrice,
+            vendor: 'demo',
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter
+          },
+          message: 'Cable TV subscription purchased successfully (Demo)',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
 
     console.log('Price calculation:', {
       custom_price: plan.custom_price,
@@ -755,6 +822,22 @@ serve(async (req) => {
         }
       }),
       { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+    );
+
+    // Send push notification
+    await sendPushNotification(
+      supabase,
+      user.id,
+      'Cable TV Subscription Successful',
+      `₦${effectivePrice.toFixed(2)} ${plan.package_name} subscription successful for ${provider} (Card: ${card_number}). Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+      {
+        type: 'cable_tv_subscription',
+        reference,
+        amount: effectivePrice,
+        provider,
+        package_name: plan.package_name,
+        card_number: card_number,
+      }
     );
 
   } catch (error) {

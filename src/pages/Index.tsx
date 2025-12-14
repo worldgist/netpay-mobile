@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Phone,
@@ -17,8 +18,33 @@ import {
   Mail,
 } from "lucide-react";
 
+const SMARTSUPP_KEY = 'aacb718ad1c939c6d54d2ecc8f3b840bf7a7f97b';
+
 const Index = () => {
   const navigate = useNavigate();
+
+  // Load Smartsupp chat widget
+  useEffect(() => {
+    // Initialize Smartsupp
+    (window as any)._smartsupp = (window as any)._smartsupp || {};
+    (window as any)._smartsupp.key = SMARTSUPP_KEY;
+
+    // Load Smartsupp script if not already loaded
+    if (!document.querySelector('script[src*="smartsuppchat.com"]')) {
+      const script = document.createElement('script');
+      script.type = 'text/javascript';
+      script.async = true;
+      script.src = 'https://www.smartsuppchat.com/loader.js';
+      script.charset = 'utf-8';
+      document.getElementsByTagName('head')[0].appendChild(script);
+    }
+
+    // Cleanup function
+    return () => {
+      // Optionally remove the script on unmount if needed
+      // But usually we want to keep it for better UX
+    };
+  }, []);
 
   const heroHighlights = [
     "Deliver the fastest airtime, data, TV, betting, utilities and education payments nationwide.",

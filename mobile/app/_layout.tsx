@@ -6,29 +6,36 @@ import * as Linking from 'expo-linking';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { supabase } from '@/lib/supabase';
+import { registerForPushNotifications } from '@/utils/push-notifications';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
 const handleDeepLink = (url: string) => {
-  if (!url) return;
-  const parsed = Linking.parse(url);
-  const path = parsed.path || parsed.hostname;
+  try {
+    if (!url) return;
+    const parsed = Linking.parse(url);
+    const path = parsed.path || parsed.hostname;
 
-  if (!path) return;
+    if (!path) return;
 
-  const query = parsed.queryParams ?? {};
+    const query = parsed.queryParams ?? {};
 
-  if (path === 'reset-password') {
-    router.push({
-      pathname: '/reset-password',
-      params: {
-        access_token: typeof query.access_token === 'string' ? query.access_token : undefined,
-        refresh_token: typeof query.refresh_token === 'string' ? query.refresh_token : undefined,
-        type: typeof query.type === 'string' ? query.type : undefined,
-      },
-    });
+    if (path === 'reset-password') {
+      router.push({
+        pathname: '/reset-password',
+        params: {
+          access_token: typeof query.access_token === 'string' ? query.access_token : undefined,
+          refresh_token: typeof query.refresh_token === 'string' ? query.refresh_token : undefined,
+          type: typeof query.type === 'string' ? query.type : undefined,
+        },
+      });
+    }
+  } catch (error) {
+    console.error('Error handling deep link:', error);
   }
 };
 
@@ -48,42 +55,83 @@ export default function RootLayout() {
     return () => subscription.remove();
   }, []);
 
+  // Register for push notifications when user is authenticated
+  useEffect(() => {
+    const checkAndRegisterPush = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const result = await registerForPushNotifications();
+          if (result.registered) {
+            console.log('Push notifications registered successfully');
+          } else {
+            console.log('Push notification registration:', result.reason);
+          }
+        }
+      } catch (error) {
+        console.error('Error registering push notifications:', error);
+      }
+    };
+
+    // Register immediately if user is already logged in
+    checkAndRegisterPush();
+
+    // Also listen for auth state changes
+    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          const result = await registerForPushNotifications();
+          if (result.registered) {
+            console.log('Push notifications registered after sign in');
+          } else {
+            console.log('Push notification registration after sign in:', result.reason);
+          }
+        }
+      }
+    );
+
+    return () => {
+      authSubscription?.unsubscribe();
+    };
+  }, []);
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        <Stack.Screen name="airtime-purchase" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="data-purchase" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="cable-tv" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="education" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="electricity" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="add-money" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="transfer" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="transfer-success" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="payment-success" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="transaction-details" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="splash" options={{ headerShown: false }} />
-        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
-        <Stack.Screen name="delete-account" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="edit-profile" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="referral" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="contact-us" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="support-chat" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="change-pin" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="terms-and-conditions" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="email-verification" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="setup-pin" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="setup-biometric" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="forget-password" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="reset-password" options={{ headerShown: false, presentation: 'card' }} />
-        <Stack.Screen name="sign-in-pin" options={{ headerShown: false, presentation: 'card' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          <Stack.Screen name="airtime-purchase" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="data-purchase" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="cable-tv" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="education" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="electricity" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="add-money" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="transfer" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="transfer-success" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="payment-success" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="transaction-details" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="splash" options={{ headerShown: false }} />
+          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+          <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+          <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+          <Stack.Screen name="delete-account" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="edit-profile" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="referral" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="contact-us" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="change-pin" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="terms-and-conditions" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="email-verification" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="setup-pin" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="setup-biometric" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="forget-password" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="reset-password" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="sign-in-pin" options={{ headerShown: false, presentation: 'card' }} />
+        </Stack>
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

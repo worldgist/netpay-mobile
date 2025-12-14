@@ -7,10 +7,12 @@ import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { Dropdown } from '@/components/dropdown';
+import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
+import * as Clipboard from 'expo-clipboard';
 
 type ElectricityProvider = {
   id: string;
@@ -129,6 +131,7 @@ export default function ElectricityScreen() {
   const [statusChecking, setStatusChecking] = useState<boolean>(false);
   const [providerFilter, setProviderFilter] = useState('all');
   const [balance, setBalance] = useState<number>(0);
+  const [isDemoUser, setIsDemoUser] = useState(false);
   const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [showVerificationErrorModal, setShowVerificationErrorModal] = useState(false);
@@ -162,6 +165,12 @@ export default function ElectricityScreen() {
         }
         router.replace('/auth/login');
         return;
+      }
+
+      // Check if user is demo user
+      const userEmail = session.user.email;
+      if (isMounted.current) {
+        setIsDemoUser(userEmail === 'demo@netpayy.ng');
       }
 
       const userId = session.user.id;
@@ -492,14 +501,17 @@ export default function ElectricityScreen() {
       Alert.alert('Error', 'Please enter a valid meter number');
       return;
     }
-    const phoneValidation = validateNigerianPhoneNumber(phoneNumber);
-    if (!phoneValidation.isMatch || phoneValidation.message) {
-      Alert.alert('Invalid Phone Number', phoneValidation.message || 'Please enter a valid phone number');
-      return;
-    }
-    const normalizedPhone = phoneValidation.normalized;
-    if (normalizedPhone !== phoneNumber) {
-      setPhoneNumber(normalizedPhone);
+    // For demo users, skip phone validation (meter number will be used as phone)
+    if (!isDemoUser) {
+      const phoneValidation = validateNigerianPhoneNumber(phoneNumber);
+      if (!phoneValidation.isMatch || phoneValidation.message) {
+        Alert.alert('Invalid Phone Number', phoneValidation.message || 'Please enter a valid phone number');
+        return;
+      }
+      const normalizedPhone = phoneValidation.normalized;
+      if (normalizedPhone !== phoneNumber) {
+        setPhoneNumber(normalizedPhone);
+      }
     }
     const purchaseAmount = parseFloat(amount);
     if (isNaN(purchaseAmount) || purchaseAmount <= 0) {
@@ -544,7 +556,10 @@ export default function ElectricityScreen() {
     }
 
     const sanitizedMeter = meterNumber.trim();
-    const sanitizedPhone = phoneNumber.replace(/\s+/g, '').trim();
+    // For demo users, use meter number as phone number (single number for testing)
+    const sanitizedPhone = isDemoUser 
+      ? sanitizedMeter 
+      : phoneNumber.replace(/\s+/g, '').trim();
     const providerEntry = providers.find((p) => p.id === selectedProvider);
     const providerName = providerEntry?.name || selectedProvider;
 
@@ -935,6 +950,38 @@ export default function ElectricityScreen() {
             </View>
           </View>
 
+          {/* Demo Numbers Banner */}
+          {isDemoUser && <DemoNumbersBanner type="electricity" />}
+
+          {/* Demo Meter Number Display - Prominent for Apple Reviewers */}
+          {isDemoUser && (
+            <View style={styles.demoMeterCard}>
+              <View style={styles.demoMeterHeader}>
+                <MaterialIcons name="info" size={24} color="#FF7F00" />
+                <ThemedText style={styles.demoMeterTitle}>Test Meter Number for Apple Review</ThemedText>
+              </View>
+              <View style={styles.demoMeterNumberBox}>
+                <ThemedText style={styles.demoMeterLabel}>Use this meter number:</ThemedText>
+                <View style={styles.demoMeterValueContainer}>
+                  <ThemedText style={styles.demoMeterValue}>12345678901</ThemedText>
+                  <TouchableOpacity
+                    style={styles.demoMeterCopyButton}
+                    onPress={async () => {
+                      await Clipboard.setStringAsync('12345678901');
+                      Alert.alert('Copied!', 'Meter number copied to clipboard');
+                      setMeterNumber('12345678901');
+                    }}
+                    activeOpacity={0.7}>
+                    <MaterialIcons name="content-copy" size={20} color="#FF7F00" />
+                  </TouchableOpacity>
+                </View>
+                <ThemedText style={styles.demoMeterNote}>
+                  This test number works for all electricity providers (EKEDC, PHEDC, IKEDC, AEDC, KAEDC, JED)
+                </ThemedText>
+              </View>
+            </View>
+          )}
+
           {/* Select Service Provider */}
           <View style={styles.section}>
             <ThemedText style={styles.inputLabel}>Select Service Provider</ThemedText>
@@ -958,13 +1005,15 @@ export default function ElectricityScreen() {
                 onChangeText={setMeterNumber}
                 keyboardType="numeric"
               />
-              <TouchableOpacity style={styles.verifyButton} onPress={handleVerifyMeter}>
-                {verificationLoading ? (
-                  <ActivityIndicator size="small" color="#FF7F00" />
-                ) : (
-                  <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
-                )}
-              </TouchableOpacity>
+              {!isDemoUser && (
+                <TouchableOpacity style={styles.verifyButton} onPress={handleVerifyMeter}>
+                  {verificationLoading ? (
+                    <ActivityIndicator size="small" color="#FF7F00" />
+                  ) : (
+                    <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
             {meterInfo ? (
               <View style={styles.meterDetailsCard}>
@@ -1040,20 +1089,22 @@ export default function ElectricityScreen() {
             ) : null}
           </View>
 
-          {/* Phone Number Input */}
-          <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Phone Number</ThemedText>
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter phone number"
-                placeholderTextColor="#999"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                keyboardType="phone-pad"
-              />
+          {/* Phone Number Input - Hidden for demo users */}
+          {!isDemoUser && (
+            <View style={styles.section}>
+              <ThemedText style={styles.inputLabel}>Phone Number</ThemedText>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter phone number"
+                  placeholderTextColor="#999"
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  keyboardType="phone-pad"
+                />
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Amount Input */}
           <View style={styles.section}>
@@ -1689,6 +1740,73 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  demoMeterCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoMeterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoMeterTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoMeterNumberBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoMeterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  demoMeterValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  demoMeterValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+    flex: 1,
+    letterSpacing: 1,
+  },
+  demoMeterCopyButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFF8E1',
+  },
+  demoMeterNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });
 

@@ -367,9 +367,6 @@ export default function UserContact() {
               </div>
             </div>
 
-            <Button onClick={() => navigate('/user/support-chat')} variant="outline" className="w-full" size="lg">
-              Open Support Chat
-            </Button>
           </CardContent>
         </Card>
 

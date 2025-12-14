@@ -45,16 +45,18 @@ export default function OnboardingScreen() {
         <View style={[styles.page, { width }]}>
           <Image
             source={require('@/assets/images/splash1.png')}
-            style={styles.onboardingImage}
-            contentFit="contain"
+            style={styles.fullScreenImage}
+            contentFit="cover"
           />
-          <View style={styles.contentContainer}>
-            <ThemedText type="title" style={styles.title}>
-              Welcome to NetPay
-            </ThemedText>
-            <ThemedText style={styles.description}>
-              Your all-in-one payment solution for seamless transactions
-            </ThemedText>
+          <View style={styles.overlay}>
+            <View style={styles.contentContainer}>
+              <ThemedText type="title" style={styles.title}>
+                Welcome to NetPay
+              </ThemedText>
+              <ThemedText style={styles.description}>
+                Your all-in-one payment solution for seamless transactions
+              </ThemedText>
+            </View>
           </View>
         </View>
 
@@ -62,16 +64,18 @@ export default function OnboardingScreen() {
         <View style={[styles.page, { width }]}>
           <Image
             source={require('@/assets/images/splash2.png')}
-            style={styles.onboardingImage}
-            contentFit="contain"
+            style={styles.fullScreenImage}
+            contentFit="cover"
           />
-          <View style={styles.contentContainer}>
-            <ThemedText type="title" style={styles.title}>
-              Secure & Fast
-            </ThemedText>
-            <ThemedText style={styles.description}>
-              Experience lightning-fast payments with bank-level security
-            </ThemedText>
+          <View style={styles.overlay}>
+            <View style={styles.contentContainer}>
+              <ThemedText type="title" style={styles.title}>
+                Secure & Fast
+              </ThemedText>
+              <ThemedText style={styles.description}>
+                Experience lightning-fast payments with bank-level security
+              </ThemedText>
+            </View>
           </View>
         </View>
 
@@ -79,16 +83,18 @@ export default function OnboardingScreen() {
         <View style={[styles.page, { width }]}>
           <Image
             source={require('@/assets/images/splash.png')}
-            style={styles.onboardingImage}
-            contentFit="contain"
+            style={styles.fullScreenImage}
+            contentFit="cover"
           />
-          <View style={styles.contentContainer}>
-            <ThemedText type="title" style={styles.title}>
-              Get Started
-            </ThemedText>
-            <ThemedText style={styles.description}>
-              Start making payments and managing your finances today
-            </ThemedText>
+          <View style={styles.overlay}>
+            <View style={styles.contentContainer}>
+              <ThemedText type="title" style={styles.title}>
+                Get Started
+              </ThemedText>
+              <ThemedText style={styles.description}>
+                Start making payments and managing your finances today
+              </ThemedText>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -130,21 +136,33 @@ const styles = StyleSheet.create({
   },
   page: {
     height,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 100,
-    paddingHorizontal: 32,
+    width,
+    position: 'relative',
   },
-  onboardingImage: {
-    width: width * 0.75,
-    height: height * 0.35,
-    marginBottom: 48,
+  fullScreenImage: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  overlay: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   contentContainer: {
     alignItems: 'center',
     paddingHorizontal: 16,
-    alignItems: 'center',
     width: '100%',
+    marginTop: 'auto',
+    marginBottom: 200,
   },
   title: {
     textAlign: 'center',

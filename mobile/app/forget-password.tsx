@@ -77,6 +77,30 @@ export default function ForgetPasswordScreen() {
             </ThemedText>
           </View>
 
+          {/* Demo User Banner */}
+          <View style={styles.demoUserCard}>
+            <View style={styles.demoUserHeader}>
+              <MaterialIcons name="info" size={20} color="#FF7F00" />
+              <ThemedText style={styles.demoUserTitle}>Demo Account Information</ThemedText>
+            </View>
+            <View style={styles.demoUserContent}>
+              <ThemedText style={styles.demoUserText}>
+                If you're using the demo account for testing, use these credentials:
+              </ThemedText>
+              <View style={styles.demoCredentialsBox}>
+                <ThemedText style={styles.demoCredentialText}>
+                  Email: <ThemedText style={styles.demoCredentialValue}>demo@netpayy.ng</ThemedText>
+                </ThemedText>
+                <ThemedText style={styles.demoCredentialText}>
+                  Password: <ThemedText style={styles.demoCredentialValue}>Demo@1234</ThemedText>
+                </ThemedText>
+              </View>
+              <ThemedText style={styles.demoUserNote}>
+                Password reset works normally for demo accounts. You can also sign in directly with the credentials above.
+              </ThemedText>
+            </View>
+          </View>
+
           <View style={styles.inputContainer}>
             <MaterialIcons name="email" size={20} color="#666" style={styles.inputIcon} />
             <TextInput
@@ -264,5 +288,63 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  demoUserCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  demoUserTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 12,
+  },
+  demoUserText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  demoCredentialsBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  demoCredentialText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  demoCredentialValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000',
+    fontFamily: 'monospace',
+  },
+  demoUserNote: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });
