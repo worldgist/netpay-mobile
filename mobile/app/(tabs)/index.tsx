@@ -209,6 +209,8 @@ export default function HomeScreen() {
           setUserName(firstName);
         }
 
+        console.log('Fetching transactions for user:', userId);
+        
         const [userTxns, airtimeTxns, dataTxns, transfersSent, transfersReceived] = await Promise.all([
           supabase
             .from('user_transactions')
@@ -242,21 +244,50 @@ export default function HomeScreen() {
             .limit(2),
         ]);
 
-        // Log transaction counts for debugging
+        // Log transaction counts and errors for debugging
         console.log('Transaction fetch results:', {
+          userId,
           user: userTxns.data?.length || 0,
           airtime: airtimeTxns.data?.length || 0,
           data: dataTxns.data?.length || 0,
           transfersSent: transfersSent.data?.length || 0,
           transfersReceived: transfersReceived.data?.length || 0,
           errors: {
-            user: userTxns.error?.message,
-            airtime: airtimeTxns.error?.message,
-            data: dataTxns.error?.message,
-            transfersSent: transfersSent.error?.message,
-            transfersReceived: transfersReceived.error?.message,
+            user: userTxns.error?.message || userTxns.error?.code,
+            airtime: airtimeTxns.error?.message || airtimeTxns.error?.code,
+            data: dataTxns.error?.message || dataTxns.error?.code,
+            transfersSent: transfersSent.error?.message || transfersSent.error?.code,
+            transfersReceived: transfersReceived.error?.message || transfersReceived.error?.code,
           },
+          errorDetails: {
+            user: userTxns.error,
+            airtime: airtimeTxns.error,
+            data: dataTxns.error,
+            transfersSent: transfersSent.error,
+            transfersReceived: transfersReceived.error,
+          }
         });
+
+        // Check for RLS errors
+        const hasRLSErrors = [
+          userTxns.error,
+          airtimeTxns.error,
+          dataTxns.error,
+          transfersSent.error,
+          transfersReceived.error,
+        ].some(err => err && (err.code === '42501' || err.message?.includes('permission') || err.message?.includes('policy')));
+
+        if (hasRLSErrors) {
+          console.error('RLS Policy errors detected. User may not have permission to view transactions.');
+          console.error('User ID:', userId);
+          console.error('Errors:', {
+            user: userTxns.error,
+            airtime: airtimeTxns.error,
+            data: dataTxns.error,
+            transfersSent: transfersSent.error,
+            transfersReceived: transfersReceived.error,
+          });
+        }
 
         const combined: CombinedTransaction[] = [
           ...((userTxns.data || []).map((txn) => ({ ...txn, type: 'user' })) as CombinedTransaction[]),
@@ -269,9 +300,24 @@ export default function HomeScreen() {
           .slice(0, 5);
 
         console.log('Combined transactions count:', combined.length);
+        console.log('User email from session:', session.user.email);
+        console.log('Is demo user:', session.user.email === 'demo@netpayy.ng');
+        console.log('Sample transaction IDs:', combined.slice(0, 3).map(t => ({ id: t.id, type: t.type, created_at: t.created_at })));
+        
+        // If no transactions found, check if user has any transactions at all (for debugging)
+        if (combined.length === 0) {
+          console.log('No transactions found. Checking if user has any transactions in database...');
+          const { data: checkTxns, error: checkError } = await supabase
+            .from('user_transactions')
+            .select('id, created_at')
+            .eq('user_id', userId)
+            .limit(1);
+          console.log('Direct transaction check:', { count: checkTxns?.length || 0, error: checkError });
+        }
 
         if (isMounted.current) {
           setTransactions(combined);
+          console.log('Transactions state updated. Count:', combined.length);
         }
 
         const { count: unreadCountResult, error: unreadError } = await supabase
@@ -538,6 +584,11 @@ export default function HomeScreen() {
   };
 
   const displayedTransactions = transactions.slice(0, 3);
+  
+  // Debug log for rendering
+  if (displayedTransactions.length > 0) {
+    console.log('Rendering transactions. Count:', displayedTransactions.length, 'IDs:', displayedTransactions.map(t => t.id));
+  }
 
   return (
     <ThemedView style={styles.container}>

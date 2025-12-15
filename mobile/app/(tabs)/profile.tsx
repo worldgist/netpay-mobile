@@ -48,7 +48,97 @@ export default function ProfileScreen() {
           .eq('id', session.user.id)
           .maybeSingle();
 
-        if (profileError) throw profileError;
+        if (profileError) {
+          console.error('Profile fetch error details:', {
+            message: profileError.message,
+            code: profileError.code,
+            details: profileError.details,
+            hint: profileError.hint,
+            userId: session.user.id,
+            email: sessionEmail
+          });
+          
+          // If it's a "not found" error or RLS permission issue, try to create the profile
+          const isNotFoundError = profileError.code === 'PGRST116' || 
+                                 profileError.message?.includes('not found') ||
+                                 profileError.message?.includes('No rows returned');
+          const isRLSError = profileError.code === '42501' || 
+                            profileError.message?.includes('permission') ||
+                            profileError.message?.includes('policy');
+          
+          if (isNotFoundError || (isRLSError && !profile)) {
+            console.log('Profile not found or RLS issue, attempting to create it...');
+            try {
+              const { error: createError, data: createdProfile } = await supabase
+                .from('profiles')
+                .insert({
+                  id: session.user.id,
+                  email: sessionEmail,
+                  full_name: fallbackName,
+                  balance: 0,
+                  status: 'active',
+                  biometric_enabled: false,
+                  pin_enabled: false,
+                })
+                .select('full_name, email, biometric_enabled, pin_enabled')
+                .single();
+              
+              if (createError) {
+                console.error('Failed to create profile:', createError);
+                // If creation fails due to RLS, try using upsert instead
+                if (createError.code === '42501') {
+                  console.log('RLS error on insert, trying upsert...');
+                  const { error: upsertError, data: upsertedProfile } = await supabase
+                    .from('profiles')
+                    .upsert({
+                      id: session.user.id,
+                      email: sessionEmail,
+                      full_name: fallbackName,
+                      balance: 0,
+                      status: 'active',
+                      biometric_enabled: false,
+                      pin_enabled: false,
+                    }, {
+                      onConflict: 'id'
+                    })
+                    .select('full_name, email, biometric_enabled, pin_enabled')
+                    .single();
+                  
+                  if (upsertError) {
+                    console.error('Upsert also failed:', upsertError);
+                    // Continue with fallback values
+                  } else if (upsertedProfile) {
+                    console.log('Profile upserted successfully');
+                    setUserId(session.user.id);
+                    setUserName(upsertedProfile.full_name || fallbackName);
+                    const profileEmail = upsertedProfile.email || '';
+                    const displayEmail = sessionEmail || profileEmail;
+                    setUserEmail(displayEmail);
+                    setBiometricEnabled(Boolean(upsertedProfile.biometric_enabled));
+                    setPinEnabled(Boolean(upsertedProfile.pin_enabled));
+                    return; // Success, exit early
+                  }
+                }
+                // Continue with fallback values even if creation fails
+              } else if (createdProfile) {
+                console.log('Profile created successfully');
+                setUserId(session.user.id);
+                setUserName(createdProfile.full_name || fallbackName);
+                const profileEmail = createdProfile.email || '';
+                const displayEmail = sessionEmail || profileEmail;
+                setUserEmail(displayEmail);
+                setBiometricEnabled(Boolean(createdProfile.biometric_enabled));
+                setPinEnabled(Boolean(createdProfile.pin_enabled));
+                return; // Success, exit early
+              }
+            } catch (createErr) {
+              console.error('Error creating profile:', createErr);
+              // Continue with fallback values
+            }
+          } else {
+            throw profileError;
+          }
+        }
 
         if (!isMounted.current) return;
 
@@ -60,6 +150,7 @@ export default function ProfileScreen() {
         setBiometricEnabled(Boolean(profile?.biometric_enabled));
         setPinEnabled(Boolean(profile?.pin_enabled));
 
+        // If profile exists but email doesn't match, update it
         if (profile && sessionEmail && profileEmail !== sessionEmail) {
           supabase
             .from('profiles')
@@ -69,10 +160,56 @@ export default function ProfileScreen() {
               console.warn('Failed to sync profile email:', syncError);
             });
         }
+        
+        // If no profile exists, create it
+        if (!profile && !profileError) {
+          console.log('No profile found, creating one...');
+          try {
+            const { error: createError } = await supabase
+              .from('profiles')
+              .insert({
+                id: session.user.id,
+                email: sessionEmail,
+                full_name: fallbackName,
+                balance: 0,
+                status: 'active',
+                biometric_enabled: false,
+                pin_enabled: false,
+              });
+            
+            if (createError) {
+              console.error('Failed to create profile:', createError);
+            } else {
+              console.log('Profile created successfully');
+            }
+          } catch (createErr) {
+            console.error('Error creating profile:', createErr);
+          }
+        }
       } catch (error) {
         console.error('Failed to load profile:', error);
+        console.error('Error details:', {
+          message: error instanceof Error ? error.message : String(error),
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+          name: error instanceof Error ? error.name : undefined,
+          stack: error instanceof Error ? error.stack : undefined
+        });
         if (!isMounted.current) return;
-        const message = error instanceof Error ? error.message : 'Unable to load your profile. Please try again.';
+        
+        // Provide more specific error messages
+        let message = 'Unable to load your profile. Please try again.';
+        if (error instanceof Error) {
+          const errorCode = (error as any)?.code;
+          if (errorCode === '42501' || error.message?.includes('permission') || error.message?.includes('policy')) {
+            message = 'Permission denied. Please contact support.';
+          } else if (errorCode === 'PGRST116' || error.message?.includes('not found')) {
+            message = 'Profile not found. Please contact support.';
+          } else {
+            message = error.message || message;
+          }
+        }
         Alert.alert('Profile', message);
       } finally {
         if (!isMounted.current) return;

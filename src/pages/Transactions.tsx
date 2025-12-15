@@ -28,6 +28,7 @@ interface Transaction {
   status: string;
   date: string;
   category: string;
+  token?: string | null;
 }
 
 export default function Transactions() {
@@ -39,6 +40,8 @@ export default function Transactions() {
     to: new Date(),
   });
   const [statusFilter, setStatusFilter] = useState("all");
+  const [processingPending, setProcessingPending] = useState(false);
+  const [updatingNullTokens, setUpdatingNullTokens] = useState(false);
   const { toast } = useToast();
 
   const fetchTransactions = async () => {
@@ -122,6 +125,87 @@ export default function Transactions() {
     a.click();
   };
 
+  const processPendingTransactions = async () => {
+    try {
+      setProcessingPending(true);
+      const { data, error } = await supabase.functions.invoke('process-pending-electricity', {
+        body: {
+          limit: 100,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to process pending transactions');
+      }
+
+      toast({
+        title: "Success",
+        description: `Processed ${data.processed} transactions. Updated: ${data.updated}, Failed: ${data.failed}`,
+        variant: "default",
+      });
+
+      // Refresh transactions after processing
+      await fetchTransactions();
+    } catch (error: any) {
+      console.error('Process pending transactions error:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to process pending transactions",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingPending(false);
+    }
+  };
+
+  const pendingCount = transactions.filter(txn => txn.status === 'pending' && txn.category === 'electricity').length;
+  const nullTokenCount = transactions.filter(txn => 
+    txn.status === 'completed' && 
+    txn.category === 'electricity' && 
+    (!txn.token || txn.token === 'null' || txn.token === null)
+  ).length;
+
+  const updateNullTokens = async () => {
+    try {
+      setUpdatingNullTokens(true);
+      const { data, error } = await supabase.functions.invoke('update-null-tokens', {
+        body: {
+          limit: 100,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to update null tokens');
+      }
+
+      const message = data.errors && data.errors.length > 0
+        ? `Processed ${data.processed} transactions. Updated: ${data.updated}, Failed: ${data.failed}. Errors: ${data.errors.slice(0, 3).join('; ')}${data.errors.length > 3 ? '...' : ''}`
+        : `Processed ${data.processed} transactions. Updated: ${data.updated}, Failed: ${data.failed}`;
+
+      toast({
+        title: data.updated > 0 ? "Success" : "Partial Success",
+        description: message,
+        variant: data.updated > 0 ? "default" : "destructive",
+      });
+
+      // Refresh transactions after processing
+      await fetchTransactions();
+    } catch (error: any) {
+      console.error('Update null tokens error:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update null tokens",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingNullTokens(false);
+    }
+  };
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -146,6 +230,26 @@ export default function Transactions() {
                 />
               </div>
               <div className="flex items-center gap-2">
+                {pendingCount > 0 && (
+                  <Button 
+                    variant="default" 
+                    className="gap-2" 
+                    onClick={processPendingTransactions}
+                    disabled={processingPending}
+                  >
+                    {processingPending ? 'Processing...' : `Process ${pendingCount} Pending`}
+                  </Button>
+                )}
+                {nullTokenCount > 0 && (
+                  <Button 
+                    variant="outline" 
+                    className="gap-2" 
+                    onClick={updateNullTokens}
+                    disabled={updatingNullTokens}
+                  >
+                    {updatingNullTokens ? 'Updating...' : `Update ${nullTokenCount} Null Tokens`}
+                  </Button>
+                )}
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="gap-2">

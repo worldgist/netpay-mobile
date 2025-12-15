@@ -947,19 +947,55 @@ function TransactionDetailsScreen() {
               </View>
             )}
 
-            {/* Token */}
+            {/* Electricity Token - Prominently Displayed */}
             {transaction.metadata?.token && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Token</ThemedText>
-                <TouchableOpacity
-                  style={styles.copyRow}
-                  onPress={() => handleCopy(transaction.metadata?.token || '', 'Token')}
-                >
-                  <ThemedText style={styles.infoValue} numberOfLines={1}>
-                    {transaction.metadata?.token}
+              <View style={[styles.infoRow, { 
+                backgroundColor: '#FFF5E6', 
+                borderWidth: 2, 
+                borderColor: '#FF7F00', 
+                borderRadius: 8, 
+                padding: 16, 
+                marginVertical: 8,
+                flexDirection: 'column',
+                alignItems: 'stretch'
+              }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <ThemedText style={{ 
+                    color: '#FF7F00', 
+                    fontWeight: '600', 
+                    fontSize: 12, 
+                    textTransform: 'uppercase', 
+                    letterSpacing: 0.5 
+                  }}>
+                    Electricity Token
                   </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleCopy(transaction.metadata?.token || '', 'Token')}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  >
+                    <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
+                    <ThemedText style={{ color: '#FF7F00', fontSize: 12, fontWeight: '600' }}>Copy</ThemedText>
+                  </TouchableOpacity>
+                </View>
+                <ThemedText style={{ 
+                  fontFamily: 'monospace', 
+                  fontSize: 20, 
+                  fontWeight: 'bold', 
+                  textAlign: 'center', 
+                  letterSpacing: 2,
+                  color: '#333',
+                  marginBottom: 8
+                }} numberOfLines={0}>
+                  {transaction.metadata?.token}
+                </ThemedText>
+                <ThemedText style={{ 
+                  fontSize: 11, 
+                  color: '#666', 
+                  textAlign: 'center', 
+                  fontStyle: 'italic' 
+                }}>
+                  Keep this token safe. You'll need it to recharge your meter.
+                </ThemedText>
               </View>
             )}
  

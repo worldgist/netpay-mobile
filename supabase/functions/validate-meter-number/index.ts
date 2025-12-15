@@ -436,9 +436,13 @@ serve(async (req) => {
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.error('Missing authorization header in validate-meter-number request');
       return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          success: false,
+          error: 'Missing authorization header. Please sign in and try again.' 
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -450,12 +454,22 @@ serve(async (req) => {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      console.error('Authentication error:', userError);
+      console.error('Authentication error in validate-meter-number:', {
+        error: userError,
+        hasAuthHeader: !!authHeader,
+        authHeaderPrefix: authHeader?.substring(0, 20),
+        userId: user?.id
+      });
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          success: false,
+          error: 'Session expired. Please sign in again and try again.' 
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    
+    console.log('Meter validation request authenticated for user:', user.id, user.email);
 
     // Parse request body
     let parsedBody: Record<string, unknown> = {};
@@ -811,15 +825,23 @@ async function verifyWithMobileNig(
       
       // Check for EXC010 - "The data you are looking for cannot be found"
       if (statusCode === 'EXC010') {
-        // For EXC010, details is usually a string with the error message
-        if (typeof data.details === 'string') {
+        // EXC010 means the meter number was not found in the provider's database
+        // The error message can be in multiple locations:
+        // 1. data.details.details (nested object)
+        // 2. data.details (string)
+        // 3. data.error (top-level error field)
+        const detailsMsg = 
+          (data.details && typeof data.details === 'object' && data.details.details) ||
+          (typeof data.details === 'string' ? data.details : null) ||
+          data.error ||
+          null;
+        
+        // Use a user-friendly message for EXC010
+        if (detailsMsg && typeof detailsMsg === 'string' && 
+            (detailsMsg.includes('cannot be found') || detailsMsg.includes('data you are looking for'))) {
           errorMessage = 'Invalid meter number. Please check the meter number and try again.';
-        } else if (data.details?.details) {
-          // If details is an object with nested details
-          const detailsMsg = data.details.details;
-          errorMessage = typeof detailsMsg === 'string' 
-            ? 'Invalid meter number. Please check the meter number and try again.'
-            : detailsMsg;
+        } else if (detailsMsg && typeof detailsMsg === 'string') {
+          errorMessage = detailsMsg;
         } else {
           errorMessage = 'Invalid meter number. Please check the meter number and try again.';
         }

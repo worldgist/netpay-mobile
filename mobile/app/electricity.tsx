@@ -297,11 +297,26 @@ export default function ElectricityScreen() {
         });
 
         if (error) {
+          console.error('Supabase invoke error for meter validation:', error);
+          // Check if it's an authentication error
+          if (error.message?.includes('Unauthorized') || 
+              error.message?.includes('unauthorized') ||
+              error.message?.includes('Session expired') ||
+              error?.status === 401) {
+            throw new Error('Session expired. Please sign in again.');
+          }
           throw error;
         }
 
         if (data) {
+          console.log('Meter validation invoke response:', {
+            success: data?.success,
+            error: data?.error,
+            hasData: !!data?.data
+          });
           responseData = data;
+        } else {
+          throw new Error('No response data from server');
         }
       } catch (invokeError: any) {
         console.log('Supabase invoke failed, trying direct fetch:', invokeError);
@@ -349,13 +364,24 @@ export default function ElectricityScreen() {
           throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
         }
 
-        if (!response.ok) {
-          // Handle 401 Unauthorized specifically
-          if (response.status === 401) {
-            throw new Error('Session expired. Please sign in again.');
-          }
-          const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+        // Check for success in response data first (even if HTTP status is not 200)
+        if (responseData?.success === false || (!responseData?.success && response.status !== 200)) {
+          const errorMsg = responseData?.error || responseData?.message || 'Meter validation failed';
+          console.error('Meter validation error:', {
+            status: response.status,
+            error: errorMsg,
+            responseData
+          });
           throw new Error(errorMsg);
+        }
+        
+        // Also check HTTP status for 401/403 errors
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('Session expired. Please sign in again.');
+        }
+        
+        if (!response.ok && response.status >= 500) {
+          throw new Error('Server error. Please try again later.');
         }
       }
 
@@ -593,11 +619,22 @@ export default function ElectricityScreen() {
         });
 
         if (error) {
+          console.error('Supabase invoke error:', error);
           throw error;
         }
 
         if (data) {
+          console.log('Supabase invoke success, response data:', {
+            success: data?.success,
+            error: data?.error,
+            message: data?.message,
+            hasData: !!data?.data,
+            fullData: data
+          });
           responseData = data;
+        } else {
+          console.warn('Supabase invoke returned no data');
+          throw new Error('No response data from server');
         }
       } catch (invokeError: any) {
         console.log('Supabase invoke failed, trying direct fetch:', invokeError);
@@ -639,6 +676,13 @@ export default function ElectricityScreen() {
 
         const responseText = await response.text();
         
+        console.log('Electricity purchase raw response:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseLength: responseText?.length,
+          responsePreview: responseText?.substring(0, 500)
+        });
+        
         if (!responseText || responseText.trim().length === 0) {
           console.error('Empty response from purchase-electricity');
           throw new Error('No response from server. Please try again.');
@@ -646,6 +690,12 @@ export default function ElectricityScreen() {
         
         try {
           responseData = JSON.parse(responseText);
+          console.log('Electricity purchase parsed response:', {
+            success: responseData?.success,
+            error: responseData?.error,
+            message: responseData?.message,
+            details: responseData?.details
+          });
         } catch (parseError) {
           console.error('Failed to parse purchase response:', parseError, 'Response:', responseText);
           if (response.status >= 500) {
@@ -665,12 +715,51 @@ export default function ElectricityScreen() {
       }
 
       if (!responseData) {
+        console.error('No responseData after invoke/fetch');
         throw new Error('No data received from server');
       }
 
-      if (!responseData?.success) {
-        const errorMsg = responseData?.error || responseData?.message || 'Purchase failed';
+      console.log('Final responseData check:', {
+        success: responseData?.success,
+        hasData: !!responseData?.data,
+        message: responseData?.message,
+        error: responseData?.error,
+        responseType: typeof responseData,
+        isSuccess: responseData?.success === true
+      });
+
+      // Check if response indicates success
+      // Accept both success=true and processing status as valid
+      if (responseData?.success === true || responseData?.success === 'true') {
+        // Success - continue with processing
+        console.log('Purchase successful, proceeding with success flow');
+      } else if (responseData?.success === false || responseData?.success === 'false' || !responseData?.success) {
+        // Extract error message from multiple possible locations
+        const errorMsg = 
+          responseData?.error ||
+          responseData?.message ||
+          responseData?.details?.error ||
+          responseData?.details?.message ||
+          responseData?.details?.response_description ||
+          responseData?.response_description ||
+          (responseData?.details?.code && responseData?.details?.code !== '000' 
+            ? `Error code: ${responseData.details.code}` 
+            : null) ||
+          'Purchase failed';
+        
+        console.error('Electricity purchase error details:', {
+          success: responseData?.success,
+          error: responseData?.error,
+          message: responseData?.message,
+          details: responseData?.details,
+          fullResponse: responseData
+        });
+        
         throw new Error(errorMsg);
+      } else {
+        // Unknown response format - log and treat as error
+        console.error('Unknown response format:', responseData);
+        throw new Error('Unexpected response format from server');
       }
 
       const purchaseData = responseData.data || {};
@@ -717,6 +806,16 @@ export default function ElectricityScreen() {
       setTransactionStatus('Approved');
     } catch (purchaseError: any) {
       console.error('Electricity purchase failed:', purchaseError);
+      console.error('Error details:', {
+        message: purchaseError?.message,
+        error: purchaseError?.error,
+        details: purchaseError?.details,
+        context: purchaseError?.context,
+        name: purchaseError?.name,
+        code: purchaseError?.code,
+        fullError: purchaseError
+      });
+      
       let message = 'Unable to complete electricity purchase. Please try again.';
 
       // Check for network errors
@@ -741,8 +840,29 @@ export default function ElectricityScreen() {
         return;
       }
 
+      // Extract error message from various sources
       if (purchaseError instanceof Error) {
         message = purchaseError.message || message;
+      } else if (purchaseError?.error) {
+        message = purchaseError.error;
+      } else if (purchaseError?.message) {
+        message = purchaseError.message;
+      } else if (purchaseError?.details?.error) {
+        message = purchaseError.details.error;
+      } else if (purchaseError?.details?.message) {
+        message = purchaseError.details.message;
+      } else if (purchaseError?.details?.response_description) {
+        message = purchaseError.details.response_description;
+      } else if (purchaseError?.context?.body) {
+        // Try to extract from context body if available
+        try {
+          const contextBody = typeof purchaseError.context.body === 'string' 
+            ? JSON.parse(purchaseError.context.body) 
+            : purchaseError.context.body;
+          message = contextBody?.error || contextBody?.message || message;
+        } catch (e) {
+          // Ignore parse errors
+        }
       }
 
       // Try to extract more detailed error from various sources

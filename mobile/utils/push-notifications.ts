@@ -28,13 +28,42 @@ const initializeNotifications = () => {
     Notifications = require('expo-notifications');
     
     if (Notifications) {
+      // Configure notification handler for both iOS and Android
       Notifications.setNotificationHandler({
         handleNotification: async () => ({
           shouldShowAlert: true,
-          shouldPlaySound: false,
-          shouldSetBadge: false,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
         }),
       });
+
+      // Configure Android notification channel
+      if (Platform.OS === 'android') {
+        try {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Default',
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF231F7C',
+            sound: 'default',
+            enableVibrate: true,
+            showBadge: true,
+          });
+
+          // Create a high priority channel for transactions
+          await Notifications.setNotificationChannelAsync('transactions', {
+            name: 'Transactions',
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF231F7C',
+            sound: 'default',
+            enableVibrate: true,
+            showBadge: true,
+          });
+        } catch (error) {
+          console.warn('Failed to set Android notification channels:', error);
+        }
+      }
     }
   } catch (error) {
     console.warn('expo-notifications not available:', error);
@@ -94,24 +123,49 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
       return { registered: false, reason: 'Push notifications require a physical device.' };
     }
 
+    // Request permissions - Android 13+ requires explicit permission
     const { status: existingStatus } = await notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await notifications.requestPermissionsAsync();
-      finalStatus = status;
+      // For Android, request permissions with proper options
+      const permissionRequest = Platform.OS === 'android'
+        ? await notifications.requestPermissionsAsync({
+            android: {
+              allowAlert: true,
+              allowBadge: true,
+              allowSound: true,
+              allowAnnouncements: true,
+            },
+          })
+        : await notifications.requestPermissionsAsync();
+      
+      finalStatus = permissionRequest.status;
     }
 
     if (finalStatus !== 'granted') {
-      return { registered: false, reason: 'Notification permission was not granted.' };
+      return { 
+        registered: false, 
+        reason: Platform.OS === 'android' 
+          ? 'Notification permission was not granted. Please enable notifications in your device settings.'
+          : 'Notification permission was not granted.' 
+      };
     }
 
     // Get Expo project ID from Constants (required for EAS builds)
     const projectId = Constants.expoConfig?.extra?.eas?.projectId || 'a962982c-3160-42f2-9e64-3ab04ced7bf5';
     
-    const { data: expoToken } = await notifications.getExpoPushTokenAsync({
+    // Get Expo push token with Android-specific configuration
+    const tokenOptions: any = {
       projectId,
-    });
+    };
+    
+    // Add Android-specific options if on Android
+    if (Platform.OS === 'android') {
+      tokenOptions.applicationId = Constants.expoConfig?.android?.package || 'com.netpay.mobile';
+    }
+    
+    const { data: expoToken } = await notifications.getExpoPushTokenAsync(tokenOptions);
     const deviceId = await getDeviceIdentifier();
     const platform = Platform.OS;
 

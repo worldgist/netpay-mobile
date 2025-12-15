@@ -17,7 +17,14 @@ serve(async (req) => {
     const SECRET_KEY = Deno.env.get('SMEPLUG_SECRET_KEY');
     
     if (!SECRET_KEY) {
-      throw new Error('SMEPLUG_SECRET_KEY not configured');
+      console.error('SMEPLUG_SECRET_KEY is not configured in environment variables');
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Service currently unavailable. Please contact support or try again later.'
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -200,39 +207,69 @@ serve(async (req) => {
       response = { ok: true };
     } else {
       // Purchase airtime via SMEPLUG API for real users
-      response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${SECRET_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      try {
+        const requestBody = {
           network_id: smeplugNetworkId,
           phone: sanitizedPhone,
           amount: normalizedAmount,
           customer_reference: reference
-        }),
-      });
+        };
+        
+        console.log('Calling SMEPLUG API with:', JSON.stringify(requestBody, null, 2));
+        console.log('SMEPLUG_SECRET_KEY present:', !!SECRET_KEY);
+        
+        response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SECRET_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-      const responseText = await response.text();
-      try {
-        apiResponse = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Failed to parse SMEPLUG response:', responseText);
+        console.log('SMEPLUG API response status:', response.status, response.statusText);
+        
+        const responseText = await response.text();
+        console.log('SMEPLUG API raw response:', responseText.substring(0, 500));
+        
+        try {
+          apiResponse = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('Failed to parse SMEPLUG response:', responseText);
+          console.error('Parse error:', parseError);
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Service currently unavailable. Please try again later or contact support.'
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
+      } catch (fetchError) {
+        console.error('Network error calling SMEPLUG API:', fetchError);
+        console.error('Error details:', {
+          message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+          stack: fetchError instanceof Error ? fetchError.stack : undefined
+        });
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: `Invalid response from airtime provider: ${responseText.substring(0, 100)}`
+            error: 'Service currently unavailable. Please check your connection and try again later.'
           }),
-          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
         );
       }
-      
-      console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
     }
     
     console.log('Airtime purchase API response:', JSON.stringify(apiResponse, null, 2));
+    console.log('HTTP Response status:', 'status' in response ? response.status : 'N/A', 'ok:', response.ok);
 
+    // Check HTTP status first (for real API responses)
+    const httpStatusOk = response.ok && ('status' in response ? (response.status >= 200 && response.status < 300) : true);
+    
+    // Check API response status indicators
     const apiStatus =
       apiResponse?.success === true ||
       apiResponse?.status === true ||
@@ -244,32 +281,66 @@ serve(async (req) => {
       (apiResponse?.status === 'success') ||
       (apiResponse?.data && typeof apiResponse.data === 'object' && !apiResponse.data.error);
 
-    if (!response.ok || !normalizedStatus) {
+    // If HTTP status is not OK or API indicates failure
+    if (!httpStatusOk || !normalizedStatus) {
       // Extract error message from various possible API response formats
-      const errorMessage =
-        apiResponse.message ||
-        apiResponse.error ||
-        apiResponse.data?.message ||
-        apiResponse.data?.error ||
-        apiResponse.response_description ||
-        apiResponse.data?.response_description ||
-        apiResponse.status_message ||
-        apiResponse.data?.status_message ||
-        (typeof apiResponse === 'string' ? apiResponse : 'Airtime purchase failed');
+      let errorMessage =
+        apiResponse?.message ||
+        apiResponse?.error ||
+        apiResponse?.data?.message ||
+        apiResponse?.data?.error ||
+        apiResponse?.response_description ||
+        apiResponse?.data?.response_description ||
+        apiResponse?.status_message ||
+        apiResponse?.data?.status_message ||
+        apiResponse?.msg ||
+        apiResponse?.data?.msg;
+      
+      // If no error message found, check HTTP status
+      if (!errorMessage) {
+        if (!httpStatusOk && 'status' in response) {
+          const statusCode = response.status;
+          if (statusCode === 401) {
+            errorMessage = 'Authentication failed. Please contact support.';
+          } else if (statusCode === 403) {
+            errorMessage = 'Access denied. Please contact support.';
+          } else if (statusCode === 400) {
+            errorMessage = 'Invalid request. Please check your input and try again.';
+          } else if (statusCode >= 500) {
+            errorMessage = 'Service temporarily unavailable. Please try again later.';
+          } else {
+            errorMessage = `Service error (${statusCode}). Please try again later.`;
+          }
+        } else {
+          errorMessage = 'Airtime purchase failed. Please try again.';
+        }
+      }
+      
+      // Handle string responses
+      if (typeof apiResponse === 'string') {
+        errorMessage = apiResponse || errorMessage;
+      }
       
       // Check for phone number validation errors specifically
       const errorText = String(errorMessage).toLowerCase();
       if (errorText.includes('phone') || errorText.includes('number') || errorText.includes('invalid')) {
         console.error('SMEPLUG API phone validation error:', errorMessage, 'Phone:', sanitizedPhone, 'Network:', smeplugNetworkId);
+      } else if (errorText.includes('balance') || errorText.includes('insufficient')) {
+        console.error('SMEPLUG API balance error:', errorMessage);
+        errorMessage = 'Insufficient balance with service provider. Please try again later or contact support.';
+      } else if (errorText.includes('network') || errorText.includes('provider')) {
+        console.error('SMEPLUG API network error:', errorMessage);
       } else {
-        console.error('SMEPLUG API error:', errorMessage, 'Full response:', apiResponse);
+        const statusCode = 'status' in response ? response.status : 'N/A';
+        console.error('SMEPLUG API error:', errorMessage, 'HTTP Status:', statusCode, 'Full response:', JSON.stringify(apiResponse, null, 2));
       }
       
       return new Response(
         JSON.stringify({ 
           success: false, 
           error: errorMessage,
-          details: apiResponse
+          details: apiResponse,
+          httpStatus: 'status' in response ? response.status : undefined
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
@@ -346,10 +417,24 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in purchase-smeplug-airtime function:', error);
     
+    // Provide user-friendly error messages
+    let errorMessage = 'Service currently unavailable. Please try again later or contact support.';
+    
+    if (error instanceof Error) {
+      const errorText = error.message.toLowerCase();
+      if (errorText.includes('secret') || errorText.includes('key') || errorText.includes('configured')) {
+        errorMessage = 'Service currently unavailable. Please contact support.';
+      } else if (errorText.includes('network') || errorText.includes('fetch')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      } else if (errorText.includes('unauthorized') || errorText.includes('auth')) {
+        errorMessage = 'Authentication failed. Please log in again.';
+      }
+    }
+    
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
+        error: errorMessage
       }),
       { 
         status: 200, 

@@ -11,8 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { FileText, Eye, Save, Clock, Circle } from "lucide-react";
+import { FileText, Eye, Save, Clock, Circle, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { syncMobileContentToWebsite, mobileTermsContent, mobilePrivacyContent } from "@/utils/mobile-content-sync";
 
 interface ContentPage {
   id: string;
@@ -32,6 +33,7 @@ export default function ContentManagement() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
 
   useEffect(() => {
@@ -72,7 +74,8 @@ export default function ContentManagement() {
       return;
     }
 
-    // Filter out about_us, faq, and support pages
+    // Filter out only about_us, faq, and support pages
+    // Include terms_conditions and privacy_policy from mobile app
     const excludedTypes = ['about_us', 'faq', 'support'];
     const filteredPages = (data || []).filter(
       (page) => !excludedTypes.includes(page.page_type.toLowerCase())
@@ -147,6 +150,21 @@ export default function ContentManagement() {
       .join(" ");
   };
 
+  const handleSyncMobileContent = async () => {
+    setIsSyncing(true);
+    try {
+      await syncMobileContentToWebsite(supabase);
+      toast.success("Mobile content synced successfully! Terms and Privacy Policy updated.");
+      fetchPages();
+      setLastUpdate(new Date());
+    } catch (error: any) {
+      console.error("Error syncing mobile content:", error);
+      toast.error(error.message || "Failed to sync mobile content");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const renderMarkdown = (content: string) => {
     // Simple markdown to HTML conversion for preview
     return content
@@ -189,6 +207,23 @@ export default function ContentManagement() {
           </header>
 
           <div className="p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Content Pages</h2>
+                <p className="text-sm text-muted-foreground">
+                  Manage terms, privacy policy, and other content pages
+                </p>
+              </div>
+              <Button
+                onClick={handleSyncMobileContent}
+                disabled={isSyncing}
+                variant="outline"
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                {isSyncing ? "Syncing..." : "Sync from Mobile App"}
+              </Button>
+            </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {pages.map((page) => (
                 <Card key={page.id}>

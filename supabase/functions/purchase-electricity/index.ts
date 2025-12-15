@@ -127,10 +127,23 @@ serve(async (req) => {
       .single();
 
     if (profileError || !profile) {
+      console.error('Error fetching user profile:', profileError);
+      console.error('User ID:', user.id, 'User email from auth:', user.email);
       throw new Error('Failed to fetch user profile');
     }
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    // Check if user is demo user - use case-insensitive comparison and handle nulls
+    const profileEmail = profile.email?.toLowerCase()?.trim() || '';
+    const isDemoUser = profileEmail === 'demo@netpayy.ng';
+    
+    console.log('User profile check:', {
+      userId: user.id,
+      authEmail: user.email,
+      profileEmail: profile.email,
+      isDemoUser,
+      balance: profile.balance
+    });
+    
     const balanceBefore = Number(profile.balance) || 0;
 
     if (balanceBefore < purchaseAmount) {
@@ -272,26 +285,77 @@ serve(async (req) => {
     const normalizedProvider = providerCode.replace(/[^A-Z]/g, '');
     const canonicalKey = aliasMap[normalizedProvider] || normalizedProvider;
     const serviceIds = canonicalMap[canonicalKey];
+    
+    console.log('Provider mapping:', {
+      originalProvider: providerCode,
+      normalizedProvider,
+      canonicalKey,
+      hasServiceIds: !!serviceIds,
+      meterKind,
+      availableProviders: Object.keys(canonicalMap)
+    });
+    
     if (!serviceIds) {
+      console.error('Provider not found in mapping:', {
+        providerCode,
+        normalizedProvider,
+        canonicalKey,
+        availableKeys: Object.keys(canonicalMap),
+        aliasKeys: Object.keys(aliasMap)
+      });
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Invalid provider',
-          details: { provider: providerCode },
+          error: `Invalid provider: ${providerCode}. Supported providers: ${Object.keys(canonicalMap).join(', ')}`,
+          details: { 
+            provider: providerCode,
+            normalized: normalizedProvider,
+            canonical: canonicalKey,
+            available: Object.keys(canonicalMap)
+          },
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const serviceId = meterKind === 'postpaid' ? serviceIds.postpaid : serviceIds.prepaid;
+    
+    if (!serviceId) {
+      console.error('Service ID is null/undefined after mapping:', {
+        providerCode,
+        meterKind,
+        serviceIds,
+        postpaid: serviceIds.postpaid,
+        prepaid: serviceIds.prepaid
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Electricity service not defined for ${providerCode} (${meterKind}). Please contact support.`,
+          details: { provider: providerCode, meterType: meterKind, serviceIds }
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    console.log('Service ID resolved:', {
+      provider: providerCode,
+      meterKind,
+      serviceId,
+      serviceType: typeof serviceId
+    });
     const reference = `ELEC-${Date.now()}-${user.id.substring(0, 8)}`;
 
-    console.log('Routing purchase:', {
+    console.log('Routing purchase for REAL USER:', {
+      userId: user.id,
+      userEmail: profile.email,
+      isDemoUser: false, // Explicitly log that this is NOT a demo user
       vendingProvider,
       providerCode,
       meterKind,
       serviceId,
-      amount: purchaseAmount
+      amount: purchaseAmount,
+      meterNumber: sanitizedMeter
     });
 
     // Route to appropriate purchase function based on vending provider
@@ -704,7 +768,7 @@ async function purchaseWithVTpass(
       // Send push notification
       await sendPushNotification(
         supabase,
-        user.id,
+        userId,
         'Electricity Payment Successful',
         `₦${amount.toFixed(2)} electricity payment successful for meter ${meterNumberFromResponse || meterNumber}. Token: ${token}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
         {
@@ -819,6 +883,19 @@ async function purchaseWithMobileNig(
     );
   }
 
+  // Validate serviceId before proceeding
+  if (!serviceId || serviceId.trim() === '') {
+    console.error('Service ID is missing or empty:', { serviceId, provider, meterType });
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Electricity service not defined. Please select a valid provider and meter type.',
+        details: { provider, meterType, serviceId }
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
   const transId = Date.now().toString();
 
   try {
@@ -828,24 +905,66 @@ async function purchaseWithMobileNig(
 
     // MobileNig electricity purchase payload as per API documentation
     // POST /api/v2/services/
-    // Required fields: service_id, trans_id, customerReference, amount, customerName, customerAddress
+    // Required fields: service_id, trans_id, amount
+    // Per MobileNig Enterprise API documentation:
+    // - Some prepaid services use "meterNumber" (Ikeja/AMA, Eko/ANA)
+    // - Most services (including other prepaid) use "customerReference"
+    // - All postpaid services use "customerReference"
+    // Optional fields: customerName, customerAddress, phoneNumber, email, etc.
     // Authorization: Bearer {{secret_key}}
+    
+    // Determine which field to use based on service ID
+    // Per MobileNig API documentation, only specific services use "meterNumber":
+    // - AMA (Ikeja Prepaid) uses "meterNumber"
+    // - ANA (Eko Prepaid) uses "meterNumber"
+    // - All other services (including other prepaid) use "customerReference"
+    const servicesUsingMeterNumber = ['AMA', 'ANA'];
+    const useMeterNumber = servicesUsingMeterNumber.includes(serviceId);
+    
     const purchasePayload: Record<string, unknown> = {
       service_id: serviceId,
       trans_id: Number(transId),
-      customerReference: meterNumber,
       amount: amount,
-      customerName: customerName || meterNumber,
-      customerAddress: customerAddress || 'Not Provided',
     };
+    
+    // Add meter number or customer reference based on service
+    // Only AMA and ANA use meterNumber, all others use customerReference
+    if (useMeterNumber) {
+      purchasePayload.meterNumber = meterNumber;
+    } else {
+      purchasePayload.customerReference = meterNumber;
+    }
+    
+    // Add optional customer details if available
+    if (customerName) {
+      purchasePayload.customerName = customerName;
+    }
+    if (customerAddress) {
+      purchasePayload.customerAddress = customerAddress;
+    }
+    if (phone) {
+      purchasePayload.phoneNumber = phone;
+    }
+    
+    console.log('MobileNig purchase payload validation:', {
+      service_id: serviceId,
+      service_id_type: typeof serviceId,
+      service_id_length: serviceId?.length,
+      provider,
+      meterType,
+      meterNumber,
+      useMeterNumber,
+      fieldUsed: useMeterNumber ? 'meterNumber' : 'customerReference'
+    });
     
     console.log('MobileNig electricity purchase payload:', {
       service_id: purchasePayload.service_id,
       trans_id: purchasePayload.trans_id,
-      customerReference: purchasePayload.customerReference,
+      ...(useMeterNumber ? { meterNumber: purchasePayload.meterNumber } : { customerReference: purchasePayload.customerReference }),
       amount: purchasePayload.amount,
       customerName: purchasePayload.customerName,
       customerAddress: purchasePayload.customerAddress,
+      phoneNumber: purchasePayload.phoneNumber,
     });
 
     const purchaseResponse = await fetch('https://enterprise.mobilenig.com/api/v2/services/', {
@@ -873,20 +992,98 @@ async function purchaseWithMobileNig(
     }
     console.log('MobileNig purchase response:', JSON.stringify(purchaseData, null, 2));
 
-    // Check for success: statusCode should be "200" and status should be "Approved"
+    // Check for success: statusCode should be "200" and status should be "Approved" or "Processing"
     // Per MobileNig API documentation:
     // { message: "success", statusCode: "200", details: { status: "Approved", details: { token, reference, receiptNumber } } }
+    // Also accept "Processing" status (202) as valid - transaction will complete asynchronously
+    // Note: statusCode can be string ("200", "202") or number (200, 202) from MobileNig API
     const statusCode = purchaseData.statusCode;
     const transactionStatus = purchaseData.details?.status;
-    const isSuccess = statusCode === '200' && (transactionStatus === 'Approved' || transactionStatus === 'Success');
+    
+    // Normalize statusCode to handle both string and number formats
+    const statusCodeStr = String(statusCode);
+    const statusCodeNum = typeof statusCode === 'number' ? statusCode : parseInt(statusCodeStr, 10);
+    
+    console.log('MobileNig response status check:', {
+      statusCode,
+      statusCodeStr,
+      statusCodeNum,
+      transactionStatus,
+      statusCodeType: typeof statusCode,
+      detailsStatus: purchaseData.details?.status,
+      fullDetails: purchaseData.details
+    });
+    
+    // Accept both "Approved" and "Processing" as valid responses
+    // Processing means transaction is being processed and will complete
+    // Also accept statusCode 200 with any status as success (some providers return different status values)
+    // If statusCode is 200, it's a successful transaction regardless of status field
+    // If statusCode is 202, it's processing
+    const isStatusCode200 = (statusCodeStr === '200' || statusCodeNum === 200);
+    const isStatusCode202 = (statusCodeStr === '202' || statusCodeNum === 202);
+    
+    const isSuccess = 
+      // StatusCode 200 with approved/success status
+      (isStatusCode200 && (transactionStatus === 'Approved' || transactionStatus === 'Success' || transactionStatus === 'Delivered')) ||
+      // StatusCode 202 with processing status
+      (isStatusCode202 && (transactionStatus === 'Processing' || transactionStatus === 'processing')) ||
+      // StatusCode 200 with success message (fallback for different status values)
+      (isStatusCode200 && purchaseData.message === 'success') ||
+      // StatusCode 200 alone (if HTTP response is OK, consider it successful)
+      (isStatusCode200 && purchaseResponse.ok);
     
     if (!purchaseResponse.ok || !isSuccess) {
-      const providerError =
-        purchaseData.details?.details?.message ||
-        purchaseData.details?.message ||
-        purchaseData.message ||
-        purchaseData.error ||
-        'Purchase failed';
+      // Extract detailed error message from MobileNig response
+      const responseStatusCode = purchaseData.statusCode;
+      const responseStatus = purchaseData.details?.status;
+      const responseMessage = purchaseData.message;
+      
+      // Map common MobileNig error codes to user-friendly messages
+      const errorCodeMessages: Record<string, string> = {
+        'EXC001': 'Incomplete parameters. Please check all required fields.',
+        'EXC010': 'Invalid meter number or customer not found.',
+        'EXC020': 'Transaction was cancelled. Please try again.',
+        'EXC030': 'Insufficient balance with service provider.',
+        'EXC040': 'Service temporarily unavailable. Please try again later.',
+      };
+      
+      // Extract error message from various possible locations in the response
+      let providerError = 
+        purchaseData.details?.details?.message ||  // Most specific error message
+        purchaseData.details?.details ||            // Details object as string
+        purchaseData.details?.message ||            // Details message
+        errorCodeMessages[responseStatusCode || ''] || // Mapped error codes
+        responseMessage ||                          // Top-level message
+        purchaseData.error ||                       // Error field
+        (typeof purchaseData.details?.details === 'string' ? purchaseData.details.details : null) || // String details
+        'Purchase failed. Please try again or contact support.'; // Fallback
+      
+      // Add status information if available
+      if (responseStatus && responseStatus !== 'Approved' && responseStatus !== 'Success') {
+        if (responseStatusCode) {
+          providerError = `Transaction ${responseStatus.toLowerCase()} (${responseStatusCode}). ${providerError || 'Please try again or contact support.'}`;
+        } else {
+          providerError = `Transaction ${responseStatus.toLowerCase()}. ${providerError || 'Please try again or contact support.'}`;
+        }
+      } else if (responseStatusCode && !providerError) {
+        providerError = errorCodeMessages[responseStatusCode] || `Transaction failed (${responseStatusCode}). Please try again or contact support.`;
+      }
+      
+      // Fallback to generic message
+      if (!providerError || providerError === 'failure' || providerError === 'Purchase failed') {
+        providerError = responseStatus 
+          ? `Transaction ${responseStatus.toLowerCase()}. Please try again or contact support.`
+          : 'Purchase failed. Please try again or contact support.';
+      }
+      
+      console.error('MobileNig purchase failed:', {
+        statusCode: responseStatusCode,
+        status: responseStatus,
+        message: responseMessage,
+        error: providerError,
+        fullResponse: purchaseData
+      });
+      
       return new Response(
         JSON.stringify({
           success: false,
@@ -917,11 +1114,15 @@ async function purchaseWithMobileNig(
     //   }
     // }
     const transactionDetails = purchaseData.details?.details || {};
-    const token = transactionDetails.token || null;
+    // Convert token to string (MobileNig returns it as number)
+    const token = transactionDetails.token != null ? String(transactionDetails.token) : null;
     const mobileNigReference = transactionDetails.reference || null;
     const receiptNumber = transactionDetails.receiptNumber || null;
     const customerReference = transactionDetails.customerReference || meterNumber;
-    const transactionId = purchaseData.details?.trans_id || transId;
+    // Convert trans_id to string if it's a number
+    const transactionId = purchaseData.details?.trans_id != null 
+      ? String(purchaseData.details.trans_id) 
+      : String(transId);
     const serviceName = purchaseData.details?.service || null;
     const walletBalance = purchaseData.details?.wallet_balance || null;
     
@@ -939,6 +1140,40 @@ async function purchaseWithMobileNig(
 
     const formattedAmount = `₦${amount.toFixed(2)}`;
     const meterLabel = meterType ? meterType.toUpperCase() : 'METER';
+    
+    // Determine transaction status based on MobileNig response
+    // Since we've passed the isSuccess check, transaction is valid
+    // Per MobileNig API documentation:
+    // - statusCode "200" = Transaction Successful (should be "completed")
+    // - statusCode "202" = Transaction is processing (should be "pending")
+    // Note: statusCode can be string ("200", "202") or number (200, 202) from MobileNig API
+    
+    // Use the statusCode we already extracted and validated
+    // isStatusCode200 and isStatusCode202 are already defined above
+    const normalizedTransactionStatus = (transactionStatus || '').toLowerCase().trim();
+    
+    // Mark as "pending" ONLY if statusCode is 202 (processing)
+    // If statusCode is 200, it's always "completed" regardless of status field
+    // This is because HTTP 200 means success, and MobileNig API uses 200 for successful transactions
+    const isExplicitlyProcessing = isStatusCode202;
+    
+    // Set status: "pending" only for statusCode 202, "completed" for statusCode 200
+    // Since we passed isSuccess check, default to "completed" unless explicitly statusCode 202
+    const transactionStatusValue = isExplicitlyProcessing ? 'pending' : 'completed';
+    
+    console.log('Transaction status determination:', {
+      statusCode,
+      statusCodeStr,
+      statusCodeNum,
+      isStatusCode200,
+      isStatusCode202,
+      transactionStatus,
+      normalizedTransactionStatus,
+      isExplicitlyProcessing,
+      finalStatus: transactionStatusValue,
+      rule: 'StatusCode 200 = completed, StatusCode 202 = pending',
+      note: 'Since we passed isSuccess check, defaulting to completed unless statusCode is 202'
+    });
 
     const debitResult = await debitUserWallet({
       supabase,
@@ -950,8 +1185,10 @@ async function purchaseWithMobileNig(
       performedBy: userId,
       balanceBefore: Number(profile.balance) || 0,
       notification: {
-        title: 'Electricity purchase successful',
-        message: `${formattedAmount} electricity token purchased for meter ${meterNumber} (${meterLabel}) on ${provider}. Reference: ${reference}.`,
+        title: isExplicitlyProcessing ? 'Electricity purchase processing' : 'Electricity purchase successful',
+        message: isExplicitlyProcessing 
+          ? `${formattedAmount} electricity purchase is being processed for meter ${meterNumber} (${meterLabel}) on ${provider}. Reference: ${reference}.`
+          : `${formattedAmount} electricity token purchased for meter ${meterNumber} (${meterLabel}) on ${provider}. Reference: ${reference}.`,
       },
     });
 
@@ -968,7 +1205,7 @@ async function purchaseWithMobileNig(
         meter_type: meterType,
         customer_name: providerCustomerName,
         token: token,
-        status: 'completed',
+        status: transactionStatusValue,
         reference: reference,
         api_response: {
           ...purchaseData,
@@ -997,7 +1234,7 @@ async function purchaseWithMobileNig(
       // Send push notification
       await sendPushNotification(
         supabase,
-        user.id,
+        userId,
         'Electricity Payment Successful',
         `₦${amount.toFixed(2)} electricity payment successful for meter ${meterNumber}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
         {
@@ -1019,22 +1256,23 @@ async function purchaseWithMobileNig(
             amount: amount,
             balance_after: debitResult.balanceAfter,
             trans_id: transactionId,
-            token: token,
+            token: token, // Electricity token - prominently included for user
             meter_number: meterNumber,
-          provider: provider,
-          meter_type: meterType,
-          customer_name: providerCustomerName,
-          customer_address: providerCustomerAddress,
-          // Additional MobileNig response fields
-          mobile_nig_reference: mobileNigReference,
-          receipt_number: receiptNumber,
-          customer_reference: customerReference,
-          service_name: serviceName,
-          wallet_balance: walletBalance,
-        }
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+            provider: provider,
+            meter_type: meterType,
+            customer_name: providerCustomerName,
+            customer_address: providerCustomerAddress,
+            // Additional MobileNig response fields
+            mobile_nig_reference: mobileNigReference,
+            receipt_number: receiptNumber,
+            customer_reference: customerReference,
+            service_name: serviceName,
+            wallet_balance: walletBalance,
+            status: transactionStatusValue, // Include status in response
+          }
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
   } catch (error) {
     console.error('Error in MobileNig electricity purchase:', error);
     return new Response(

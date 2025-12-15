@@ -291,30 +291,102 @@ serve(async (req) => {
     }
     console.log('SMEPLUG data purchase response:', JSON.stringify(apiResponse, null, 2));
 
-    const apiStatus =
-      apiResponse?.success === true ||
-      apiResponse?.status === true ||
-      apiResponse?.data?.status === true ||
-      apiResponse?.data?.success === true ||
-      apiResponse?.status === 'success';
+    // Check for actual delivery status, not just request acceptance
+    // SMEPLUG can return:
+    // - status: true (boolean) = success
+    // - status: 'success' (string) = success
+    // - status: 'delivered' (string) = success
+    // - status: 'pending' (string) = pending
+    // - status: 'processing' (string) = pending
+    // - success: true/false (boolean) = also indicates success/failure
+    const status = apiResponse?.status || apiResponse?.data?.status || '';
+    const statusLower = (typeof status === 'string' ? status : String(status || '')).toLowerCase();
+    const success = apiResponse?.success;
+    const dataSuccess = apiResponse?.data?.success;
+    
+    // Check if status is boolean true (SMEPLUG sometimes returns status: true)
+    const statusIsTrue = status === true || status === 'true';
+    
+    // Only consider it successful if data is actually delivered
+    // Accept: status === true (boolean), status === 'success', status === 'delivered', or success === true
+    const isDelivered = 
+      statusIsTrue ||
+      statusLower === 'success' ||
+      statusLower === 'delivered' ||
+      success === true ||
+      dataSuccess === true;
+    
+    // Check if it's pending/processing (request accepted but not yet delivered)
+    const isPending = 
+      statusLower === 'pending' ||
+      statusLower === 'processing' ||
+      statusLower === 'queued';
+    
+    // Check if it failed
+    // Only mark as failed if explicitly failed
+    const isFailed = 
+      !response.ok ||
+      statusLower === 'failed' ||
+      statusLower === 'error' ||
+      success === false ||
+      dataSuccess === false ||
+      (status === false);
 
-    if (!response.ok || !apiStatus) {
+    if (isFailed) {
+      // Extract error message from multiple possible locations
       const errorMessage =
         apiResponse.message ||
         apiResponse.error ||
         apiResponse.data?.message ||
         apiResponse.data?.error ||
-        'Data purchase failed';
-      console.error('SMEPLUG data API error:', errorMessage, 'Full response:', apiResponse);
+        apiResponse.response_description ||
+        apiResponse.status_message ||
+        (typeof apiResponse.details === 'string' ? apiResponse.details : null) ||
+        (apiResponse.details?.message) ||
+        (apiResponse.details?.error) ||
+        `Data purchase failed${status ? ` (status: ${status})` : ''}`;
+      
+      console.error('SMEPLUG data API error:', {
+        errorMessage,
+        httpStatus: response.status,
+        responseOk: response.ok,
+        status,
+        statusLower,
+        success,
+        dataSuccess,
+        isDelivered,
+        isPending,
+        isFailed,
+        fullResponse: JSON.stringify(apiResponse, null, 2)
+      });
+      
       return new Response(
         JSON.stringify({ 
           success: false, 
           error: errorMessage,
-          details: apiResponse,
+          details: {
+            status,
+            statusCode: response.status,
+            apiResponse: apiResponse
+          },
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    // If pending, we should still debit but mark as pending
+    // The webhook will update it to success when delivered
+    const transactionStatus = isDelivered ? 'success' : 'pending';
+    console.log('Transaction status determined:', {
+      status,
+      statusLower,
+      success,
+      dataSuccess,
+      isDelivered,
+      isPending,
+      isFailed,
+      transactionStatus
+    });
 
     const formattedAmount = `₦${userChargedAmount.toFixed(2)}`;
 
@@ -330,8 +402,10 @@ serve(async (req) => {
       performedBy: user.id,
       balanceBefore,
       notification: {
-        title: 'Data purchase successful',
-        message: `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Reference: ${reference}.`,
+        title: isDelivered ? 'Data purchase successful' : 'Data purchase processing',
+        message: isDelivered 
+          ? `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Reference: ${reference}.`
+          : `${formattedAmount} data bundle (${dataPlan.plan_name}) is being processed for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Reference: ${reference}.`,
       },
     });
 
@@ -349,7 +423,7 @@ serve(async (req) => {
       amount: userChargedAmount,
       balance_before: debitResult.balanceBefore,
       balance_after: debitResult.balanceAfter,
-      status: 'success',
+      status: transactionStatus,
       reference,
       api_response: apiResponse,
       performed_by: user.id,
@@ -420,8 +494,10 @@ serve(async (req) => {
     await sendPushNotification(
       supabase,
       user.id,
-      'Data Purchase Successful',
-      `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+      isDelivered ? 'Data Purchase Successful' : 'Data Purchase Processing',
+      isDelivered
+        ? `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`
+        : `${formattedAmount} data bundle (${dataPlan.plan_name}) is being processed for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
       {
         type: 'data_purchase',
         reference,
@@ -429,13 +505,15 @@ serve(async (req) => {
         plan_name: dataPlan.plan_name,
         phone_number: sanitizedPhone,
         network: resolvedNetworkName || dataPlan.network || String(network_id),
+        status: transactionStatus,
       }
     );
 
     return new Response(
       JSON.stringify({ 
-        success: true,
-        message: 'Data purchased successfully',
+        success: isDelivered, // Only return true if actually delivered
+        pending: isPending, // Indicate if pending
+        message: isDelivered ? 'Data purchased successfully' : 'Data purchase is being processed',
         data: {
           reference,
           plan_name: dataPlan.plan_name,
@@ -446,7 +524,8 @@ serve(async (req) => {
           network: resolvedNetworkName || dataPlan.network || String(network_id),
           validity: dataPlan.validity,
           balance_before: debitResult.balanceBefore,
-          balance_after: debitResult.balanceAfter
+          balance_after: debitResult.balanceAfter,
+          status: transactionStatus,
         }
       }),
       { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
