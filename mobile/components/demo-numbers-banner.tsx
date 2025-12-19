@@ -6,7 +6,7 @@ import { useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 
 type DemoNumbersBannerProps = {
-  type: 'airtime' | 'data' | 'cable' | 'electricity' | 'transfer';
+  type: 'airtime' | 'data' | 'cable' | 'electricity' | 'transfer' | 'education';
 };
 
 const DEMO_NUMBERS = {
@@ -44,10 +44,16 @@ const DEMO_NUMBERS = {
     number: 'demo-recipient@netpayy.ng',
     description: 'Use this email address to test money transfers',
   },
+  education: {
+    title: 'Demo JAMB Profile Code',
+    number: 'DEMO123456',
+    description: 'Use this profile code to test JAMB registration purchases',
+  },
 };
 
 export function DemoNumbersBanner({ type }: DemoNumbersBannerProps) {
-  const [expanded, setExpanded] = useState(false);
+  // Expand by default for education type to show JAMB profile code
+  const [expanded, setExpanded] = useState(type === 'education');
   const demoInfo = DEMO_NUMBERS[type];
 
   const handleCopy = async (number: string) => {
@@ -78,9 +84,11 @@ export function DemoNumbersBanner({ type }: DemoNumbersBannerProps) {
 
           {expanded && (
         <View style={styles.content}>
-          {type === 'airtime' || type === 'data' || type === 'transfer' ? (
+          {type === 'airtime' || type === 'data' || type === 'transfer' || type === 'education' ? (
             <View style={styles.numberContainer}>
-              <ThemedText style={styles.numberLabel}>Phone Number:</ThemedText>
+              <ThemedText style={styles.numberLabel}>
+                {type === 'education' ? 'JAMB Profile Code:' : type === 'transfer' ? 'Email:' : 'Phone Number:'}
+              </ThemedText>
               <TouchableOpacity
                 style={styles.numberBox}
                 onPress={() => handleCopy(demoInfo.number)}

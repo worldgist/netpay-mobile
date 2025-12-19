@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase } from '@/lib/supabase';
+import { registerForPushNotifications } from '@/utils/push-notifications';
 
 const getBiometricLabel = (type: LocalAuthentication.AuthenticationType) => {
   switch (type) {
@@ -32,9 +33,11 @@ const getBiometricLabel = (type: LocalAuthentication.AuthenticationType) => {
 export default function SetupBiometricScreen() {
   const router = useRouter();
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricTypes, setBiometricTypes] = useState<LocalAuthentication.AuthenticationType[]>([]);
   const [isDemoUser, setIsDemoUser] = useState(false);
+  const [registeringNotifications, setRegisteringNotifications] = useState(false);
 
   useEffect(() => {
     const checkHardware = async () => {
@@ -75,8 +78,20 @@ export default function SetupBiometricScreen() {
     LocalAuthentication.authenticateAsync({
       promptMessage: 'Enable biometric login',
       cancelLabel: 'Cancel',
-    }).then((result) => {
+    }).then(async (result) => {
       if (result.success) {
+        // Update biometric_enabled in database
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase
+              .from('profiles')
+              .update({ biometric_enabled: true })
+              .eq('id', user.id);
+          }
+        } catch (error) {
+          console.error('Failed to update biometric setting:', error);
+        }
         setShowSuccessModal(true);
       } else {
         Alert.alert('Biometric Setup', result.error || 'Biometric authentication was cancelled.');
@@ -90,6 +105,55 @@ export default function SetupBiometricScreen() {
 
   const handleCloseModal = () => {
     setShowSuccessModal(false);
+    // Show notification prompt after biometric setup
+    setShowNotificationModal(true);
+  };
+
+  const handleEnableNotifications = async () => {
+    setRegisteringNotifications(true);
+    try {
+      const result = await registerForPushNotifications();
+      if (result.registered) {
+        console.log('Push notifications enabled successfully');
+        setShowNotificationModal(false);
+        router.replace('/(tabs)');
+      } else {
+        Alert.alert(
+          'Notifications',
+          result.reason || 'Failed to enable notifications. You can enable them later in settings.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setShowNotificationModal(false);
+                router.replace('/(tabs)');
+              },
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error enabling notifications:', error);
+      Alert.alert(
+        'Notifications',
+        'Failed to enable notifications. You can enable them later in settings.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setShowNotificationModal(false);
+              router.replace('/(tabs)');
+            },
+          },
+        ]
+      );
+    } finally {
+      setRegisteringNotifications(false);
+    }
+  };
+
+  const handleSkipNotifications = () => {
+    setShowNotificationModal(false);
     router.replace('/(tabs)');
   };
 
@@ -178,7 +242,42 @@ export default function SetupBiometricScreen() {
               You can now use biometric authentication the next time you log in.
             </ThemedText>
             <TouchableOpacity style={styles.modalButton} onPress={handleCloseModal}>
-              <ThemedText style={styles.modalButtonText}>Finish</ThemedText>
+              <ThemedText style={styles.modalButtonText}>Continue</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Notification Prompt Modal */}
+      <Modal 
+        visible={showNotificationModal} 
+        transparent 
+        animationType="fade" 
+        onRequestClose={handleSkipNotifications}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.notificationIconCircle}>
+              <MaterialIcons name="notifications" size={40} color="#fff" />
+            </View>
+            <ThemedText style={styles.modalTitle} numberOfLines={2} ellipsizeMode="tail">
+              Enable Notifications
+            </ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              Stay updated with transaction alerts, payment reminders, and important account notifications.
+            </ThemedText>
+            <TouchableOpacity 
+              style={[styles.modalButton, registeringNotifications && styles.modalButtonDisabled]} 
+              onPress={handleEnableNotifications}
+              disabled={registeringNotifications}>
+              <ThemedText style={styles.modalButtonText}>
+                {registeringNotifications ? 'Enabling...' : 'Enable Notifications'}
+              </ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.skipButtonModal} 
+              onPress={handleSkipNotifications}
+              disabled={registeringNotifications}>
+              <ThemedText style={styles.skipButtonTextModal}>Skip for Now</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -387,5 +486,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  notificationIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FF7F00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalButtonDisabled: {
+    opacity: 0.6,
+  },
+  skipButtonModal: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  skipButtonTextModal: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    textDecorationLine: 'underline',
   },
 });

@@ -61,10 +61,55 @@ serve(async (req) => {
 
     if (email) {
       try {
-        const { data: user } = await supabase.auth.admin.getUserByEmail(email);
-        emailExists = Boolean(user);
+        // First, check profiles table (more efficient and consistent with phone check)
+        const { data: emailMatches, error: profileError } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("email", email.toLowerCase())
+          .limit(1);
+
+        if (profileError) {
+          console.error("Profile email lookup error:", profileError);
+          // Fallback to auth check if profile check fails
+        } else {
+          emailExists = Boolean(emailMatches && emailMatches.length > 0);
+          console.log("Profile email check result:", { emailExists, matches: emailMatches?.length });
+          
+          // If found in profiles, we're done
+          if (emailExists) {
+            console.log("Email found in profiles - already exists");
+          } else {
+            // Also check auth.users as a fallback (in case user exists in auth but not in profiles)
+            try {
+              const { data: userData, error: userError } = await supabase.auth.admin.getUserByEmail(email);
+              
+              if (userError) {
+                const errorMessage = userError.message?.toLowerCase() || '';
+                const errorStatus = (userError as any)?.status;
+                
+                if (errorStatus === 404 || 
+                    errorMessage.includes('not found') || 
+                    errorMessage.includes('user not found') ||
+                    errorMessage.includes('no user found')) {
+                  emailExists = false;
+                  console.log("User not found in auth - email is available");
+                } else {
+                  console.error("Auth lookup error (non-404):", userError);
+                  emailExists = false;
+                }
+              } else if (userData?.user) {
+                emailExists = true;
+                console.log("User found in auth - email already exists");
+              }
+            } catch (authErr) {
+              console.error("Exception during auth email lookup:", authErr);
+              emailExists = false;
+            }
+          }
+        }
       } catch (error) {
-        console.error("Failed to lookup email:", error);
+        console.error("Exception during email lookup:", error);
+        emailExists = false;
       }
     }
 

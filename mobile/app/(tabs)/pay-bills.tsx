@@ -103,7 +103,7 @@ export default function PayBillsScreen() {
     const dataLast = data.transactions.data[0];
     const electricityLast = data.transactions.electricity[0];
 
-    return SERVICE_CONFIG.map((service) => {
+    return SERVICE_CONFIG.map((service): ServiceStat => {
       if (service.id === 'airtime') {
         const available = airtimeNetworks.size;
         return {
@@ -138,8 +138,10 @@ export default function PayBillsScreen() {
         const available = cableProviders.size;
         return {
           ...service,
-          availableLabel: available > 0 ? `${available} provider${available === 1 ? '' : 's'} active` : 'No cable providers yet',
-          comingSoon: available === 0,
+          availableLabel: available > 0 
+            ? `${available} provider${available === 1 ? '' : 's'} available` 
+            : 'Cable TV available',
+          comingSoon: false, // Always available - packages are fetched from API
         };
       }
 
@@ -171,7 +173,10 @@ export default function PayBillsScreen() {
       }
 
       return {
-        ...service,
+        id: service.id,
+        name: service.name,
+        icon: service.icon,
+        route: service.route,
         availableLabel: 'Service available',
       };
     });
@@ -202,10 +207,37 @@ export default function PayBillsScreen() {
 
         const userId = session.user.id;
 
+        // Fetch cable TV providers from transactions (cable_tv_plans table no longer exists)
+        let cablePlansRes = { data: [], error: null };
+        try {
+          const cableTxRes = await supabase
+            .from('cable_tv_transactions')
+            .select('id, provider')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(100);
+          
+          if (!cableTxRes.error && cableTxRes.data) {
+            // Extract unique providers from transactions
+            const providers = new Set(
+              cableTxRes.data.map((tx: any) => tx.provider).filter(Boolean)
+            );
+            cablePlansRes = {
+              data: Array.from(providers).map((provider: string) => ({ provider })),
+              error: null,
+            };
+          } else {
+            console.warn('Cable TV transactions query failed:', cableTxRes.error?.message);
+            cablePlansRes = { data: [], error: null };
+          }
+        } catch (err) {
+          console.warn('Error fetching cable TV data:', err);
+          cablePlansRes = { data: [], error: null };
+        }
+
         const [
           airtimeProvidersRes,
           dataPlansRes,
-          cablePlansRes,
           airtimeTransactionsRes,
           dataTransactionsRes,
           electricityTransactionsRes,
@@ -215,10 +247,6 @@ export default function PayBillsScreen() {
             .select('id, network_name, min_amount, max_amount')
             .eq('is_active', true),
           supabase.from('data_plans').select('id, network, plan_name, price, validity'),
-          supabase
-            .from('cable_tv_plans')
-            .select('id, provider, package_name, price')
-            .eq('is_active', true),
           supabase
             .from('airtime_transactions')
             .select('id, amount, created_at, network, status, phone_number')
@@ -239,8 +267,9 @@ export default function PayBillsScreen() {
             .limit(5),
         ]);
 
-        if ([airtimeProvidersRes.error, dataPlansRes.error, cablePlansRes.error].some(Boolean)) {
-          const errors = [airtimeProvidersRes.error, dataPlansRes.error, cablePlansRes.error]
+        // Only show errors for critical tables (airtime, data), not cable (which uses transactions now)
+        if ([airtimeProvidersRes.error, dataPlansRes.error].some(Boolean)) {
+          const errors = [airtimeProvidersRes.error, dataPlansRes.error]
             .filter(Boolean)
             .map((err) => err?.message)
             .join('\n');
@@ -294,7 +323,7 @@ export default function PayBillsScreen() {
   }, [fetchPayBillsData]);
 
   const handleServicePress = (service: ServiceStat) => {
-    router.push(service.route);
+    router.push(service.route as any);
   };
 
   return (
@@ -324,7 +353,7 @@ export default function PayBillsScreen() {
         ) : null}
 
         <View style={styles.servicesGrid}>
-          {(services.length ? services : SERVICE_CONFIG).map((service) => (
+          {(services.length ? services : SERVICE_CONFIG.map(s => ({ ...s, availableLabel: 'Service available' } as ServiceStat))).map((service: ServiceStat) => (
             <TouchableOpacity
               key={service.id}
               style={styles.serviceCard}

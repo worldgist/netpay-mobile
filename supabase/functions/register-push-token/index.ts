@@ -65,7 +65,16 @@ serve(async (req) => {
     }
 
     const deviceId = normalize(payload.device_id);
-    const platform = normalize(payload.platform);
+    // Normalize platform but preserve the value (don't convert to empty string)
+    const platform = payload.platform?.trim() || null;
+
+    // Log registration attempt for debugging
+    console.log('Registering push token:', {
+      userId: userData.user.id,
+      platform: platform,
+      hasDeviceId: !!deviceId,
+      tokenPrefix: expoToken.substring(0, 20),
+    });
 
     if (deviceId) {
       await supabase
@@ -81,12 +90,22 @@ serve(async (req) => {
         user_id: userData.user.id,
         expo_push_token: expoToken,
         device_id: deviceId || null,
-        platform: platform || null,
+        platform: platform, // Store platform as-is (should be 'ios' or 'android')
         is_active: true,
       }, {
         onConflict: "expo_push_token",
         ignoreDuplicates: false,
       });
+
+    if (upsertError) {
+      console.error('Upsert error:', upsertError);
+      throw upsertError;
+    }
+
+    console.log('Push token registered successfully:', {
+      platform: platform,
+      userId: userData.user.id,
+    });
 
     if (upsertError) {
       throw upsertError;

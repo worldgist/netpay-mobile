@@ -269,12 +269,13 @@ export default function AirtimePurchaseScreen() {
   };
 
   const handleConfirmPayment = useCallback(async () => {
-    if (!selectedProviderDetails) return;
+    const currentSelectedProviderDetails = selectedProvider ? providers.find((provider) => provider.id === selectedProvider) : undefined;
+    if (!currentSelectedProviderDetails) return;
 
     try {
       const rawNetworkId =
-        selectedProviderDetails.apiCode ||
-        (selectedProviderDetails.network ? SMEPLUG_NETWORK_IDS[selectedProviderDetails.network] : null);
+        currentSelectedProviderDetails.apiCode ||
+        (currentSelectedProviderDetails.network ? SMEPLUG_NETWORK_IDS[currentSelectedProviderDetails.network] : null);
       const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
 
       if (!normalizedNetworkId || !/^\d+$/.test(normalizedNetworkId)) {
@@ -298,7 +299,7 @@ export default function AirtimePurchaseScreen() {
           phone_number: sanitizedPhoneNumber,
           amount: submissionAmount,
           network_id: normalizedNetworkId,
-          network_name: selectedProviderDetails.network,
+          network_name: currentSelectedProviderDetails.network,
         },
         headers: accessToken
           ? {
@@ -322,6 +323,10 @@ export default function AirtimePurchaseScreen() {
                               error?.code === 'NETWORK_ERROR';
         
         if (isNetworkError) {
+          // Suppress this error from global error handler
+          const { suppressHandledNetworkError } = require('@/utils/error-handler');
+          suppressHandledNetworkError(error);
+          
           Alert.alert(
             'Connection Error',
             'Network connection failed. Please check your internet connection and try again.',
@@ -350,11 +355,14 @@ export default function AirtimePurchaseScreen() {
 
       const reference = data?.data?.reference || '';
 
+      const currentAmountValue = Number.isNaN(Number.parseFloat(amount.replace(/,/g, ''))) ? 0 : Number.parseFloat(amount.replace(/,/g, ''));
+      const currentSelectedProviderName = currentSelectedProviderDetails?.displayName || '';
+      
       router.push({
         pathname: '/payment-success',
         params: {
-          amount: amountValue.toString(),
-          network: selectedProviderName,
+          amount: currentAmountValue.toString(),
+          network: currentSelectedProviderName,
           recipient: phoneNumber,
           serviceType: 'Airtime VTU',
           reference,
@@ -428,7 +436,7 @@ export default function AirtimePurchaseScreen() {
 
       Alert.alert('Airtime Purchase', message);
     }
-  }, [amount, amountValue, phoneNumber, router, selectedProviderDetails, selectedProviderName]);
+  }, [amount, phoneNumber, router, selectedProvider, providers]);
 
   const getNetworkLogo = (networkName: string) => {
     const network = providers.find(n => n.network === networkName);

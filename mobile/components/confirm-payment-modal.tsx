@@ -15,6 +15,9 @@ interface ConfirmPaymentModalProps {
   serviceType?: string;
   planDetails?: string;
   loading?: boolean;
+  charges?: number; // Optional service charges/fees
+  quantity?: number; // Optional quantity (for WAEC/NECO PINs)
+  disabled?: boolean;
 }
 
 export function ConfirmPaymentModal({
@@ -28,11 +31,13 @@ export function ConfirmPaymentModal({
   serviceType = 'Airtime VTU',
   planDetails,
   loading = false,
+  charges = 0,
+  quantity = 1,
 }: ConfirmPaymentModalProps) {
   const currentDate = new Date();
-  const formattedDate = currentDate.toLocaleDateString('en-GB', {
-    day: '2-digit',
+  const formattedDate = currentDate.toLocaleDateString('en-US', {
     month: '2-digit',
+    day: '2-digit',
     year: 'numeric',
   });
   const formattedTime = currentDate.toLocaleTimeString('en-US', {
@@ -43,6 +48,11 @@ export function ConfirmPaymentModal({
   const [submitting, setSubmitting] = useState(false);
 
   const isBusy = submitting || loading;
+  // Ensure charges is a number
+  const numericCharges = typeof charges === 'number' ? charges : (typeof charges === 'string' ? parseFloat(charges) || 0 : 0);
+  // Calculate total: (amount + charges) * quantity
+  const unitTotal = amount + numericCharges;
+  const totalAmount = unitTotal * quantity;
 
   const handleConfirm = async () => {
     if (isBusy) return;
@@ -62,79 +72,102 @@ export function ConfirmPaymentModal({
       animationType="slide"
       onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
+        <TouchableOpacity 
+          style={styles.backdrop} 
+          activeOpacity={1} 
+          onPress={isBusy ? undefined : onClose}
+          disabled={isBusy}
+        />
         <View style={styles.modalContainer}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <View style={styles.headerRow}>
+          <View style={styles.modalContent}>
+            {/* Header with Amount */}
+            <View style={styles.headerRow}>
+              <TouchableOpacity onPress={isBusy ? undefined : onClose} style={styles.closeButton} disabled={isBusy}>
+                <MaterialIcons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+              <View style={styles.headerCenter}>
                 <ThemedText style={styles.headerTitle}>Payment</ThemedText>
-                <TouchableOpacity onPress={isBusy ? undefined : onClose} style={styles.closeButton} disabled={isBusy}>
-                  <MaterialIcons name="close" size={22} color="#333" />
-                </TouchableOpacity>
+                <ThemedText 
+                  style={styles.headerAmount}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.7}>
+                  ₦{totalAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </ThemedText>
               </View>
+              <View style={styles.closeButtonPlaceholder} />
+            </View>
 
-              <View style={styles.amountCard}>
-                <View style={styles.amountBadge}>
-                  <ThemedText style={styles.amountDisplay}>₦{amount.toFixed(2)}</ThemedText>
-                </View>
-                <View style={styles.headerProviderGroup}>
-                  <Image source={networkLogo} style={styles.headerProviderLogo} contentFit="contain" />
-                  <ThemedText style={styles.headerProviderName}>{network}</ThemedText>
-                </View>
+            {/* Payment Details Card */}
+            <View style={styles.detailsCard}>
+              <ThemedText style={styles.cardTitle}>Payment Details</ThemedText>
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Price {quantity > 1 ? `(×${quantity})` : ''}</ThemedText>
+                <ThemedText style={styles.detailValue}>
+                  ₦{(amount * quantity).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {quantity > 1 && (
+                    <ThemedText style={{ fontSize: 12, color: '#666' }}> (₦{amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each)</ThemedText>
+                  )}
+                </ThemedText>
               </View>
-
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryRow}>
-                  <ThemedText style={styles.summaryLabel}>Amount</ThemedText>
-                  <ThemedText style={styles.summaryValue}>₦{amount.toFixed(2)}</ThemedText>
-                </View>
-                <View style={styles.summaryRow}>
-                  <ThemedText style={styles.summaryLabel}>Recipient</ThemedText>
-                  <ThemedText style={styles.summaryValue}>{recipient}</ThemedText>
-                </View>
-                <View style={[styles.summaryRow, styles.providerRow]}>
-                  <ThemedText style={styles.summaryLabel}>Provider</ThemedText>
-                  <View style={styles.providerInfo}>
-                    <Image source={networkLogo} style={styles.providerLogo} contentFit="contain" />
-                    <ThemedText style={styles.providerName}>{network}</ThemedText>
-                  </View>
-                </View>
-                {serviceType ? (
-                  <View style={styles.summaryRow}>
-                    <ThemedText style={styles.summaryLabel}>Service</ThemedText>
-                    <ThemedText style={styles.summaryValue}>{serviceType}</ThemedText>
-                  </View>
-                ) : null}
-                {planDetails ? (
-                  <View style={styles.summaryRow}>
-                    <ThemedText style={styles.summaryLabel}>Plan Details</ThemedText>
-                    <ThemedText style={styles.summaryValue}>{planDetails}</ThemedText>
-                  </View>
-                ) : null}
-              </View>
-
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryRow}>
-                  <ThemedText style={styles.summaryLabel}>Date</ThemedText>
-                  <ThemedText style={styles.summaryValue}>
-                    {formattedDate}, {formattedTime}
+              {numericCharges > 0 && (
+                <View style={styles.detailRow}>
+                  <ThemedText style={styles.detailLabel}>Charge Fee {quantity > 1 ? `(×${quantity})` : ''}</ThemedText>
+                  <ThemedText style={styles.detailValue}>
+                    ₦{(numericCharges * quantity).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {quantity > 1 && (
+                      <ThemedText style={{ fontSize: 12, color: '#666' }}> (₦{numericCharges.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each)</ThemedText>
+                    )}
                   </ThemedText>
                 </View>
-                <View style={styles.summaryRow}>
-                  <ThemedText style={styles.summaryLabel}>Status</ThemedText>
-              <ThemedText style={[styles.summaryValue, styles.statusValue]}>
-                {isBusy ? 'Authorizing payment…' : 'Ready'}
-              </ThemedText>
+              )}
+              {quantity > 1 && (
+                <View style={styles.detailRow}>
+                  <ThemedText style={styles.detailLabel}>Quantity</ThemedText>
+                  <ThemedText style={styles.detailValue}>{quantity} PIN{quantity > 1 ? 's' : ''}</ThemedText>
+                </View>
+              )}
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
+                <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{recipient || 'N/A'}</ThemedText>
+              </View>
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Provider</ThemedText>
+                <View style={styles.providerInfo}>
+                  <Image source={networkLogo} style={styles.providerLogo} contentFit="contain" />
+                  <ThemedText style={styles.providerName} numberOfLines={1} ellipsizeMode="tail">{network}</ThemedText>
                 </View>
               </View>
-
-          <TouchableOpacity style={[styles.confirmButton, isBusy && styles.confirmButtonDisabled]} onPress={handleConfirm} disabled={isBusy}>
-            {isBusy ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText style={styles.confirmButtonText}>Confirm to Pay</ThemedText>
-                )}
-              </TouchableOpacity>
             </View>
+
+            {/* Transaction Status Card */}
+            <View style={styles.statusCard}>
+              <ThemedText style={styles.cardTitle}>Transaction Status</ThemedText>
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Date</ThemedText>
+                <ThemedText style={styles.detailValue} numberOfLines={1}>
+                  {formattedDate}, {formattedTime}
+                </ThemedText>
+              </View>
+              <View style={styles.detailRow}>
+                <ThemedText style={styles.detailLabel}>Status</ThemedText>
+                <ThemedText style={[styles.statusValue, styles.statusProcessing]}>
+                  {isBusy ? 'Processing' : 'Ready'}
+                </ThemedText>
+              </View>
+            </View>
+
+            {/* Confirm Button */}
+            <TouchableOpacity 
+              style={[styles.confirmButton, isBusy && styles.confirmButtonDisabled]} 
+              onPress={handleConfirm} 
+              disabled={isBusy}>
+              {isBusy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <ThemedText style={styles.confirmButtonText}>Confirm to Pay</ThemedText>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -145,137 +178,157 @@ export function ConfirmPaymentModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContainer: {
-    width: '100%',
-    maxWidth: 420,
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  modalBackground: {
-    backgroundColor: '#FF7F00',
-    borderRadius: 24,
-    paddingTop: 20,
-    paddingHorizontal: 4,
-  },
-  modalContent: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingBottom: 24,
+    paddingBottom: 32,
+    maxHeight: '90%',
+    overflow: 'visible',
+  },
+  modalContent: {
+    paddingHorizontal: 20,
     paddingTop: 20,
+    overflow: 'visible',
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    paddingRight: 0,
+    paddingLeft: 0,
+  },
+  headerCenter: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#222',
+    color: '#666',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  headerAmount: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#000',
+    letterSpacing: -0.5,
+    lineHeight: 40,
+    includeFontPadding: false,
+    textAlign: 'center',
+    textAlignVertical: 'center',
   },
   closeButton: {
     padding: 4,
-  },
-  amountCard: {
+    marginTop: 4,
+    width: 32,
+    height: 32,
     alignItems: 'center',
-    paddingVertical: 18,
-    marginBottom: 18,
-    gap: 12,
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  amountBadge: {
-    backgroundColor: '#FFF6ED',
-    borderRadius: 28,
-    paddingHorizontal: 34,
-    paddingVertical: 18,
+  closeButtonPlaceholder: {
+    width: 32,
+    flexShrink: 0,
+  },
+  detailsCard: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#FFD9B3',
+    borderColor: '#E8E8E8',
   },
-  amountDisplay: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#000',
+  statusCard: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
   },
-  headerProviderGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  headerProviderLogo: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
-  headerProviderName: {
+  cardTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#444',
+    color: '#666',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  summaryCard: {
-    backgroundColor: '#F8F8F8',
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    marginBottom: 18,
-  },
-  summaryRow: {
+  detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 8,
+    minHeight: 44,
   },
-  summaryLabel: {
+  detailLabel: {
     fontSize: 15,
-    color: '#7A7A7A',
+    color: '#666',
     fontWeight: '500',
+    flex: 1,
   },
-  summaryValue: {
+  detailValue: {
     fontSize: 15,
-    color: '#101010',
+    color: '#333',
     fontWeight: '600',
-  },
-  providerRow: {
-    alignItems: 'flex-start',
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: 12,
   },
   providerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   providerLogo: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: 4,
   },
   providerName: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#101010',
+    color: '#333',
+    flexShrink: 1,
   },
   statusValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  statusProcessing: {
     color: '#2666CF',
   },
   confirmButton: {
-    marginTop: 12,
     backgroundColor: '#FF7F00',
-    borderRadius: 24,
+    borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
   },
   confirmButtonDisabled: {
     backgroundColor: '#FFB875',
+    opacity: 0.7,
   },
   confirmButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#fff',
   },
 });

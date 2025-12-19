@@ -259,7 +259,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         const errorMessage = typeof plansRes.error.message === 'string' 
           ? plansRes.error.message 
           : JSON.stringify(plansRes.error.message || plansRes.error);
-        const statusCode = plansRes.error.status;
+        const statusCode = (plansRes.error as any).status;
         const httpStatus = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode || '0'), 10);
         
         console.warn('Data plans query error:', { 

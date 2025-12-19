@@ -156,7 +156,9 @@ export default function EmailVerificationScreen() {
             {token.map((digit, index) => (
               <View key={index} style={[styles.codeInputWrapper, index === token.length - 1 && styles.lastInputWrapper]}>
                 <TextInput
-                  ref={(ref) => (inputRefs.current[index] = ref)}
+                  ref={(ref) => {
+                    inputRefs.current[index] = ref;
+                  }}
                   style={styles.codeInput}
                   value={digit}
                   onChangeText={(value) => handleTokenChange(value, index)}

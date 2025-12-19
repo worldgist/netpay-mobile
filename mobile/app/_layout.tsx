@@ -4,11 +4,23 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import * as Linking from 'expo-linking';
 import 'react-native-reanimated';
+import { AuthApiError } from '@supabase/supabase-js';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/utils/push-notifications';
+import '@/utils/error-handler'; // Initialize error handler
+import { LogBox } from 'react-native';
+
+// Suppress handled network errors in development
+if (__DEV__) {
+  LogBox.ignoreLogs([
+    'Network request failed',
+    'TypeError: Network request failed',
+    'fetch.umd.js',
+  ]);
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -17,21 +29,77 @@ export const unstable_settings = {
 const handleDeepLink = (url: string) => {
   try {
     if (!url) return;
+    console.log('Handling deep link:', url);
+    
     const parsed = Linking.parse(url);
     const path = parsed.path || parsed.hostname;
 
-    if (!path) return;
+    if (!path) {
+      console.log('No path found in URL');
+      return;
+    }
 
     const query = parsed.queryParams ?? {};
+    let accessToken: string | undefined;
+    let refreshToken: string | undefined;
+    let type: string | undefined;
 
-    if (path === 'reset-password') {
+    // Extract from query params
+    if (typeof query.access_token === 'string') {
+      accessToken = query.access_token;
+    }
+    if (typeof query.refresh_token === 'string') {
+      refreshToken = query.refresh_token;
+    }
+    if (typeof query.type === 'string') {
+      type = query.type;
+    }
+
+    // Also check hash fragment (Supabase often sends tokens here)
+    if (url.includes('#')) {
+      try {
+        const hashPart = url.split('#')[1];
+        if (hashPart) {
+          // Try URLSearchParams first
+          try {
+            const hashParams = new URLSearchParams(hashPart);
+            accessToken = accessToken || hashParams.get('access_token') || undefined;
+            refreshToken = refreshToken || hashParams.get('refresh_token') || undefined;
+            type = type || hashParams.get('type') || undefined;
+          } catch (e) {
+            // If URLSearchParams fails, try manual parsing
+            const hashPairs = hashPart.split('&');
+            for (const pair of hashPairs) {
+              const [key, value] = pair.split('=');
+              if (key === 'access_token' && value) {
+                accessToken = decodeURIComponent(value);
+              }
+              if (key === 'refresh_token' && value) {
+                refreshToken = decodeURIComponent(value);
+              }
+              if (key === 'type' && value) {
+                type = decodeURIComponent(value);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error parsing hash fragment:', err);
+      }
+    }
+
+    console.log('Extracted tokens:', { hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken, type });
+
+    if (path === 'reset-password' || path === 'reset-password/' || path.includes('reset-password')) {
+      const params: Record<string, string> = {};
+      if (accessToken) params.access_token = accessToken;
+      if (refreshToken) params.refresh_token = refreshToken;
+      if (type) params.type = type;
+
+      console.log('Navigating to reset-password with params:', Object.keys(params));
       router.push({
         pathname: '/reset-password',
-        params: {
-          access_token: typeof query.access_token === 'string' ? query.access_token : undefined,
-          refresh_token: typeof query.refresh_token === 'string' ? query.refresh_token : undefined,
-          type: typeof query.type === 'string' ? query.type : undefined,
-        },
+        params,
       });
     }
   } catch (error) {
@@ -59,7 +127,21 @@ export default function RootLayout() {
   useEffect(() => {
     const checkAndRegisterPush = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        // Handle invalid refresh token error gracefully
+        if (error) {
+          if (error instanceof AuthApiError && 
+              (error.message?.toLowerCase().includes('invalid refresh token') || 
+               error.message?.toLowerCase().includes('refresh token not found'))) {
+            console.log('Invalid refresh token detected, signing out user');
+            await supabase.auth.signOut();
+            return;
+          }
+          console.error('Error getting session:', error);
+          return;
+        }
+        
         if (session?.user) {
           const result = await registerForPushNotifications();
           if (result.registered) {
@@ -70,6 +152,16 @@ export default function RootLayout() {
         }
       } catch (error) {
         console.error('Error registering push notifications:', error);
+        // If it's a refresh token error, sign out the user
+        if (error instanceof AuthApiError && 
+            (error.message?.toLowerCase().includes('invalid refresh token') || 
+             error.message?.toLowerCase().includes('refresh token not found'))) {
+          try {
+            await supabase.auth.signOut();
+          } catch (signOutError) {
+            console.error('Error signing out:', signOutError);
+          }
+        }
       }
     };
 

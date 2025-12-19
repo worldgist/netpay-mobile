@@ -12,7 +12,7 @@ import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
 import * as Clipboard from 'expo-clipboard';
 
-const PROVIDER_LOGOS: Record<string, ImageSource<any>> = {
+const PROVIDER_LOGOS: Record<string, any> = {
   DSTV: require('@/assets/images/dstv.png'),
   GOTV: require('@/assets/images/gotv.png'),
   STARTIMES: require('@/assets/images/startimes.png'),
@@ -20,9 +20,16 @@ const PROVIDER_LOGOS: Record<string, ImageSource<any>> = {
 
 const fallbackLogo = require('@/assets/images/logo.png');
 
+// Static list of cable TV providers (not fetched from API)
+const STATIC_PROVIDERS: CableProvider[] = [
+  { name: 'DSTV', logo: PROVIDER_LOGOS.DSTV },
+  { name: 'GOTV', logo: PROVIDER_LOGOS.GOTV },
+  { name: 'STARTIMES', logo: PROVIDER_LOGOS.STARTIMES },
+];
+
 type CableProvider = {
   name: string;
-  logo: ImageSource<any>;
+  logo: any;
 };
 
 type CablePlan = {
@@ -51,17 +58,122 @@ export default function CableTVScreen() {
   const [showInvalidCardModal, setShowInvalidCardModal] = useState(false);
   const [invalidCardMessage, setInvalidCardMessage] = useState('');
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [showTryAgainLaterModal, setShowTryAgainLaterModal] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     isMounted.current = true;
+    loadData();
     return () => {
       isMounted.current = false;
     };
   }, []);
 
-  useEffect(() => {
-    const loadData = async () => {
+  const fetchPackagesForAllProviders = async () => {
+    try {
+      if (isMounted.current) {
+        setRefreshingPlans(true);
+      }
+      
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        if (isMounted.current) {
+          setRefreshingPlans(false);
+        }
+        return;
+      }
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
+      }
+
+      // Get the active cable vending provider setting
+      const { data: providerSetting } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'cable_provider')
+        .maybeSingle();
+
+      const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+
+      // Fetch packages for each static provider from API
+      const grouped: Record<string, CablePlan[]> = {};
+      
+      for (const provider of STATIC_PROVIDERS) {
+        try {
+          // Determine which function to call based on vending provider
+          let functionName = 'fetch-cable-packages';
+          let requestBody: any = { 
+            provider: provider.name,
+            vending_provider: vendingProvider 
+          };
+
+          if (vendingProvider === 'vtpass') {
+            functionName = 'fetch-vtpass-cable-packages';
+            requestBody = { provider: provider.name };
+          }
+
+          const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+          
+          const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          const responseData = await response.json();
+          
+          if (response.ok && responseData?.success && responseData?.data?.length > 0) {
+            const packages: CablePlan[] = responseData.data.map((pkg: any) => ({
+              id: pkg.api_code || `${provider.name}-${pkg.package_name}`,
+              packageName: pkg.package_name || pkg.name || '',
+              price: pkg.price || pkg.custom_price || 0,
+            }));
+
+            grouped[provider.name] = packages;
+            console.log(`Fetched ${packages.length} packages for ${provider.name}`);
+          } else {
+            console.warn(`No packages found for ${provider.name}:`, responseData?.error);
+            grouped[provider.name] = [];
+          }
+        } catch (error: any) {
+          console.error(`Error fetching packages for ${provider.name}:`, error);
+          grouped[provider.name] = [];
+        }
+      }
+
+      if (isMounted.current) {
+        setPlansByProvider(grouped);
+        setRefreshingPlans(false);
+      }
+    } catch (error: any) {
+      // Ignore database errors about missing tables - we're fetching from API now
+      const errorMessage = error?.message || String(error);
+      const errorCode = error?.code || '';
+      
+      // Only log if it's not a cable_tv_plans table error
+      if (!errorMessage.includes('cable_tv_plans') && 
+          errorCode !== 'PGRST205' &&
+          !(typeof errorMessage === 'string' && errorMessage.includes('Could not find the table'))) {
+        console.error('Error fetching packages for all providers:', error);
+      }
+      
+      if (isMounted.current) {
+        setPlansByProvider({});
+        setRefreshingPlans(false);
+      }
+    }
+  };
+
+  const loadData = async () => {
       try {
         if (isMounted.current) {
           setLoading(true);
@@ -101,55 +213,50 @@ export default function CableTVScreen() {
         const userBalance = Number(profile?.balance) || 0;
         if (isMounted.current) {
           setBalance(userBalance);
+          setBalanceLoading(false);
         }
 
-        const { data, error } = await supabase
-          .from('cable_tv_plans')
-          .select('id, provider, package_name, price, custom_price, is_active')
-          .eq('is_active', true)
-          .order('provider', { ascending: true })
-          .order('package_name', { ascending: true });
-
-        if (error) throw error;
-
-        if (!data) {
-          if (isMounted.current) {
-            setPlansByProvider({});
-            setProviders([]);
-            setSelectedProvider(null);
+        // Set static providers immediately (not fetched from API)
+        if (isMounted.current) {
+          setProviders(STATIC_PROVIDERS);
+          if (!selectedProvider && STATIC_PROVIDERS.length > 0) {
+            setSelectedProvider(STATIC_PROVIDERS[0].name);
           }
-        } else {
-          const grouped: Record<string, CablePlan[]> = {};
-          data.forEach((plan) => {
-            const providerName = (plan.provider || 'Unknown').trim();
-            if (!grouped[providerName]) grouped[providerName] = [];
-            grouped[providerName].push({
-              id: plan.id,
-              packageName: plan.package_name,
-              price: plan.custom_price ?? plan.price ?? 0,
-            });
-          });
-
-          const providerList: CableProvider[] = Object.keys(grouped).map((name) => {
-            const upper = name.toUpperCase();
-            return {
-              name,
-              logo: PROVIDER_LOGOS[upper] || fallbackLogo,
-            };
-          });
-
-          if (isMounted.current) {
-            setPlansByProvider(grouped);
-            setProviders(providerList);
-            if (providerList.length > 0) {
-              setSelectedProvider((prev) => prev ?? providerList[0].name);
-            }
-          }
+          // Hide main loading screen - show providers immediately
+          setLoading(false);
         }
+
+        // Fetch packages from API in the background (non-blocking)
+        fetchPackagesForAllProviders().catch((error) => {
+          console.error('Background package fetch failed:', error);
+          // Don't show error to user - packages will just be empty
+        });
       } catch (error: any) {
-        console.error('Failed to load cable plans:', error);
         if (isMounted.current) {
           const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorCode = error?.code || '';
+          
+          // Ignore database errors about missing cable_tv_plans table
+          if (errorMessage.includes('cable_tv_plans') || 
+              errorCode === 'PGRST205' || 
+              (typeof errorMessage === 'string' && errorMessage.includes('Could not find the table'))) {
+            // Silently ignore - this is expected since we're fetching from API now
+            // Still set providers and try to fetch packages
+            setProviders(STATIC_PROVIDERS);
+            if (!selectedProvider && STATIC_PROVIDERS.length > 0) {
+              setSelectedProvider(STATIC_PROVIDERS[0].name);
+            }
+            setLoading(false);
+            setBalanceLoading(false);
+            // Try to fetch packages anyway
+            fetchPackagesForAllProviders().catch(() => {
+              // Silently fail - packages will be empty
+            });
+            return;
+          }
+          
+          // Only log non-ignored errors
+          console.error('Failed to load cable data:', error);
           
           // Check for network errors
           const isNetworkError = errorMessage.includes('Network request failed') ||
@@ -164,11 +271,13 @@ export default function CableTVScreen() {
           
           setFetchError(isNetworkError 
             ? 'Network connection failed. Please check your internet connection.'
-            : errorMessage || 'Unable to fetch cable TV plans'
+            : errorMessage || 'Unable to load cable TV data'
           );
           setPlansByProvider({});
-          setProviders([]);
-          setSelectedProvider(null);
+          // Keep providers static even on error
+          if (isMounted.current) {
+            setProviders(STATIC_PROVIDERS);
+          }
         }
       } finally {
         if (isMounted.current) {
@@ -179,8 +288,102 @@ export default function CableTVScreen() {
       }
     };
 
-    loadData();
-  }, [router]);
+  const fetchPackagesFromAPI = async () => {
+    try {
+      setRefreshingPlans(true);
+      setFetchError(null);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        Alert.alert('Session Expired', 'Please sign in again.');
+        router.replace('/auth/login');
+        return;
+      }
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
+      }
+
+      // Get the active cable vending provider setting
+      const { data: providerSetting } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'cable_provider')
+        .maybeSingle();
+
+      const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+
+      // Fetch packages for each static provider
+      const fetchPromises = STATIC_PROVIDERS.map(async (provider) => {
+        try {
+          // Determine which function to call based on vending provider
+          let functionName = 'fetch-cable-packages';
+          let requestBody: any = { 
+            provider: provider.name,
+            vending_provider: vendingProvider 
+          };
+
+          if (vendingProvider === 'vtpass') {
+            functionName = 'fetch-vtpass-cable-packages';
+            requestBody = { provider: provider.name };
+          }
+
+          const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+          
+          const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          const responseData = await response.json();
+          
+          if (response.ok && responseData?.success && responseData?.data?.length > 0) {
+            console.log(`Fetched ${responseData.data.length} packages for ${provider.name}`);
+            return { provider: provider.name, success: true, count: responseData.data.length };
+          } else {
+            console.warn(`Failed to fetch packages for ${provider.name}:`, responseData?.error || 'Unknown error');
+            return { provider: provider.name, success: false, error: responseData?.error || 'Unknown error' };
+          }
+        } catch (error: any) {
+          console.error(`Error fetching packages for ${provider.name}:`, error);
+          return { provider: provider.name, success: false, error: error.message || 'Network error' };
+        }
+      });
+
+      const results = await Promise.all(fetchPromises);
+      const successCount = results.filter(r => r.success).length;
+      
+      if (successCount > 0) {
+        // Reload packages after fetching
+        await fetchPackagesForAllProviders();
+        Alert.alert(
+          'Packages Updated',
+          `Successfully fetched packages for ${successCount} provider(s).`
+        );
+      } else {
+        Alert.alert(
+          'Fetch Failed',
+          'Unable to fetch packages from API. Please try again later or contact support.'
+        );
+      }
+    } catch (error: any) {
+      console.error('Error fetching packages from API:', error);
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to fetch packages from API. Please try again.'
+      );
+    } finally {
+      setRefreshingPlans(false);
+    }
+  };
 
   useEffect(() => {
     // reset plan when provider changes
@@ -312,6 +515,22 @@ export default function CableTVScreen() {
 
   const selectedPlan = useMemo(() => currentPlans.find((p) => p.id === packagePlan), [currentPlans, packagePlan]);
 
+  // Calculate charge fee (2% of package price)
+  const chargeFee = useMemo(() => {
+    if (!selectedPlan || !selectedPlan.price) return 0;
+    const price = typeof selectedPlan.price === 'number' ? selectedPlan.price : parseFloat(String(selectedPlan.price)) || 0;
+    if (price <= 0) return 0;
+    const fee = price * 0.02; // 2% charge fee
+    // Round to 2 decimal places
+    return Math.round(fee * 100) / 100;
+  }, [selectedPlan]);
+
+  // Calculate total amount (price + charge fee)
+  const totalAmount = useMemo(() => {
+    if (!selectedPlan) return 0;
+    return selectedPlan.price + chargeFee;
+  }, [selectedPlan, chargeFee]);
+
   const handleContinue = () => {
     if (!selectedProvider) {
       Alert.alert('Error', 'Please select a cable TV provider');
@@ -329,27 +548,281 @@ export default function CableTVScreen() {
       Alert.alert('Balance Unavailable', 'Unable to load wallet balance. Please try again.');
       return;
     }
-    if (selectedPlan.price > availableBalance) {
+    // Check balance against total amount (price + charge fee)
+    if (totalAmount > availableBalance) {
       setShowInsufficientBalance(true);
+      return;
+    }
+
+    // For non-demo users, recommend verification (but don't block)
+    // The purchase function will handle the requirement based on provider
+    if (!isDemoUser && !verifiedName) {
+      Alert.alert(
+        'Verify Smart Card',
+        'We recommend verifying your smart card number before purchase. You can proceed without verification, but it may be required for some providers.',
+        [
+          {
+            text: 'Verify First',
+            onPress: () => handleVerifySmartCard(),
+          },
+          {
+            text: 'Continue Anyway',
+            onPress: () => setShowConfirmModal(true),
+            style: 'default',
+          },
+        ]
+      );
       return;
     }
 
     setShowConfirmModal(true);
   };
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
     if (!selectedPlan || !selectedProvider) return;
+    
+    setIsProcessing(true);
     setShowConfirmModal(false);
 
-    router.push({
-      pathname: '/payment-success',
-      params: {
-        amount: selectedPlan.price.toString(),
-        network: selectedProvider,
-        recipient: smartCardNumber,
-        serviceType: 'Cable TV',
-      },
-    });
+    try {
+      // Get session token
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      
+      if (!accessToken) {
+        Alert.alert('Session Expired', 'Please sign in again to continue.');
+        setIsProcessing(false);
+        router.replace('/auth/login');
+        return;
+      }
+
+      // Get customer information if verified
+      // For MobileNig and some providers, customer info is required
+      // If not verified, we'll use the card number and a default name
+      let customerNumber: string | undefined = smartCardNumber.trim();
+      let customerName: string | undefined = verifiedName || selectedProvider;
+      
+      // If we have verified name, use it; otherwise use provider name as fallback
+      if (verifiedName) {
+        customerName = verifiedName;
+      }
+
+      // Call purchase API
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
+      }
+
+      const functionUrl = `${supabaseUrl}/functions/v1/purchase-cable-tv`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          card_number: smartCardNumber.trim(),
+          plan_id: selectedPlan.id,
+          provider: selectedProvider,
+          customer_number: customerNumber,
+          customer_name: customerName,
+          package_name: selectedPlan.packageName,
+          price: selectedPlan.price,
+          api_code: selectedPlan.id,
+        }),
+      });
+
+      const responseJson = await response.json();
+      const responseData = responseJson?.data || responseJson;
+
+      if (!response.ok) {
+        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+        const errorDetails = responseData?.details || '';
+        const detailsText = typeof errorDetails === 'string' 
+          ? errorDetails 
+          : (errorDetails?.message || errorDetails?.reason || JSON.stringify(errorDetails) || '');
+        const fullErrorText = `${errorMessage} ${detailsText}`.toLowerCase();
+        
+        // Check if it's a MobileNig insufficient balance or service unavailable error
+        // Check both the error message and details for insufficient balance indicators
+        const errorDetailsObj = typeof errorDetails === 'object' ? errorDetails : {};
+        const isInsufficientBalanceFlag = errorDetailsObj?.isInsufficientBalance === true;
+        const isMobileNigServiceError = isInsufficientBalanceFlag ||
+                                       fullErrorText.includes('insufficient wallet balance') ||
+                                       fullErrorText.includes('insufficient balance') ||
+                                       fullErrorText.includes('insufficient balance in mobilenig account') ||
+                                       fullErrorText.includes('low wallet balance') ||
+                                       (fullErrorText.includes('wallet balance') && fullErrorText.includes('insufficient')) ||
+                                       (fullErrorText.includes('wallet balance') && fullErrorText.includes('low')) ||
+                                       (fullErrorText.includes('transaction was cancelled by mobilenig') && fullErrorText.includes('insufficient')) ||
+                                       (fullErrorText.includes('transaction not approved') && fullErrorText.includes('insufficient')) ||
+                                       (errorMessage.toLowerCase().includes('status: unknown') && fullErrorText.includes('insufficient'));
+        
+        // Check if it's an invalid card error from the response
+        const isInvalidCardError = errorMessage.toLowerCase().includes('invalid') || 
+                                  errorMessage.toLowerCase().includes('card number') ||
+                                  errorMessage.toLowerCase().includes('smart card') ||
+                                  errorMessage.toLowerCase().includes('customer not found') ||
+                                  errorMessage.toLowerCase().includes('not found') ||
+                                  responseData?.details?.message?.toLowerCase().includes('invalid') ||
+                                  responseData?.details?.message?.toLowerCase().includes('card');
+        
+        if (isMobileNigServiceError) {
+          setShowTryAgainLaterModal(true);
+          setIsProcessing(false);
+          return;
+        }
+        
+        if (isInvalidCardError) {
+          setInvalidCardMessage('The smart card number you entered is incorrect. Please check the number and try again.');
+          setShowInvalidCardModal(true);
+          setIsProcessing(false);
+          return;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      if (responseData?.success === false) {
+        const errorMessage = responseData?.error || responseData?.message || 'Purchase failed';
+        const errorDetails = responseData?.details || '';
+        // Handle both string and object details
+        const detailsText = typeof errorDetails === 'string' 
+          ? errorDetails 
+          : (errorDetails?.message || errorDetails?.reason || JSON.stringify(errorDetails) || '');
+        const fullErrorText = `${errorMessage} ${detailsText}`.toLowerCase();
+        
+        // Check if it's a MobileNig insufficient balance or service unavailable error
+        // Check both the error message and details for insufficient balance indicators
+        const errorDetailsObj = typeof errorDetails === 'object' ? errorDetails : {};
+        const isInsufficientBalanceFlag = errorDetailsObj?.isInsufficientBalance === true;
+        const isMobileNigInsufficientBalance = isInsufficientBalanceFlag ||
+                                             fullErrorText.includes('insufficient wallet balance') ||
+                                             fullErrorText.includes('insufficient balance') ||
+                                             fullErrorText.includes('insufficient balance in mobilenig account') ||
+                                             fullErrorText.includes('low wallet balance') ||
+                                             (fullErrorText.includes('wallet balance') && fullErrorText.includes('insufficient')) ||
+                                             (fullErrorText.includes('wallet balance') && fullErrorText.includes('low')) ||
+                                             (fullErrorText.includes('transaction was cancelled by mobilenig') && fullErrorText.includes('insufficient')) ||
+                                             (fullErrorText.includes('transaction not approved') && fullErrorText.includes('insufficient')) ||
+                                             (errorMessage.toLowerCase().includes('status: unknown') && fullErrorText.includes('insufficient'));
+        
+        // Check if it's an invalid card error
+        const isInvalidCardError = errorMessage.toLowerCase().includes('invalid') || 
+                                  errorMessage.toLowerCase().includes('card number') ||
+                                  errorMessage.toLowerCase().includes('smart card') ||
+                                  errorMessage.toLowerCase().includes('customer not found') ||
+                                  errorMessage.toLowerCase().includes('not found') ||
+                                  responseData?.details?.message?.toLowerCase().includes('invalid') ||
+                                  responseData?.details?.message?.toLowerCase().includes('card');
+        
+        if (isMobileNigInsufficientBalance) {
+          setShowTryAgainLaterModal(true);
+          setIsProcessing(false);
+          return;
+        }
+        
+        if (isInvalidCardError) {
+          setInvalidCardMessage('The smart card number you entered is incorrect. Please check the number and try again.');
+          setShowInvalidCardModal(true);
+          setIsProcessing(false);
+          return;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      // Handle pending transactions
+      if (responseData?.pending === true) {
+        Alert.alert(
+          'Transaction Processing',
+          'Your cable TV subscription is being processed. You will be notified when completed.',
+          [{ text: 'OK' }]
+        );
+        setIsProcessing(false);
+        return;
+      }
+
+      // Success - navigate to success screen
+      const reference = responseData?.data?.reference || '';
+      
+      router.push({
+        pathname: '/payment-success',
+        params: {
+          amount: totalAmount.toString(), // Total amount including charge fee
+          network: selectedProvider,
+          recipient: smartCardNumber,
+          serviceType: `Cable TV • ${selectedPlan.packageName}`,
+          reference,
+          chargeFee: chargeFee.toString(), // Include charge fee for display
+        },
+      });
+    } catch (purchaseError: any) {
+      console.error('Cable TV purchase failed:', purchaseError);
+      setIsProcessing(false);
+      
+      let message = 'Unable to complete cable TV purchase. Please try again.';
+      
+      if (purchaseError instanceof Error) {
+        message = purchaseError.message || message;
+      }
+
+      // Check for network errors
+      const errorMessage = purchaseError?.message || String(purchaseError);
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to send a request to the Edge Function') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                            errorMessage.includes('TypeError');
+
+      // Check if it's a MobileNig insufficient balance error
+      // Check both the error message and any details/responseData properties
+      const errorDetails = purchaseError?.details || purchaseError?.responseData?.details || '';
+      const errorDetailsObj = typeof errorDetails === 'object' ? errorDetails : {};
+      const errorDetailsText = typeof errorDetails === 'string' 
+        ? errorDetails 
+        : (errorDetailsObj?.message || errorDetailsObj?.reason || JSON.stringify(errorDetails) || '');
+      const fullErrorText = `${errorMessage} ${errorDetailsText}`.toLowerCase();
+      const isInsufficientBalanceFlag = errorDetailsObj?.isInsufficientBalance === true;
+      const isMobileNigInsufficientBalance = isInsufficientBalanceFlag ||
+                                             fullErrorText.includes('insufficient wallet balance') ||
+                                             fullErrorText.includes('insufficient balance') ||
+                                             fullErrorText.includes('insufficient balance in mobilenig account') ||
+                                             fullErrorText.includes('low wallet balance') ||
+                                             (fullErrorText.includes('wallet balance') && fullErrorText.includes('insufficient')) ||
+                                             (fullErrorText.includes('wallet balance') && fullErrorText.includes('low')) ||
+                                             errorMessage.toLowerCase().includes('insufficient wallet balance') ||
+                                             errorMessage.toLowerCase().includes('insufficient balance');
+      
+      // Check if it's an invalid card number error
+      const isInvalidCard = errorMessage.toLowerCase().includes('invalid') || 
+                           errorMessage.toLowerCase().includes('card number') ||
+                           errorMessage.toLowerCase().includes('smart card') ||
+                           errorMessage.toLowerCase().includes('customer not found') ||
+                           errorMessage.toLowerCase().includes('not found') ||
+                           errorMessage.toLowerCase().includes('wrong') ||
+                           errorMessage.toLowerCase().includes('incorrect') ||
+                           errorMessage.toLowerCase().includes('invalid card');
+
+      if (isNetworkError) {
+        Alert.alert(
+          'Connection Error',
+          'Network connection failed. Please check your internet connection and try again.',
+          [{ text: 'OK' }]
+        );
+      } else if (isMobileNigInsufficientBalance) {
+        // Show try again later modal for MobileNig insufficient balance
+        setShowTryAgainLaterModal(true);
+      } else if (isInvalidCard) {
+        // Show invalid card modal
+        setInvalidCardMessage('The smart card number you entered is incorrect. Please check the number and try again.');
+        setShowInvalidCardModal(true);
+      } else {
+        Alert.alert('Purchase Failed', message, [{ text: 'OK' }]);
+      }
+    }
   };
 
   const getProviderLogo = (providerName: string | null) => {
@@ -475,14 +948,8 @@ export default function CableTVScreen() {
               <View style={styles.sectionHeaderRow}>
                 <ThemedText style={styles.sectionTitle}>Select Service Provider</ThemedText>
                 <TouchableOpacity
-                  onPress={() => {
-                    setRefreshingPlans(true);
-                    setLoading(true);
-                    setTimeout(() => {
-                      setLoading(false);
-                      setRefreshingPlans(false);
-                    }, 300);
-                  }}
+                  onPress={fetchPackagesFromAPI}
+                  disabled={refreshingPlans}
                 >
                   {refreshingPlans ? (
                     <ActivityIndicator size="small" color="#FF7F00" />
@@ -548,7 +1015,15 @@ export default function CableTVScreen() {
             </View>
 
             <View style={styles.section}>
-              <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
+              <View style={styles.inputLabelRow}>
+                <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
+                {refreshingPlans && (
+                  <View style={styles.loadingIndicatorRow}>
+                    <ActivityIndicator size="small" color="#FF7F00" />
+                    <ThemedText style={styles.loadingText}>Loading packages...</ThemedText>
+                  </View>
+                )}
+              </View>
               <Dropdown
                 options={currentPlans.map((plan) => ({
                   id: plan.id,
@@ -557,8 +1032,14 @@ export default function CableTVScreen() {
                 }))}
                 selectedId={packagePlan}
                 onSelect={setPackagePlan}
-                placeholder={currentPlans.length ? 'Select a package plan' : 'No plans available'}
-                disabled={currentPlans.length === 0}
+                placeholder={
+                  refreshingPlans 
+                    ? 'Loading packages...' 
+                    : currentPlans.length 
+                    ? 'Select a package plan' 
+                    : 'No plans available'
+                }
+                disabled={currentPlans.length === 0 || refreshingPlans}
               />
             </View>
           </ScrollView>
@@ -574,14 +1055,32 @@ export default function CableTVScreen() {
       {selectedProvider && selectedPlan && (
         <ConfirmPaymentModal
           visible={showConfirmModal}
-          onClose={() => setShowConfirmModal(false)}
+          onClose={() => !isProcessing && setShowConfirmModal(false)}
           onConfirm={handleConfirmPayment}
           amount={selectedPlan.price}
+          charges={chargeFee}
           network={selectedProvider}
           networkLogo={selectedProviderLogo}
           recipient={smartCardNumber}
           serviceType={`Cable TV • ${selectedPlan.packageName}`}
+          {...({ disabled: isProcessing } as any)}
         />
+      )}
+
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <Modal
+          visible={isProcessing}
+          transparent={true}
+          animationType="fade"
+        >
+          <View style={styles.processingOverlay}>
+            <View style={styles.processingContent}>
+              <ActivityIndicator size="large" color="#FF7F00" />
+              <ThemedText style={styles.processingText}>Processing purchase...</ThemedText>
+            </View>
+          </View>
+        </Modal>
       )}
 
       {/* Service Unavailable Modal */}
@@ -598,7 +1097,7 @@ export default function CableTVScreen() {
             </View>
             <ThemedText style={styles.modalTitle}>Services Unavailable</ThemedText>
             <ThemedText style={styles.modalMessage}>
-              We're experiencing technical difficulties. Please try again later.
+              We&apos;re experiencing technical difficulties. Please try again later.
             </ThemedText>
             <TouchableOpacity
               style={styles.modalButton}
@@ -616,27 +1115,62 @@ export default function CableTVScreen() {
         visible={showInvalidCardModal}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setShowInvalidCardModal(false)}
+        onRequestClose={() => {
+          setShowInvalidCardModal(false);
+          setSmartCardNumber('');
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalIconContainer}>
-              <MaterialIcons name="credit-card-off" size={64} color="#FF7F00" />
+              <MaterialIcons name="error-outline" size={64} color="#FF5252" />
             </View>
-            <ThemedText style={styles.modalTitle}>Wrong Card Number</ThemedText>
+            <ThemedText style={styles.modalTitle}>Wrong Smart Card Number</ThemedText>
             <ThemedText style={styles.modalMessage}>
               {invalidCardMessage || 'The smart card number you entered is incorrect. Please check the number and try again.'}
             </ThemedText>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => {
-                setShowInvalidCardModal(false);
-                setSmartCardNumber('');
-              }}
-              activeOpacity={0.8}
-            >
-              <ThemedText style={styles.modalButtonText}>OK</ThemedText>
-            </TouchableOpacity>
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={() => {
+                  setShowInvalidCardModal(false);
+                  setSmartCardNumber('');
+                  setVerifiedName(null);
+                }}
+                activeOpacity={0.8}
+              >
+                <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Try Again Later Modal - MobileNig Insufficient Balance */}
+      <Modal
+        visible={showTryAgainLaterModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowTryAgainLaterModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="schedule" size={64} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Service Temporarily Unavailable</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              We&apos;re currently unable to process your cable TV purchase. Our service provider is experiencing temporary issues. Please try again later.
+            </ThemedText>
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={() => setShowTryAgainLaterModal(false)}
+                activeOpacity={0.8}
+              >
+                <ThemedText style={styles.modalButtonText}>OK</ThemedText>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -777,6 +1311,22 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: 8,
   },
+  inputLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  loadingIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  loadingText: {
+    fontSize: 12,
+    color: '#FF7F00',
+    fontWeight: '500',
+  },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -888,13 +1438,20 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     lineHeight: 22,
   },
+  modalButtonContainer: {
+    width: '100%',
+    marginTop: 8,
+  },
   modalButton: {
-    backgroundColor: '#FF7F00',
+    backgroundColor: '#F5F5F5',
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 32,
     width: '100%',
     alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#FF7F00',
   },
   modalButtonText: {
     color: '#fff',
@@ -980,6 +1537,25 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     lineHeight: 16,
     marginTop: 4,
+  },
+  processingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  processingContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    minWidth: 200,
+  },
+  processingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
   },
 });
 

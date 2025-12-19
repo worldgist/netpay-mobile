@@ -1,0 +1,68 @@
+PURCHASE FEATURES BACKUP SUMMARY
+================================
+
+Backup Date: $(date)
+
+FEATURES BACKED UP:
+-------------------
+1. Airtime Purchase
+2. Data Purchase  
+3. Cable TV Purchase
+4. Electricity Purchase
+5. Education Purchase
+6. Add Money (Wallet Top-up)
+
+FILES INCLUDED:
+---------------
+Mobile App Screens:
+- airtime-purchase.tsx
+- data-purchase.tsx
+- cable-tv.tsx
+- electricity.tsx
+- education.tsx
+- add-money.tsx
+- payment-success.tsx
+
+Mobile Utilities:
+- transactionStorage.ts
+
+Web Pages:
+- PurchaseAirtime.tsx
+- PurchaseData.tsx
+- PurchaseCableTv.tsx
+- PurchaseElectricity.tsx
+- PurchaseEducation.tsx
+- AirtimeProviders.tsx
+- CableTvPlans.tsx
+- ElectricityPlans.tsx
+- EducationServices.tsx
+
+Supabase Functions:
+- purchase-smeplug-airtime
+- purchase-smeplug-data
+- purchase-vtpass-data
+- purchase-cable-tv
+- purchase-vtpass-cable
+- purchase-mobilenig-electricity
+- purchase-education
+- fetch-cable-packages
+- fetch-education-prices
+- fetch-education-services
+- fetch-electricity-packages
+- fetch-smeplug-airtime-providers
+- fetch-smeplug-data-plans
+- fetch-vtpass-data-plans
+- fetch-vtpass-cable-packages
+- validate-cable-customer
+- validate-meter-number
+- validate-mobilenig-meter
+- validate-jamb-profile
+- get-virtual-account
+- transfer-funds
+
+Shared Utilities:
+- wallet.ts
+- push-notifications.ts
+- vendor-calls.ts
+
+TOTAL FILES: See file count above

@@ -76,11 +76,12 @@ serve(async (req) => {
     for (const item of notifications) {
       const userId = normalizeString(item.user_id);
       let token = normalizeString(item.expo_push_token);
+      let platform: string | null = null;
 
       if (!token && userId) {
         const { data: tokenData, error: tokenError } = await supabase
           .from("user_push_tokens")
-          .select("expo_push_token")
+          .select("expo_push_token, platform")
           .eq("user_id", userId)
           .eq("is_active", true)
           .order("updated_at", { ascending: false })
@@ -92,6 +93,15 @@ serve(async (req) => {
         }
 
         token = normalizeString(tokenData?.expo_push_token);
+        platform = tokenData?.platform || null;
+      } else if (token) {
+        // If token is provided directly, try to get platform info
+        const { data: tokenData } = await supabase
+          .from("user_push_tokens")
+          .select("platform")
+          .eq("expo_push_token", token)
+          .maybeSingle();
+        platform = tokenData?.platform || null;
       }
 
       if (!token) {
@@ -99,14 +109,25 @@ serve(async (req) => {
         continue;
       }
 
-      expoMessages.push({
+      // Build message payload
+      const message: Record<string, unknown> = {
         to: token,
         title: item.title,
         body: item.body,
         data: item.data ?? {},
         sound: item.sound ?? "default",
         priority: item.priority ?? "high",
-      });
+      };
+
+      // Add Android-specific channelId for proper notification display
+      // Android requires channelId to be specified in the push notification payload
+      if (platform === "android") {
+        // Use "transactions" channel for transaction-related notifications, "default" for others
+        const channelId = (item.data?.transactionType || item.data?.reference) ? "transactions" : "default";
+        message.channelId = channelId;
+      }
+
+      expoMessages.push(message);
     }
 
     if (expoMessages.length === 0) {

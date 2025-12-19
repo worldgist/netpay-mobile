@@ -184,13 +184,24 @@ const PurchaseCableTv = () => {
               !plan.vending_provider || plan.vending_provider === vendingProvider
             );
 
-            const plans = filtered.map((p: any, idx: number) => ({
-              id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
-              provider: p.provider,
-              package_name: p.package_name,
-              price: p.custom_price || p.price,
-              api_code: p.api_code,
-            }));
+            // Deduplicate by package name (case-insensitive)
+            const seenPackages = new Set<string>();
+            const plans = filtered
+              .filter((p: any) => {
+                const packageName = (p.package_name || '').trim().toLowerCase();
+                if (seenPackages.has(packageName)) {
+                  return false;
+                }
+                seenPackages.add(packageName);
+                return true;
+              })
+              .map((p: any, idx: number) => ({
+                id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
+                provider: p.provider,
+                package_name: p.package_name,
+                price: p.custom_price || p.price,
+                api_code: p.api_code,
+              }));
 
             setCablePlans(plans);
             if (selectedPlan && !plans.find((pl) => pl.id === selectedPlan)) {
@@ -201,14 +212,29 @@ const PurchaseCableTv = () => {
           throw error;
         }
 
-        // Map plans to the expected format
-        const plans = (data || []).map((p: any, idx: number) => ({
-          id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
-          provider: p.provider,
-          package_name: p.package_name,
-          price: p.custom_price || p.price,
-          api_code: p.api_code,
-        }));
+        // Filter by vending_provider in memory (in case the query filter didn't work)
+        const filtered = (data || []).filter((plan: any) => 
+          plan.vending_provider === vendingProvider
+        );
+
+        // Deduplicate by package name (case-insensitive) and map plans to the expected format
+        const seenPackages = new Set<string>();
+        const plans = filtered
+          .filter((p: any) => {
+            const packageName = (p.package_name || '').trim().toLowerCase();
+            if (seenPackages.has(packageName)) {
+              return false;
+            }
+            seenPackages.add(packageName);
+            return true;
+          })
+          .map((p: any, idx: number) => ({
+            id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
+            provider: p.provider,
+            package_name: p.package_name,
+            price: p.custom_price || p.price,
+            api_code: p.api_code,
+          }));
 
         console.log(`Loaded ${plans.length} cable plans for ${selectedProvider}`);
         setCablePlans(plans);

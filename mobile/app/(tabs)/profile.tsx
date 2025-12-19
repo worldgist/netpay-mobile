@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -17,9 +18,13 @@ export default function ProfileScreen() {
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricUpdating, setBiometricUpdating] = useState(false);
   const [pinEnabled, setPinEnabled] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true); // Default to true
+  const [notificationsUpdating, setNotificationsUpdating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const isMounted = useRef(true);
+
+  const NOTIFICATIONS_ENABLED_KEY = '@netpay_notifications_enabled';
 
   const fetchProfile = useCallback(
     async ({ isRefresh = false }: { isRefresh?: boolean } = {}) => {
@@ -150,14 +155,27 @@ export default function ProfileScreen() {
         setBiometricEnabled(Boolean(profile?.biometric_enabled));
         setPinEnabled(Boolean(profile?.pin_enabled));
 
+        // Load notifications preference from AsyncStorage
+        try {
+          const notificationsPref = await AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
+          if (notificationsPref !== null) {
+            setNotificationsEnabled(JSON.parse(notificationsPref));
+          }
+        } catch (error) {
+          console.error('Failed to load notifications preference:', error);
+          // Keep default value (true)
+        }
+
         // If profile exists but email doesn't match, update it
         if (profile && sessionEmail && profileEmail !== sessionEmail) {
           supabase
             .from('profiles')
             .update({ email: sessionEmail, updated_at: new Date().toISOString() })
             .eq('id', session.user.id)
-            .catch((syncError) => {
-              console.warn('Failed to sync profile email:', syncError);
+            .then(({ error: syncError }) => {
+              if (syncError) {
+                console.warn('Failed to sync profile email:', syncError);
+              }
             });
         }
         
@@ -309,9 +327,34 @@ export default function ProfileScreen() {
     router.push('/edit-profile');
   }, [router]);
 
-  const handleNotifications = useCallback(() => {
-    router.push('/notifications');
-  }, [router]);
+  const handleToggleNotifications = useCallback(
+    async (enabled: boolean) => {
+      if (!isMounted.current) return;
+
+      setNotificationsUpdating(true);
+      const previousValue = notificationsEnabled;
+      setNotificationsEnabled(enabled);
+
+      try {
+        await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, JSON.stringify(enabled));
+        
+        // Optionally, you can also update push notification permissions here
+        // For now, we're just storing the preference
+      } catch (error) {
+        console.error('Failed to update notifications setting:', error);
+        if (isMounted.current) {
+          setNotificationsEnabled(previousValue);
+          const message = error instanceof Error ? error.message : 'Unable to update notifications setting. Please try again.';
+          Alert.alert('Notifications', message);
+        }
+      } finally {
+        if (isMounted.current) {
+          setNotificationsUpdating(false);
+        }
+      }
+    },
+    [notificationsEnabled]
+  );
 
   const handleReferral = useCallback(() => {
     router.push('/referral');
@@ -367,14 +410,34 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           {/* Notifications */}
-          <TouchableOpacity style={styles.optionCard} onPress={handleNotifications} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={[
+              styles.optionCard,
+              styles.optionCardWithSwitch,
+              (loading || notificationsUpdating || !userId) && styles.optionCardDisabled,
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (loading || notificationsUpdating || !userId) return;
+              handleToggleNotifications(!notificationsEnabled);
+            }}
+            disabled={loading || notificationsUpdating || !userId}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="notifications" size={24} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Notifications</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  {notificationsEnabled ? 'Notifications are enabled' : 'Enable notifications for updates and alerts'}
+                </ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleToggleNotifications}
+              trackColor={{ false: '#E0E0E0', true: '#FFE0BF' }}
+              thumbColor={notificationsEnabled ? '#FF7F00' : '#FF7F00'}
+              disabled={loading || notificationsUpdating || !userId}
+            />
           </TouchableOpacity>
 
           {/* Referral */}

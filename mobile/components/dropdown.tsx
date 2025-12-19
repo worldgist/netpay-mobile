@@ -16,6 +16,7 @@ interface DropdownProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   placeholder?: string;
+  disabled?: boolean;
 }
 
 export function Dropdown({ options, selectedId, onSelect, placeholder = 'Select an option' }: DropdownProps) {

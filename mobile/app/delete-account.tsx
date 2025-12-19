@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Modal, Text } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -12,6 +12,7 @@ export default function DeleteAccountScreen() {
   const [confirmText, setConfirmText] = useState('');
   const [password, setPassword] = useState('');
   const [isDemoUser, setIsDemoUser] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const requiredText = 'DELETE MY ACCOUNT';
 
@@ -147,15 +148,9 @@ export default function DeleteAccountScreen() {
         throw new Error(errorMsg);
       }
 
-      Alert.alert('Success', 'Account deleted successfully', [
-        {
-          text: 'OK',
-          onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace('/auth/login');
-          },
-        },
-      ]);
+      setLoading(false);
+      console.log('Account deleted successfully, showing modal');
+      setShowSuccessModal(true);
     } catch (error: any) {
       console.error('Error deleting account:', error);
       
@@ -307,6 +302,39 @@ export default function DeleteAccountScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Success Modal */}
+      <Modal 
+        visible={showSuccessModal} 
+        transparent 
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          setShowSuccessModal(false);
+          supabase.auth.signOut();
+          router.replace('/auth/login');
+        }}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconCircle}>
+              <MaterialIcons name="check-circle" size={48} color="#fff" />
+            </View>
+            <Text style={styles.modalTitle}>Delete Account Successful</Text>
+            <Text style={styles.modalMessage}>
+              Your account has been permanently deleted. All your data, transactions, and account information have been removed.
+            </Text>
+            <TouchableOpacity 
+              style={styles.modalButton} 
+              onPress={async () => {
+                setShowSuccessModal(false);
+                await supabase.auth.signOut();
+                router.replace('/auth/login');
+              }}>
+              <Text style={styles.modalButtonText}>Continue</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -521,6 +549,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 32,
+    paddingVertical: 40,
+    width: '85%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  modalIconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FF7F00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FF7F00',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  modalButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    alignItems: 'center',
+    width: '100%',
+    minWidth: 200,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
 

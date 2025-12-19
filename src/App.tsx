@@ -8,11 +8,13 @@ import Users from "./pages/Users";
 import Transactions from "./pages/Transactions";
 import Analytics from "./pages/Analytics";
 import Notifications from "./pages/Notifications";
+import EmailNotifications from "./pages/EmailNotifications";
 import Settings from "./pages/Settings";
 import Smeplug from "./pages/Smeplug";
 import ElectricityPlans from "./pages/ElectricityPlans";
 import CableTvPlans from "./pages/CableTvPlans";
 import EducationServices from "./pages/EducationServices";
+import PlatformRevenue from "./pages/PlatformRevenue";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
 import ImportCableTransactions from "./pages/ImportCableTransactions";
@@ -78,12 +80,14 @@ const App = () => (
         <Route path="/content" element={<ContentManagement />} />
         <Route path="/staff" element={<StaffManagement />} />
         <Route path="/notifications" element={<Notifications />} />
+        <Route path="/email-notifications" element={<EmailNotifications />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/hr" element={<HrManager />} />
         <Route path="/electricity" element={<ElectricityPlans />} />
         <Route path="/cable-tv" element={<CableTvPlans />} />
         <Route path="/import-cable-transactions" element={<ImportCableTransactions />} />
         <Route path="/education" element={<EducationServices />} />
+        <Route path="/platform-revenue" element={<PlatformRevenue />} />
         <Route path="/data-plans" element={<DataPlans />} />
         <Route path="/airtime" element={<AirtimeProviders />} />
         <Route path="/about" element={<About />} />

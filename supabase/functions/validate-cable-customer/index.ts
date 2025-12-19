@@ -559,7 +559,7 @@ serve(async (req) => {
       .eq('setting_key', 'cable_provider')
       .maybeSingle();
 
-    const vendingProvider = providerSetting?.setting_value?.provider || 'smeplug';
+    const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
     console.log('Cable vending provider:', vendingProvider, 'for cable provider:', provider);
 
     // Route to appropriate verification based on vending provider
@@ -567,7 +567,7 @@ serve(async (req) => {
       return await verifyWithVTpass(card_number, provider, corsHeaders);
     }
 
-    // Default to MobileNig/SMEPLUG verification
+    // Default to MobileNig verification
     return await verifyWithMobileNig(card_number, provider, corsHeaders);
 
   } catch (err: any) {

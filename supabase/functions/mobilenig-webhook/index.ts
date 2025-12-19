@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { creditUserWallet } from "../_shared/wallet.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -149,11 +150,42 @@ serve(async (req) => {
       throw updateError;
     }
 
-    // If transaction failed and was previously pending, we might need to refund
-    // This is handled separately based on your business logic
-    if (transactionStatus === 'failed' && transaction.status === 'pending') {
-      console.log(`Transaction ${transactionReference} failed - may need refund processing`);
-      // Add refund logic here if needed
+    // If transaction failed and wallet was debited (status was completed), automatically refund the user
+    // This ensures users get their money back if the provider confirms the transaction failed
+    if (transactionStatus === 'failed' && transaction.status === 'completed' && transaction.user_id && transaction.amount) {
+      console.log(`Transaction ${transactionReference} failed after completion - processing automatic refund...`);
+      try {
+        const refundAmount = Number(transaction.amount) || 0;
+        if (refundAmount > 0) {
+          // Get current balance for refund
+          const { data: profile } = await supabaseClient
+            .from('profiles')
+            .select('balance')
+            .eq('id', transaction.user_id)
+            .single();
+          
+          const currentBalance = profile?.balance ? Number(profile.balance) : 0;
+          
+          await creditUserWallet({
+            supabase: supabaseClient,
+            userId: transaction.user_id,
+            amount: refundAmount,
+            transactionType: 'refund',
+            description: `Automatic refund for failed electricity purchase. Original reference: ${transactionReference}`,
+            reference: `REFUND-${transactionReference}`,
+            performedBy: transaction.user_id,
+            balanceBefore: currentBalance,
+            notification: {
+              title: 'Transaction refunded',
+              message: `Your payment of ₦${refundAmount.toFixed(2)} has been automatically refunded because the transaction failed. Your new balance is ₦${(currentBalance + refundAmount).toFixed(2)}.`,
+            },
+          });
+          console.log(`Successfully refunded ₦${refundAmount} to user ${transaction.user_id}`);
+        }
+      } catch (refundError) {
+        console.error(`Failed to refund user for transaction ${transactionReference}:`, refundError);
+        // Log error but don't fail webhook - we'll need manual intervention
+      }
     }
 
     // Send notification to user if transaction completed

@@ -88,11 +88,11 @@ serve(async (req) => {
       );
     }
 
-    const { card_number, plan_id, provider, customer_number, customer_name } = body;
+    const { card_number, plan_id, provider, customer_number, customer_name, package_name, price, api_code } = body;
 
-    if (!card_number || !plan_id || !provider) {
+    if (!card_number || !provider) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Missing required fields' }),
+        JSON.stringify({ success: false, error: 'Missing required fields: card_number and provider' }),
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
@@ -108,19 +108,42 @@ serve(async (req) => {
       );
     }
 
-    // Get plan details
-    const { data: plan, error: planError } = await supabase
-      .from('cable_tv_plans')
-      .select('*')
-      .eq('id', plan_id)
-      .single();
-
-    if (planError || !plan) {
+    // Plan details should come from request body (packages are fetched from API now)
+    // Parse price - handle both string and number
+    const parsedPrice = typeof price === 'string' ? parseFloat(price) : (typeof price === 'number' ? price : 0);
+    
+    // If not provided, return error
+    if (!parsedPrice || parsedPrice <= 0 || isNaN(parsedPrice)) {
+      console.error('Invalid price in request:', { price, parsedPrice, body });
       return new Response(
-        JSON.stringify({ success: false, error: 'Plan not found' }),
-        { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          success: false, 
+          error: 'Plan price is required and must be a valid number',
+          details: { received_price: price, parsed_price: parsedPrice }
+        }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Create plan object from request body
+    const plan = {
+      id: plan_id || `plan-${Date.now()}`,
+      package_name: package_name || `${provider} Package`,
+      price: parsedPrice,
+      custom_price: parsedPrice,
+      original_price: parsedPrice,
+      api_code: api_code || plan_id,
+      provider: provider,
+      vending_provider: 'mobilenig' // Default, will be overridden by app_settings
+    };
+    
+    console.log('Plan created from request body:', {
+      plan_id,
+      package_name: plan.package_name,
+      price: plan.price,
+      provider: plan.provider,
+      api_code: plan.api_code
+    });
 
     // Get the active cable vending provider from app_settings
     const { data: providerSetting } = await supabase
@@ -129,7 +152,7 @@ serve(async (req) => {
       .eq('setting_key', 'cable_provider')
       .maybeSingle();
 
-    const vendingProvider = providerSetting?.setting_value?.provider || plan.vending_provider || 'smeplug';
+    const vendingProvider = providerSetting?.setting_value?.provider || plan.vending_provider || 'mobilenig';
     console.log('Cable vending provider:', vendingProvider, 'for plan:', plan_id);
 
     // If using VTpass, route to VTpass handler
@@ -152,6 +175,10 @@ serve(async (req) => {
             plan_id: plan_id,
             provider: provider,
             amount: plan.custom_price || plan.original_price || plan.price,
+            price: plan.custom_price || plan.original_price || plan.price,
+            package_name: plan.package_name,
+            api_code: plan.api_code,
+            variation_code: plan.api_code,
           }),
         });
 
@@ -190,14 +217,20 @@ serve(async (req) => {
     }
 
     const isDemoUser = profile.email === 'demo@netpayy.ng';
-    const effectivePrice = Number(plan.custom_price || plan.original_price || plan.price || 0);
+    const basePrice = Number(plan.custom_price || plan.original_price || plan.price || 0);
+    
+    // Calculate 2% charge fee
+    const CHARGE_FEE_RATE = 0.02; // 2%
+    const purchaseAmount = basePrice;
+    const chargeFee = purchaseAmount * CHARGE_FEE_RATE;
+    const totalAmount = purchaseAmount + chargeFee;
 
     // For demo users, return mock successful response
     if (isDemoUser) {
       console.log('Demo user detected - using mock API response for cable TV purchase');
       
       const balanceBefore = Number(profile.balance) || 0;
-      if (balanceBefore < effectivePrice) {
+      if (balanceBefore < totalAmount) {
         return new Response(
           JSON.stringify({ success: false, error: 'Insufficient balance' }),
           { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -206,12 +239,12 @@ serve(async (req) => {
 
       const reference = `CABLE-${Date.now()}-${user.id.substring(0, 8)}`;
 
-      // Debit wallet using shared function
+      // Debit wallet using shared function (debit total amount including fee)
       const { debitUserWallet } = await import('../_shared/wallet.ts');
       const debitResult = await debitUserWallet({
         supabase,
         userId: user.id,
-        amount: effectivePrice,
+        amount: totalAmount,
         transactionType: 'cable_purchase',
         description: `Cable TV purchase - ${plan.package_name || provider}`,
         reference,
@@ -223,13 +256,15 @@ serve(async (req) => {
         },
       });
 
-      // Record transaction
+      // Record transaction with charge fee
       await supabase.from('cable_tv_transactions').insert({
         user_id: user.id,
         smartcard_number: card_number,
         provider: provider,
         package_name: plan.package_name,
-        amount: effectivePrice,
+        amount: totalAmount,
+        purchase_amount: purchaseAmount,
+        charge_fee: chargeFee,
         balance_before: debitResult.balanceBefore,
         balance_after: debitResult.balanceAfter,
         status: 'success',
@@ -246,7 +281,9 @@ serve(async (req) => {
             smartcard_number: card_number,
             provider: provider,
             package_name: plan.package_name,
-            amount: effectivePrice,
+            amount: totalAmount,
+            purchase_amount: purchaseAmount,
+            charge_fee: chargeFee,
             vendor: 'demo',
             balance_before: debitResult.balanceBefore,
             balance_after: debitResult.balanceAfter
@@ -261,25 +298,28 @@ serve(async (req) => {
       custom_price: plan.custom_price,
       original_price: plan.original_price,
       price: plan.price,
-      effectivePrice: effectivePrice
+      basePrice: basePrice,
+      purchaseAmount: purchaseAmount,
+      chargeFee: chargeFee,
+      totalAmount: totalAmount
     });
 
     // Check minimum amount requirement (MobileNig requires minimum ₦500)
     const MINIMUM_AMOUNT = 500;
-    if (effectivePrice < MINIMUM_AMOUNT) {
-      console.log(`Amount validation failed: ${effectivePrice} < ${MINIMUM_AMOUNT}`);
+    if (purchaseAmount < MINIMUM_AMOUNT) {
+      console.log(`Amount validation failed: ${purchaseAmount} < ${MINIMUM_AMOUNT}`);
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: `Minimum purchase amount is ₦${MINIMUM_AMOUNT}. Selected package amount (₦${effectivePrice}) is below the minimum.` 
+          error: `Minimum purchase amount is ₦${MINIMUM_AMOUNT}. Selected package amount (₦${purchaseAmount}) is below the minimum.` 
         }),
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
     
-    console.log(`Amount validation passed: ${effectivePrice} >= ${MINIMUM_AMOUNT}`);
+    console.log(`Amount validation passed: ${purchaseAmount} >= ${MINIMUM_AMOUNT}`);
 
-    if (profile.balance < effectivePrice) {
+    if (profile.balance < totalAmount) {
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient balance' }),
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -374,13 +414,15 @@ serve(async (req) => {
       customerNumber: customerNumberNum, // Number
       smartcardNumber: smartcardNumberNum, // Number
       customerName: cleanedCustomerName, // String
-      amount: Number(effectivePrice)
+      amount: Number(purchaseAmount) // Send base amount to API (fee is added by platform)
       // Removed productCode - not in API spec for direct purchase
     };
     
     console.log('Using MobileNig direct purchase endpoint:', apiUrl);
     console.log('Using API key type:', MOBILENIG_SECRET_KEY ? 'SECRET_KEY' : 'PUBLIC_KEY');
-    console.log('Purchase amount being sent:', effectivePrice);
+    console.log('Purchase amount being sent to API:', purchaseAmount);
+    console.log('Charge fee (2%):', chargeFee);
+    console.log('Total amount charged to user:', totalAmount);
     console.log('Raw customer data received:', {
       customer_number: customer_number,
       customer_name: customer_name,
@@ -519,28 +561,50 @@ serve(async (req) => {
         fullResponse: apiResult
       });
       
-      // Provide specific error messages based on status code
+      // Extract all possible error messages from the response
+      const apiMessage = transactionDetails.message || apiResult.message || '';
+      const apiResponseDescription = transactionDetails.response_description || apiResult.response_description || '';
+      const apiError = transactionDetails.error || apiResult.error || '';
+      const allMessages = `${apiMessage} ${apiResponseDescription} ${apiError}`.toLowerCase();
+      
+      // Check if it's an insufficient wallet balance error
+      const isInsufficientBalance = allMessages.includes('insufficient wallet balance') ||
+                                   allMessages.includes('insufficient balance') ||
+                                   allMessages.includes('low wallet balance') ||
+                                   allMessages.includes('wallet balance') && allMessages.includes('insufficient') ||
+                                   allMessages.includes('wallet balance') && allMessages.includes('low');
+      
+      // Provide specific error messages based on status code and error type
       let errorMessage = `Transaction was cancelled by MobileNig. Status: ${transactionStatus || 'Unknown'}`;
       let errorDetails: any = {
         status: transactionStatus,
         statusCode: apiResult.statusCode,
-        message: transactionDetails.message || apiResult.message,
+        message: apiMessage || apiResponseDescription || apiError,
         exchangeReference: transactionDetails.exchangeReference,
-        customerCareReferenceId: transactionDetails.customerCareReferenceId
+        customerCareReferenceId: transactionDetails.customerCareReferenceId,
+        isInsufficientBalance: isInsufficientBalance
       };
       
       // Handle specific error codes
       if (apiResult.statusCode === 'EXC020') {
-        errorMessage = 'Transaction was cancelled by MobileNig. This may be due to invalid product code, insufficient balance in MobileNig account, or service unavailability. Please try again or contact support.';
-        errorDetails.reason = 'EXC020 - Transaction Cancelled';
+        if (isInsufficientBalance) {
+          errorMessage = 'Transaction was cancelled by MobileNig due to insufficient wallet balance. Please try again later.';
+          errorDetails.reason = 'EXC020 - Insufficient Wallet Balance';
+        } else {
+          errorMessage = 'Transaction was cancelled by MobileNig. This may be due to invalid product code, insufficient balance in MobileNig account, or service unavailability. Please try again or contact support.';
+          errorDetails.reason = 'EXC020 - Transaction Cancelled';
+        }
         errorDetails.suggestions = [
           'Verify the product code is correct',
           'Check if MobileNig account has sufficient balance',
           'Try again in a few moments',
           'Contact support if issue persists'
         ];
+      } else if (isInsufficientBalance) {
+        errorMessage = 'Transaction was cancelled by MobileNig due to insufficient wallet balance. Please try again later.';
+        errorDetails.reason = 'Insufficient Wallet Balance';
       } else if (apiResult.statusCode) {
-        errorMessage = `Transaction failed. Error code: ${apiResult.statusCode}. ${transactionDetails.message || apiResult.message || 'Please try again or contact support.'}`;
+        errorMessage = `Transaction failed. Error code: ${apiResult.statusCode}. ${apiMessage || apiResponseDescription || apiError || 'Please try again or contact support.'}`;
         errorDetails.reason = `Status Code: ${apiResult.statusCode}`;
       }
       
@@ -561,10 +625,12 @@ serve(async (req) => {
                         transactionStatus === 'Processing';
     
     // If status is "Processing", treat it as approved for immediate processing
-    const shouldProcess = isApproved || isProcessing || isSuccess;
+    // Also treat empty/null status as processing (API might not return status immediately)
+    const hasNoStatus = !transactionStatus || transactionStatus === '' || transactionStatus === 'Unknown';
+    const shouldProcess = isApproved || isProcessing || isSuccess || (hasNoStatus && isSuccess);
     
-    // Verify transaction is actually approved/successful or processing
-    if (!shouldProcess && transactionStatus) {
+    // Only reject if we have a clear failure status
+    if (!shouldProcess && transactionStatus && !hasNoStatus) {
       console.error('Transaction not approved:', {
         status: transactionStatus,
         details: transactionDetails
@@ -573,7 +639,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: `Transaction not approved. Status: ${transactionStatus || 'Unknown'}`,
+          error: `Transaction not approved. Status: ${transactionStatus}`,
           details: transactionDetails
         }),
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -582,7 +648,8 @@ serve(async (req) => {
 
     // Use initial transaction status - query verification can be done asynchronously if needed
     // This reduces function execution time and prevents EarlyDrop shutdowns
-    let actualStatus = transactionStatus || 'Unknown';
+    // If status is missing/unknown but API returned success, treat as "Processing"
+    let actualStatus = transactionStatus || (isSuccess ? 'Processing' : 'Unknown');
     let queryDetails: any = null;
     
     // Only query if transaction status is unclear or we need verification
@@ -691,8 +758,10 @@ serve(async (req) => {
                            actualStatus === 'Processing';
     
     // Process immediately if approved, successful, or processing
+    // Also process if status is Unknown but API returned success (treat as processing)
     // Only fail if status is explicitly not approved and not processing
-    if (!isApprovedFinal && !isPending) {
+    const isUnknownButSuccess = (actualStatus === 'Unknown' || !actualStatus) && isSuccess;
+    if (!isApprovedFinal && !isPending && !isUnknownButSuccess) {
       return new Response(
         JSON.stringify({ 
           success: false, 
@@ -702,13 +771,19 @@ serve(async (req) => {
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+    
+    // If status is Unknown but API returned success, set it to Processing
+    if (isUnknownButSuccess) {
+      actualStatus = 'Processing';
+      console.log('Status was Unknown but API returned success, treating as Processing');
+    }
 
     if (!isSuccess) {
       // Create failed transaction record
       await supabase.from('user_transactions').insert({
         user_id: user.id,
         transaction_type: 'purchase',
-        amount: effectivePrice,
+        amount: totalAmount,
         balance_before: profile.balance,
         balance_after: profile.balance,
         description: `Failed: ${provider} - ${plan.package_name} - ${card_number}`,
@@ -721,7 +796,7 @@ serve(async (req) => {
       
       // Handle specific API errors
       if (apiResult.statusCode === 'EXC008' || errorDetails.includes('Amount must not be less than')) {
-        errorMessage = `Minimum purchase amount is ₦500. The selected package amount (₦${effectivePrice}) is below the minimum required.`;
+        errorMessage = `Minimum purchase amount is ₦500. The selected package amount (₦${purchaseAmount}) is below the minimum required.`;
       } else if (errorDetails) {
         errorMessage = errorDetails;
       }
@@ -736,11 +811,13 @@ serve(async (req) => {
       );
     }
 
-    const formattedAmount = `₦${effectivePrice.toFixed(2)}`;
+    const formattedAmount = `₦${totalAmount.toFixed(2)}`;
 
     console.log('Debiting user wallet:', {
       userId: user.id,
-      amount: effectivePrice,
+      purchaseAmount: purchaseAmount,
+      chargeFee: chargeFee,
+      totalAmount: totalAmount,
       balanceBefore: Number(profile.balance) || 0,
       reference: reference
     });
@@ -758,10 +835,11 @@ serve(async (req) => {
         willDebit: true
       });
       
+      // Debit total amount (purchase_amount + charge_fee)
       debitResult = await debitUserWallet({
         supabase,
         userId: user.id,
-        amount: effectivePrice,
+        amount: totalAmount,
         transactionType: 'purchase',
         description: transactionDescription,
         reference,
@@ -773,17 +851,35 @@ serve(async (req) => {
         },
       });
       console.log('Wallet debited successfully:', debitResult);
+      
+      // Record transaction in cable_tv_transactions with charge fee
+      await supabase.from('cable_tv_transactions').insert({
+        user_id: user.id,
+        smartcard_number: card_number,
+        provider: provider,
+        plan_name: plan.package_name,
+        customer_name: customer_name,
+        amount: totalAmount,
+        purchase_amount: purchaseAmount,
+        charge_fee: chargeFee,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceAfter,
+        status: actualStatus === 'Processing' ? 'success' : actualStatus.toLowerCase(),
+        reference: reference,
+        api_response: apiResult,
+        performed_by: user.id,
+      });
     } catch (debitError) {
       console.error('Error debiting wallet:', debitError);
       // Even if wallet debit fails, the API purchase was successful
       // Create a transaction record manually
-      const balanceAfter = (Number(profile.balance) || 0) - effectivePrice;
+      const balanceAfter = (Number(profile.balance) || 0) - totalAmount;
       const transactionDescription = `${provider} - ${plan.package_name} - ${card_number}`;
       
       await supabase.from('user_transactions').insert({
         user_id: user.id,
         transaction_type: 'purchase',
-        amount: effectivePrice,
+        amount: totalAmount,
         balance_before: Number(profile.balance) || 0,
         balance_after: balanceAfter,
         description: transactionDescription,
@@ -804,12 +900,30 @@ serve(async (req) => {
       };
     }
 
+    // Send push notification
+    await sendPushNotification(
+      supabase,
+      user.id,
+      'Cable TV Subscription Successful',
+      `₦${totalAmount.toFixed(2)} ${plan.package_name} subscription successful for ${provider} (Card: ${card_number}). Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+      {
+        type: 'cable_tv_subscription',
+        reference,
+        amount: totalAmount,
+        provider,
+        package_name: plan.package_name,
+        card_number: card_number,
+      }
+    );
+
     return new Response(
       JSON.stringify({ 
         success: true,
         data: {
           reference: reference,
-          amount: effectivePrice,
+          amount: totalAmount,
+          purchase_amount: purchaseAmount,
+          charge_fee: chargeFee,
           balance_after: debitResult.balanceAfter,
           provider: provider,
           package: plan.package_name,
@@ -822,22 +936,6 @@ serve(async (req) => {
         }
       }),
       { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
-
-    // Send push notification
-    await sendPushNotification(
-      supabase,
-      user.id,
-      'Cable TV Subscription Successful',
-      `₦${effectivePrice.toFixed(2)} ${plan.package_name} subscription successful for ${provider} (Card: ${card_number}). Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
-      {
-        type: 'cable_tv_subscription',
-        reference,
-        amount: effectivePrice,
-        provider,
-        package_name: plan.package_name,
-        card_number: card_number,
-      }
     );
 
   } catch (error) {

@@ -42,6 +42,7 @@ const styles = StyleSheet.create({
     borderRadius: 90,
     justifyContent: 'center',
     alignItems: 'center',
+    borderBottomWidth: 0,
   },
   logo: {
     width: '100%',

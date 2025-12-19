@@ -66,7 +66,7 @@ serve(async (req) => {
 
     let query = supabase
       .from("user_push_tokens")
-      .select("user_id, expo_push_token")
+      .select("user_id, expo_push_token, platform")
       .eq("is_active", true);
 
     if (payload.user_ids && payload.user_ids.length > 0) {
@@ -90,14 +90,26 @@ serve(async (req) => {
       );
     }
 
-    const messages = tokens.map((row) => ({
-      to: row.expo_push_token,
-      title: payload.title,
-      body: payload.body,
-      data: payload.data ?? {},
-      sound: payload.sound ?? "default",
-      priority: payload.priority ?? "high",
-    }));
+    const messages = tokens.map((row: { expo_push_token: string; platform?: string | null }) => {
+      const message: Record<string, unknown> = {
+        to: row.expo_push_token,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data ?? {},
+        sound: payload.sound ?? "default",
+        priority: payload.priority ?? "high",
+      };
+
+      // Add Android-specific channelId for proper notification display
+      // Android requires channelId to be specified in the push notification payload
+      if (row.platform === "android") {
+        // Use "transactions" channel for transaction-related notifications, "default" for others
+        const channelId = (payload.data?.transactionType || payload.data?.reference) ? "transactions" : "default";
+        message.channelId = channelId;
+      }
+
+      return message;
+    });
 
     const expoResponse = await sendExpoMessages(messages);
 

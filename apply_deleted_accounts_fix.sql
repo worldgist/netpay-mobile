@@ -28,3 +28,9 @@ COMMENT ON COLUMN public.deleted_accounts.deleted_by IS 'User who performed the 
 
 
 
+
+
+
+
+
+

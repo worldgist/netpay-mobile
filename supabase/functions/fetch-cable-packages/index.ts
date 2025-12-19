@@ -43,20 +43,7 @@ serve(async (req) => {
       );
     }
 
-    // Check if user is admin
-    const { data: roles } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('role', 'admin')
-      .single();
-
-    if (!roles) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Admin access required' }),
-        { status: 403, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Allow any authenticated user to fetch packages (packages are public information)
 
     // Parse request body
     let body: Record<string, unknown> = {};
@@ -71,13 +58,13 @@ serve(async (req) => {
     }
     
     const provider = String(body.provider || 'DSTV');
-    const vendingProvider = String(body.vending_provider || 'smeplug');
+    const vendingProvider = String(body.vending_provider || 'mobilenig');
     const providerUpper = provider.toUpperCase();
 
     console.log('Fetching cable packages:', { provider, vendingProvider });
 
     // Check if vending provider is supported
-    const supportedProviders = ['smeplug', 'mobilenig'];
+    const supportedProviders = ['mobilenig'];
     const vendingProviderLower = vendingProvider.toLowerCase();
     if (!supportedProviders.includes(vendingProviderLower)) {
       return new Response(

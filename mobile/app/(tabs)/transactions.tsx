@@ -137,7 +137,7 @@ export default function TransactionsScreen() {
           .limit(50),
         supabase
           .from('education_transactions')
-          .select('id, amount, exam_type, status, reference, created_at, phone_number, balance_before, balance_after, api_response, metadata')
+          .select('id, amount, exam_type, status, reference, created_at, phone_number, balance_before, balance_after, api_response, metadata, pin, serial_number, pins')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(50),
@@ -221,7 +221,7 @@ export default function TransactionsScreen() {
           status: txn.status,
           reference: txn.reference,
           description: txn.meter_number,
-          serviceType: txn.provider || txn.description || 'Electricity',
+          serviceType: txn.provider || 'Electricity',
           provider: txn.provider,
           createdAt: txn.created_at,
           formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
@@ -232,12 +232,57 @@ export default function TransactionsScreen() {
 
       const educationTransactions: MobileTransaction[] = (educationRes.data || []).map((txn) => {
         const createdDate = new Date(txn.created_at);
-        // Get PINs from metadata first (primary source), fallback to parsing api_response
-        const metadataObj = (txn as any)?.metadata || {};
-        const pinsFromMetadata = metadataObj.pins || [];
         
-        // Also parse from api_response as fallback
-        const parsedMetadata = parseEducationPurchaseMetadata((txn as any)?.api_response);
+        // Priority order for PINs:
+        // 1. Database columns (pin, serial_number, pins) - most reliable
+        // 2. metadata.pins - for backward compatibility
+        // 3. Parse from api_response - fallback
+        
+        let finalPins: Array<{ Pin: string; Serial?: string }> = [];
+        let finalPin: string | undefined;
+        let finalSerial: string | undefined;
+        
+        // First, try database columns (highest priority)
+        if ((txn as any).pins && Array.isArray((txn as any).pins)) {
+          finalPins = (txn as any).pins;
+          if (finalPins.length > 0) {
+            finalPin = finalPins[0].Pin;
+            finalSerial = finalPins[0].Serial;
+          }
+        } else if ((txn as any).pin) {
+          // Single PIN from database column
+          finalPin = (txn as any).pin;
+          finalSerial = (txn as any).serial_number;
+          finalPins = [{ Pin: finalPin || '', Serial: finalSerial || '' }];
+        }
+        
+        // Fallback to metadata if database columns don't have PINs
+        if (finalPins.length === 0) {
+          const metadataObj = (txn as any)?.metadata || {};
+          const pinsFromMetadata = metadataObj.pins || [];
+          
+          if (pinsFromMetadata.length > 0) {
+            finalPins = pinsFromMetadata;
+            if (finalPins.length > 0) {
+              finalPin = finalPins[0].Pin;
+              finalSerial = finalPins[0].Serial;
+            }
+          } else if (metadataObj.educationPin) {
+            finalPin = metadataObj.educationPin;
+            finalSerial = metadataObj.educationSerial;
+            finalPins = [{ Pin: finalPin || '', Serial: finalSerial || '' }];
+          }
+        }
+        
+        // Last fallback: parse from api_response
+        if (finalPins.length === 0) {
+          const parsedMetadata = parseEducationPurchaseMetadata((txn as any)?.api_response);
+          if (parsedMetadata.pin) {
+            finalPin = parsedMetadata.pin;
+            finalSerial = parsedMetadata.serial;
+            finalPins = [{ Pin: finalPin, Serial: finalSerial || '' }];
+          }
+        }
         
         const description = txn.phone_number
           ? `${txn.exam_type || 'Education'} purchase • ${txn.phone_number}`
@@ -258,11 +303,10 @@ export default function TransactionsScreen() {
           extra: {
             phone_number: txn.phone_number,
             examType: txn.exam_type,
-            // Use pins from metadata if available, otherwise use parsed values
-            pins: pinsFromMetadata.length > 0 ? pinsFromMetadata : (parsedMetadata.pin ? [{ Pin: parsedMetadata.pin, Serial: parsedMetadata.serial }] : []),
-            educationPin: parsedMetadata.pin,
-            educationSerial: parsedMetadata.serial,
-            educationInstructions: parsedMetadata.instructions,
+            pins: finalPins,
+            educationPin: finalPin,
+            educationSerial: finalSerial,
+            educationInstructions: parseEducationPurchaseMetadata((txn as any)?.api_response).instructions,
             balanceBefore: txn.balance_before,
             balanceAfter: txn.balance_after,
           },
@@ -371,7 +415,7 @@ export default function TransactionsScreen() {
           token: transaction.extra?.token || '',
           meterNumber: transaction.extra?.meter_number || '',
           customerName: transaction.extra?.customerName || '',
-          phoneNumber: transaction.extra?.phone_number || transaction.extra?.phoneNumber || transaction.recipient || '',
+          phoneNumber: transaction.extra?.phone_number || transaction.extra?.phoneNumber || '',
           educationPin: transaction.extra?.educationPin || '',
           educationSerial: transaction.extra?.educationSerial || '',
           educationInstructions: transaction.extra?.educationInstructions || '',

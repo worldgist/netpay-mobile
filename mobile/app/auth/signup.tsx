@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -19,6 +19,141 @@ export default function SignupScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [emailExists, setEmailExists] = useState(false);
+  const [phoneExists, setPhoneExists] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [checkingPhone, setCheckingPhone] = useState(false);
+  const emailCheckTimeout = useRef<NodeJS.Timeout | null>(null);
+  const phoneCheckTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Check email availability
+  const checkEmailAvailability = async (emailToCheck: string) => {
+    const trimmedEmail = emailToCheck.trim().toLowerCase();
+    
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      setEmailExists(false);
+      return;
+    }
+
+    try {
+      setCheckingEmail(true);
+      const { data: availability, error } = await supabase.functions.invoke(
+        'check-signup-availability',
+        {
+          body: {
+            email: trimmedEmail,
+            phone: null,
+          },
+        }
+      );
+
+      console.log('Email availability check result:', { 
+        availability, 
+        error, 
+        email: trimmedEmail,
+        emailExists: availability?.emailExists,
+        success: availability?.success
+      });
+
+      if (error) {
+        console.error('Error from check-signup-availability:', error);
+        setEmailExists(false);
+        return;
+      }
+
+      if (!error && availability) {
+        setEmailExists(availability.emailExists || false);
+        console.log('Email exists check:', { 
+          emailExists: availability.emailExists, 
+          fullResponse: availability 
+        });
+      } else {
+        console.log('No availability data returned or error occurred');
+        setEmailExists(false);
+      }
+    } catch (err) {
+      console.error('Error checking email availability:', err);
+      setEmailExists(false);
+    } finally {
+      setCheckingEmail(false);
+    }
+  };
+
+  // Check phone availability
+  const checkPhoneAvailability = async (phoneToCheck: string) => {
+    const sanitizedPhone = phoneToCheck.replace(/[^0-9]/g, '');
+    
+    if (!sanitizedPhone || sanitizedPhone.length < 10) {
+      setPhoneExists(false);
+      return;
+    }
+
+    try {
+      setCheckingPhone(true);
+      const { data: availability, error } = await supabase.functions.invoke(
+        'check-signup-availability',
+        {
+          body: {
+            email: null,
+            phone: sanitizedPhone,
+          },
+        }
+      );
+
+      if (!error && availability) {
+        setPhoneExists(availability.phoneExists || false);
+      } else {
+        setPhoneExists(false);
+      }
+    } catch (err) {
+      console.error('Error checking phone availability:', err);
+      setPhoneExists(false);
+    } finally {
+      setCheckingPhone(false);
+    }
+  };
+
+  // Debounced email check
+  useEffect(() => {
+    if (emailCheckTimeout.current) {
+      clearTimeout(emailCheckTimeout.current);
+    }
+
+    emailCheckTimeout.current = setTimeout(() => {
+      if (email) {
+        checkEmailAvailability(email);
+      } else {
+        setEmailExists(false);
+      }
+    }, 500) as unknown as NodeJS.Timeout; // Wait 500ms after user stops typing
+
+    return () => {
+      if (emailCheckTimeout.current) {
+        clearTimeout(emailCheckTimeout.current);
+      }
+    };
+  }, [email]);
+
+  // Debounced phone check
+  useEffect(() => {
+    if (phoneCheckTimeout.current) {
+      clearTimeout(phoneCheckTimeout.current);
+    }
+
+    phoneCheckTimeout.current = setTimeout(() => {
+      if (phone) {
+        checkPhoneAvailability(phone);
+      } else {
+        setPhoneExists(false);
+      }
+    }, 500) as unknown as NodeJS.Timeout; // Wait 500ms after user stops typing
+
+    return () => {
+      if (phoneCheckTimeout.current) {
+        clearTimeout(phoneCheckTimeout.current);
+      }
+    };
+  }, [phone]);
 
   const handleCreateAccount = async () => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -35,6 +170,16 @@ export default function SignupScreen() {
 
     if (!trimmedEmail) {
       Alert.alert('Sign Up', 'Please enter a valid email address.');
+      return;
+    }
+
+    if (emailExists) {
+      Alert.alert('Sign Up', 'This email is already registered. Please sign in instead.');
+      return;
+    }
+
+    if (sanitizedPhone && phoneExists) {
+      Alert.alert('Sign Up', 'This phone number is already linked to an account.');
       return;
     }
 
@@ -163,29 +308,6 @@ export default function SignupScreen() {
             </ThemedText>
           </View>
 
-          {/* Demo User Banner */}
-          <View style={styles.demoUserCard}>
-            <View style={styles.demoUserHeader}>
-              <MaterialIcons name="info" size={20} color="#FF7F00" />
-              <ThemedText style={styles.demoUserTitle}>Demo Account Available</ThemedText>
-            </View>
-            <View style={styles.demoUserContent}>
-              <ThemedText style={styles.demoUserText}>
-                For testing purposes, a demo account is already available. You can sign in with:
-              </ThemedText>
-              <View style={styles.demoCredentialsBox}>
-                <ThemedText style={styles.demoCredentialText}>
-                  Email: <ThemedText style={styles.demoCredentialValue}>demo@netpayy.ng</ThemedText>
-                </ThemedText>
-                <ThemedText style={styles.demoCredentialText}>
-                  Password: <ThemedText style={styles.demoCredentialValue}>Demo@1234</ThemedText>
-                </ThemedText>
-              </View>
-              <TouchableOpacity onPress={() => router.push('/auth/login')} style={styles.demoLoginLink}>
-                <ThemedText style={styles.demoLoginLinkText}>Sign in with demo account →</ThemedText>
-              </TouchableOpacity>
-            </View>
-          </View>
 
           {/* Name Row */}
           <View style={styles.row}>
@@ -198,6 +320,7 @@ export default function SignupScreen() {
                 value={firstName}
                 onChangeText={setFirstName}
                 autoCapitalize="words"
+                maxLength={50}
               />
             </View>
             <View style={[styles.inputContainer, styles.halfWidth]}>
@@ -214,31 +337,75 @@ export default function SignupScreen() {
           </View>
 
           {/* Email Input */}
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="email" size={20} color="#666" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Email address"
-              placeholderTextColor="#999"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+          <View>
+            <View style={[styles.inputContainer, emailExists && styles.inputContainerError]}>
+              <MaterialIcons 
+                name="email" 
+                size={20} 
+                color={emailExists ? '#F44336' : '#666'} 
+                style={styles.inputIcon} 
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Email address"
+                placeholderTextColor="#999"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {checkingEmail && (
+                <ActivityIndicator size="small" color="#FF7F00" style={styles.checkingIndicator} />
+              )}
+              {!checkingEmail && email && email.includes('@') && (
+                <MaterialIcons 
+                  name={emailExists ? 'error' : 'check-circle'} 
+                  size={20} 
+                  color={emailExists ? '#F44336' : '#4CAF50'} 
+                />
+              )}
+            </View>
+            {emailExists && (
+              <ThemedText style={styles.errorText}>
+                This email is already registered. Please sign in instead.
+              </ThemedText>
+            )}
           </View>
 
           {/* Phone Input */}
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="phone" size={20} color="#666" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Phone number"
-              placeholderTextColor="#999"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-            />
+          <View>
+            <View style={[styles.inputContainer, phoneExists && styles.inputContainerError]}>
+              <MaterialIcons 
+                name="phone" 
+                size={20} 
+                color={phoneExists ? '#F44336' : '#666'} 
+                style={styles.inputIcon} 
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Phone number"
+                placeholderTextColor="#999"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+              />
+              {checkingPhone && (
+                <ActivityIndicator size="small" color="#FF7F00" style={styles.checkingIndicator} />
+              )}
+              {!checkingPhone && phone && phone.replace(/[^0-9]/g, '').length >= 10 && (
+                <MaterialIcons 
+                  name={phoneExists ? 'error' : 'check-circle'} 
+                  size={20} 
+                  color={phoneExists ? '#F44336' : '#4CAF50'} 
+                />
+              )}
+            </View>
+            {phoneExists && (
+              <ThemedText style={styles.errorText}>
+                This phone number is already linked to an account.
+              </ThemedText>
+            )}
           </View>
 
           {/* Password Input */}
@@ -302,9 +469,12 @@ export default function SignupScreen() {
 
           {/* Create Account Button */}
           <TouchableOpacity
-            style={[styles.createButton, loading && { opacity: 0.7 }]}
+            style={[
+              styles.createButton, 
+              (loading || emailExists || phoneExists) && { opacity: 0.7 }
+            ]}
             onPress={handleCreateAccount}
-            disabled={loading}>
+            disabled={loading || emailExists || phoneExists}>
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
@@ -363,6 +533,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 24,
+    borderBottomWidth: 0,
   },
   backButton: {
     width: 40,
@@ -423,6 +594,20 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
     height: 56,
   },
+  inputContainerError: {
+    borderColor: '#F44336',
+    backgroundColor: '#FFF5F5',
+  },
+  checkingIndicator: {
+    marginLeft: 8,
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 14,
+    marginTop: -12,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
   halfWidth: {
     flex: 1,
   },
@@ -433,6 +618,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#333',
+    minWidth: 0,
+    paddingVertical: 0,
+    includeFontPadding: false,
   },
   eyeIcon: {
     padding: 4,
@@ -473,67 +661,6 @@ const styles = StyleSheet.create({
     color: '#FF7F00',
     fontSize: 16,
     fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
-  demoUserCard: {
-    backgroundColor: '#FFF8E1',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: '#FF7F00',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  demoUserHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  demoUserTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#E65100',
-    flex: 1,
-  },
-  demoUserContent: {
-    gap: 12,
-  },
-  demoUserText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  demoCredentialsBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 12,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#FFE082',
-  },
-  demoCredentialText: {
-    fontSize: 14,
-    color: '#333',
-    lineHeight: 20,
-  },
-  demoCredentialValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000',
-    fontFamily: 'monospace',
-  },
-  demoLoginLink: {
-    marginTop: 4,
-  },
-  demoLoginLinkText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FF7F00',
     textDecorationLine: 'underline',
   },
 });

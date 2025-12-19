@@ -37,32 +37,34 @@ const initializeNotifications = () => {
         }),
       });
 
-      // Configure Android notification channel
+      // Configure Android notification channel (async operation)
       if (Platform.OS === 'android') {
-        try {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'Default',
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#FF231F7C',
-            sound: 'default',
-            enableVibrate: true,
-            showBadge: true,
-          });
+        (async () => {
+          try {
+            await Notifications.setNotificationChannelAsync('default', {
+              name: 'Default',
+              importance: Notifications.AndroidImportance.HIGH,
+              vibrationPattern: [0, 250, 250, 250],
+              lightColor: '#FF231F7C',
+              sound: 'default',
+              enableVibrate: true,
+              showBadge: true,
+            });
 
-          // Create a high priority channel for transactions
-          await Notifications.setNotificationChannelAsync('transactions', {
-            name: 'Transactions',
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#FF231F7C',
-            sound: 'default',
-            enableVibrate: true,
-            showBadge: true,
-          });
-        } catch (error) {
-          console.warn('Failed to set Android notification channels:', error);
-        }
+            // Create a high priority channel for transactions
+            await Notifications.setNotificationChannelAsync('transactions', {
+              name: 'Transactions',
+              importance: Notifications.AndroidImportance.HIGH,
+              vibrationPattern: [0, 250, 250, 250],
+              lightColor: '#FF231F7C',
+              sound: 'default',
+              enableVibrate: true,
+              showBadge: true,
+            });
+          } catch (error) {
+            console.warn('Failed to set Android notification channels:', error);
+          }
+        })();
       }
     }
   } catch (error) {
@@ -167,20 +169,30 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
     
     const { data: expoToken } = await notifications.getExpoPushTokenAsync(tokenOptions);
     const deviceId = await getDeviceIdentifier();
-    const platform = Platform.OS;
+    const platform = Platform.OS; // Should be 'ios' or 'android'
+
+    // Log registration attempt for debugging
+    console.log('Attempting to register push token:', {
+      platform: platform,
+      hasToken: !!expoToken,
+      hasDeviceId: !!deviceId,
+      tokenPrefix: expoToken?.substring(0, 20),
+    });
 
     const { error } = await supabase.functions.invoke('register-push-token', {
       body: {
         expo_push_token: expoToken,
         device_id: deviceId,
-        platform,
+        platform, // Explicitly send platform ('ios' or 'android')
       },
     });
 
     if (error) {
+      console.error('Push token registration error:', error);
       return { registered: false, reason: error.message };
     }
 
+    console.log('Push token registered successfully for platform:', platform);
     return { registered: true, token: expoToken };
   } catch (error) {
     console.error('Error registering for push notifications:', error);

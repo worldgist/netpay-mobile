@@ -117,14 +117,26 @@ serve(async (req) => {
       );
     }
 
-    const messages = Array.from(uniqueTokens.keys()).map((expoToken) => ({
-      to: expoToken,
-      title,
-      body,
-      data: payload.data ?? {},
-      sound: payload.sound ?? 'default',
-      priority: payload.priority ?? 'high',
-    }));
+    const messages = Array.from(uniqueTokens.entries()).map(([expoToken, tokenInfo]) => {
+      const message: Record<string, unknown> = {
+        to: expoToken,
+        title,
+        body,
+        data: payload.data ?? {},
+        sound: payload.sound ?? 'default',
+        priority: payload.priority ?? 'high',
+      };
+
+      // Add Android-specific channelId for proper notification display
+      // Android requires channelId to be specified in the push notification payload
+      if (tokenInfo.platform === "android") {
+        // Use "transactions" channel for transaction-related notifications, "default" for others
+        const channelId = (payload.data?.transactionType || payload.data?.reference) ? "transactions" : "default";
+        message.channelId = channelId;
+      }
+
+      return message;
+    });
 
     const expoResponse = await sendExpoNotification(messages);
 

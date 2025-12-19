@@ -66,20 +66,7 @@ serve(async (req) => {
       });
     }
 
-    // Check if user is admin
-    const { data: roles } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .single();
-
-    if (!roles) {
-      return new Response(JSON.stringify({ success: false, error: "Admin access required" }), {
-        status: 403,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
+    // Allow any authenticated user to fetch packages (packages are public information)
 
     let parsedBody: Record<string, unknown> | null = null;
     try {

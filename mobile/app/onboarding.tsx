@@ -1,6 +1,5 @@
 import { Image } from 'expo-image';
 import { StyleSheet, View, Dimensions, ScrollView, TouchableOpacity } from 'react-native';
-import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
@@ -30,7 +29,7 @@ export default function OnboardingScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -40,7 +39,8 @@ export default function OnboardingScreen() {
           const page = Math.round(event.nativeEvent.contentOffset.x / width);
           setCurrentPage(page);
         }}
-        style={styles.scrollView}>
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}>
         {/* Page 1 */}
         <View style={[styles.page, { width }]}>
           <Image
@@ -123,39 +123,46 @@ export default function OnboardingScreen() {
           </ThemedText>
         </TouchableOpacity>
       </View>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#000',
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   page: {
     height,
     width,
     position: 'relative',
+    overflow: 'hidden',
   },
   fullScreenImage: {
-    width: '100%',
-    height: '100%',
+    width: width,
+    height: height,
     position: 'absolute',
     top: 0,
     left: 0,
-    right: 0,
-    bottom: 0,
+    zIndex: 0,
   },
   overlay: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
+    width: width,
+    height: height,
+    position: 'absolute',
+    top: 0,
+    left: 0,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 1,
   },
   contentContainer: {
     alignItems: 'center',

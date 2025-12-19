@@ -128,8 +128,10 @@ serve(async (req) => {
     const provider = parsedBody?.provider;
     const phone_number = parsedBody?.phone_number || parsedBody?.phone;
     const subscription_type = parsedBody?.subscription_type || "change"; // "change" or "renew"
-    const variation_code = parsedBody?.variation_code;
+    const variation_code = parsedBody?.variation_code || parsedBody?.api_code;
     const amount = parsedBody?.amount;
+    const price = parsedBody?.price;
+    const package_name = parsedBody?.package_name;
     const quantity = parsedBody?.quantity || 1;
     const request_id = parsedBody?.request_id;
 
@@ -156,35 +158,27 @@ serve(async (req) => {
       );
     }
 
-    // Get plan details
-    const { data: cablePlan, error: planError } = await supabase
-      .from("cable_tv_plans")
-      .select("*")
-      .eq("id", plan_id)
-      .maybeSingle();
-
-    if (planError || !cablePlan) {
-      console.error("VTpass cable plan not found:", planError);
+    // Plan details should come from request body (packages are fetched from API now)
+    // If not provided, return error
+    const planPrice = typeof price === "number" ? price : (typeof amount === "number" ? amount : 0);
+    if (!planPrice || planPrice <= 0) {
       return new Response(
-        JSON.stringify({ success: false, error: "Cable TV plan not found" }),
-        { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
-
-    // Check if plan is from VTpass provider
-    if ((cablePlan.vending_provider || "smeplug") !== "vtpass") {
-      return new Response(
-        JSON.stringify({ success: false, error: "Selected plan is not configured for VTpass" }),
+        JSON.stringify({ success: false, error: "Plan price is required" }),
         { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 
-    if (!cablePlan.api_code) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Cable plan is missing a variation code" }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
+    // Create plan object from request body
+    const cablePlan = {
+      id: plan_id || `plan-${Date.now()}`,
+      package_name: package_name || `${provider} Package`,
+      price: planPrice,
+      custom_price: planPrice,
+      original_price: planPrice,
+      api_code: variation_code || plan_id,
+      provider: provider || "DSTV",
+      vending_provider: "vtpass"
+    };
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -201,10 +195,14 @@ serve(async (req) => {
     }
 
     const balanceBefore = Number(profile.balance) || 0;
-    const effectivePrice = cablePlan.custom_price || cablePlan.original_price || cablePlan.price;
-    const planPrice = typeof amount === "number" ? amount : Number(effectivePrice) || 0;
+    const purchaseAmount = planPrice;
+    
+    // Calculate 2% charge fee
+    const CHARGE_FEE_RATE = 0.02; // 2%
+    const chargeFee = purchaseAmount * CHARGE_FEE_RATE;
+    const totalAmount = purchaseAmount + chargeFee;
 
-    if (balanceBefore < planPrice) {
+    if (balanceBefore < totalAmount) {
       return new Response(
         JSON.stringify({ success: false, error: "Insufficient balance" }),
         { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
@@ -345,11 +343,11 @@ serve(async (req) => {
 
     const reference = vtpassRequestId;
 
-    // Debit wallet
+    // Debit wallet (debit total amount including fee)
     const debitResult = await debitUserWallet({
       supabase,
       userId: user.id,
-      amount: planPrice,
+      amount: totalAmount,
       transactionType: "cable_tv",
       description: `VTpass ${resolvedProvider} ${subscription_type} - ${cablePlan.package_name} for ${sanitizedSmartcard}`,
       reference,
@@ -357,21 +355,27 @@ serve(async (req) => {
       balanceBefore,
       notification: {
         title: "Cable TV subscription successful",
-        message: `₦${planPrice.toFixed(2)} VTpass ${resolvedProvider} (${cablePlan.package_name}) ${subscription_type} for smartcard ${sanitizedSmartcard}. Reference: ${reference}.`,
+        message: `₦${totalAmount.toFixed(2)} VTpass ${resolvedProvider} (${cablePlan.package_name}) ${subscription_type} for smartcard ${sanitizedSmartcard}. Reference: ${reference}.`,
       },
     });
 
-    // Record transaction in user_transactions (following existing pattern)
+    // Record transaction in cable_tv_transactions with charge fee
     const { data: insertedTransaction, error: txnError } = await supabase
-      .from("user_transactions")
+      .from("cable_tv_transactions")
       .insert({
         user_id: user.id,
-        transaction_type: "cable_tv",
-        amount: planPrice,
+        smartcard_number: sanitizedSmartcard,
+        provider: resolvedProvider,
+        plan_name: cablePlan.package_name,
+        subscription_type: subscription_type,
+        amount: totalAmount,
+        purchase_amount: purchaseAmount,
+        charge_fee: chargeFee,
         balance_before: debitResult.balanceBefore,
         balance_after: debitResult.balanceAfter,
-        description: `VTpass ${resolvedProvider} ${subscription_type} - ${cablePlan.package_name} - ${sanitizedSmartcard}`,
+        status: transaction.status?.toLowerCase() || 'success',
         reference,
+        api_response: payJson,
         performed_by: user.id,
       })
       .select()
@@ -408,7 +412,9 @@ serve(async (req) => {
         data: {
           reference,
           package_name: cablePlan.package_name,
-          amount: planPrice,
+          amount: totalAmount,
+          purchase_amount: purchaseAmount,
+          charge_fee: chargeFee,
           smartcard_number: sanitizedSmartcard,
           provider: resolvedProvider,
           subscription_type,

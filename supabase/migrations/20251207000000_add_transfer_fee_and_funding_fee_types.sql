@@ -23,3 +23,9 @@ COMMENT ON COLUMN public.user_transactions.transaction_type IS
 
 
 
+
+
+
+
+
+

@@ -18,7 +18,7 @@ import {
   UserCog,
   LifeBuoy,
   ShieldCheck,
-  Upload,
+  Mail,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -44,9 +44,9 @@ const menuItems = [
   { title: "Data Plans", url: "/data-plans", icon: Wifi },
   { title: "Electricity", url: "/electricity", icon: Zap },
   { title: "Cable TV", url: "/cable-tv", icon: Tv },
-  { title: "Import Cable TX", url: "/import-cable-transactions", icon: Upload },
   { title: "Education", url: "/education", icon: GraduationCap },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
+  { title: "Platform Revenue", url: "/platform-revenue", icon: DollarSign },
   { title: "Referrals", url: "/referrals", icon: Gift },
   { title: "Users", url: "/users", icon: Users },
   { title: "Staff", url: "/staff", icon: UserCog },
@@ -54,6 +54,7 @@ const menuItems = [
   { title: "Compliance", url: "/compliance", icon: ShieldCheck },
   { title: "Content", url: "/content", icon: FileText },
   { title: "Notifications", url: "/notifications", icon: Bell },
+  { title: "Email Notifications", url: "/email-notifications", icon: Mail },
   { title: "Support", url: "/contact", icon: LifeBuoy },
   { title: "Settings", url: "/settings", icon: Settings },
 ];

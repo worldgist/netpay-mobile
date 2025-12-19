@@ -141,7 +141,9 @@ export default function SetupPinScreen() {
         {array.map((digit, index) => (
           <TextInput
             key={`${label}-${index}`}
-            ref={(ref) => (refs[index] = ref)}
+            ref={(ref) => {
+              refs[index] = ref;
+            }}
             style={[styles.pinInput, index === array.length - 1 && styles.lastPinInput]}
             value={digit}
             onChangeText={(value) => handlePinChange(value, index, type)}

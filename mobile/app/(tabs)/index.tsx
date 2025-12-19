@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Image,
   Pressable,
   Alert,
 } from 'react-native';
@@ -19,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { registerForPushNotifications } from '@/utils/push-notifications';
+import { Image } from 'expo-image';
 
 const NETWORK_LOGOS: Record<string, any> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -621,7 +621,7 @@ export default function HomeScreen() {
               ) : notificationPreview.length === 0 ? (
                 <View style={styles.notificationPanelEmpty}>
                   <MaterialIcons name="notifications-none" size={28} color="#999" />
-                  <ThemedText style={styles.notificationPanelEmptyText}>You're all caught up</ThemedText>
+                  <ThemedText style={styles.notificationPanelEmptyText}>You&apos;re all caught up</ThemedText>
                 </View>
               ) : (
                 notificationPreview.map((entry) => (
@@ -680,11 +680,6 @@ export default function HomeScreen() {
         </>
       )}
 
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF7F00" />
-        </View>
-      ) : null}
 
       <ScrollView
         style={styles.scrollView}
@@ -1031,7 +1026,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
-    backgroundColor: 'rgba(255,255,255,0.6)',
+    backgroundColor: '#fff',
+  },
+  loadingLogo: {
+    width: 120,
+    height: 120,
   },
   notificationButton: {
     position: 'relative',

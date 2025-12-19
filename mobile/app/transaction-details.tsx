@@ -395,19 +395,63 @@ function TransactionDetailsScreen() {
       } else if (category === 'education') {
         const { data, error } = await supabase
           .from('education_transactions')
-          .select('id, amount, status, reference, created_at, exam_type, phone_number, balance_before, balance_after, api_response, metadata, user_id')
+          .select('id, amount, status, reference, created_at, exam_type, phone_number, balance_before, balance_after, api_response, metadata, pin, serial_number, pins, user_id')
           .eq('id', initialTransaction.id)
           .eq('user_id', userId)
           .maybeSingle();
 
         if (error) throw error;
         if (data) {
-          // Get PINs from metadata first (primary source), fallback to parsing api_response
-          const metadataObj = (data as any)?.metadata || {};
-          const pinsFromMetadata = metadataObj.pins || [];
+          // Priority order for PINs:
+          // 1. Database columns (pin, serial_number, pins) - most reliable
+          // 2. metadata.pins - for backward compatibility
+          // 3. Parse from api_response - fallback
           
-          // Also parse from api_response as fallback
-          const parsedMetadata = parseEducationPurchaseMetadata((data as any)?.api_response);
+          let finalPins: Array<{ Pin: string; Serial?: string }> = [];
+          let finalPin: string | undefined;
+          let finalSerial: string | undefined;
+          
+          // First, try database columns (highest priority)
+          if ((data as any).pins && Array.isArray((data as any).pins)) {
+            finalPins = (data as any).pins;
+            if (finalPins.length > 0) {
+              finalPin = finalPins[0].Pin;
+              finalSerial = finalPins[0].Serial;
+            }
+          } else if ((data as any).pin) {
+            // Single PIN from database column
+            finalPin = (data as any).pin;
+            finalSerial = (data as any).serial_number;
+            finalPins = [{ Pin: finalPin, Serial: finalSerial || '' }];
+          }
+          
+          // Fallback to metadata if database columns don't have PINs
+          if (finalPins.length === 0) {
+            const metadataObj = (data as any)?.metadata || {};
+            const pinsFromMetadata = metadataObj.pins || [];
+            
+            if (pinsFromMetadata.length > 0) {
+              finalPins = pinsFromMetadata;
+              if (finalPins.length > 0) {
+                finalPin = finalPins[0].Pin;
+                finalSerial = finalPins[0].Serial;
+              }
+            } else if (metadataObj.educationPin) {
+              finalPin = metadataObj.educationPin;
+              finalSerial = metadataObj.educationSerial;
+              finalPins = [{ Pin: finalPin, Serial: finalSerial || '' }];
+            }
+          }
+          
+          // Last fallback: parse from api_response
+          if (finalPins.length === 0) {
+            const parsedMetadata = parseEducationPurchaseMetadata((data as any)?.api_response);
+            if (parsedMetadata.pin) {
+              finalPin = parsedMetadata.pin;
+              finalSerial = parsedMetadata.serial;
+              finalPins = [{ Pin: finalPin, Serial: finalSerial || '' }];
+            }
+          }
           
           const serviceLabel = data.exam_type ? `Education • ${data.exam_type}` : 'Education';
           const description = data.phone_number
@@ -433,12 +477,11 @@ function TransactionDetailsScreen() {
             formattedDate: formatDate(data.created_at),
             formattedTime: formatTime(data.created_at),
             metadata: {
-              ...metadataObj,
-              // Use pins from metadata if available, otherwise use parsed values
-              pins: pinsFromMetadata.length > 0 ? pinsFromMetadata : (parsedMetadata.pin ? [{ Pin: parsedMetadata.pin, Serial: parsedMetadata.serial }] : []),
-              educationPin: parsedMetadata.pin,
-              educationSerial: parsedMetadata.serial,
-              educationInstructions: parsedMetadata.instructions,
+              ...((data as any)?.metadata || {}),
+              pins: finalPins,
+              educationPin: finalPin,
+              educationSerial: finalSerial,
+              educationInstructions: parseEducationPurchaseMetadata((data as any)?.api_response).instructions,
               examType: data.exam_type,
             },
           };

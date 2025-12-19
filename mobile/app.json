@@ -77,9 +77,6 @@
         {
           "icon": "./assets/images/favicon.png",
           "color": "#ffffff",
-          "sounds": [
-            "default"
-          ],
           "mode": "production"
         }
       ],

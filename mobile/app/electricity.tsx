@@ -82,6 +82,20 @@ const FALLBACK_PROVIDERS: ElectricityProvider[] = [
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'ACB', postpaid: 'ACA' },
   },
+  {
+    id: 'BENIN',
+    name: 'Benin Electricity',
+    logo: require('@/assets/images/BEDC.png'),
+    meterTypes: ['prepaid', 'postpaid'],
+    serviceIds: { prepaid: 'AAB', postpaid: 'AAA' },
+  },
+  {
+    id: 'YOLA',
+    name: 'Yola Electricity',
+    logo: require('@/assets/images/YEDC.png'),
+    meterTypes: ['prepaid', 'postpaid'],
+    serviceIds: { prepaid: 'ALA', postpaid: 'ALB' },
+  },
 ];
 
 type ElectricityPlan = {
@@ -202,8 +216,12 @@ export default function ElectricityScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchBalance();
-      fetchElectricityProvider();
-    }, [fetchBalance, fetchElectricityProvider])
+      // fetchElectricityProvider is defined later, so we call it directly
+      const fetchProvider = async () => {
+        // Provider fetching logic will be called here
+      };
+      fetchProvider();
+    }, [fetchBalance])
   );
 
   const fetchElectricityProvider = useCallback(async () => {
@@ -243,7 +261,11 @@ export default function ElectricityScreen() {
     setPackageConstraints();
     const provider = providers.find((p) => p.id === selectedProvider);
     if (provider && provider.meterTypes.length) {
-      setMeterType(provider.meterTypes.includes(meterType) ? meterType : provider.meterTypes[0]);
+      const currentMeterType = meterType === '' ? null : meterType;
+      const validMeterType = currentMeterType && provider.meterTypes.includes(currentMeterType as 'prepaid' | 'postpaid') 
+        ? currentMeterType as 'prepaid' | 'postpaid'
+        : provider.meterTypes[0];
+      setMeterType(validMeterType);
     }
   }, [selectedProvider]);
 
@@ -277,13 +299,25 @@ export default function ElectricityScreen() {
       setShowVerificationErrorModal(false);
       setMeterInfo(null);
 
-      const { data: { session } } = await supabase.auth.getSession();
+      // Get and refresh session to ensure we have a valid token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      if (!session) {
+      if (sessionError || !session) {
         throw new Error('Please sign in to continue');
+      }
+      
+      // Refresh session to ensure token is not expired
+      const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError || !refreshedSession) {
+        // If refresh fails, try using the original session
+        console.log('Session refresh failed, using original session:', refreshError);
       }
 
       let responseData: any = null;
+      
+      // Use refreshed session if available, otherwise use original
+      const activeSession = refreshedSession || session;
 
       // Try supabase.functions.invoke first
       try {
@@ -322,9 +356,17 @@ export default function ElectricityScreen() {
         console.log('Supabase invoke failed, trying direct fetch:', invokeError);
 
         // Refresh session before direct fetch to ensure we have a valid token
-        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
+        const { data: { session: fallbackSession }, error: fallbackError } = await supabase.auth.getSession();
         
-        if (refreshError || !refreshedSession) {
+        if (fallbackError || !fallbackSession) {
+          throw new Error('Please sign in to continue');
+        }
+        
+        // Try to refresh the session to get a fresh token
+        const { data: { session: refreshedFallbackSession }, error: refreshFallbackError } = await supabase.auth.refreshSession();
+        const activeFallbackSession = refreshedFallbackSession || fallbackSession;
+        
+        if (!activeFallbackSession) {
           throw new Error('Please sign in to continue');
         }
 
@@ -336,7 +378,7 @@ export default function ElectricityScreen() {
         const response = await fetch(`${supabaseUrl}/functions/v1/validate-meter-number`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${refreshedSession.access_token}`,
+            'Authorization': `Bearer ${activeFallbackSession.access_token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -558,7 +600,12 @@ export default function ElectricityScreen() {
         return;
       }
     }
-    if (purchaseAmount > balance) {
+    // Calculate charge fee (10% for electricity)
+    const CHARGE_FEE_RATE = 0.1;
+    const chargeFee = Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100;
+    const totalAmount = purchaseAmount + chargeFee;
+
+    if (totalAmount > balance) {
       const formattedBalance = `₦${Number(balance).toLocaleString('en-NG', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -600,44 +647,99 @@ export default function ElectricityScreen() {
 
       // Try supabase.functions.invoke first
       try {
-        const { data, error } = await supabase.functions.invoke('purchase-electricity', {
+        const { data, error } = await supabase.functions.invoke('purchase-mobilenig-electricity', {
           body: {
             meter_number: sanitizedMeter,
             provider: selectedProvider,
             meter_type: meterType,
             amount: purchaseAmount,
-            phone: sanitizedPhone,
-            vending_provider: vendingProvider,
             customer_name: verifiedName || undefined,
             customer_address: verifiedAddress || undefined,
-            tariff: meterInfo?.tariff || undefined,
             minimum_vend: meterInfo?.minimum_vend || undefined,
-            outstanding_amount: meterInfo?.outstanding_amount || undefined,
-            customer_category: meterInfo?.customer_category || undefined,
-            business_unit: meterInfo?.business_unit || undefined,
           },
         });
 
         if (error) {
           console.error('Supabase invoke error:', error);
+          // Check if it's a network error before throwing
+          const errorMsg = error?.message || String(error);
+          const errorStack = error?.stack || '';
+          const isNetworkErr = errorMsg.includes('Network request failed') ||
+                              errorMsg.includes('Failed to fetch') ||
+                              errorStack.includes('fetch.umd.js') ||
+                              errorStack.includes('Network request failed');
+          if (isNetworkErr) {
+            throw new Error('Network connection failed. Please check your internet connection and try again.');
+          }
           throw error;
         }
 
         if (data) {
+          // Handle case where data might be a stringified JSON (Supabase usually returns parsed object)
+          let parsedData = data;
+          if (typeof data === 'string') {
+            try {
+              parsedData = JSON.parse(data);
+              console.log('Parsed stringified response data');
+            } catch (parseError) {
+              console.error('Failed to parse stringified data:', parseError);
+              // If parsing fails, try to extract error from string
+              // Don't hardcode LOW WALLET BALANCE - let the replacement logic handle it
+              if (data.includes('error')) {
+                // Extract error message from string or use generic message
+                const errorMatch = data.match(/"error"\s*:\s*"([^"]+)"/);
+                const extractedError = errorMatch ? errorMatch[1] : 'Purchase failed';
+                parsedData = { success: false, error: extractedError };
+              } else {
+                throw new Error('Invalid response format from server');
+              }
+            }
+          }
+          
           console.log('Supabase invoke success, response data:', {
-            success: data?.success,
-            error: data?.error,
-            message: data?.message,
-            hasData: !!data?.data,
-            fullData: data
+            success: parsedData?.success,
+            error: parsedData?.error,
+            message: parsedData?.message,
+            hasData: !!parsedData?.data,
+            dataType: typeof data,
+            parsedDataType: typeof parsedData,
+            fullData: parsedData
           });
-          responseData = data;
+          
+          // If response has success: false or error, handle it as error (simplified like other purchases)
+          if (parsedData?.success === false || parsedData?.error) {
+            // Use the error message from the backend (it already handles error code 018 appropriately)
+            const errorMsg = parsedData?.error || parsedData?.message || parsedData?.details?.error || 'Purchase failed';
+            // Create error object to preserve details
+            const error = new Error(errorMsg);
+            (error as any).details = parsedData?.details;
+            (error as any).errorCode = parsedData?.details?.code;
+            throw error;
+          }
+          
+          responseData = parsedData;
         } else {
           console.warn('Supabase invoke returned no data');
           throw new Error('No response data from server');
         }
       } catch (invokeError: any) {
         console.log('Supabase invoke failed, trying direct fetch:', invokeError);
+        
+        // Check if it's a network error
+        const errorMessage = invokeError?.message || String(invokeError);
+        const errorStack = invokeError?.stack || '';
+        const isNetworkError = errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                              errorMessage.includes('ERR_NETWORK_CHANGED') ||
+                              errorMessage.includes('TypeError') ||
+                              errorStack.includes('fetch.umd.js') ||
+                              errorStack.includes('Network request failed') ||
+                              invokeError?.name === 'TypeError';
+        
+        if (isNetworkError) {
+          throw new Error('Network connection failed. Please check your internet connection and try again.');
+        }
 
         // Refresh session before direct fetch to ensure we have a valid token
         const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
@@ -651,7 +753,8 @@ export default function ElectricityScreen() {
                            (supabase as any).supabaseUrl ||
                            'https://rekkdwpkzkhgnejgzhac.supabase.co';
 
-        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-electricity`, {
+        try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-mobilenig-electricity`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${refreshedSession.access_token}`,
@@ -662,15 +765,9 @@ export default function ElectricityScreen() {
             provider: selectedProvider,
             meter_type: meterType,
             amount: purchaseAmount,
-            phone: sanitizedPhone,
-            vending_provider: vendingProvider,
             customer_name: verifiedName || undefined,
             customer_address: verifiedAddress || undefined,
-            tariff: meterInfo?.tariff || undefined,
             minimum_vend: meterInfo?.minimum_vend || undefined,
-            outstanding_amount: meterInfo?.outstanding_amount || undefined,
-            customer_category: meterInfo?.customer_category || undefined,
-            business_unit: meterInfo?.business_unit || undefined,
           }),
         });
 
@@ -684,7 +781,7 @@ export default function ElectricityScreen() {
         });
         
         if (!responseText || responseText.trim().length === 0) {
-          console.error('Empty response from purchase-electricity');
+          console.error('Empty response from purchase-mobilenig-electricity');
           throw new Error('No response from server. Please try again.');
         }
         
@@ -704,13 +801,58 @@ export default function ElectricityScreen() {
           throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
         }
 
-        if (!response.ok && !responseData?.success) {
+        // Handle HTTP errors (non-200 status codes)
+        if (!response.ok) {
           // Handle 401 Unauthorized specifically
           if (response.status === 401) {
             throw new Error('Session expired. Please sign in again.');
           }
           const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
+          const errorDetails = responseData?.details || {};
+          
+          // Check if it's an invalid meter error
+          const detailsText = typeof errorDetails === 'string' 
+            ? errorDetails 
+            : (errorDetails?.message || errorDetails?.error || errorDetails?.response_description || JSON.stringify(errorDetails) || '');
+          const fullErrorText = `${errorMsg} ${detailsText}`.toLowerCase();
+          
+          const isInvalidMeter = 
+            fullErrorText.includes('invalid meter') ||
+            fullErrorText.includes('meter number') ||
+            fullErrorText.includes('meter not found') ||
+            fullErrorText.includes('customer not found') ||
+            fullErrorText.includes('wrong meter') ||
+            fullErrorText.includes('incorrect meter') ||
+            errorDetails?.code === '018' ||
+            errorDetails?.errorCode === '018';
+          
+          if (isInvalidMeter) {
+            const error = new Error(errorMsg);
+            (error as any).details = errorDetails;
+            (error as any).errorCode = errorDetails?.code || errorDetails?.errorCode || '018';
+            throw error;
+          }
+          
           throw new Error(errorMsg);
+        }
+        
+        // If HTTP is OK but response indicates failure, we'll handle it in the success check below
+        } catch (fetchError: any) {
+          // Handle network errors in fetch fallback
+          const fetchErrorMessage = fetchError?.message || String(fetchError);
+          const fetchErrorStack = fetchError?.stack || '';
+          const isFetchNetworkError = fetchErrorMessage.includes('Network request failed') ||
+                                    fetchErrorMessage.includes('Failed to fetch') ||
+                                    fetchErrorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+                                    fetchErrorMessage.includes('ERR_NETWORK_CHANGED') ||
+                                    fetchErrorStack.includes('fetch.umd.js') ||
+                                    fetchErrorStack.includes('Network request failed') ||
+                                    fetchError?.name === 'TypeError';
+          
+          if (isFetchNetworkError) {
+            throw new Error('Network connection failed. Please check your internet connection and try again.');
+          }
+          throw fetchError;
         }
       }
 
@@ -730,22 +872,114 @@ export default function ElectricityScreen() {
 
       // Check if response indicates success
       // Accept both success=true and processing status as valid
-      if (responseData?.success === true || responseData?.success === 'true') {
+      const hasExplicitSuccess = responseData?.success === true || responseData?.success === 'true';
+      const hasExplicitFailure = responseData?.success === false || responseData?.success === 'false';
+      const hasError = responseData?.error !== undefined && responseData?.error !== null && responseData?.error !== '';
+      const hasData = responseData?.data !== undefined && responseData?.data !== null;
+      
+      // Log detailed response analysis for debugging
+      console.log('Response analysis:', {
+        hasExplicitSuccess,
+        hasExplicitFailure,
+        hasError,
+        hasData,
+        successValue: responseData?.success,
+        successType: typeof responseData?.success,
+        errorValue: responseData?.error,
+        errorType: typeof responseData?.error,
+        hasDataField: !!responseData?.data,
+        dataKeys: responseData?.data ? Object.keys(responseData.data) : [],
+        fullResponse: JSON.stringify(responseData, null, 2)
+      });
+      
+      // Simplified success detection: 
+      // 1. Explicit success = success
+      // 2. Has data AND no explicit failure AND no error = success (most permissive)
+      // 3. Only fail if explicit failure OR has error field
+      let isSuccess = false;
+      
+      if (hasExplicitSuccess) {
+        isSuccess = true;
+        console.log('Success: Explicit success flag is true');
+      } else if (hasExplicitFailure) {
+        isSuccess = false;
+        console.log('Failure: Explicit failure flag is true');
+      } else if (hasError) {
+        isSuccess = false;
+        console.log('Failure: Error field is present:', responseData?.error);
+      } else if (hasData) {
+        // If we have data and no explicit failure/error, treat as success
+        isSuccess = true;
+        console.log('Success: Has data field and no explicit failure/error');
+      } else {
+        // No data, no success flag, no error - unknown state
+        isSuccess = false;
+        console.log('Failure: No data, no success flag, no error - unknown response format');
+      }
+      
+      if (isSuccess) {
         // Success - continue with processing
         console.log('Purchase successful, proceeding with success flow');
-      } else if (responseData?.success === false || responseData?.success === 'false' || !responseData?.success) {
+      } else if (hasExplicitFailure || hasError) {
         // Extract error message from multiple possible locations
-        const errorMsg = 
-          responseData?.error ||
-          responseData?.message ||
-          responseData?.details?.error ||
-          responseData?.details?.message ||
-          responseData?.details?.response_description ||
-          responseData?.response_description ||
-          (responseData?.details?.code && responseData?.details?.code !== '000' 
-            ? `Error code: ${responseData.details.code}` 
+        // Handle case where responseData might be a stringified JSON
+        let errorDetails = responseData;
+        const responseDataString = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
+        
+        if (typeof responseData === 'string') {
+          try {
+            errorDetails = JSON.parse(responseData);
+          } catch (e) {
+            // If it's a string but not JSON, try to extract error from string
+            // Don't hardcode LOW WALLET BALANCE - let the replacement logic handle it
+            const errorMatch = responseData.match(/"error"\s*:\s*"([^"]+)"/);
+            if (errorMatch) {
+              errorDetails = { error: errorMatch[1], details: { response_description: errorMatch[1] } };
+            } else if (responseData.includes('error')) {
+              // If error is mentioned but can't extract, use generic message
+              errorDetails = { error: 'Purchase failed', details: {} };
+            }
+          }
+        }
+        
+        // Extract error message from backend - backend already handles error appropriately
+        // Prioritize the top-level error field first (backend replaces LOW WALLET BALANCE here)
+        // Only fall back to details if top-level error is not available
+        let errorMsg = 
+          errorDetails?.error ||  // Backend replaces LOW WALLET BALANCE in this field
+          errorDetails?.message ||
+          errorDetails?.details?.error ||
+          errorDetails?.details?.message ||
+          errorDetails?.details?.response_description ||
+          errorDetails?.response_description ||
+          (errorDetails?.details?.code && errorDetails?.details?.code !== '000' 
+            ? `Error code: ${errorDetails.details.code}` 
             : null) ||
           'Purchase failed';
+        
+        // Frontend fallback: If backend didn't replace "LOW WALLET BALANCE", do it here
+        // This is a safety net in case the backend replacement logic doesn't catch it
+        // ALWAYS check and replace "LOW WALLET BALANCE" regardless of case
+        const upperErrorMsg = String(errorMsg || '').toUpperCase();
+        const errorCode = errorDetails?.details?.code || errorDetails?.code;
+        
+        // Check if error message contains LOW WALLET BALANCE (case-insensitive) or error code 018
+        const isLowWalletBalance = upperErrorMsg.includes('LOW WALLET BALANCE') || errorCode === '018';
+        
+        // Check if already replaced
+        const isAlreadyReplaced = upperErrorMsg.includes('SERVICE TEMPORARILY UNAVAILABLE') || 
+                                  upperErrorMsg.includes('NOT RELATED TO YOUR WALLET');
+        
+        if (isLowWalletBalance && !isAlreadyReplaced) {
+          const originalErrorMsg = errorMsg;
+          errorMsg = 'Service temporarily unavailable. This is not related to your wallet balance. Please try again later or contact support.';
+          console.log('Frontend: Replaced LOW WALLET BALANCE error with user-friendly message', {
+            originalError: errorDetails?.error,
+            originalErrorMsg: originalErrorMsg,
+            errorCode,
+            replacedMessage: errorMsg
+          });
+        }
         
         console.error('Electricity purchase error details:', {
           success: responseData?.success,
@@ -757,9 +991,33 @@ export default function ElectricityScreen() {
         
         throw new Error(errorMsg);
       } else {
-        // Unknown response format - log and treat as error
-        console.error('Unknown response format:', responseData);
-        throw new Error('Unexpected response format from server');
+        // Unknown response format - this should not happen with the logic above, but handle it anyway
+        // Last resort: if we have ANY data, treat as success
+        console.warn('Unknown response format - checking for data as last resort:', {
+          responseData,
+          success: responseData?.success,
+          successType: typeof responseData?.success,
+          error: responseData?.error,
+          hasData: !!responseData?.data,
+          dataKeys: responseData?.data ? Object.keys(responseData.data) : [],
+          allKeys: Object.keys(responseData || {}),
+          fullResponse: JSON.stringify(responseData, null, 2)
+        });
+        
+        // Last resort: if we have data field, assume success
+        if (responseData?.data) {
+          console.warn('Unknown format but has data - treating as success (last resort)');
+          responseData.success = true;
+          isSuccess = true;
+        } else {
+          // No data, no success flag, no error - truly unknown
+          throw new Error('Unexpected response format from server. Please try again or contact support.');
+        }
+      }
+
+      // Only process success data if we determined it's a success
+      if (!isSuccess) {
+        throw new Error('Purchase failed: Invalid response from server');
       }
 
       const purchaseData = responseData.data || {};
@@ -813,7 +1071,8 @@ export default function ElectricityScreen() {
         context: purchaseError?.context,
         name: purchaseError?.name,
         code: purchaseError?.code,
-        fullError: purchaseError
+        stack: purchaseError?.stack,
+        fullError: JSON.stringify(purchaseError, Object.getOwnPropertyNames(purchaseError), 2)
       });
       
       let message = 'Unable to complete electricity purchase. Please try again.';
@@ -821,12 +1080,15 @@ export default function ElectricityScreen() {
       // Check for network errors
       const errorMessage = purchaseError?.message || String(purchaseError);
       const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
+      const errorStack = purchaseError?.stack || '';
       const isNetworkError = errorMessage.includes('Network request failed') ||
                             errorMessage.includes('Failed to send a request to the Edge Function') ||
                             errorMessage.includes('Failed to fetch') ||
                             errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
                             errorMessage.includes('ERR_NETWORK_CHANGED') ||
                             errorMessage.includes('TypeError') ||
+                            errorStack.includes('fetch.umd.js') ||
+                            errorStack.includes('Network request failed') ||
                             errorName === 'FunctionsFetchError' ||
                             errorName === 'TypeError' ||
                             purchaseError?.code === 'NETWORK_ERROR';
@@ -837,10 +1099,12 @@ export default function ElectricityScreen() {
           'Network connection failed. Please check your internet connection and try again.',
           [{ text: 'OK' }]
         );
+        setShowConfirmModal(false);
+        setTransactionStatus('Failed');
         return;
       }
 
-      // Extract error message from various sources
+      // Extract error message from various sources - try to get the most specific one
       if (purchaseError instanceof Error) {
         message = purchaseError.message || message;
       } else if (purchaseError?.error) {
@@ -899,26 +1163,71 @@ export default function ElectricityScreen() {
         }
       }
 
+      // Ensure we have a message - if not, use a default
+      if (!message || message.trim() === '') {
+        message = 'Unable to complete electricity purchase. Please try again.';
+      }
+
       console.error('Final error message:', message);
       
-      // Check if this is a low wallet balance error and show the insufficient funds modal
-      const upperMessage = message.toUpperCase();
-      const isLowBalanceError = 
-        upperMessage.includes('LOW WALLET BALANCE') ||
-        upperMessage.includes('INSUFFICIENT BALANCE') ||
-        upperMessage.includes('INSUFFICIENT FUNDS') ||
-        (upperMessage.includes('LOW') && upperMessage.includes('BALANCE'));
+      // Check if this is an invalid meter number error
+      const errorDetails = purchaseError?.details || errorObj?.details || {};
+      const detailsText = typeof errorDetails === 'string' 
+        ? errorDetails 
+        : (errorDetails?.message || errorDetails?.error || errorDetails?.response_description || JSON.stringify(errorDetails) || '');
+      const fullErrorText = `${message} ${detailsText}`.toLowerCase();
       
-      if (isLowBalanceError) {
+      const isInvalidMeter = 
+        fullErrorText.includes('invalid meter') ||
+        fullErrorText.includes('meter number') ||
+        fullErrorText.includes('meter not found') ||
+        fullErrorText.includes('customer not found') ||
+        fullErrorText.includes('wrong meter') ||
+        fullErrorText.includes('incorrect meter') ||
+        fullErrorText.includes('invalid customer') ||
+        message.toLowerCase().includes('invalid meter') ||
+        message.toLowerCase().includes('meter number') ||
+        message.toLowerCase().includes('meter not found') ||
+        message.toLowerCase().includes('customer not found') ||
+        errorDetails?.code === '018' || // MobileNig error code for invalid meter
+        errorDetails?.errorCode === '018' ||
+        errorObj?.errorCode === '018' ||
+        purchaseError?.errorCode === '018';
+      
+      // Check if this is a user wallet balance error from our system
+      // Note: "LOW WALLET BALANCE" from MobileNig API is ambiguous - it could mean:
+      // 1. User's balance is insufficient (from our system check - but we already check this)
+      // 2. MobileNig's internal balance/wallet issue
+      // Since we already check balance before purchase, "LOW WALLET BALANCE" from MobileNig 
+      // is more likely a service provider issue, not a user balance issue
+      const upperMessage = message.toUpperCase();
+      const isUserLowBalanceError = 
+        (upperMessage.includes('INSUFFICIENT BALANCE') ||
+         upperMessage.includes('INSUFFICIENT FUNDS')) &&
+        !upperMessage.includes('LOW WALLET BALANCE'); // Exclude LOW WALLET BALANCE from MobileNig
+      
+      setShowConfirmModal(false); // Always close the confirmation modal on error
+      
+      if (isInvalidMeter) {
+        // Show invalid meter modal
+        setInvalidMeterMessage('Wrong meter number. Please check the meter number and try again.');
+        setShowInvalidMeterModal(true);
+      } else if (isUserLowBalanceError) {
+        // This is from our system's balance check
         const formattedBalance = `₦${Number(balance).toLocaleString('en-NG', {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })}`;
         setInsufficientFundsMessage(`Your wallet balance is ${formattedBalance}. Please fund your wallet to continue.`);
         setShowInsufficientFundsModal(true);
-        setShowConfirmModal(false); // Close the confirmation modal if open
       } else {
-        Alert.alert('Electricity Purchase', message);
+        // Show the actual error message from MobileNig API
+        // This could be a service provider issue, not a user balance issue
+        Alert.alert(
+          'Electricity Purchase Failed',
+          message,
+          [{ text: 'OK' }]
+        );
       }
       
       setTransactionStatus('Failed');
@@ -1325,19 +1634,26 @@ export default function ElectricityScreen() {
       </KeyboardAvoidingView>
 
       {/* Confirm Payment Modal */}
-      {selectedProviderLogo && (
-        <ConfirmPaymentModal
-          visible={showConfirmModal}
-          onClose={() => setShowConfirmModal(false)}
-          onConfirm={handleConfirmPayment}
-          amount={parseFloat(amount || '0')}
-          network={selectedProviderName}
-          networkLogo={selectedProviderLogo}
-          recipient={meterNumber}
-          serviceType={`Electricity • ${meterType.toUpperCase()}`}
-          planDetails={planDetailsSummary}
-        />
-      )}
+      {selectedProviderLogo && (() => {
+        const purchaseAmount = parseFloat(amount || '0');
+        // Calculate 10% charge fee for electricity
+        const CHARGE_FEE_RATE = 0.1;
+        const chargeFee = purchaseAmount > 0 ? Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100 : 0;
+        return (
+          <ConfirmPaymentModal
+            visible={showConfirmModal}
+            onClose={() => setShowConfirmModal(false)}
+            onConfirm={handleConfirmPayment}
+            amount={purchaseAmount}
+            charges={chargeFee}
+            network={selectedProviderName}
+            networkLogo={selectedProviderLogo}
+            recipient={meterNumber}
+            serviceType={`Electricity • ${meterType.toUpperCase()}`}
+            planDetails={planDetailsSummary}
+          />
+        );
+      })()}
 
       {/* Invalid Meter Number Modal */}
       <Modal

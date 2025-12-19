@@ -161,8 +161,17 @@ export default function Notifications() {
       }
 
       const activeTokens = (tokens || []).filter(t => t.is_active);
-      const iosCount = activeTokens.filter(t => t.platform === 'ios').length;
-      const androidCount = activeTokens.filter(t => t.platform === 'android').length;
+      
+      // Handle case-insensitive platform matching
+      const iosCount = activeTokens.filter(t => {
+        const platform = (t.platform || '').toLowerCase().trim();
+        return platform === 'ios' || platform === 'iphone' || platform === 'ipad';
+      }).length;
+      
+      const androidCount = activeTokens.filter(t => {
+        const platform = (t.platform || '').toLowerCase().trim();
+        return platform === 'android';
+      }).length;
 
       setPushNotificationStats({
         totalTokens: tokens?.length || 0,
@@ -214,6 +223,7 @@ export default function Notifications() {
           ? `Test push notification sent to ${data.recipients} device(s)`
           : "Test push notification sent",
       });
+      fetchPushNotificationStats(); // Refresh stats after test
     } catch (error: any) {
       toast({
         title: "Test Failed",
@@ -347,6 +357,7 @@ export default function Notifications() {
       setRecipientType("all");
       setSelectedUsers([]);
       fetchNotifications();
+      fetchPushNotificationStats(); // Refresh stats after sending
     } catch (error: any) {
       toast({
         title: "Error",
