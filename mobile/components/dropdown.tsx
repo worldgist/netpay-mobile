@@ -46,10 +46,10 @@ export function Dropdown({ options, selectedId, onSelect, placeholder = 'Select 
           )}
           <ThemedText style={[styles.dropdownText, !selectedOption && styles.placeholderText]}>
             {selectedOption 
-              ? selectedOption.amount 
-                ? `${selectedOption.name} - ₦${selectedOption.amount.toLocaleString()}`
-                : selectedOption.name
-              : placeholder}
+              ? selectedOption.amount != null
+                ? `${String(selectedOption.name || '')} - ₦${Number(selectedOption.amount).toLocaleString()}`
+                : String(selectedOption.name || '')
+              : String(placeholder || 'Select an option')}
           </ThemedText>
         </View>
         <MaterialIcons 
@@ -96,10 +96,10 @@ export function Dropdown({ options, selectedId, onSelect, placeholder = 'Select 
                       </View>
                     )}
                     <View style={styles.optionTextContent}>
-                      <ThemedText style={styles.optionName}>{item.name}</ThemedText>
-                      {item.amount && (
+                      <ThemedText style={styles.optionName}>{String(item.name || '')}</ThemedText>
+                      {item.amount != null && (
                         <ThemedText style={styles.optionAmount}>
-                          ₦{item.amount.toLocaleString()}
+                          ₦{Number(item.amount).toLocaleString()}
                         </ThemedText>
                       )}
                     </View>

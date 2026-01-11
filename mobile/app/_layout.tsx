@@ -9,7 +9,7 @@ import { AuthApiError } from '@supabase/supabase-js';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { supabase } from '@/lib/supabase';
-import { registerForPushNotifications } from '@/utils/push-notifications';
+import { registerForPushNotifications, setupNotificationListeners } from '@/utils/push-notifications';
 import '@/utils/error-handler'; // Initialize error handler
 import { LogBox } from 'react-native';
 
@@ -125,6 +125,8 @@ export default function RootLayout() {
 
   // Register for push notifications when user is authenticated
   useEffect(() => {
+    let notificationListeners: ReturnType<typeof setupNotificationListeners> | null = null;
+
     const checkAndRegisterPush = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -146,6 +148,11 @@ export default function RootLayout() {
           const result = await registerForPushNotifications();
           if (result.registered) {
             console.log('Push notifications registered successfully');
+            // Set up notification listeners after successful registration
+            notificationListeners = setupNotificationListeners();
+            if (notificationListeners) {
+              console.log('Notification listeners set up successfully');
+            }
           } else {
             console.log('Push notification registration:', result.reason);
           }
@@ -175,8 +182,19 @@ export default function RootLayout() {
           const result = await registerForPushNotifications();
           if (result.registered) {
             console.log('Push notifications registered after sign in');
+            // Set up notification listeners after successful registration
+            notificationListeners = setupNotificationListeners();
+            if (notificationListeners) {
+              console.log('Notification listeners set up successfully');
+            }
           } else {
             console.log('Push notification registration after sign in:', result.reason);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          // Remove listeners when user signs out
+          if (notificationListeners) {
+            notificationListeners.remove();
+            notificationListeners = null;
           }
         }
       }
@@ -184,6 +202,9 @@ export default function RootLayout() {
 
     return () => {
       authSubscription?.unsubscribe();
+      if (notificationListeners) {
+        notificationListeners.remove();
+      }
     };
   }, []);
 
@@ -198,6 +219,7 @@ export default function RootLayout() {
           <Stack.Screen name="cable-tv" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="education" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="electricity" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="betting" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="add-money" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="transfer" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="transfer-success" options={{ headerShown: false, presentation: 'card' }} />

@@ -43,3 +43,15 @@ npx expo start --tunnel --clear
 ## Next Steps
 Run one of the options above to start Expo without the ngrok error.
 
+
+
+
+
+
+
+
+
+
+
+
+

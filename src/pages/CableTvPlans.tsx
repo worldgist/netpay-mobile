@@ -35,8 +35,10 @@ interface CableTvTransaction {
   } | null;
 }
 
+type CableVendingProvider = 'vtpass' | 'anyone' | 'ebills' | 'mobilenig';
+
 export default function CableTvPlans() {
-  const [vendingProvider, setVendingProvider] = useState<'mobilenig' | 'vtpass' | 'anyone' | 'ebills.africa'>('mobilenig');
+  const [vendingProvider, setVendingProvider] = useState<CableVendingProvider>('ebills');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [transactions, setTransactions] = useState<CableTvTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -59,27 +61,31 @@ export default function CableTvPlans() {
 
       if (error) {
         console.error('Error fetching cable provider setting:', error);
-        setVendingProvider('mobilenig');
+        setVendingProvider('ebills');
         return;
       }
 
       if (data?.setting_value) {
-        const provider = (data.setting_value as any)?.provider || 'mobilenig';
-        const validProviders = ['mobilenig', 'vtpass', 'anyone', 'ebills.africa'];
-        const selectedProvider = validProviders.includes(provider) ? provider as 'mobilenig' | 'vtpass' | 'anyone' | 'ebills.africa' : 'mobilenig';
+        const provider = (data.setting_value as any)?.provider || 'ebills';
+        // Handle both "ebills" and "ebills.africa" for backward compatibility
+        const normalizedProvider = provider === 'ebills.africa' ? 'ebills' : provider;
+        const validProviders: CableVendingProvider[] = ['vtpass', 'anyone', 'ebills', 'mobilenig'];
+        const selectedProvider = validProviders.includes(normalizedProvider as CableVendingProvider) 
+          ? (normalizedProvider as CableVendingProvider)
+          : 'ebills';
         console.log('Setting cable vending provider to:', selectedProvider);
         setVendingProvider(selectedProvider);
       } else {
-        console.log('No cable provider setting found, defaulting to mobilenig');
-        setVendingProvider('mobilenig');
+        console.log('No cable provider setting found, defaulting to ebills');
+        setVendingProvider('ebills');
       }
     } catch (error) {
       console.error('Error fetching cable provider setting:', error);
-      setVendingProvider('mobilenig');
+      setVendingProvider('ebills');
     }
   };
 
-  const updateCableProvider = async (newProvider: 'mobilenig' | 'vtpass' | 'anyone' | 'ebills.africa') => {
+  const updateCableProvider = async (newProvider: CableVendingProvider) => {
     setIsUpdatingProvider(true);
     try {
       const { error } = await supabase
@@ -88,7 +94,7 @@ export default function CableTvPlans() {
           setting_key: 'cable_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Cable TV vending provider: mobilenig, vtpass, ebills.africa, or anyone'
+          description: 'Cable TV vending provider: vtpass, ebills, mobilenig, or anyone'
         }, {
           onConflict: 'setting_key'
         });
@@ -98,9 +104,10 @@ export default function CableTvPlans() {
       console.log('Updating cable provider to:', newProvider);
       setVendingProvider(newProvider);
       
+      const providerDisplayName = getProviderDisplayName(newProvider);
       toast({
         title: "Success",
-        description: `Cable TV vending provider switched to ${newProvider.toUpperCase()}. This will be used as the default for all cable TV purchases.`,
+        description: `Cable TV vending provider switched to ${providerDisplayName}. This will be used as the default for all cable TV purchases.`,
       });
     } catch (error: any) {
       console.error('Error updating cable provider:', error);
@@ -152,6 +159,36 @@ export default function CableTvPlans() {
     }
   };
 
+  const getProviderDisplayName = (provider: CableVendingProvider): string => {
+    switch (provider) {
+      case 'vtpass':
+        return 'VTpass';
+      case 'ebills':
+        return 'eBills Africa';
+      case 'mobilenig':
+        return 'MobileNig';
+      case 'anyone':
+        return 'ANYONE';
+      default:
+        return provider.toUpperCase();
+    }
+  };
+
+  const getProviderDescription = (provider: CableVendingProvider): string => {
+    switch (provider) {
+      case 'vtpass':
+        return 'VTpass API - Reliable cable TV service provider';
+      case 'ebills':
+        return 'eBills Africa API - Modern cable TV service provider';
+      case 'mobilenig':
+        return 'MobileNig API - Enterprise cable TV service provider';
+      case 'anyone':
+        return 'ANYONE API';
+      default:
+        return '';
+    }
+  };
+
   const getStatusBadgeVariant = (status: string) => {
     switch (status.toLowerCase()) {
       case 'completed':
@@ -197,35 +234,71 @@ export default function CableTvPlans() {
               <CardHeader>
                 <CardTitle>Vending Provider Settings</CardTitle>
                 <CardDescription>
-                  Choose the default vending provider for cable TV purchases
+                  Choose the default vending provider for cable TV purchases. This affects all new cable TV transactions.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <div className="flex items-center gap-4">
-                  <Label htmlFor="vending-provider" className="min-w-[150px]">
-                    Vending Provider:
+                  <Label htmlFor="vending-provider" className="min-w-[150px] font-semibold">
+                    Active Provider:
                   </Label>
                   <Select
                     value={vendingProvider}
-                    onValueChange={(value) => updateCableProvider(value as 'mobilenig' | 'vtpass' | 'anyone' | 'ebills.africa')}
+                    onValueChange={(value) => updateCableProvider(value as CableVendingProvider)}
                     disabled={isUpdatingProvider}
                   >
-                    <SelectTrigger id="vending-provider" className="w-[200px]">
+                    <SelectTrigger id="vending-provider" className="w-[250px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mobilenig">MobileNig</SelectItem>
-                      <SelectItem value="vtpass">VTpass</SelectItem>
-                      <SelectItem value="anyone">ANYONE</SelectItem>
-                      <SelectItem value="ebills.africa">eBills.Africa</SelectItem>
+                      <SelectItem value="mobilenig">
+                        <div className="flex flex-col">
+                          <span>MobileNig</span>
+                          <span className="text-xs text-muted-foreground">Enterprise service</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="vtpass">
+                        <div className="flex flex-col">
+                          <span>VTpass</span>
+                          <span className="text-xs text-muted-foreground">Reliable service</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="ebills">
+                        <div className="flex flex-col">
+                          <span>eBills Africa</span>
+                          <span className="text-xs text-muted-foreground">Modern API</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="anyone">
+                        <div className="flex flex-col">
+                          <span>ANYONE</span>
+                          <span className="text-xs text-muted-foreground">Alternative provider</span>
+                        </div>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   {isUpdatingProvider && (
-                    <span className="text-sm text-muted-foreground">Updating...</span>
+                    <span className="text-sm text-muted-foreground flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Updating...
+                    </span>
                   )}
                 </div>
-                <p className="text-sm text-muted-foreground mt-2">
-                  This setting determines which vendor API will be used for cable TV purchases when no specific provider is selected by the user.
+                <div className="bg-muted/50 rounded-lg p-4 border">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm mb-1">
+                        Current Provider: <span className="text-primary">{getProviderDisplayName(vendingProvider)}</span>
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {getProviderDescription(vendingProvider)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This setting determines which vendor API will be used for all cable TV purchases (DSTV, GOTV, STARTIMES). 
+                  The selected provider will be used system-wide for package fetching and transaction processing.
                 </p>
               </CardContent>
             </Card>

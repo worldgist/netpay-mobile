@@ -40,3 +40,15 @@ COMMENT ON POLICY "Service role can update profiles" ON public.profiles IS
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+

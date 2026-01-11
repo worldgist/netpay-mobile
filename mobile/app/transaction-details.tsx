@@ -64,6 +64,14 @@ const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   JAMB: require('@/assets/images/jamb.png'),
   KAEDCO: require('@/assets/images/KAEDCO.png'),
   JED: require('@/assets/images/JED.png'),
+  BET9JA: require('@/assets/images/bet9ja.png'),
+  SPORTYBET: require('@/assets/images/sportybet.png'),
+  NAIRABET: require('@/assets/images/nairabet.png'),
+  '1XBET': require('@/assets/images/1xbet.png'),
+  BETKING: require('@/assets/images/betking.png'),
+  BETWAY: require('@/assets/images/betway.png'),
+  ACCESSBET: require('@/assets/images/accessbet.png'),
+  MERRYBET: require('@/assets/images/merrybet.png'),
 };
 
 const DEFAULT_LOGO = require('@/assets/images/logo.png');
@@ -357,13 +365,34 @@ function TransactionDetailsScreen() {
       } else if (category === 'electricity') {
         const { data, error } = await supabase
           .from('electricity_transactions')
-          .select('id, amount, status, reference, created_at, provider, meter_number, meter_type, token, customer_name, user_id')
+          .select('id, amount, status, reference, created_at, provider, meter_number, meter_type, token, customer_name, api_response, user_id')
           .eq('id', initialTransaction.id)
           .eq('user_id', userId)
           .maybeSingle();
 
         if (error) throw error;
         if (data) {
+          // Extract token - check database field first, then api_response
+          let extractedToken = data.token;
+          
+          // If token is null, try to extract from api_response
+          if (!extractedToken && (data as any).api_response) {
+            const apiResponse = (data as any).api_response;
+            // Check multiple possible locations in api_response
+            extractedToken = apiResponse?.data?.token ||
+                            apiResponse?.token ||
+                            apiResponse?.details?.token ||
+                            null;
+            
+            // Convert to string and validate
+            if (extractedToken) {
+              extractedToken = String(extractedToken).trim();
+              if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
+                extractedToken = null;
+              }
+            }
+          }
+          
           detail = {
             id: data.id,
             type: 'debit',
@@ -386,7 +415,7 @@ function TransactionDetailsScreen() {
             metadata: {
               ...((data as any)?.metadata || {}),
               meterType: data.meter_type,
-              token: data.token,
+              token: extractedToken, // Use extracted token (from DB or api_response)
               customerName: data.customer_name,
               meterNumber: data.meter_number,
             },
@@ -483,6 +512,46 @@ function TransactionDetailsScreen() {
               educationSerial: finalSerial,
               educationInstructions: parseEducationPurchaseMetadata((data as any)?.api_response).instructions,
               examType: data.exam_type,
+            },
+          };
+        }
+      } else if (category === 'betting') {
+        const { data, error } = await supabase
+          .from('betting_transactions')
+          .select('id, amount, status, reference, created_at, betting_provider, account_number, vending_provider, balance_before, balance_after, purchase_amount, charge_fee, user_id')
+          .eq('id', initialTransaction.id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          const description = data.account_number
+            ? `Betting purchase • ${data.account_number}`
+            : 'Betting purchase';
+          detail = {
+            id: data.id,
+            type: 'debit',
+            amount: Number(data.amount) || 0,
+            status: data.status || 'Completed',
+            reference: data.reference,
+            description,
+            serviceType: `Betting • ${data.betting_provider || 'Betting'}`,
+            provider: data.betting_provider,
+            recipient: data.account_number || '',
+            sender: '',
+            phoneNumber: '',
+            planName: '',
+            planValidity: '',
+            balanceBefore: data.balance_before ?? null,
+            balanceAfter: data.balance_after ?? null,
+            createdAt: data.created_at,
+            formattedDate: formatDate(data.created_at),
+            formattedTime: formatTime(data.created_at),
+            metadata: {
+              account_number: data.account_number,
+              vending_provider: data.vending_provider,
+              purchase_amount: data.purchase_amount,
+              charge_fee: data.charge_fee,
             },
           };
         }
@@ -787,6 +856,18 @@ function TransactionDetailsScreen() {
                 <span class="info-value">${transaction.recipient}</span>
               </div>
               ` : ''}
+              ${transaction.metadata?.account_number ? `
+              <div class="info-row">
+                <span class="info-label">Account ID / User ID</span>
+                <span class="info-value">${transaction.metadata.account_number}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.vending_provider ? `
+              <div class="info-row">
+                <span class="info-label">Vending Provider</span>
+                <span class="info-value">${transaction.metadata.vending_provider.toUpperCase()}</span>
+              </div>
+              ` : ''}
               ${transaction.phoneNumber ? `
               <div class="info-row">
                 <span class="info-label">Phone Number</span>
@@ -963,6 +1044,29 @@ function TransactionDetailsScreen() {
               <View style={styles.infoRow}>
                 <ThemedText style={styles.infoLabel}>Provider</ThemedText>
                 <ThemedText style={styles.infoValue}>{transaction.provider}</ThemedText>
+              </View>
+            )}
+
+            {/* Account ID / User ID (for betting transactions) */}
+            {transaction.metadata?.account_number && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Account ID / User ID</ThemedText>
+                <TouchableOpacity 
+                  style={styles.copyRow}
+                  onPress={() => handleCopy(transaction.metadata?.account_number || '', 'Account ID')}>
+                  <ThemedText style={styles.infoValue} numberOfLines={1}>
+                    {transaction.metadata.account_number}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Vending Provider (for betting transactions) */}
+            {transaction.metadata?.vending_provider && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Vending Provider</ThemedText>
+                <ThemedText style={styles.infoValue}>{transaction.metadata.vending_provider.toUpperCase()}</ThemedText>
               </View>
             )}
 

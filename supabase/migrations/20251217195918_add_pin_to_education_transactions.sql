@@ -19,3 +19,15 @@ COMMENT ON COLUMN public.education_transactions.pins IS 'Array of PIN objects fo
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+

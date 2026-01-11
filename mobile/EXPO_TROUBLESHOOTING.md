@@ -96,3 +96,15 @@ The app should log Supabase configuration status. Check the console for:
 
 If not configured, ensure `.env` file is in the `mobile` directory and restart the server.
 
+
+
+
+
+
+
+
+
+
+
+
+

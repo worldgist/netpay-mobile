@@ -15,6 +15,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
+import { IncorrectMeterNumberModal } from "@/components/IncorrectMeterNumberModal";
+import { electricityService } from "@/services/electricityService";
 
 const electricitySchema = z.object({
   meter_number: z.string().min(10, "Meter number must be at least 10 digits"),
@@ -72,6 +74,7 @@ const PurchaseElectricity = () => {
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [showWrongMeterModal, setShowWrongMeterModal] = useState(false);
 
   const { register, formState: { errors } } = useForm({
     resolver: zodResolver(electricitySchema)
@@ -262,17 +265,35 @@ const PurchaseElectricity = () => {
         const isEXC010 = statusCode === 'EXC010';
         
         // Check if it's an invalid meter error
+        const errorDetails = responseData?.details || {};
+        const detailsText = typeof errorDetails === 'string' 
+          ? errorDetails 
+          : (errorDetails?.message || errorDetails?.error || errorDetails?.response_description || JSON.stringify(errorDetails) || '');
+        const fullErrorText = `${errorMsg} ${detailsText}`.toLowerCase();
+        
         const isInvalidMeter = 
           errorType === 'invalid_meter' ||
           isEXC010 ||
-          errorMsg.toLowerCase().includes('cannot be found') ||
-          errorMsg.toLowerCase().includes('data you are looking for') ||
-          errorMsg.toLowerCase().includes('invalid meter number');
+          fullErrorText.includes('invalid meter') ||
+          fullErrorText.includes('invalid meter number') ||
+          fullErrorText.includes('invalid customer') ||
+          fullErrorText.includes('invalid customer_id') ||
+          fullErrorText.includes('cannot be found') ||
+          fullErrorText.includes('data you are looking for') ||
+          fullErrorText.includes('meter not found') ||
+          fullErrorText.includes('customer not found') ||
+          fullErrorText.includes('wrong meter') ||
+          fullErrorText.includes('incorrect meter') ||
+          errorDetails?.code === 'invalid_customer_id' ||
+          errorDetails?.errorCode === 'invalid_customer_id' ||
+          responseData?.errorCode === 'invalid_customer_id' ||
+          statusCode === 'invalid_customer_id';
         
         console.error('Validation failed:', errorMsg, responseData);
         
         if (isInvalidMeter) {
-          throw new Error('Invalid meter number. Please check the meter number and try again.');
+          setShowWrongMeterModal(true);
+          return;
         }
         
         throw new Error(errorMsg);
@@ -288,6 +309,35 @@ const PurchaseElectricity = () => {
         errorMessage = error;
       } else if (error?.error) {
         errorMessage = error.error;
+      }
+
+      // Check if this is an invalid meter error from the error message
+      const errorDetails = error?.details || {};
+      const detailsText = typeof errorDetails === 'string' 
+        ? errorDetails 
+        : (errorDetails?.message || errorDetails?.error || errorDetails?.response_description || JSON.stringify(errorDetails) || '');
+      const fullErrorText = `${errorMessage} ${detailsText}`.toLowerCase();
+      
+      const isInvalidMeterError = 
+        fullErrorText.includes('invalid meter') ||
+        fullErrorText.includes('invalid meter number') ||
+        fullErrorText.includes('invalid customer') ||
+        fullErrorText.includes('invalid customer_id') ||
+        fullErrorText.includes('meter number') ||
+        fullErrorText.includes('meter not found') ||
+        fullErrorText.includes('customer not found') ||
+        fullErrorText.includes('wrong meter') ||
+        fullErrorText.includes('incorrect meter') ||
+        fullErrorText.includes('cannot be found') ||
+        fullErrorText.includes('data you are looking for') ||
+        errorDetails?.code === 'invalid_customer_id' ||
+        errorDetails?.errorCode === 'invalid_customer_id' ||
+        error?.code === 'invalid_customer_id' ||
+        error?.errorCode === 'invalid_customer_id';
+
+      if (isInvalidMeterError) {
+        setShowWrongMeterModal(true);
+        return;
       }
 
       // Handle network errors
@@ -384,9 +434,42 @@ const PurchaseElectricity = () => {
       }
     } catch (error: any) {
       console.error('Error purchasing electricity:', error);
+      
+      // Check if this is an invalid meter error
+      const errorMessage = error?.message || error?.error || String(error || '');
+      const errorDetails = error?.details || error?.responseData?.details || {};
+      const detailsText = typeof errorDetails === 'string' 
+        ? errorDetails 
+        : (errorDetails?.message || errorDetails?.error || errorDetails?.response_description || JSON.stringify(errorDetails) || '');
+      const fullErrorText = `${errorMessage} ${detailsText}`.toLowerCase();
+      
+      const isInvalidMeter = 
+        fullErrorText.includes('invalid meter') ||
+        fullErrorText.includes('invalid meter number') ||
+        fullErrorText.includes('invalid customer') ||
+        fullErrorText.includes('invalid customer_id') ||
+        fullErrorText.includes('meter number') ||
+        fullErrorText.includes('meter not found') ||
+        fullErrorText.includes('customer not found') ||
+        fullErrorText.includes('wrong meter') ||
+        fullErrorText.includes('incorrect meter') ||
+        fullErrorText.includes('cannot be found') ||
+        fullErrorText.includes('data you are looking for') ||
+        error?.errorCode === '018' ||
+        error?.code === '018' ||
+        error?.errorCode === 'invalid_customer_id' ||
+        error?.code === 'invalid_customer_id' ||
+        errorDetails?.code === 'invalid_customer_id' ||
+        errorDetails?.errorCode === 'invalid_customer_id';
+      
+      if (isInvalidMeter) {
+        setShowWrongMeterModal(true);
+        return;
+      }
+      
       toast({
         title: "Purchase Failed",
-        description: error.message || "Failed to purchase electricity. Please try again.",
+        description: errorMessage || "Failed to purchase electricity. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -870,6 +953,16 @@ const PurchaseElectricity = () => {
         onOpenChange={setShowInsufficientBalance}
         currentBalance={balance}
         requiredAmount={Number(amount)}
+      />
+
+      <IncorrectMeterNumberModal
+        open={showWrongMeterModal}
+        onOpenChange={setShowWrongMeterModal}
+        meterNumber={meterNumber}
+        onRetry={() => {
+          setMeterNumber("");
+          setMeterInfo(null);
+        }}
       />
     </div>
   );

@@ -67,3 +67,15 @@ To test if OTP codes are being sent:
 3. If link: Email template needs to be updated
 4. If code: Verify the code format matches what you're entering
 
+
+
+
+
+
+
+
+
+
+
+
+

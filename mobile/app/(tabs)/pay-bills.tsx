@@ -21,6 +21,7 @@ const SERVICE_CONFIG = [
   { id: 'data', name: 'Data', icon: 'wifi' as const, route: '/data-purchase' },
   { id: 'education', name: 'Education', icon: 'school' as const, route: '/education' },
   { id: 'electricity', name: 'Electricity', icon: 'flash-on' as const, route: '/electricity' },
+  { id: 'betting', name: 'Betting', icon: 'casino' as const, route: '/betting' },
 ] as const;
 
 const formatServiceName = (value: string) =>

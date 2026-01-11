@@ -574,6 +574,38 @@ serve(async (req) => {
           pins_count: pinData.pins?.length || (pinData.pin ? 1 : 0),
         });
 
+        // Send email with PDF receipt (non-blocking)
+        if (profile.email && pinData.pin) {
+          try {
+            const supabaseService = createClient(
+              Deno.env.get('SUPABASE_URL') ?? '',
+              Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+            );
+            
+            await supabaseService.functions.invoke('send-purchase-email', {
+              body: {
+                type: 'education',
+                email: profile.email,
+                fullName: profile.full_name,
+                examType: exam_type.toUpperCase(),
+                pin: pinData.pin,
+                serial: pinData.serial,
+                phoneNumber: phone_number || undefined,
+                amount: totalAmount,
+                purchaseAmount: purchaseAmountNum,
+                chargeFee: chargeFeeNum,
+                reference: apiReference,
+                purchasedAt: new Date().toISOString(),
+                balanceBefore: debitResult.balanceBefore,
+                balanceAfter: debitResult.balanceAfter,
+              },
+            });
+          } catch (emailError) {
+            console.error('Failed to send email receipt:', emailError);
+            // Don't fail the transaction if email fails
+          }
+        }
+
         return new Response(
           JSON.stringify({
             success: true,

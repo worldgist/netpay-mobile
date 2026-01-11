@@ -528,14 +528,29 @@ export default function ElectricityScreen() {
       
       // Check if error indicates invalid meter number
       const errorMessage = message.toLowerCase();
+      const errorDetails = error?.details || {};
+      const detailsText = typeof errorDetails === 'string' 
+        ? errorDetails 
+        : (errorDetails?.message || errorDetails?.error || JSON.stringify(errorDetails) || '');
+      const fullErrorText = `${errorMessage} ${detailsText}`.toLowerCase();
+      
       const isInvalidMeter = 
-        errorMessage.includes('invalid') ||
-        errorMessage.includes('meter number') ||
-        errorMessage.includes('meter not found') ||
-        errorMessage.includes('customer not found') ||
-        errorMessage.includes('not found') ||
-        errorMessage.includes('wrong') ||
-        errorMessage.includes('incorrect');
+        fullErrorText.includes('invalid meter') ||
+        fullErrorText.includes('invalid meter number') ||
+        fullErrorText.includes('invalid customer') ||
+        fullErrorText.includes('invalid customer_id') ||
+        fullErrorText.includes('meter number') ||
+        fullErrorText.includes('meter not found') ||
+        fullErrorText.includes('customer not found') ||
+        fullErrorText.includes('cannot be found') ||
+        fullErrorText.includes('data you are looking for') ||
+        fullErrorText.includes('not found') ||
+        fullErrorText.includes('wrong meter') ||
+        fullErrorText.includes('incorrect meter') ||
+        errorDetails?.code === 'invalid_customer_id' ||
+        errorDetails?.errorCode === 'invalid_customer_id' ||
+        error?.code === 'invalid_customer_id' ||
+        error?.errorCode === 'invalid_customer_id';
       
       if (isInvalidMeter) {
         setInvalidMeterMessage('Wrong meter number. Please check the meter number and try again.');
@@ -551,7 +566,7 @@ export default function ElectricityScreen() {
     }
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!selectedProvider) {
       Alert.alert('Error', 'Please select an electricity provider');
       return;
@@ -569,6 +584,26 @@ export default function ElectricityScreen() {
       Alert.alert('Error', 'Please enter a valid meter number');
       return;
     }
+    
+    // Require meter verification before purchase (except for demo users)
+    if (!isDemoUser && !meterInfo && !verifiedName) {
+      Alert.alert(
+        'Verify Meter Number',
+        'Please verify your meter number before proceeding with the purchase.',
+        [
+          {
+            text: 'Verify Now',
+            onPress: () => handleVerifyMeter(),
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ]
+      );
+      return;
+    }
+    
     // For demo users, skip phone validation (meter number will be used as phone)
     if (!isDemoUser) {
       const phoneValidation = validateNigerianPhoneNumber(phoneNumber);
@@ -628,6 +663,29 @@ export default function ElectricityScreen() {
       return;
     }
 
+    // Require meter verification before purchase (except for demo users)
+    if (!isDemoUser && !meterInfo && !verifiedName) {
+      Alert.alert(
+        'Meter Not Verified',
+        'Please verify your meter number before making a purchase. This ensures the meter number is correct.',
+        [
+          {
+            text: 'Verify Now',
+            onPress: () => {
+              setShowConfirmModal(false);
+              handleVerifyMeter();
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setShowConfirmModal(false),
+          },
+        ]
+      );
+      return;
+    }
+
     const sanitizedMeter = meterNumber.trim();
     // For demo users, use meter number as phone number (single number for testing)
     const sanitizedPhone = isDemoUser 
@@ -645,9 +703,9 @@ export default function ElectricityScreen() {
 
       let responseData: any = null;
 
-      // Try supabase.functions.invoke first
+      // Use the unified purchase-electricity endpoint which routes based on admin settings
       try {
-        const { data, error } = await supabase.functions.invoke('purchase-mobilenig-electricity', {
+        const { data, error } = await supabase.functions.invoke('purchase-electricity', {
           body: {
             meter_number: sanitizedMeter,
             provider: selectedProvider,
@@ -754,7 +812,7 @@ export default function ElectricityScreen() {
                            'https://rekkdwpkzkhgnejgzhac.supabase.co';
 
         try {
-        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-mobilenig-electricity`, {
+        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-electricity`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${refreshedSession.access_token}`,
@@ -781,7 +839,7 @@ export default function ElectricityScreen() {
         });
         
         if (!responseText || responseText.trim().length === 0) {
-          console.error('Empty response from purchase-mobilenig-electricity');
+          console.error('Empty response from purchase-electricity');
           throw new Error('No response from server. Please try again.');
         }
         
@@ -818,13 +876,22 @@ export default function ElectricityScreen() {
           
           const isInvalidMeter = 
             fullErrorText.includes('invalid meter') ||
+            fullErrorText.includes('invalid meter number') ||
             fullErrorText.includes('meter number') ||
             fullErrorText.includes('meter not found') ||
             fullErrorText.includes('customer not found') ||
+            fullErrorText.includes('invalid customer') ||
+            fullErrorText.includes('invalid customer_id') ||
             fullErrorText.includes('wrong meter') ||
             fullErrorText.includes('incorrect meter') ||
+            fullErrorText.includes('cannot be found') ||
+            fullErrorText.includes('data you are looking for') ||
             errorDetails?.code === '018' ||
-            errorDetails?.errorCode === '018';
+            errorDetails?.code === 'invalid_customer_id' ||
+            errorDetails?.errorCode === '018' ||
+            errorDetails?.errorCode === 'invalid_customer_id' ||
+            responseData?.details?.code === 'invalid_customer_id' ||
+            responseData?.errorCode === 'invalid_customer_id';
           
           if (isInvalidMeter) {
             const error = new Error(errorMsg);
@@ -1170,6 +1237,14 @@ export default function ElectricityScreen() {
 
       console.error('Final error message:', message);
       
+      // Check if this is a duplicate order error
+      const isDuplicateOrder = 
+        message.toLowerCase().includes('duplicate order') ||
+        message.toLowerCase().includes('duplicate_order') ||
+        errorObj?.code === 'duplicate_order' ||
+        errorObj?.details?.code === 'duplicate_order' ||
+        purchaseError?.code === 'duplicate_order';
+
       // Check if this is an invalid meter number error
       const errorDetails = purchaseError?.details || errorObj?.details || {};
       const detailsText = typeof errorDetails === 'string' 
@@ -1179,20 +1254,35 @@ export default function ElectricityScreen() {
       
       const isInvalidMeter = 
         fullErrorText.includes('invalid meter') ||
+        fullErrorText.includes('invalid meter number') ||
         fullErrorText.includes('meter number') ||
         fullErrorText.includes('meter not found') ||
         fullErrorText.includes('customer not found') ||
         fullErrorText.includes('wrong meter') ||
         fullErrorText.includes('incorrect meter') ||
         fullErrorText.includes('invalid customer') ||
+        fullErrorText.includes('invalid customer_id') ||
+        fullErrorText.includes('customer id') ||
+        fullErrorText.includes('invalid service id') ||
+        fullErrorText.includes('cannot be found') ||
+        fullErrorText.includes('data you are looking for') ||
         message.toLowerCase().includes('invalid meter') ||
+        message.toLowerCase().includes('invalid meter number') ||
         message.toLowerCase().includes('meter number') ||
         message.toLowerCase().includes('meter not found') ||
         message.toLowerCase().includes('customer not found') ||
+        message.toLowerCase().includes('invalid customer') ||
+        message.toLowerCase().includes('invalid customer_id') ||
         errorDetails?.code === '018' || // MobileNig error code for invalid meter
+        errorDetails?.code === 'invalid_customer_id' || // eBills error code
         errorDetails?.errorCode === '018' ||
+        errorDetails?.errorCode === 'invalid_customer_id' ||
         errorObj?.errorCode === '018' ||
-        purchaseError?.errorCode === '018';
+        errorObj?.errorCode === 'invalid_customer_id' ||
+        purchaseError?.errorCode === '018' ||
+        purchaseError?.errorCode === 'invalid_customer_id' ||
+        (typeof responseData !== 'undefined' && responseData && responseData.details?.code === 'invalid_customer_id') ||
+        (typeof responseData !== 'undefined' && responseData && responseData.errorCode === 'invalid_customer_id');
       
       // Check if this is a user wallet balance error from our system
       // Note: "LOW WALLET BALANCE" from MobileNig API is ambiguous - it could mean:
@@ -1208,7 +1298,14 @@ export default function ElectricityScreen() {
       
       setShowConfirmModal(false); // Always close the confirmation modal on error
       
-      if (isInvalidMeter) {
+      if (isDuplicateOrder) {
+        // Show duplicate order error
+        Alert.alert(
+          'Duplicate Order',
+          'You have recently placed an order for the same amount to this meter number. Please wait 3 minutes before placing another order.',
+          [{ text: 'OK' }]
+        );
+      } else if (isInvalidMeter) {
         // Show invalid meter modal
         setInvalidMeterMessage('Wrong meter number. Please check the meter number and try again.');
         setShowInvalidMeterModal(true);
@@ -1444,6 +1541,14 @@ export default function ElectricityScreen() {
                 </TouchableOpacity>
               )}
             </View>
+            {!isDemoUser && !meterInfo && !verifiedName && meterNumber.trim().length >= 10 && (
+              <View style={styles.verificationWarning}>
+                <MaterialIcons name="info-outline" size={16} color="#FF7F00" />
+                <ThemedText style={styles.verificationWarningText}>
+                  Please verify your meter number before purchasing
+                </ThemedText>
+              </View>
+            )}
             {meterInfo ? (
               <View style={styles.meterDetailsCard}>
                 <View style={styles.meterDetailsHeader}>
@@ -2025,6 +2130,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#4CAF50',
     fontWeight: '600',
+  },
+  verificationWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  verificationWarningText: {
+    fontSize: 13,
+    color: '#E65100',
+    fontWeight: '500',
+    flex: 1,
   },
   helperText: {
     marginTop: 8,

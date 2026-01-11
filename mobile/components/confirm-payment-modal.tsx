@@ -18,6 +18,7 @@ interface ConfirmPaymentModalProps {
   charges?: number; // Optional service charges/fees
   quantity?: number; // Optional quantity (for WAEC/NECO PINs)
   disabled?: boolean;
+  customerName?: string; // Optional customer name (for betting, etc.)
 }
 
 export function ConfirmPaymentModal({
@@ -33,6 +34,7 @@ export function ConfirmPaymentModal({
   loading = false,
   charges = 0,
   quantity = 1,
+  customerName,
 }: ConfirmPaymentModalProps) {
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-US', {
@@ -131,6 +133,12 @@ export function ConfirmPaymentModal({
                 <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
                 <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{recipient || 'N/A'}</ThemedText>
               </View>
+              {customerName && (
+                <View style={styles.detailRow}>
+                  <ThemedText style={styles.detailLabel}>Customer Name</ThemedText>
+                  <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{customerName}</ThemedText>
+                </View>
+              )}
               <View style={styles.detailRow}>
                 <ThemedText style={styles.detailLabel}>Provider</ThemedText>
                 <View style={styles.providerInfo}>

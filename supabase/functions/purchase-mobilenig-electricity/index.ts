@@ -480,6 +480,39 @@ serve(async (req) => {
           }
         );
 
+        // Send email with PDF receipt (non-blocking)
+        if (profile.email && token) {
+          try {
+            const supabaseService = createClient(
+              Deno.env.get('SUPABASE_URL') ?? '',
+              Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+            );
+            
+            await supabaseService.functions.invoke('send-purchase-email', {
+              body: {
+                type: 'electricity',
+                email: profile.email,
+                fullName: profile.full_name,
+                provider: canonicalProvider,
+                token: token,
+                amount: totalAmount,
+                purchaseAmount: purchaseAmountNum,
+                chargeFee: chargeFeeNum,
+                meterNumber: sanitizedMeter,
+                meterType: meter_type,
+                customerName: customer_name,
+                reference: apiReference,
+                purchasedAt: new Date().toISOString(),
+                balanceBefore: debitResult.balanceBefore,
+                balanceAfter: debitResult.balanceAfter,
+              },
+            });
+          } catch (emailError) {
+            console.error('Failed to send email receipt:', emailError);
+            // Don't fail the transaction if email fails
+          }
+        }
+
         return new Response(
           JSON.stringify({
             success: true,

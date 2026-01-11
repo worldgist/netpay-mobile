@@ -220,15 +220,23 @@ async function verifyWithVTpass(
       // Per VTpass API documentation, merchant-verify SHOULD return Customer_Name and Address
       // However, when WrongBillersCode is true, these fields may not be present
       
-      // Check for wrong billers code flag - this might indicate meter format issues
+      // Check for wrong billers code flag - this indicates invalid meter number
       const wrongBillersCode = 
         content.WrongBillersCode !== undefined ? content.WrongBillersCode : 
         (content.wrong_billers_code !== undefined ? content.wrong_billers_code : 
         (content.WrongBillersCode !== undefined ? content.WrongBillersCode : false));
       
+      // If WrongBillersCode is true, treat as invalid meter and return error
       if (wrongBillersCode) {
-        console.warn("VTpass flagged WrongBillersCode: true - meter number format may be incorrect");
-        console.warn("When WrongBillersCode is true, VTpass may not return Customer_Name and Address");
+        console.warn("VTpass flagged WrongBillersCode: true - meter number is invalid");
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Invalid meter number. Please check the meter number and try again.',
+            errorType: 'invalid_meter',
+          }),
+          { status: 200, headers: corsHeaders }
+        );
       }
       
       // Map VTpass response fields as per API documentation
@@ -327,27 +335,22 @@ async function verifyWithVTpass(
         content.utilityAccount ||
         null;
       
-      // Per VTpass API documentation, merchant-verify DOES return Customer_Name and Address
-      // However, some providers or meter types may not return these fields
-      // We'll use what's available and provide fallbacks
+      // Per VTpass API documentation, merchant-verify SHOULD return Customer_Name and Address
+      // If both are missing, it likely means the meter number is invalid
+      // However, some providers may legitimately not return these fields, so we'll check but not fail
       
       // Determine warning/note messages
       let warningMessage = null;
-      if (wrongBillersCode) {
-        // VTpass flagged the meter format, but verification still succeeded (code "000")
-        // When WrongBillersCode is true, VTpass typically doesn't return Customer_Name/Address
-        // This is a warning - the meter might be valid but format is not optimal
-        warningMessage = 'Meter number format may not be optimal. Customer details not available. Please verify the meter number is correct.';
-      } else if (!customerName && !address) {
-        // Some providers may not return customer details in merchant-verify
-        warningMessage = 'Customer details not returned by provider. Details may be available after purchase.';
+      if (!customerName && !address) {
+        // If no customer details are returned, this might indicate an invalid meter
+        // But we'll still allow it with a warning since some providers may not return details
+        warningMessage = 'Customer details not returned by provider. Please verify the meter number is correct.';
       }
       
       // Log what we extracted
       console.log("Extracted customer details:", {
         customerName: customerName || 'NOT FOUND',
         address: address || 'NOT FOUND',
-        wrongBillersCode: wrongBillersCode,
         hasCustomerName: !!customerName,
         hasAddress: !!address,
       });
@@ -360,7 +363,6 @@ async function verifyWithVTpass(
         minimum_vend: minimumVend,
         outstanding_amount: outstandingAmount,
         customer_arrears: customerArrears,
-        wrong_billers_code: wrongBillersCode,
         // Commission details if available
         commission_rate: content.commission_details?.rate || null,
         commission_rate_type: content.commission_details?.rate_type || null,
@@ -388,7 +390,6 @@ async function verifyWithVTpass(
         customer_category: responseData.customer_category,
         business_unit: responseData.business_unit,
         utility_account: responseData.utility_account,
-        wrong_billers_code: responseData.wrong_billers_code,
         customer_details_available: responseData.customer_details_available,
         note: responseData.note,
       });

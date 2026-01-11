@@ -129,3 +129,15 @@ CREATE INDEX IF NOT EXISTS idx_cable_tv_transactions_provider ON public.cable_tv
 -- 3. Set amount = purchase_amount + charge_fee (total = 1020)
 
 
+
+
+
+
+
+
+
+
+
+
+
+

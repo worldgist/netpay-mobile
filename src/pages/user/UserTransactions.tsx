@@ -17,6 +17,7 @@ export default function UserTransactions() {
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAllTransactions = async () => {
@@ -80,7 +81,8 @@ export default function UserTransactions() {
           supabase
             .from('electricity_transactions')
             .select('*')
-            .eq('user_id', session.user.id),
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false }),
 
           // Education transactions
           supabase
@@ -88,6 +90,66 @@ export default function UserTransactions() {
             .select('*')
             .eq('user_id', session.user.id),
         ]);
+
+        // Log errors for debugging
+        if (userTxns.error) console.error('Error fetching user transactions:', userTxns.error);
+        if (airtimeTxns.error) console.error('Error fetching airtime transactions:', airtimeTxns.error);
+        if (dataTxns.error) console.error('Error fetching data transactions:', dataTxns.error);
+        if (transfersSent.error) console.error('Error fetching transfers sent:', transfersSent.error);
+        if (transfersReceived.error) console.error('Error fetching transfers received:', transfersReceived.error);
+        if (fundingTxns.error) console.error('Error fetching funding transactions:', fundingTxns.error);
+        if (electricityTxns.error) {
+          console.error('Error fetching electricity transactions:', electricityTxns.error);
+          console.error('Electricity transactions error details:', {
+            message: electricityTxns.error.message,
+            code: electricityTxns.error.code,
+            details: electricityTxns.error.details,
+            hint: electricityTxns.error.hint,
+          });
+        }
+        if (educationTxns.error) console.error('Error fetching education transactions:', educationTxns.error);
+
+        // Log counts for debugging
+        console.log('Transaction counts:', {
+          user: userTxns.data?.length || 0,
+          airtime: airtimeTxns.data?.length || 0,
+          data: dataTxns.data?.length || 0,
+          transfersSent: transfersSent.data?.length || 0,
+          transfersReceived: transfersReceived.data?.length || 0,
+          funding: fundingTxns.data?.length || 0,
+          electricity: electricityTxns.data?.length || 0,
+          education: educationTxns.data?.length || 0,
+        });
+
+        // Debug electricity transactions specifically
+        if (electricityTxns.data && electricityTxns.data.length > 0) {
+          console.log('Sample electricity transactions:', electricityTxns.data.slice(0, 3).map(txn => ({
+            id: txn.id,
+            reference: txn.reference,
+            status: txn.status,
+            provider: txn.provider,
+            vending_provider: txn.vending_provider,
+            created_at: txn.created_at,
+            hasToken: !!txn.token,
+          })));
+        } else {
+          console.warn('No electricity transactions found for user:', session.user.id);
+          // Try a direct query to see if transactions exist
+          const { data: directCheck, error: directError } = await supabase
+            .from('electricity_transactions')
+            .select('id, reference, status, vending_provider, created_at')
+            .eq('user_id', session.user.id)
+            .limit(5);
+          
+          if (directError) {
+            console.error('Direct query error:', directError);
+          } else {
+            console.log('Direct query result:', directCheck?.length || 0, 'transactions found');
+            if (directCheck && directCheck.length > 0) {
+              console.log('Direct query sample:', directCheck);
+            }
+          }
+        }
 
         // Combine all transactions with type information
         const allTransactions = [
@@ -107,8 +169,10 @@ export default function UserTransactions() {
         );
 
         setTransactions(allTransactions);
-      } catch (error) {
+        setError(null); // Clear any previous errors
+      } catch (error: any) {
         console.error('Error fetching transactions:', error);
+        setError(error?.message || 'Failed to load transactions. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -180,6 +244,11 @@ export default function UserTransactions() {
 
       {/* Transactions List */}
       <div className="px-4 pt-4 space-y-2">
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+            <p className="text-red-800 text-sm">{error}</p>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>

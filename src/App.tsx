@@ -11,9 +11,11 @@ import Notifications from "./pages/Notifications";
 import EmailNotifications from "./pages/EmailNotifications";
 import Settings from "./pages/Settings";
 import Smeplug from "./pages/Smeplug";
+import EBills from "./pages/EBills";
 import ElectricityPlans from "./pages/ElectricityPlans";
 import CableTvPlans from "./pages/CableTvPlans";
 import EducationServices from "./pages/EducationServices";
+import BettingManagement from "./pages/BettingManagement";
 import PlatformRevenue from "./pages/PlatformRevenue";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
@@ -46,6 +48,7 @@ import PurchaseData from "./pages/user/PurchaseData";
 import PurchaseCableTv from "./pages/user/PurchaseCableTv";
 import PurchaseEducation from "./pages/user/PurchaseEducation";
 import PurchaseElectricity from "./pages/user/PurchaseElectricity";
+import PurchaseBetting from "./pages/user/PurchaseBetting";
 import Transfer from "./pages/user/Transfer";
 import TransactionDetails from "./pages/user/TransactionDetails";
 import Referrals from "./pages/Referrals";
@@ -73,6 +76,7 @@ const App = () => (
         <Route path="/auth" element={<Auth />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/smeplug" element={<Smeplug />} />
+        <Route path="/ebills" element={<EBills />} />
         <Route path="/users" element={<Users />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/analytics" element={<Analytics />} />
@@ -87,6 +91,7 @@ const App = () => (
         <Route path="/cable-tv" element={<CableTvPlans />} />
         <Route path="/import-cable-transactions" element={<ImportCableTransactions />} />
         <Route path="/education" element={<EducationServices />} />
+        <Route path="/betting" element={<BettingManagement />} />
         <Route path="/platform-revenue" element={<PlatformRevenue />} />
         <Route path="/data-plans" element={<DataPlans />} />
         <Route path="/airtime" element={<AirtimeProviders />} />
@@ -116,6 +121,7 @@ const App = () => (
         <Route path="/user/purchase-cable-tv" element={<PurchaseCableTv />} />
         <Route path="/user/purchase-electricity" element={<PurchaseElectricity />} />
         <Route path="/user/purchase-education" element={<PurchaseEducation />} />
+        <Route path="/user/purchase-betting" element={<PurchaseBetting />} />
         <Route path="/user/transactions" element={<UserTransactions />} />
         <Route path="/user/transaction/:type/:id" element={<TransactionDetails />} />
         <Route path="/user/profile" element={<UserProfile />} />

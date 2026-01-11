@@ -19,6 +19,7 @@ import {
   LifeBuoy,
   ShieldCheck,
   Mail,
+  Dices,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -39,12 +40,14 @@ import { toast } from "sonner";
 const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "SMEPLUG API", url: "/smeplug", icon: Globe },
+  { title: "eBills API", url: "/ebills", icon: Globe },
   { title: "Transactions", url: "/transactions", icon: CreditCard },
   { title: "Airtime", url: "/airtime", icon: Smartphone },
   { title: "Data Plans", url: "/data-plans", icon: Wifi },
   { title: "Electricity", url: "/electricity", icon: Zap },
   { title: "Cable TV", url: "/cable-tv", icon: Tv },
   { title: "Education", url: "/education", icon: GraduationCap },
+  { title: "Betting", url: "/betting", icon: Dices },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Platform Revenue", url: "/platform-revenue", icon: DollarSign },
   { title: "Referrals", url: "/referrals", icon: Gift },

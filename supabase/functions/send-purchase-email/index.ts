@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { generateReceiptPDF, type ReceiptData } from "../_shared/pdf-receipt.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-type PurchaseType = "electricity" | "education";
+type PurchaseType = "electricity" | "education" | "airtime";
 
 type ElectricityEmailPayload = {
   type: "electricity";
@@ -20,6 +21,10 @@ type ElectricityEmailPayload = {
   customerName?: string;
   reference?: string;
   purchasedAt?: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  chargeFee?: number;
+  purchaseAmount?: number;
 };
 
 type EducationEmailPayload = {
@@ -34,9 +39,26 @@ type EducationEmailPayload = {
   reference?: string;
   phoneNumber?: string;
   purchasedAt?: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  chargeFee?: number;
+  purchaseAmount?: number;
 };
 
-type PurchaseEmailPayload = ElectricityEmailPayload | EducationEmailPayload;
+type AirtimeEmailPayload = {
+  type: "airtime";
+  email: string;
+  fullName?: string;
+  network: string;
+  phoneNumber: string;
+  amount: number;
+  reference?: string;
+  purchasedAt?: string;
+  balanceBefore?: number;
+  balanceAfter?: number;
+};
+
+type PurchaseEmailPayload = ElectricityEmailPayload | EducationEmailPayload | AirtimeEmailPayload;
 
 const normalizeString = (value?: string | null) => {
   if (typeof value !== "string") return "";
@@ -113,7 +135,12 @@ const buildElectricityEmail = (payload: ElectricityEmailPayload) => {
         <div style="padding: 32px;">
         <div style="border-radius: 16px; background: linear-gradient(135deg, #ff9f3f, #ff7f00); padding: 22px; margin-bottom: 28px; box-shadow: 0 18px 38px rgba(255,127,0,0.28);">
           <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,255,255,0.9); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600;">Token</p>
-          <p style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: 0.28em;">${escapeHtml(token)}</p>
+          ${token === 'Processing...' ? `
+            <p style="margin: 0; font-size: 20px; font-weight: 600; color: #ffffff;">Processing...</p>
+            <p style="margin: 8px 0 0; font-size: 13px; color: rgba(255,255,255,0.85);">Your token will be available shortly. We'll send you an update once it's ready.</p>
+          ` : `
+            <p style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: 0.28em;">${escapeHtml(token)}</p>
+          `}
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 28px;">
@@ -288,10 +315,98 @@ Thank you for using NetPay.
   return { subject, html, text };
 };
 
+const buildAirtimeEmail = (payload: AirtimeEmailPayload) => {
+  const {
+    fullName,
+    network,
+    phoneNumber,
+    amount,
+    reference,
+    purchasedAt,
+  } = payload;
+
+  const friendlyAmount = formatCurrency(amount);
+  const timestamp = formatTimestamp(purchasedAt);
+  const subject = `Airtime Purchase - ${network}`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f2933; background-color: #fff3e5; padding: 32px;">
+      <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 22px; padding: 0; box-shadow: 0 24px 65px rgba(255,127,0,0.28); border: 1px solid rgba(255,127,0,0.16); overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #ff7f00, #ffa24a); padding: 30px 32px;">
+          <p style="margin: 0; font-size: 12px; letter-spacing: 0.4em; text-transform: uppercase; color: rgba(255,255,255,0.65); font-weight: 600;">NetPay Airtime</p>
+          <h1 style="margin: 12px 0 0; font-size: 24px; color: #ffffff;">Airtime Purchase Successful</h1>
+          <p style="margin: 10px 0 0; color: rgba(255,255,255,0.85);">Hi${fullName ? ` ${escapeHtml(fullName)}` : ""}, your airtime purchase was successful.</p>
+        </div>
+
+        <div style="padding: 32px;">
+          <div style="border-radius: 16px; background: linear-gradient(135deg, #ff9f3f, #ff7f00); padding: 22px; margin-bottom: 24px; box-shadow: 0 18px 38px rgba(255,127,0,0.28);">
+            <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,255,255,0.92); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600;">Amount</p>
+            <p style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff;">${friendlyAmount}</p>
+          </div>
+
+          <div style="background: rgba(255,255,255,0.78); border-radius: 16px; padding: 20px 22px; margin-bottom: 24px; border: 1px solid rgba(255,127,0,0.18);">
+            <p style="margin: 0 0 12px; font-size: 13px; color: rgba(90,60,24,0.75); text-transform: uppercase; letter-spacing: 0.16em; font-weight: 600;">Purchase Details</p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <tbody>
+                <tr>
+                  <td style="padding: 6px 0; color: rgba(90,60,24,0.75);">Network</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #3b2f1d;">${escapeHtml(network)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: rgba(90,60,24,0.75);">Phone Number</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #3b2f1d;">${escapeHtml(phoneNumber)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: rgba(90,60,24,0.75);">Amount</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #3b2f1d;">${friendlyAmount}</td>
+                </tr>
+                ${reference ? `
+                  <tr>
+                    <td style="padding: 6px 0; color: rgba(90,60,24,0.75);">Reference</td>
+                    <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #3b2f1d;">${escapeHtml(reference)}</td>
+                  </tr>
+                ` : ""}
+                ${timestamp ? `
+                  <tr>
+                    <td style="padding: 6px 0; color: rgba(90,60,24,0.75);">Purchased</td>
+                    <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #3b2f1d;">${escapeHtml(timestamp)}</td>
+                  </tr>
+                ` : ""}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,127,0,0.12); border-radius: 16px; padding: 16px;">
+            <p style="margin: 0; font-size: 13px; color: rgba(50,30,8,0.85);">Need help? Reply to this email or contact NetPay support.</p>
+            <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #ffb347, #ff7f00); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;">NP</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const text = `
+Airtime Purchase Details
+
+Network: ${network}
+Phone Number: ${phoneNumber}
+Amount: ${friendlyAmount}
+${reference ? `Reference: ${reference}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}
+
+Thank you for using NetPay.
+  `.trim();
+
+  return { subject, html, text };
+};
+
 const buildEmailContent = (payload: PurchaseEmailPayload) => {
   if (payload.type === "electricity") {
-    if (!payload.token || !payload.provider || !payload.meterNumber) {
-      throw new Error("token, provider, and meterNumber are required for electricity notifications");
+    if (!payload.provider || !payload.meterNumber) {
+      throw new Error("provider and meterNumber are required for electricity notifications");
+    }
+    // Token can be null/empty when transaction is processing - use placeholder
+    if (!payload.token || payload.token.trim() === '') {
+      payload.token = 'Processing...'; // Placeholder for processing transactions
     }
     return buildElectricityEmail(payload);
   }
@@ -303,6 +418,13 @@ const buildEmailContent = (payload: PurchaseEmailPayload) => {
     return buildEducationEmail(payload);
   }
 
+  if (payload.type === "airtime") {
+    if (!payload.network || !payload.phoneNumber) {
+      throw new Error("network and phoneNumber are required for airtime notifications");
+    }
+    return buildAirtimeEmail(payload);
+  }
+
   throw new Error("Unsupported notification type");
 };
 
@@ -310,8 +432,8 @@ const parseRequest = async (req: Request): Promise<PurchaseEmailPayload> => {
   const body = await req.json();
 
   const type = normalizeString(body?.type) as PurchaseType;
-  if (!type || (type !== "electricity" && type !== "education")) {
-    throw new Error("type must be either 'electricity' or 'education'");
+  if (!type || (type !== "electricity" && type !== "education" && type !== "airtime")) {
+    throw new Error("type must be either 'electricity', 'education', or 'airtime'");
   }
 
   const email = normalizeString(body?.email);
@@ -333,21 +455,45 @@ const parseRequest = async (req: Request): Promise<PurchaseEmailPayload> => {
       customerName: normalizeString(body?.customerName),
       reference: normalizeString(body?.reference),
       purchasedAt: normalizeString(body?.purchasedAt),
+      balanceBefore: typeof body?.balanceBefore === "number" ? body.balanceBefore : Number(body?.balanceBefore),
+      balanceAfter: typeof body?.balanceAfter === "number" ? body.balanceAfter : Number(body?.balanceAfter),
+      chargeFee: typeof body?.chargeFee === "number" ? body.chargeFee : Number(body?.chargeFee),
+      purchaseAmount: typeof body?.purchaseAmount === "number" ? body.purchaseAmount : Number(body?.purchaseAmount),
     };
   }
 
+  if (type === "education") {
+    return {
+      type,
+      email,
+      fullName: normalizeString(body?.fullName ?? body?.name),
+      examType: normalizeString(body?.examType),
+      pin: normalizeString(body?.pin),
+      serial: normalizeString(body?.serial),
+      instructions: normalizeString(body?.instructions),
+      amount: typeof body?.amount === "number" ? body.amount : Number(body?.amount),
+      reference: normalizeString(body?.reference),
+      phoneNumber: normalizeString(body?.phoneNumber),
+      purchasedAt: normalizeString(body?.purchasedAt),
+      balanceBefore: typeof body?.balanceBefore === "number" ? body.balanceBefore : Number(body?.balanceBefore),
+      balanceAfter: typeof body?.balanceAfter === "number" ? body.balanceAfter : Number(body?.balanceAfter),
+      chargeFee: typeof body?.chargeFee === "number" ? body.chargeFee : Number(body?.chargeFee),
+      purchaseAmount: typeof body?.purchaseAmount === "number" ? body.purchaseAmount : Number(body?.purchaseAmount),
+    };
+  }
+
+  // Airtime
   return {
     type,
     email,
     fullName: normalizeString(body?.fullName ?? body?.name),
-    examType: normalizeString(body?.examType),
-    pin: normalizeString(body?.pin),
-    serial: normalizeString(body?.serial),
-    instructions: normalizeString(body?.instructions),
+    network: normalizeString(body?.network),
+    phoneNumber: normalizeString(body?.phoneNumber),
     amount: typeof body?.amount === "number" ? body.amount : Number(body?.amount),
     reference: normalizeString(body?.reference),
-    phoneNumber: normalizeString(body?.phoneNumber),
     purchasedAt: normalizeString(body?.purchasedAt),
+    balanceBefore: typeof body?.balanceBefore === "number" ? body.balanceBefore : Number(body?.balanceBefore),
+    balanceAfter: typeof body?.balanceAfter === "number" ? body.balanceAfter : Number(body?.balanceAfter),
   };
 };
 
@@ -374,22 +520,95 @@ serve(async (req) => {
     const payload = await parseRequest(req);
     const { subject, html, text } = buildEmailContent(payload);
 
+    // Generate PDF receipt
+    let pdfAttachment: { filename: string; content: string } | null = null;
+    try {
+      const receiptData: ReceiptData = payload.type === "electricity" ? {
+        type: "electricity",
+        userEmail: payload.email,
+        userName: payload.fullName,
+        amount: payload.amount || 0,
+        reference: payload.reference || "",
+        purchasedAt: payload.purchasedAt || new Date().toISOString(),
+        balanceBefore: payload.balanceBefore || 0,
+        balanceAfter: payload.balanceAfter || 0,
+        provider: payload.provider,
+        meterNumber: payload.meterNumber,
+        meterType: payload.meterType,
+        customerName: payload.customerName,
+        token: payload.token,
+        units: payload.units,
+        chargeFee: payload.chargeFee,
+        purchaseAmount: payload.purchaseAmount,
+      } : payload.type === "education" ? {
+        type: "education",
+        userEmail: payload.email,
+        userName: payload.fullName,
+        amount: payload.amount || 0,
+        reference: payload.reference || "",
+        purchasedAt: payload.purchasedAt || new Date().toISOString(),
+        balanceBefore: payload.balanceBefore || 0,
+        balanceAfter: payload.balanceAfter || 0,
+        examType: payload.examType,
+        pin: payload.pin,
+        serial: payload.serial,
+        phoneNumber: payload.phoneNumber,
+        chargeFee: payload.chargeFee,
+        purchaseAmount: payload.purchaseAmount,
+      } : {
+        type: "airtime",
+        userEmail: payload.email,
+        userName: payload.fullName,
+        amount: payload.amount,
+        reference: payload.reference || "",
+        purchasedAt: payload.purchasedAt || new Date().toISOString(),
+        balanceBefore: payload.balanceBefore || 0,
+        balanceAfter: payload.balanceAfter || 0,
+        network: payload.network,
+        phoneNumber: payload.phoneNumber,
+      };
+
+      const pdfBytes = await generateReceiptPDF(receiptData);
+      // Convert Uint8Array to base64
+      const pdfBase64 = btoa(String.fromCharCode.apply(null, Array.from(pdfBytes)));
+      const fileName = `NetPay-${payload.type}-${payload.reference || Date.now()}.pdf`;
+      pdfAttachment = {
+        filename: fileName,
+        content: pdfBase64,
+      };
+    } catch (pdfError) {
+      console.error("Error generating PDF receipt:", pdfError);
+      // Continue without PDF attachment if generation fails
+    }
+
+    const emailPayload: any = {
+      from: FROM_ADDRESS,
+      to: [payload.email],
+      subject,
+      html,
+      text,
+      tags: [
+        { name: "notification_type", value: payload.type },
+      ],
+    };
+
+    // Add PDF attachment if generated successfully
+    if (pdfAttachment) {
+      emailPayload.attachments = [
+        {
+          filename: pdfAttachment.filename,
+          content: pdfAttachment.content,
+        },
+      ];
+    }
+
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: FROM_ADDRESS,
-        to: [payload.email],
-        subject,
-        html,
-        text,
-        tags: [
-          { name: "notification_type", value: payload.type },
-        ],
-      }),
+      body: JSON.stringify(emailPayload),
     });
 
     if (!resendResponse.ok) {

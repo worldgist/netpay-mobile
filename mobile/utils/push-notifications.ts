@@ -9,6 +9,7 @@ const isAndroidExpoGo = isExpoGo && Platform.OS === 'android';
 // Lazy load expo-notifications to avoid errors in Expo Go
 let Notifications: typeof import('expo-notifications') | null = null;
 let notificationsInitialized = false;
+let androidChannelsSetup = false;
 
 const initializeNotifications = () => {
   if (notificationsInitialized) {
@@ -30,42 +31,21 @@ const initializeNotifications = () => {
     if (Notifications) {
       // Configure notification handler for both iOS and Android
       Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldShowAlert: true,
-          shouldPlaySound: true,
-          shouldSetBadge: true,
-        }),
+        handleNotification: async (notification) => {
+          // Log notification for debugging
+          console.log('Notification handler called:', {
+            title: notification.request.content.title,
+            body: notification.request.content.body,
+            data: notification.request.content.data,
+          });
+
+          return {
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+          };
+        },
       });
-
-      // Configure Android notification channel (async operation)
-      if (Platform.OS === 'android') {
-        (async () => {
-          try {
-            await Notifications.setNotificationChannelAsync('default', {
-              name: 'Default',
-              importance: Notifications.AndroidImportance.HIGH,
-              vibrationPattern: [0, 250, 250, 250],
-              lightColor: '#FF231F7C',
-              sound: 'default',
-              enableVibrate: true,
-              showBadge: true,
-            });
-
-            // Create a high priority channel for transactions
-            await Notifications.setNotificationChannelAsync('transactions', {
-              name: 'Transactions',
-              importance: Notifications.AndroidImportance.HIGH,
-              vibrationPattern: [0, 250, 250, 250],
-              lightColor: '#FF231F7C',
-              sound: 'default',
-              enableVibrate: true,
-              showBadge: true,
-            });
-          } catch (error) {
-            console.warn('Failed to set Android notification channels:', error);
-          }
-        })();
-      }
     }
   } catch (error) {
     console.warn('expo-notifications not available:', error);
@@ -73,6 +53,56 @@ const initializeNotifications = () => {
   }
   
   return Notifications;
+};
+
+/**
+ * Set up Android notification channels
+ * Must be called before requesting permissions on Android
+ */
+const setupAndroidChannels = async (notifications: typeof import('expo-notifications')) => {
+  if (Platform.OS !== 'android' || androidChannelsSetup) {
+    return;
+  }
+  
+  try {
+    console.log('Setting up Android notification channels...');
+    
+    await notifications.setNotificationChannelAsync('default', {
+      name: 'Default',
+      importance: notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+      enableVibrate: true,
+      showBadge: true,
+    });
+    console.log('Default notification channel created');
+
+    // Create a high priority channel for transactions
+    await notifications.setNotificationChannelAsync('transactions', {
+      name: 'Transactions',
+      importance: notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+      enableVibrate: true,
+      showBadge: true,
+    });
+    console.log('Transactions notification channel created');
+    
+    androidChannelsSetup = true;
+    console.log('Android notification channels set up successfully');
+  } catch (error) {
+    console.error('Failed to set Android notification channels:', error);
+    // Don't throw - we'll still try to get the token, but notifications might not work properly
+    // Log detailed error for debugging
+    if (error instanceof Error) {
+      console.error('Channel setup error details:', {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+  }
 };
 
 const isPhysicalDevice = () => Platform.OS !== 'web';
@@ -125,6 +155,12 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
       return { registered: false, reason: 'Push notifications require a physical device.' };
     }
 
+    // Set up Android notification channels BEFORE requesting permissions
+    // This is critical for Android - channels must exist before permission request
+    if (Platform.OS === 'android') {
+      await setupAndroidChannels(notifications);
+    }
+
     // Request permissions - Android 13+ requires explicit permission
     const { status: existingStatus } = await notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -167,8 +203,31 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
       tokenOptions.applicationId = Constants.expoConfig?.android?.package || 'com.netpay.mobile';
     }
     
-    const { data: expoToken } = await notifications.getExpoPushTokenAsync(tokenOptions);
-    const deviceId = await getDeviceIdentifier();
+    // Get Expo push token - this is critical and must succeed
+    let expoToken: string;
+    try {
+      const tokenResult = await notifications.getExpoPushTokenAsync(tokenOptions);
+      if (!tokenResult?.data) {
+        throw new Error('Failed to get Expo push token: token data is empty');
+      }
+      expoToken = tokenResult.data;
+    } catch (tokenError) {
+      console.error('Failed to get Expo push token:', tokenError);
+      return { 
+        registered: false, 
+        reason: `Failed to obtain push token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}` 
+      };
+    }
+
+    // Get device identifier (optional, but helpful for tracking)
+    let deviceId: string | undefined;
+    try {
+      deviceId = await getDeviceIdentifier();
+    } catch (deviceError) {
+      console.warn('Failed to get device identifier (non-critical):', deviceError);
+      // Continue without device ID - it's optional
+    }
+
     const platform = Platform.OS; // Should be 'ios' or 'android'
 
     // Log registration attempt for debugging
@@ -177,9 +236,11 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
       hasToken: !!expoToken,
       hasDeviceId: !!deviceId,
       tokenPrefix: expoToken?.substring(0, 20),
+      tokenLength: expoToken?.length,
     });
 
-    const { error } = await supabase.functions.invoke('register-push-token', {
+    // Register token with backend
+    const { data: registrationData, error } = await supabase.functions.invoke('register-push-token', {
       body: {
         expo_push_token: expoToken,
         device_id: deviceId,
@@ -188,16 +249,78 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
     });
 
     if (error) {
-      console.error('Push token registration error:', error);
-      return { registered: false, reason: error.message };
+      console.error('Push token registration error:', {
+        error,
+        message: error.message,
+        details: error.details,
+        platform,
+        tokenPrefix: expoToken?.substring(0, 20),
+      });
+      return { 
+        registered: false, 
+        reason: `Backend registration failed: ${error.message || 'Unknown error'}` 
+      };
     }
 
-    console.log('Push token registered successfully for platform:', platform);
+    console.log('Push token registered successfully:', {
+      platform,
+      tokenPrefix: expoToken?.substring(0, 20),
+      backendResponse: registrationData,
+    });
     return { registered: true, token: expoToken };
   } catch (error) {
     console.error('Error registering for push notifications:', error);
     return { registered: false, reason: error instanceof Error ? error.message : 'Unknown error' };
   }
+};
+
+/**
+ * Set up notification listeners for handling incoming notifications
+ * Should be called after registering for push notifications
+ */
+export const setupNotificationListeners = () => {
+  const notifications = initializeNotifications();
+  if (!notifications) {
+    return null;
+  }
+
+  // Listener for notifications received while app is in foreground
+  const receivedSubscription = notifications.addNotificationReceivedListener((notification) => {
+    console.log('Notification received (foreground):', {
+      title: notification.request.content.title,
+      body: notification.request.content.body,
+      data: notification.request.content.data,
+    });
+    // The notification handler already handles displaying foreground notifications
+    // This listener is mainly for logging and custom handling if needed
+  });
+
+  // Listener for when user taps on a notification
+  const responseSubscription = notifications.addNotificationResponseReceivedListener((response) => {
+    console.log('Notification tapped:', {
+      title: response.notification.request.content.title,
+      body: response.notification.request.content.body,
+      data: response.notification.request.content.data,
+    });
+
+    // Handle navigation based on notification data if needed
+    const data = response.notification.request.content.data;
+    if (data) {
+      // Example: Navigate to notifications screen or transaction details
+      // You can customize this based on your app's navigation needs
+      if (data.transactionType || data.reference) {
+        // Could navigate to transaction details or notifications screen
+        console.log('Notification contains transaction data, could navigate to details');
+      }
+    }
+  });
+
+  return {
+    remove: () => {
+      receivedSubscription.remove();
+      responseSubscription.remove();
+    },
+  };
 };
 
 export const scheduleLocalNotification = async (

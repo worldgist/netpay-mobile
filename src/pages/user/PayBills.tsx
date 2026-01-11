@@ -11,6 +11,7 @@ export default function PayBills() {
     { id: "data", name: "Data", icon: Wifi, path: "/user/purchase-data" },
     { id: "education", name: "Education", icon: GraduationCap, path: "/user/purchase-education" },
     { id: "electricity", name: "Electricity", icon: Zap, path: "/user/purchase-electricity" },
+    { id: "betting", name: "Betting", icon: DicesIcon, path: "/user/purchase-betting" },
   ];
 
   return (

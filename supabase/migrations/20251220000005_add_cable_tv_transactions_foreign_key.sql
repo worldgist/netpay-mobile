@@ -30,3 +30,15 @@ COMMENT ON CONSTRAINT cable_tv_transactions_user_id_fkey ON public.cable_tv_tran
 IS 'Foreign key relationship to profiles table, enabling automatic relationship detection in Supabase';
 
 
+
+
+
+
+
+
+
+
+
+
+
+

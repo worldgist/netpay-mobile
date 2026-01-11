@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateDSTVPackage } from "../_shared/dstv-prices.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -105,33 +106,61 @@ serve(async (req) => {
     });
 
     // Fetch packages from MobileNig API
-    const response = await fetch('https://enterprise.mobilenig.com/api/v2/services/packages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${PUBLIC_KEY}`,
-      },
-      body: JSON.stringify({
-        service_id: service_id
-      }),
-    });
-
-    const result = await response.json();
+    let response: Response;
+    let result: any;
     
-    console.log('MobileNig API response:', JSON.stringify(result, null, 2));
-
-    if (!response.ok) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: result.message || 'Failed to fetch cable packages',
-          details: result
+    try {
+      response = await fetch('https://enterprise.mobilenig.com/api/v2/services/packages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${PUBLIC_KEY}`,
+        },
+        body: JSON.stringify({
+          service_id: service_id
         }),
-        { 
-          status: response.status, 
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
-        }
-      );
+      });
+
+      result = await response.json();
+      
+      console.log('MobileNig API response:', JSON.stringify(result, null, 2));
+
+      if (!response.ok) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: result.message || 'Failed to fetch cable packages',
+            details: result
+          }),
+          { 
+            status: response.status, 
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+    } catch (fetchError: any) {
+      // Check for SSL certificate errors
+      const errorMessage = fetchError?.message || String(fetchError);
+      if (errorMessage.includes('invalid peer certificate') || 
+          errorMessage.includes('certificate') ||
+          errorMessage.includes('SSL') ||
+          errorMessage.includes('TLS')) {
+        console.error('SSL certificate error from MobileNig API:', errorMessage);
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'MobileNig API SSL certificate error. The vendor\'s certificate has expired. Please try again later or contact support.',
+            error_type: 'ssl_certificate_error',
+            suggestion: 'This is a temporary issue with the vendor\'s SSL certificate. Please try again later.'
+          }),
+          { 
+            status: 200, 
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+      // Re-throw if it's not an SSL error
+      throw fetchError;
     }
 
     // Check if we got valid data
@@ -151,20 +180,55 @@ serve(async (req) => {
     }
 
     // Transform the data to match our cable_tv_plans schema
-    const packages = result.details.map((pkg: any) => ({
-      provider: providerUpper,
-      package_name: pkg.name,
-      price: parseFloat(pkg.price),
-      api_code: pkg.productCode
-    }));
+    const packages = result.details.map((pkg: any) => {
+      const packageData = {
+        provider: providerUpper,
+        package_name: pkg.name,
+        price: parseFloat(pkg.price),
+        api_code: pkg.productCode
+      };
+
+      // Validate and correct DSTV prices
+      if (providerUpper === 'DSTV') {
+        return validateDSTVPackage(packageData);
+      }
+
+      return packageData;
+    });
+
+    // Deduplicate packages by package name (normalized) and api_code
+    // After price validation, multiple API codes might map to the same package name
+    const seenIds = new Set<string>();
+    const seenPackageNames = new Set<string>();
+    const uniquePackages = packages.filter((pkg) => {
+      const id = pkg.api_code || '';
+      const normalizedName = (pkg.package_name || '').toLowerCase().trim();
+      
+      // Check for duplicate by ID first
+      if (id && seenIds.has(id)) {
+        console.log(`Removing duplicate package by ID: ${pkg.package_name} (ID: ${id})`);
+        return false;
+      }
+      
+      // Check for duplicate by normalized package name (for DSTV after price validation)
+      if (providerUpper === 'DSTV' && normalizedName && seenPackageNames.has(normalizedName)) {
+        console.log(`Removing duplicate package by name: ${pkg.package_name} (ID: ${id})`);
+        return false;
+      }
+      
+      if (id) seenIds.add(id);
+      if (normalizedName) seenPackageNames.add(normalizedName);
+      return true;
+    });
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        data: packages,
+        data: uniquePackages,
         service_status: result.service_status || null,
         metadata: {
           total_packages: packages.length,
+          unique_packages: uniquePackages.length,
           provider: providerUpper,
           service_id: service_id,
           vending_provider: vendingProvider

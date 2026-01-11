@@ -29,6 +29,14 @@ const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   WAEC: require('@/assets/images/waec.png'),
   NECO: require('@/assets/images/neco.png'),
   JAMB: require('@/assets/images/jamb.png'),
+  BET9JA: require('@/assets/images/bet9ja.png'),
+  SPORTYBET: require('@/assets/images/sportybet.png'),
+  NAIRABET: require('@/assets/images/nairabet.png'),
+  '1XBET': require('@/assets/images/1xbet.png'),
+  BETKING: require('@/assets/images/betking.png'),
+  BETWAY: require('@/assets/images/betway.png'),
+  ACCESSBET: require('@/assets/images/accessbet.png'),
+  MERRYBET: require('@/assets/images/merrybet.png'),
 };
 
 const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
@@ -44,7 +52,7 @@ const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
 
 type MobileTransaction = {
   id: string;
-  category: 'wallet' | 'airtime' | 'data' | 'electricity' | 'education' | 'transfer_sent' | 'transfer_received';
+  category: 'wallet' | 'airtime' | 'data' | 'electricity' | 'education' | 'betting' | 'transfer_sent' | 'transfer_received';
   type: 'credit' | 'debit';
   amount: number;
   status?: string | null;
@@ -83,6 +91,15 @@ const getLogo = (serviceType?: string | null, provider?: string | null): ImageSo
     }
     return NETWORK_LOGOS.AEDC;
   }
+  if (key.includes('BETTING')) {
+    // For betting, try to get logo from provider
+    if (provider) {
+      const providerKey = provider.toUpperCase();
+      if (NETWORK_LOGOS[providerKey]) {
+        return NETWORK_LOGOS[providerKey];
+      }
+    }
+  }
   return NETWORK_LOGOS[key] || null;
 };
 
@@ -110,7 +127,7 @@ export default function TransactionsScreen() {
 
       const userId = session.user.id;
 
-      const [walletRes, airtimeRes, dataRes, electricityRes, educationRes, transfersSentRes, transfersReceivedRes] = await Promise.all([
+      const [walletRes, airtimeRes, dataRes, electricityRes, educationRes, bettingRes, transfersSentRes, transfersReceivedRes] = await Promise.all([
         supabase
           .from('user_transactions')
           .select('id, amount, transaction_type, description, reference, created_at')
@@ -131,13 +148,19 @@ export default function TransactionsScreen() {
           .limit(50),
         supabase
           .from('electricity_transactions')
-          .select('id, amount, provider, status, reference, created_at, meter_number, meter_type, token, customer_name')
+          .select('id, amount, provider, status, reference, created_at, meter_number, meter_type, token, customer_name, api_response, vending_provider')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(50),
         supabase
           .from('education_transactions')
           .select('id, amount, exam_type, status, reference, created_at, phone_number, balance_before, balance_after, api_response, metadata, pin, serial_number, pins')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('betting_transactions')
+          .select('id, amount, betting_provider, status, reference, created_at, account_number, vending_provider')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(50),
@@ -213,6 +236,28 @@ export default function TransactionsScreen() {
 
       const electricityTransactions: MobileTransaction[] = (electricityRes.data || []).map((txn) => {
         const createdDate = new Date(txn.created_at);
+        
+        // Extract token - check database field first, then api_response
+        let extractedToken = txn.token;
+        
+        // If token is null and we have api_response, try to extract from there
+        if (!extractedToken && (txn as any).api_response) {
+          const apiResponse = (txn as any).api_response;
+          // Check multiple possible locations in api_response
+          extractedToken = apiResponse?.data?.token ||
+                          apiResponse?.token ||
+                          apiResponse?.details?.token ||
+                          null;
+          
+          // Convert to string and validate
+          if (extractedToken) {
+            extractedToken = String(extractedToken).trim();
+            if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
+              extractedToken = null;
+            }
+          }
+        }
+        
         return {
           id: txn.id,
           category: 'electricity',
@@ -226,7 +271,13 @@ export default function TransactionsScreen() {
           createdAt: txn.created_at,
           formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
           formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          extra: { meterType: txn.meter_type, token: txn.token, meter_number: txn.meter_number, customerName: txn.customer_name },
+          extra: { 
+            meterType: txn.meter_type, 
+            token: extractedToken, // Use extracted token (from DB or api_response)
+            meter_number: txn.meter_number, 
+            customerName: txn.customer_name,
+            vendingProvider: (txn as any).vending_provider,
+          },
         };
       });
 
@@ -351,12 +402,32 @@ export default function TransactionsScreen() {
         };
       });
 
+      const bettingTransactions: MobileTransaction[] = (bettingRes.data || []).map((txn) => {
+        const createdDate = new Date(txn.created_at);
+        return {
+          id: txn.id,
+          category: 'betting',
+          type: 'debit',
+          amount: Number(txn.amount) || 0,
+          status: txn.status,
+          reference: txn.reference,
+          description: txn.account_number ? `Betting purchase • ${txn.account_number}` : 'Betting purchase',
+          serviceType: 'Betting',
+          provider: txn.betting_provider,
+          createdAt: txn.created_at,
+          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
+          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+          extra: { account_number: txn.account_number, vending_provider: txn.vending_provider },
+        };
+      });
+
       const combined = [
         ...walletTransactions,
         ...airtimeTransactions,
         ...dataTransactions,
         ...electricityTransactions,
         ...educationTransactions,
+        ...bettingTransactions,
         ...transferSent,
         ...transferReceived,
       ]
@@ -420,6 +491,8 @@ export default function TransactionsScreen() {
           educationSerial: transaction.extra?.educationSerial || '',
           educationInstructions: transaction.extra?.educationInstructions || '',
           examType: transaction.extra?.examType || '',
+          accountNumber: transaction.extra?.account_number || '',
+          vendingProvider: transaction.extra?.vending_provider || '',
         },
       });
     },
@@ -443,6 +516,9 @@ export default function TransactionsScreen() {
         break;
       case 'education':
         title = `${transaction.provider || 'Education'} Purchase`;
+        break;
+      case 'betting':
+        title = `${transaction.provider || 'Betting'} Purchase`;
         break;
       case 'transfer_sent':
         title = 'Transfer Sent';

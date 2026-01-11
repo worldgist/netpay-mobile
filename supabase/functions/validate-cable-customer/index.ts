@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getEBillsToken, verifyEBillsCableCustomer, getEBillsServiceId } from "../_shared/ebills-api.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -237,6 +238,83 @@ async function verifyWithVTpass(
       JSON.stringify({ 
         success: false, 
         error: message,
+        errorType: isInvalidCard ? 'invalid_card' : 'api_error',
+      }),
+      { status: 200, headers: corsHeaders }
+    );
+  }
+}
+
+// Verify with eBills API
+async function verifyWithEBills(
+  cardNumber: unknown,
+  provider: string,
+  corsHeaders: Record<string, string>
+): Promise<Response> {
+  const cardNumberStr = typeof cardNumber === 'string' ? cardNumber.trim() : String(cardNumber || '').trim();
+  
+  if (!cardNumberStr) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'card_number is required' }),
+      { status: 200, headers: corsHeaders }
+    );
+  }
+
+  try {
+    // Get eBills token
+    const token = await getEBillsToken();
+    
+    // Get service ID for the provider
+    const serviceId = getEBillsServiceId(provider);
+    
+    console.log('Verifying cable customer with eBills:', {
+      provider,
+      serviceId,
+      cardNumber: cardNumberStr,
+    });
+
+    // Verify customer with eBills
+    const verificationResult = await verifyEBillsCableCustomer(token, cardNumberStr, serviceId);
+    
+    if (verificationResult.code === 'success' && verificationResult.data) {
+      const customerData = verificationResult.data;
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            customer_name: customerData.customer_name || 'N/A',
+            customer_number: customerData.customer_id || cardNumberStr,
+            status: customerData.status || 'Active',
+            due_date: customerData.due_date || null,
+            balance: customerData.balance || 0,
+            current_bouquet: customerData.current_bouquet || null,
+            renewal_amount: customerData.renewal_amount || null,
+          },
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    } else {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: verificationResult.message || 'Customer verification failed',
+          errorType: 'verification_failed',
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    }
+  } catch (error: any) {
+    console.error('Error verifying cable customer with eBills:', error);
+    
+    const errorMessage = error?.message || 'Failed to verify customer with eBills API';
+    const isInvalidCard = errorMessage.toLowerCase().includes('invalid') || 
+                         errorMessage.toLowerCase().includes('not found') ||
+                         errorMessage.toLowerCase().includes('incorrect');
+    
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: errorMessage,
         errorType: isInvalidCard ? 'invalid_card' : 'api_error',
       }),
       { status: 200, headers: corsHeaders }
@@ -567,6 +645,10 @@ serve(async (req) => {
       return await verifyWithVTpass(card_number, provider, corsHeaders);
     }
 
+    if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+      return await verifyWithEBills(card_number, provider, corsHeaders);
+    }
+
     // Default to MobileNig verification
     return await verifyWithMobileNig(card_number, provider, corsHeaders);
 
@@ -581,3 +663,11 @@ serve(async (req) => {
     );
   }
 });
+
+
+
+
+
+
+
+

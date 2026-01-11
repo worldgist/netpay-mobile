@@ -38,7 +38,7 @@ interface ElectricityTransaction {
 }
 
 export default function ElectricityPlans() {
-  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'smeplug'>('vtpass');
+  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'ebills'>('vtpass');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [transactions, setTransactions] = useState<ElectricityTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -67,8 +67,8 @@ export default function ElectricityPlans() {
 
       if (data?.setting_value) {
         const provider = (data.setting_value as any)?.provider || 'vtpass';
-        const validProviders = ['vtpass', 'mobilenig', 'smeplug'];
-        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'smeplug' : 'vtpass';
+        const validProviders = ['vtpass', 'mobilenig', 'ebills'];
+        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'ebills' : 'vtpass';
         console.log('Setting electricity vending provider to:', selectedProvider);
         setVendingProvider(selectedProvider);
       } else {
@@ -81,7 +81,7 @@ export default function ElectricityPlans() {
     }
   };
 
-  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'smeplug') => {
+  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'ebills') => {
     setIsUpdatingProvider(true);
     try {
       const { error } = await supabase
@@ -90,7 +90,7 @@ export default function ElectricityPlans() {
           setting_key: 'electricity_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Electricity vending provider: vtpass, mobilenig, or smeplug'
+          description: 'Electricity vending provider: vtpass, mobilenig, or ebills'
         }, {
           onConflict: 'setting_key'
         });
@@ -210,7 +210,7 @@ export default function ElectricityPlans() {
                   </Label>
                   <Select
                     value={vendingProvider}
-                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'smeplug')}
+                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'ebills')}
                     disabled={isUpdatingProvider}
                   >
                     <SelectTrigger id="vending-provider" className="w-[200px]">
@@ -219,7 +219,7 @@ export default function ElectricityPlans() {
                     <SelectContent>
                       <SelectItem value="vtpass">VTpass</SelectItem>
                       <SelectItem value="mobilenig">MobileNig</SelectItem>
-                      <SelectItem value="smeplug">SMEPLUG</SelectItem>
+                      <SelectItem value="ebills">eBills Africa</SelectItem>
                     </SelectContent>
                   </Select>
                   {isUpdatingProvider && (

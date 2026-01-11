@@ -146,10 +146,74 @@ const PurchaseCableTv = () => {
           .eq('setting_key', 'cable_provider')
           .maybeSingle();
 
-        const vendingProvider = providerSetting?.setting_value?.provider || 'smeplug';
+        const vendingProvider = providerSetting?.setting_value?.provider || 'ebills';
         console.log('Fetching cable plans for provider:', selectedProvider, 'from vending provider:', vendingProvider);
 
-        // Fetch plans directly from database table
+        // Determine which API function to call based on vending provider
+        let apiFunctionName = '';
+        if (vendingProvider === 'mobilenig') {
+          apiFunctionName = 'fetch-cable-packages';
+        } else if (vendingProvider === 'vtpass') {
+          apiFunctionName = 'fetch-vtpass-cable-packages';
+        } else if (vendingProvider === 'ebills') {
+          apiFunctionName = 'fetch-ebills-cable-packages';
+        }
+
+        // If using a supported API provider, try fetching packages directly from API first
+        if (apiFunctionName) {
+          try {
+            const { data: apiData, error: apiError } = await supabase.functions.invoke(apiFunctionName, {
+              body: {
+                provider: selectedProvider,
+                vending_provider: vendingProvider
+              }
+            });
+
+            if (!apiError && apiData?.success && apiData?.data?.length > 0) {
+              // Transform API response to match our format
+              const seenPackages = new Set<string>();
+              const plans = apiData.data
+                .filter((p: any) => {
+                  const packageName = (p.package_name || '').trim();
+                  if (!packageName || packageName.toLowerCase() === 'no' || packageName.toLowerCase() === 'n0') {
+                    return false;
+                  }
+                  const price = p.price || 0;
+                  if (!price || price <= 0 || isNaN(price)) {
+                    return false;
+                  }
+                  const packageNameLower = packageName.toLowerCase();
+                  if (seenPackages.has(packageNameLower)) {
+                    return false;
+                  }
+                  seenPackages.add(packageNameLower);
+                  return true;
+                })
+                .map((p: any, idx: number) => ({
+                  id: p.api_code || p.variation_code || p.variation_id || `${selectedProvider}-${p.package_name}-${idx}`,
+                  provider: selectedProvider,
+                  package_name: p.package_name?.trim() || 'Unknown Package',
+                  price: p.price || 0,
+                  api_code: p.api_code || p.variation_code || p.variation_id,
+                }))
+                .sort((a: any, b: any) => a.price - b.price);
+
+              console.log(`Loaded ${plans.length} cable plans from ${vendingProvider} API for ${selectedProvider}`);
+              setCablePlans(plans);
+              if (selectedPlan && !plans.find((pl) => pl.id === selectedPlan)) {
+                setSelectedPlan("");
+              }
+              setLoadingPlans(false);
+              return;
+            } else {
+              console.warn(`${vendingProvider} API fetch failed or returned no data, falling back to database:`, apiError || apiData?.error);
+            }
+          } catch (apiErr) {
+            console.warn(`Error fetching from ${vendingProvider} API, falling back to database:`, apiErr);
+          }
+        }
+
+        // Fetch plans directly from database table (fallback or for other providers)
         let query = supabase
           .from('cable_tv_plans')
           .select('id, provider, package_name, price, api_code, custom_price, is_active, vending_provider')
@@ -188,18 +252,29 @@ const PurchaseCableTv = () => {
             const seenPackages = new Set<string>();
             const plans = filtered
               .filter((p: any) => {
-                const packageName = (p.package_name || '').trim().toLowerCase();
-                if (seenPackages.has(packageName)) {
+                // Filter out packages with empty/null package_name
+                const packageName = (p.package_name || '').trim();
+                if (!packageName || packageName.toLowerCase() === 'no' || packageName.toLowerCase() === 'n0') {
                   return false;
                 }
-                seenPackages.add(packageName);
+                // Filter out packages with invalid prices
+                const price = p.custom_price || p.price;
+                if (!price || price <= 0 || isNaN(price)) {
+                  return false;
+                }
+                // Check for duplicates (case-insensitive)
+                const packageNameLower = packageName.toLowerCase();
+                if (seenPackages.has(packageNameLower)) {
+                  return false;
+                }
+                seenPackages.add(packageNameLower);
                 return true;
               })
               .map((p: any, idx: number) => ({
                 id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
                 provider: p.provider,
-                package_name: p.package_name,
-                price: p.custom_price || p.price,
+                package_name: p.package_name?.trim() || 'Unknown Package',
+                price: p.custom_price || p.price || 0,
                 api_code: p.api_code,
               }));
 
@@ -221,18 +296,29 @@ const PurchaseCableTv = () => {
         const seenPackages = new Set<string>();
         const plans = filtered
           .filter((p: any) => {
-            const packageName = (p.package_name || '').trim().toLowerCase();
-            if (seenPackages.has(packageName)) {
+            // Filter out packages with empty/null package_name
+            const packageName = (p.package_name || '').trim();
+            if (!packageName || packageName.toLowerCase() === 'no' || packageName.toLowerCase() === 'n0') {
               return false;
             }
-            seenPackages.add(packageName);
+            // Filter out packages with invalid prices
+            const price = p.custom_price || p.price;
+            if (!price || price <= 0 || isNaN(price)) {
+              return false;
+            }
+            // Check for duplicates (case-insensitive)
+            const packageNameLower = packageName.toLowerCase();
+            if (seenPackages.has(packageNameLower)) {
+              return false;
+            }
+            seenPackages.add(packageNameLower);
             return true;
           })
           .map((p: any, idx: number) => ({
             id: p.id || p.api_code || `${p.provider}-${p.package_name}-${idx}`,
             provider: p.provider,
-            package_name: p.package_name,
-            price: p.custom_price || p.price,
+            package_name: p.package_name?.trim() || 'Unknown Package',
+            price: p.custom_price || p.price || 0,
             api_code: p.api_code,
           }));
 
@@ -732,6 +818,9 @@ const PurchaseCableTv = () => {
           provider: selectedProvider,
           customer_number: validatedCustomer?.customer_number,
           customer_name: validatedCustomer?.customer_name,
+          package_name: plan.package_name,
+          price: plan.price,
+          api_code: plan.api_code,
         },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -941,15 +1030,17 @@ const PurchaseCableTv = () => {
                         <div className="flex items-center justify-between w-full gap-2">
                           {loadingPlans ? (
                             <span>Loading packages...</span>
-                          ) : selectedPlan ? (
+                          ) : selectedPlanData ? (
                             <>
                               <span className="truncate text-left flex-1">
-                                {cablePlans.find((plan) => plan.id === selectedPlan)?.package_name}
+                                {selectedPlanData.package_name || 'Unknown Package'}
                               </span>
                               <span className="font-semibold text-primary whitespace-nowrap">
-                                {formatNaira(cablePlans.find((plan) => plan.id === selectedPlan)?.price || 0)}
+                                {formatNaira(selectedPlanData.price || 0)}
                               </span>
                             </>
+                          ) : selectedPlan ? (
+                            <span>Package not found</span>
                           ) : (
                             <span>Choose a package</span>
                           )}
@@ -966,6 +1057,8 @@ const PurchaseCableTv = () => {
                         ) : (
                           cablePlans.map((plan) => {
                             const isSelected = selectedPlan === plan.id;
+                            const packageName = plan.package_name || 'Unknown Package';
+                            const packagePrice = plan.price || 0;
                             return (
                               <button
                                 key={plan.id}
@@ -985,7 +1078,7 @@ const PurchaseCableTv = () => {
                               >
                                 <div className="flex-1 text-left space-y-1">
                                   <div className="font-medium text-sm leading-tight">
-                                    {plan.package_name}
+                                    {packageName}
                                   </div>
                                   <div className="text-xs text-muted-foreground">
                                     {selectedProvider}
@@ -993,7 +1086,7 @@ const PurchaseCableTv = () => {
                                 </div>
                                 <div className="flex items-center gap-2 ml-3">
                                   <span className="font-bold text-primary whitespace-nowrap">
-                                    {formatNaira(plan.price)}
+                                    {formatNaira(packagePrice)}
                                   </span>
                                   {isSelected && (
                                     <Check className="h-4 w-4 text-primary flex-shrink-0" />

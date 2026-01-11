@@ -42,6 +42,7 @@ export default function Transactions() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [processingPending, setProcessingPending] = useState(false);
   const [updatingNullTokens, setUpdatingNullTokens] = useState(false);
+  const [recoveringTransactions, setRecoveringTransactions] = useState(false);
   const { toast } = useToast();
 
   const fetchTransactions = async () => {
@@ -206,6 +207,41 @@ export default function Transactions() {
     }
   };
 
+  const recoverMissingTransactions = async () => {
+    try {
+      setRecoveringTransactions(true);
+      const { data, error } = await supabase.functions.invoke('recover-electricity-transactions', {
+        body: {
+          limit: 100,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to recover transactions');
+      }
+
+      toast({
+        title: "Success",
+        description: `Recovered ${data.recovered} transactions. Skipped: ${data.skipped}, Errors: ${data.errors}`,
+        variant: "default",
+      });
+
+      // Refresh transactions after recovery
+      await fetchTransactions();
+    } catch (error: any) {
+      console.error('Recover transactions error:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to recover transactions",
+        variant: "destructive",
+      });
+    } finally {
+      setRecoveringTransactions(false);
+    }
+  };
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -250,6 +286,14 @@ export default function Transactions() {
                     {updatingNullTokens ? 'Updating...' : `Update ${nullTokenCount} Null Tokens`}
                   </Button>
                 )}
+                <Button 
+                  variant="secondary" 
+                  className="gap-2" 
+                  onClick={recoverMissingTransactions}
+                  disabled={recoveringTransactions}
+                >
+                  {recoveringTransactions ? 'Recovering...' : 'Recover Missing Electricity Transactions'}
+                </Button>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="gap-2">

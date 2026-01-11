@@ -26,3 +26,15 @@ ON public.platform_revenue(user_id);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+

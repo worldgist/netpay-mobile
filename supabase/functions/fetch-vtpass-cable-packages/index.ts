@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateDSTVPackage } from "../_shared/dstv-prices.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -158,6 +159,7 @@ serve(async (req) => {
     if (variations.length > 0) {
 
       // Transform VTpass variations to match our cable_tv_plans schema
+      const providerUpper = typeof provider === "string" ? provider.toUpperCase() : "DSTV";
       const packages = variations
         .filter((variation: any) => {
           // Accept variations that have either variation_code or code, and a name
@@ -171,16 +173,48 @@ serve(async (req) => {
           const price = parseFloat(variation.variation_amount || variation.amount || variation.price || "0") || 0;
           const apiCode = (variation.variation_code || variation.code || "").trim();
 
-          return {
-            provider: typeof provider === "string" ? provider.toUpperCase() : "DSTV",
+          const packageData = {
+            provider: providerUpper,
             package_name: packageName,
             price: price,
             api_code: apiCode,
           };
+
+          // Validate and correct DSTV prices
+          if (providerUpper === 'DSTV') {
+            return validateDSTVPackage(packageData);
+          }
+
+          return packageData;
         })
         .filter((pkg: any) => pkg.api_code && pkg.package_name); // Remove invalid entries
 
-      console.log(`Transformed ${packages.length} VTpass cable packages for ${provider} from ${variations.length} variations`);
+      // Deduplicate packages by package name (normalized) and api_code
+      // After price validation, multiple API codes might map to the same package name
+      const seenIds = new Set<string>();
+      const seenPackageNames = new Set<string>();
+      const uniquePackages = packages.filter((pkg) => {
+        const id = pkg.api_code || '';
+        const normalizedName = (pkg.package_name || '').toLowerCase().trim();
+        
+        // Check for duplicate by ID first
+        if (id && seenIds.has(id)) {
+          console.log(`Removing duplicate package by ID: ${pkg.package_name} (ID: ${id})`);
+          return false;
+        }
+        
+        // Check for duplicate by normalized package name (for DSTV after price validation)
+        if (providerUpper === 'DSTV' && normalizedName && seenPackageNames.has(normalizedName)) {
+          console.log(`Removing duplicate package by name: ${pkg.package_name} (ID: ${id})`);
+          return false;
+        }
+        
+        if (id) seenIds.add(id);
+        if (normalizedName) seenPackageNames.add(normalizedName);
+        return true;
+      });
+
+      console.log(`Transformed ${packages.length} VTpass cable packages for ${provider} from ${variations.length} variations (${uniquePackages.length} unique)`);
 
       if (packages.length === 0) {
         console.warn("No valid packages found after transformation. Raw response:", JSON.stringify(responseJson, null, 2));
@@ -197,9 +231,10 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
-          data: packages,
+          data: uniquePackages,
           metadata: {
             total_packages: packages.length,
+            unique_packages: uniquePackages.length,
             provider: typeof provider === "string" ? provider.toUpperCase() : "DSTV",
             service_id: serviceId,
             vending_provider: "vtpass",

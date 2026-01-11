@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Image, ImageSource } from 'expo-image';
+import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
@@ -62,14 +62,6 @@ export default function CableTVScreen() {
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  useEffect(() => {
-    isMounted.current = true;
-    loadData();
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
   const fetchPackagesForAllProviders = async () => {
     try {
       if (isMounted.current) {
@@ -99,7 +91,12 @@ export default function CableTVScreen() {
         .eq('setting_key', 'cable_provider')
         .maybeSingle();
 
-      const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+      const rawProvider = providerSetting?.setting_value?.provider || 'ebills';
+      // Normalize provider value (handle both 'ebills' and 'ebills.africa')
+      // Also migrate 'mobilenig' to 'ebills' if found
+      const normalizedProvider = rawProvider === 'ebills.africa' ? 'ebills' : (rawProvider === 'mobilenig' ? 'ebills' : rawProvider);
+      const vendingProvider = normalizedProvider;
+      console.log('Cable TV vending provider (fetchPackagesForAllProviders):', vendingProvider, '(raw:', rawProvider, ')');
 
       // Fetch packages for each static provider from API
       const grouped: Record<string, CablePlan[]> = {};
@@ -107,17 +104,27 @@ export default function CableTVScreen() {
       for (const provider of STATIC_PROVIDERS) {
         try {
           // Determine which function to call based on vending provider
-          let functionName = 'fetch-cable-packages';
-          let requestBody: any = { 
-            provider: provider.name,
-            vending_provider: vendingProvider 
-          };
+          let functionName: string;
+          let requestBody: any;
 
           if (vendingProvider === 'vtpass') {
             functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+            functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'anyone') {
+            // ANYONE provider - use eBills as fallback
+            functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
+          } else {
+            // Default to eBills if unknown provider
+            console.warn(`Unknown provider: ${vendingProvider}, defaulting to eBills`);
+            functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
           }
 
+          console.log(`Fetching packages for ${provider.name} using function: ${functionName} (provider: ${vendingProvider})`);
           const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
           
           const response = await fetch(functionUrl, {
@@ -131,17 +138,71 @@ export default function CableTVScreen() {
 
           const responseData = await response.json();
           
+          console.log(`Response for ${provider.name}:`, {
+            ok: response.ok,
+            status: response.status,
+            success: responseData?.success,
+            dataLength: responseData?.data?.length || 0,
+            error: responseData?.error,
+            debugRawVariation: responseData?.metadata?.debug_raw_variation,
+            fullResponse: responseData,
+          });
+
           if (response.ok && responseData?.success && responseData?.data?.length > 0) {
-            const packages: CablePlan[] = responseData.data.map((pkg: any) => ({
-              id: pkg.api_code || `${provider.name}-${pkg.package_name}`,
-              packageName: pkg.package_name || pkg.name || '',
-              price: pkg.price || pkg.custom_price || 0,
-            }));
+            console.log(`Raw package data for ${provider.name}:`, JSON.stringify(responseData.data.slice(0, 2), null, 2));
+            
+            const rawPackages: CablePlan[] = responseData.data.map((pkg: any) => {
+              const packageName = pkg.package_name || pkg.name || pkg.variation_name || pkg.variation_code || 'Unknown Package';
+              const price = pkg.price || pkg.variation_amount || pkg.custom_price || 0;
+              const id = pkg.api_code || pkg.variation_id || `${provider.name}-${packageName}`;
+              
+              console.log(`Package mapping for ${provider.name}:`, {
+                raw: pkg,
+                mapped: { id, packageName, price },
+              });
+              
+              return {
+                id,
+                packageName,
+                price,
+              };
+            });
+
+            // Deduplicate packages by normalized package name (especially for DSTV after price validation)
+            const seenIds = new Set<string>();
+            const seenPackageNames = new Set<string>();
+            const packages = rawPackages.filter((pkg) => {
+              const normalizedName = (pkg.packageName || '').toLowerCase().trim();
+              
+              // Check for duplicate by ID first
+              if (pkg.id && seenIds.has(pkg.id)) {
+                console.log(`Removing duplicate package by ID: ${pkg.packageName} (ID: ${pkg.id})`);
+                return false;
+              }
+              
+              // Check for duplicate by normalized package name (for DSTV after price validation)
+              if (provider.name === 'DSTV' && normalizedName && seenPackageNames.has(normalizedName)) {
+                console.log(`Removing duplicate package by name: ${pkg.packageName} (ID: ${pkg.id})`);
+                return false;
+              }
+              
+              if (pkg.id) seenIds.add(pkg.id);
+              if (normalizedName) seenPackageNames.add(normalizedName);
+              return true;
+            });
 
             grouped[provider.name] = packages;
-            console.log(`Fetched ${packages.length} packages for ${provider.name}`);
+            console.log(`Fetched ${rawPackages.length} packages for ${provider.name} (${packages.length} unique):`, packages.map(p => ({ name: p.packageName, price: p.price })));
           } else {
-            console.warn(`No packages found for ${provider.name}:`, responseData?.error);
+            // Filter out SSL certificate errors from warnings (vendor-side issue)
+            const errorMessage = responseData?.error || responseData?.message || 'Unknown error';
+            if (!errorMessage.includes('SSL certificate') && 
+                !errorMessage.includes('invalid peer certificate') &&
+                !errorMessage.includes('certificate has expired')) {
+              console.warn(`No packages found for ${provider.name}:`, errorMessage);
+            } else {
+              console.log(`No packages found for ${provider.name}: Vendor SSL certificate issue (temporary)`);
+            }
             grouped[provider.name] = [];
           }
         } catch (error: any) {
@@ -173,7 +234,7 @@ export default function CableTVScreen() {
     }
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
       try {
         if (isMounted.current) {
           setLoading(true);
@@ -219,9 +280,13 @@ export default function CableTVScreen() {
         // Set static providers immediately (not fetched from API)
         if (isMounted.current) {
           setProviders(STATIC_PROVIDERS);
-          if (!selectedProvider && STATIC_PROVIDERS.length > 0) {
-            setSelectedProvider(STATIC_PROVIDERS[0].name);
-          }
+          setSelectedProvider((current) => {
+            // Only set if not already set
+            if (!current && STATIC_PROVIDERS.length > 0) {
+              return STATIC_PROVIDERS[0].name;
+            }
+            return current;
+          });
           // Hide main loading screen - show providers immediately
           setLoading(false);
         }
@@ -243,9 +308,13 @@ export default function CableTVScreen() {
             // Silently ignore - this is expected since we're fetching from API now
             // Still set providers and try to fetch packages
             setProviders(STATIC_PROVIDERS);
-            if (!selectedProvider && STATIC_PROVIDERS.length > 0) {
-              setSelectedProvider(STATIC_PROVIDERS[0].name);
-            }
+            setSelectedProvider((current) => {
+              // Only set if not already set
+              if (!current && STATIC_PROVIDERS.length > 0) {
+                return STATIC_PROVIDERS[0].name;
+              }
+              return current;
+            });
             setLoading(false);
             setBalanceLoading(false);
             // Try to fetch packages anyway
@@ -286,7 +355,15 @@ export default function CableTVScreen() {
           setBalanceLoading(false);
         }
       }
+    }, [router]);
+
+  useEffect(() => {
+    isMounted.current = true;
+    loadData();
+    return () => {
+      isMounted.current = false;
     };
+  }, [loadData]);
 
   const fetchPackagesFromAPI = async () => {
     try {
@@ -315,23 +392,38 @@ export default function CableTVScreen() {
         .eq('setting_key', 'cable_provider')
         .maybeSingle();
 
-      const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+      const rawProvider = providerSetting?.setting_value?.provider || 'ebills';
+      // Normalize provider value (handle both 'ebills' and 'ebills.africa')
+      // Also migrate 'mobilenig' to 'ebills' if found
+      const normalizedProvider = rawProvider === 'ebills.africa' ? 'ebills' : (rawProvider === 'mobilenig' ? 'ebills' : rawProvider);
+      const vendingProvider = normalizedProvider;
+      console.log('Cable TV vending provider (fetchPackagesFromAPI):', vendingProvider, '(raw:', rawProvider, ')');
 
       // Fetch packages for each static provider
       const fetchPromises = STATIC_PROVIDERS.map(async (provider) => {
         try {
           // Determine which function to call based on vending provider
-          let functionName = 'fetch-cable-packages';
-          let requestBody: any = { 
-            provider: provider.name,
-            vending_provider: vendingProvider 
-          };
+          let functionName: string;
+          let requestBody: any;
 
           if (vendingProvider === 'vtpass') {
             functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+            functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'anyone') {
+            // ANYONE provider - use eBills as fallback
+            functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
+          } else {
+            // Default to eBills if unknown provider
+            console.warn(`Unknown provider: ${vendingProvider}, defaulting to eBills`);
+            functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
           }
 
+          console.log(`Fetching packages for ${provider.name} using function: ${functionName} (provider: ${vendingProvider})`);
           const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
           
           const response = await fetch(functionUrl, {
@@ -349,8 +441,16 @@ export default function CableTVScreen() {
             console.log(`Fetched ${responseData.data.length} packages for ${provider.name}`);
             return { provider: provider.name, success: true, count: responseData.data.length };
           } else {
-            console.warn(`Failed to fetch packages for ${provider.name}:`, responseData?.error || 'Unknown error');
-            return { provider: provider.name, success: false, error: responseData?.error || 'Unknown error' };
+            // Filter out SSL certificate errors from warnings (vendor-side issue)
+            const errorMessage = responseData?.error || 'Unknown error';
+            if (!errorMessage.includes('SSL certificate') && 
+                !errorMessage.includes('invalid peer certificate') &&
+                !errorMessage.includes('certificate has expired')) {
+              console.warn(`Failed to fetch packages for ${provider.name}:`, errorMessage);
+            } else {
+              console.log(`Failed to fetch packages for ${provider.name}: Vendor SSL certificate issue (temporary)`);
+            }
+            return { provider: provider.name, success: false, error: errorMessage };
           }
         } catch (error: any) {
           console.error(`Error fetching packages for ${provider.name}:`, error);
