@@ -35,10 +35,10 @@ interface CableTvTransaction {
   } | null;
 }
 
-type CableVendingProvider = 'vtpass' | 'anyone' | 'ebills' | 'mobilenig';
+type CableVendingProvider = 'vtpass' | 'anyone' | 'mobilenig';
 
 export default function CableTvPlans() {
-  const [vendingProvider, setVendingProvider] = useState<CableVendingProvider>('ebills');
+  const [vendingProvider, setVendingProvider] = useState<CableVendingProvider>('mobilenig');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [transactions, setTransactions] = useState<CableTvTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -88,32 +88,85 @@ export default function CableTvPlans() {
   const updateCableProvider = async (newProvider: CableVendingProvider) => {
     setIsUpdatingProvider(true);
     try {
-      const { error } = await supabase
+      console.log('Attempting to update cable provider to:', newProvider);
+      
+      // Check if user is admin
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
+
+      const { data: roles } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+
+      if (!roles) {
+        throw new Error('Insufficient permissions. Admin role required.');
+      }
+
+      // Check if setting exists
+      const { data: existingSetting } = await supabase
         .from('app_settings')
-        .upsert({
-          setting_key: 'cable_provider',
-          setting_value: { provider: newProvider },
-          setting_category: 'system',
-          description: 'Cable TV vending provider: vtpass, ebills, mobilenig, or anyone'
-        }, {
-          onConflict: 'setting_key'
-        });
+        .select('*')
+        .eq('setting_key', 'cable_provider')
+        .maybeSingle();
 
-      if (error) throw error;
+      console.log('Existing cable provider setting:', existingSetting);
 
-      console.log('Updating cable provider to:', newProvider);
+      let result;
+      if (existingSetting) {
+        // Update existing setting
+        result = await supabase
+          .from('app_settings')
+          .update({
+            setting_value: { provider: newProvider },
+            updated_at: new Date().toISOString()
+          })
+          .eq('setting_key', 'cable_provider')
+          .select();
+      } else {
+        // Insert new setting
+        result = await supabase
+          .from('app_settings')
+          .insert({
+            setting_key: 'cable_provider',
+            setting_value: { provider: newProvider },
+            setting_category: 'system',
+            description: 'Cable TV vending provider: vtpass, mobilenig, or anyone'
+          })
+          .select();
+      }
+
+      if (result.error) {
+        console.error('Database error:', result.error);
+        throw result.error;
+      }
+
+      console.log('Successfully updated cable provider:', result.data);
       setVendingProvider(newProvider);
+      
+      // Verify the update
+      const { data: verifyData } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'cable_provider')
+        .single();
+      
+      console.log('Verified cable provider setting:', verifyData);
       
       const providerDisplayName = getProviderDisplayName(newProvider);
       toast({
         title: "Success",
-        description: `Cable TV vending provider switched to ${providerDisplayName}. This will be used as the default for all cable TV purchases.`,
+        description: `Cable TV vending provider switched to ${providerDisplayName}. All new cable TV purchases will use this provider.`,
       });
     } catch (error: any) {
       console.error('Error updating cable provider:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update cable provider",
+        description: error.message || "Failed to update cable provider. Please check console for details.",
         variant: "destructive",
       });
     } finally {
@@ -163,8 +216,6 @@ export default function CableTvPlans() {
     switch (provider) {
       case 'vtpass':
         return 'VTpass';
-      case 'ebills':
-        return 'eBills Africa';
       case 'mobilenig':
         return 'MobileNig';
       case 'anyone':
@@ -178,8 +229,6 @@ export default function CableTvPlans() {
     switch (provider) {
       case 'vtpass':
         return 'VTpass API - Reliable cable TV service provider';
-      case 'ebills':
-        return 'eBills Africa API - Modern cable TV service provider';
       case 'mobilenig':
         return 'MobileNig API - Enterprise cable TV service provider';
       case 'anyone':
@@ -261,12 +310,6 @@ export default function CableTvPlans() {
                         <div className="flex flex-col">
                           <span>VTpass</span>
                           <span className="text-xs text-muted-foreground">Reliable service</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="ebills">
-                        <div className="flex flex-col">
-                          <span>eBills Africa</span>
-                          <span className="text-xs text-muted-foreground">Modern API</span>
                         </div>
                       </SelectItem>
                       <SelectItem value="anyone">

@@ -20,18 +20,20 @@ type BettingProvider = {
 
 const BETTING_PROVIDERS: BettingProvider[] = [
   { id: 'bet9ja', name: 'Bet9ja', logo: require('@/assets/images/bet9ja.png'), providerCode: 'BET9JA' },
+  { id: 'sportybet', name: 'SportyBet', logo: require('@/assets/images/sportybet.png'), providerCode: 'SPORTYBET' },
   { id: 'nairabet', name: 'Nairabet', logo: require('@/assets/images/nairabet.png'), providerCode: 'NAIRABET' },
   { id: '1xbet', name: '1xBet', logo: require('@/assets/images/1xbet.png'), providerCode: '1XBET' },
   { id: 'betking', name: 'BetKing', logo: require('@/assets/images/betking.png'), providerCode: 'BETKING' },
   { id: 'betway', name: 'Betway', logo: require('@/assets/images/betway.png'), providerCode: 'BETWAY' },
+  { id: 'accessbet', name: 'AccessBet', logo: require('@/assets/images/accessbet.png'), providerCode: 'ACCESSBET' },
   { id: 'merrybet', name: 'MerryBet', logo: require('@/assets/images/merrybet.png'), providerCode: 'MERRYBET' },
-  { id: 'bangbet', name: 'BangBet', logo: require('@/assets/images/logo.png'), providerCode: 'BANGBET' },
-  { id: 'betland', name: 'BetLand', logo: require('@/assets/images/logo.png'), providerCode: 'BETLAND' },
-  { id: 'betlion', name: 'BetLion', logo: require('@/assets/images/logo.png'), providerCode: 'BETLION' },
-  { id: 'cloudbet', name: 'CloudBet', logo: require('@/assets/images/logo.png'), providerCode: 'CLOUDBET' },
-  { id: 'livescorebet', name: 'LiveScoreBet', logo: require('@/assets/images/logo.png'), providerCode: 'LIVESCOREBET' },
-  { id: 'naijabet', name: 'NaijaBet', logo: require('@/assets/images/logo.png'), providerCode: 'NAIJABET' },
-  { id: 'supabet', name: 'SupaBet', logo: require('@/assets/images/logo.png'), providerCode: 'SUPABET' },
+  { id: 'bangbet', name: 'BangBet', logo: require('@/assets/images/bangbet.png.jpeg'), providerCode: 'BANGBET' },
+  { id: 'betland', name: 'BetLand', logo: require('@/assets/images/betland.png.jpeg'), providerCode: 'BETLAND' },
+  { id: 'betlion', name: 'BetLion', logo: require('@/assets/images/betlion.png.jpeg'), providerCode: 'BETLION' },
+  { id: 'cloudbet', name: 'CloudBet', logo: require('@/assets/images/cloudbet.png.jpeg'), providerCode: 'CLOUDBET' },
+  { id: 'livescorebet', name: 'LiveScoreBet', logo: require('@/assets/images/livescorebet.png.jpeg'), providerCode: 'LIVESCOREBET' },
+  { id: 'naijabet', name: 'NaijaBet', logo: require('@/assets/images/naijabet.png.jpeg'), providerCode: 'NAIJABET' },
+  { id: 'supabet', name: 'SupaBet', logo: require('@/assets/images/supabet.png.jpeg'), providerCode: 'SUPABET' },
 ];
 
 // eBills supported betting providers (from eBills API documentation)
@@ -461,7 +463,7 @@ export default function BettingScreen() {
                              (supabase as any).supabaseUrl ||
                              'https://rekkdwpkzkhgnejgzhac.supabase.co';
 
-          const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
+          const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}_${Math.random().toString(36).substring(7)}`;
 
           console.log('Direct fetch to:', `${supabaseUrl}/functions/v1/purchase-ebills-betting`);
 

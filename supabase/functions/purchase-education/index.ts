@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -355,6 +356,21 @@ serve(async (req) => {
         console.error('Failed to record demo transaction:', transactionError);
       }
 
+      // Send push notification for demo purchase
+      await sendPushNotification(
+        supabaseClient,
+        user.id,
+        'Education Purchase Successful',
+        `₦${totalAmount.toFixed(2)} ${examTypeUpper} PIN purchased successfully (Demo). PIN: ${demoPin}. Reference: ${reference}.`,
+        {
+          type: 'education_purchase',
+          reference,
+          amount: totalAmount,
+          exam_type: examTypeUpper,
+          pin: demoPin,
+        }
+      );
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -467,6 +483,15 @@ serve(async (req) => {
           'Authorization': `Bearer ${mobilenigSecretKey}`,
         },
         body: JSON.stringify(requestBody),
+      }).catch((fetchError) => {
+        // Handle SSL certificate errors specifically
+        if (fetchError.message?.includes('certificate') || 
+            fetchError.message?.includes('Expired') ||
+            fetchError.message?.includes('SSL')) {
+          console.error('MobileNig SSL certificate error:', fetchError.message);
+          throw new Error('Education service is temporarily unavailable due to provider certificate issue. Please try again later or contact support.');
+        }
+        throw fetchError;
       });
 
       const responseText = await response.text();
@@ -573,6 +598,21 @@ serve(async (req) => {
           exam_type: exam_type.toUpperCase(),
           pins_count: pinData.pins?.length || (pinData.pin ? 1 : 0),
         });
+
+        // Send push notification for successful purchase
+        await sendPushNotification(
+          supabaseClient,
+          user.id,
+          'Education Purchase Successful',
+          `₦${totalAmount.toFixed(2)} ${exam_type.toUpperCase()} PIN purchased successfully${pinData.pin ? `. PIN: ${pinData.pin}` : ''}. Reference: ${apiReference}.`,
+          {
+            type: 'education_purchase',
+            reference: apiReference,
+            amount: totalAmount,
+            exam_type: exam_type.toUpperCase(),
+            pin: pinData.pin,
+          }
+        );
 
         // Send email with PDF receipt (non-blocking)
         if (profile.email && pinData.pin) {

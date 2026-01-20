@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl, Modal, Platform } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,6 +8,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -22,6 +25,16 @@ export default function ProfileScreen() {
   const [notificationsUpdating, setNotificationsUpdating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Statement of Account Modal State
+  const [showStatementModal, setShowStatementModal] = useState(false);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
   const isMounted = useRef(true);
 
   const NOTIFICATIONS_ENABLED_KEY = '@netpay_notifications_enabled';
@@ -374,6 +387,29 @@ export default function ProfileScreen() {
     router.push('/privacy-policy');
   }, [router]);
 
+  const handleDownloadStatement = useCallback(async () => {
+    if (!userId) return;
+
+    try {
+      const res = await fetch(`https://netpay.ng/api/print-user-transactions?user_id=${userId}`);
+      if (!res.ok) throw new Error('Failed to generate statement');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      // For web: open in new tab, for mobile: use share or download
+      if (Platform.OS === 'web') {
+        window.open(url, '_blank');
+      } else {
+        // Use expo-file-system and expo-sharing for mobile
+        const fileUri = FileSystem.cacheDirectory + `statement-${userId}.pdf`;
+        await FileSystem.writeAsStringAsync(fileUri, await blob.text(), { encoding: FileSystem.EncodingType.Base64 });
+        await Sharing.shareAsync(fileUri);
+      }
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      Alert.alert('Statement', err instanceof Error ? err.message : 'Failed to download statement');
+    }
+  }, [userId]);
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
@@ -507,6 +543,117 @@ export default function ProfileScreen() {
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
+
+          {/* Statement of Account */}
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => setShowStatementModal(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="description" size={24} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Statement of Account (PDF)</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  Download or email your transaction statement
+                </ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#999" />
+          </TouchableOpacity>
+
+          {/* Statement Modal */}
+          <Modal
+            visible={showStatementModal}
+            animationType="slide"
+            transparent
+            onRequestClose={() => setShowStatementModal(false)}
+          >
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }}>
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '90%' }}>
+                <ThemedText style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>Statement of Account</ThemedText>
+                <ThemedText style={{ marginBottom: 8 }}>Select date range:</ThemedText>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <TouchableOpacity onPress={() => setShowStartPicker(true)} style={{ flex: 1, marginRight: 8, borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 10 }}>
+                    <ThemedText>Start: {startDate ? startDate.toLocaleDateString() : 'Select'}</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setShowEndPicker(true)} style={{ flex: 1, marginLeft: 8, borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 10 }}>
+                    <ThemedText>End: {endDate ? endDate.toLocaleDateString() : 'Select'}</ThemedText>
+                  </TouchableOpacity>
+                </View>
+                {showStartPicker && (
+                  <DateTimePicker
+                    value={startDate || new Date()}
+                    mode="date"
+                    display="default"
+                    onChange={(_, date) => {
+                      setShowStartPicker(false);
+                      if (date) setStartDate(date);
+                    }}
+                  />
+                )}
+                {showEndPicker && (
+                  <DateTimePicker
+                    value={endDate || new Date()}
+                    mode="date"
+                    display="default"
+                    onChange={(_, date) => {
+                      setShowEndPicker(false);
+                      if (date) setEndDate(date);
+                    }}
+                  />
+                )}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: '#FF7F00', borderRadius: 8, padding: 12, marginRight: 8, alignItems: 'center', opacity: downloading ? 0.6 : 1 }}
+                    disabled={downloading}
+                    onPress={async () => {
+                      if (!userId || !startDate || !endDate) return Alert.alert('Select date range');
+                      setDownloading(true);
+                      try {
+                        const url = `https://netpay.ng/api/print-user-transactions?user_id=${userId}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`;
+                        const res = await fetch(url);
+                        if (!res.ok) throw new Error('Failed to generate statement');
+                        const blob = await res.blob();
+                        const fileUri = FileSystem.cacheDirectory + `statement-${userId}.pdf`;
+                        await FileSystem.writeAsStringAsync(fileUri, await blob.text(), { encoding: FileSystem.EncodingType.Base64 });
+                        await Sharing.shareAsync(fileUri);
+                      } catch (err) {
+                        Alert.alert('Statement', err instanceof Error ? err.message : 'Failed to download statement');
+                      } finally {
+                        setDownloading(false);
+                      }
+                    }}
+                  >
+                    <ThemedText style={{ color: '#fff', fontWeight: 'bold' }}>{downloading ? 'Downloading...' : 'Download PDF'}</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: '#007AFF', borderRadius: 8, padding: 12, marginLeft: 8, alignItems: 'center', opacity: sendingEmail ? 0.6 : 1 }}
+                    disabled={sendingEmail}
+                    onPress={async () => {
+                      if (!userId || !userEmail || !startDate || !endDate) return Alert.alert('Select date range');
+                      setSendingEmail(true);
+                      try {
+                        const url = `https://netpay.ng/api/print-user-transactions?user_id=${userId}&start=${startDate.toISOString()}&end=${endDate.toISOString()}&send_email=1&email=${encodeURIComponent(userEmail)}`;
+                        const res = await fetch(url);
+                        if (!res.ok) throw new Error('Failed to send statement');
+                        Alert.alert('Statement', 'Statement sent to your email!');
+                      } catch (err) {
+                        Alert.alert('Statement', err instanceof Error ? err.message : 'Failed to send statement');
+                      } finally {
+                        setSendingEmail(false);
+                      }
+                    }}
+                  >
+                    <ThemedText style={{ color: '#fff', fontWeight: 'bold' }}>{sendingEmail ? 'Sending...' : 'Send to Email'}</ThemedText>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity onPress={() => setShowStatementModal(false)} style={{ marginTop: 20, alignItems: 'center' }}>
+                  <ThemedText style={{ color: '#FF3B30', fontWeight: 'bold' }}>Cancel</ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </View>
 
         {/* Legal Section */}
@@ -561,6 +708,91 @@ export default function ProfileScreen() {
 
         <View style={{ height: 16 }} />
       </ScrollView>
+
+      {/* Statement Modal */}
+      <Modal
+        visible={showStatementModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowStatementModal(false)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <ThemedText style={styles.modalTitle}>Download Statement of Account</ThemedText>
+            <ThemedText style={styles.modalDescription}>
+              Select a date range for your statement
+            </ThemedText>
+
+            {/* Date Pickers */}
+            <View style={styles.datePickerContainer}>
+              <View style={styles.datePickerWrapper}>
+                <ThemedText style={styles.datePickerLabel}>Start Date</ThemedText>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowStartPicker(true)}>
+                  <ThemedText style={styles.datePickerText}>
+                    {startDate ? startDate.toLocaleDateString() : 'Select start date'}
+                  </ThemedText>
+                  <MaterialIcons name="calendar-today" size={20} color="#FF7F00" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.datePickerWrapper}>
+                <ThemedText style={styles.datePickerLabel}>End Date</ThemedText>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowEndPicker(true)}>
+                  <ThemedText style={styles.datePickerText}>
+                    {endDate ? endDate.toLocaleDateString() : 'Select end date'}
+                  </ThemedText>
+                  <MaterialIcons name="calendar-today" size={20} color="#FF7F00" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* DateTimePicker for selecting dates */}
+            {showStartPicker && (
+              <DateTimePicker
+                value={startDate || new Date()}
+                mode="date"
+                display="default"
+                onChange={(event, date) => {
+                  setShowStartPicker(false);
+                  if (date) {
+                    setStartDate(date);
+                  }
+                }}
+              />
+            )}
+            {showEndPicker && (
+              <DateTimePicker
+                value={endDate || new Date()}
+                mode="date"
+                display="default"
+                onChange={(event, date) => {
+                  setShowEndPicker(false);
+                  if (date) {
+                    setEndDate(date);
+                  }
+                }}
+              />
+            )}
+
+            <TouchableOpacity
+              style={styles.downloadButton}
+              onPress={handleDownloadStatement}>
+              <ThemedText style={styles.downloadButtonText}>
+                {downloading ? 'Sending...' : 'Download Statement'}
+              </ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowStatementModal(false)}>
+              <ThemedText style={styles.closeButtonText}>Close</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -685,6 +917,85 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FF3B30',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  modalContent: {
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    elevation: 4,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  datePickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  datePickerWrapper: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  datePickerLabel: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 4,
+  },
+  datePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FF7F00',
+  },
+  datePickerText: {
+    fontSize: 16,
+    color: '#333',
+    marginRight: 8,
+  },
+  downloadButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  downloadButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  closeButton: {
+    backgroundColor: '#ccc',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
   },
 });
 

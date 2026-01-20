@@ -391,6 +391,7 @@ serve(async (req) => {
       `${formattedAmount} airtime purchased for ${sanitizedPhone} on ${displayNetwork}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
       {
         type: 'airtime_purchase',
+        transactionType: 'airtime_purchase',
         reference,
         amount: normalizedAmount,
         phone_number: sanitizedPhone,

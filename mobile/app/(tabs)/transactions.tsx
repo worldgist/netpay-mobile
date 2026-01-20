@@ -37,6 +37,12 @@ const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   BETWAY: require('@/assets/images/betway.png'),
   ACCESSBET: require('@/assets/images/accessbet.png'),
   MERRYBET: require('@/assets/images/merrybet.png'),
+  BANGBET: require('@/assets/images/bangbet.png.jpeg'),
+  BETLAND: require('@/assets/images/betland.png.jpeg'),
+  CLOUDBET: require('@/assets/images/cloudbet.png.jpeg'),
+  LIVESCOREBET: require('@/assets/images/livescorebet.png.jpeg'),
+  NAIJABET: require('@/assets/images/naijabet.png.jpeg'),
+  SUPABET: require('@/assets/images/supabet.png.jpeg'),
 };
 
 const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
@@ -126,6 +132,7 @@ export default function TransactionsScreen() {
       }
 
       const userId = session.user.id;
+      console.log('Fetching transactions for user:', userId);
 
       const [walletRes, airtimeRes, dataRes, electricityRes, educationRes, bettingRes, transfersSentRes, transfersReceivedRes] = await Promise.all([
         supabase
@@ -177,6 +184,18 @@ export default function TransactionsScreen() {
           .order('created_at', { ascending: false })
           .limit(50),
       ]);
+
+      // Log electricity transactions for debugging
+      console.log('Electricity transactions query result:', {
+        success: !electricityRes.error,
+        error: electricityRes.error,
+        count: electricityRes.data?.length || 0,
+        data: electricityRes.data,
+      });
+
+      if (electricityRes.error) {
+        console.error('Error fetching electricity transactions:', electricityRes.error);
+      }
 
       const walletTransactions: MobileTransaction[] = (walletRes.data || []).map((txn) => {
         const createdDate = new Date(txn.created_at);

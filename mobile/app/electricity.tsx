@@ -142,7 +142,6 @@ export default function ElectricityScreen() {
   const [token, setToken] = useState<string | null>(null);
   const [transactionReference, setTransactionReference] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<string | null>(null);
-  const [statusChecking, setStatusChecking] = useState<boolean>(false);
   const [providerFilter, setProviderFilter] = useState('all');
   const [balance, setBalance] = useState<number>(0);
   const [isDemoUser, setIsDemoUser] = useState(false);
@@ -868,6 +867,21 @@ export default function ElectricityScreen() {
           const errorMsg = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
           const errorDetails = responseData?.details || {};
           
+          // Check if it's a duplicate order error (409 status code)
+          const isDuplicateOrder = 
+            response.status === 409 ||
+            errorMsg.toLowerCase().includes('duplicate order') ||
+            errorMsg.toLowerCase().includes('duplicate_order') ||
+            errorDetails?.code === 'duplicate_order' ||
+            responseData?.code === 'duplicate_order';
+          
+          if (isDuplicateOrder) {
+            const error = new Error(errorMsg);
+            (error as any).code = 'duplicate_order';
+            (error as any).details = errorDetails;
+            throw error;
+          }
+          
           // Check if it's an invalid meter error
           const detailsText = typeof errorDetails === 'string' 
             ? errorDetails 
@@ -1241,6 +1255,7 @@ export default function ElectricityScreen() {
       const isDuplicateOrder = 
         message.toLowerCase().includes('duplicate order') ||
         message.toLowerCase().includes('duplicate_order') ||
+        (purchaseError as any)?.code === 'duplicate_order' ||
         errorObj?.code === 'duplicate_order' ||
         errorObj?.details?.code === 'duplicate_order' ||
         purchaseError?.code === 'duplicate_order';
@@ -1330,83 +1345,6 @@ export default function ElectricityScreen() {
       setTransactionStatus('Failed');
     }
   }, [amount, fetchBalance, meterNumber, meterType, phoneNumber, providers, router, selectedProvider, verifiedName, verifiedAddress]);
-
-  const handleCheckStatus = useCallback(async () => {
-    if (!transactionReference) {
-      Alert.alert('Status', 'No transaction reference to query yet.');
-      return;
-    }
-
-    try {
-      setStatusChecking(true);
-      const { data, error } = await supabase.functions.invoke('query-electricity-transaction', {
-        body: { trans_id: transactionReference },
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (!data?.success) {
-        const detailMessage =
-          data?.details?.message ||
-          data?.details?.error ||
-          data?.error ||
-          'Unable to query transaction status.';
-        throw new Error(detailMessage);
-      }
-
-      const status = data?.data?.status || 'UNKNOWN';
-      setTransactionStatus(status);
-
-      const details = data?.data;
-      if (details?.customer_name) {
-        setVerifiedName(details.customer_name);
-      }
-      if (details?.customer_address) {
-        setVerifiedAddress(details.customer_address);
-      }
-      if (details?.token) {
-        setToken(String(details.token));
-      }
-      if (details?.trans_id) {
-        setTransactionReference(String(details.trans_id));
-      }
-
-      Alert.alert(
-        'Transaction Status',
-        `Status: ${status}\nService: ${details?.service}\nCustomer Ref: ${details?.customerReference}\nToken: ${details?.token || 'N/A'}\nReceipt: ${details?.receiptNumber || 'N/A'}`,
-      );
-    } catch (statusError) {
-      console.error('Electricity status check failed:', statusError);
-      let message = 'Unable to query transaction status. Please try again.';
-
-      if (statusError instanceof Error) {
-        message = statusError.message || message;
-      }
-
-      const context = (statusError as any)?.context;
-      if (context?.body) {
-        try {
-          const body = typeof context.body === 'string' ? JSON.parse(context.body) : context.body;
-          const bodyMessage =
-            body?.error ||
-            body?.message ||
-            body?.details?.error ||
-            body?.details?.message;
-          if (bodyMessage) {
-            message = bodyMessage;
-          }
-        } catch (_err) {
-          // ignore parse error
-        }
-      }
-
-      Alert.alert('Status Check', message);
-    } finally {
-      setStatusChecking(false);
-    }
-  }, [transactionReference]);
 
   const getProviderLogo = (providerId: string | null) => {
     if (!providerId) return null;
@@ -1517,6 +1455,30 @@ export default function ElectricityScreen() {
               onSelect={setSelectedProvider}
               placeholder="Select an electricity provider"
             />
+          </View>
+
+          {/* Meter Type */}
+          <View style={styles.section}>
+            <ThemedText style={styles.inputLabel}>Meter Type</ThemedText>
+            <View style={styles.meterTypeRow}>
+              {meterTypeOptions.map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.meterTypeChip, meterType === type && styles.meterTypeChipActive]}
+                  onPress={() => {
+                    setMeterType(type);
+                    setVerifiedName(null);
+                    setVerifiedAddress(null);
+                    setMeterInfo(null);
+                    setToken(null);
+                  }}
+                >
+                  <ThemedText style={[styles.meterTypeText, meterType === type && styles.meterTypeTextActive]}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </ThemedText>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           {/* Meter Number Input */}
@@ -1660,55 +1622,13 @@ export default function ElectricityScreen() {
             ) : null}
             {/* Service IDs are managed internally; no longer shown to users */}
           </View>
-
-          {/* Meter Type */}
-          <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Meter Type</ThemedText>
-            <View style={styles.meterTypeRow}>
-              {meterTypeOptions.map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[styles.meterTypeChip, meterType === type && styles.meterTypeChipActive]}
-                  onPress={() => {
-                    setMeterType(type);
-                    setVerifiedName(null);
-                    setVerifiedAddress(null);
-                    setMeterInfo(null);
-                    setToken(null);
-                  }}
-                >
-                  <ThemedText style={[styles.meterTypeText, meterType === type && styles.meterTypeTextActive]}>
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </ThemedText>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
         </ScrollView>
 
         {/* Continue Button */}
         <View style={styles.buttonContainer}>
-          <View style={styles.primaryActionsRow}>
-            <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.statusButton, (!transactionReference || statusChecking) && styles.statusButtonDisabled]}
-              onPress={handleCheckStatus}
-              disabled={!transactionReference || statusChecking}>
-              {statusChecking ? (
-                <ActivityIndicator color="#FF7F00" />
-              ) : (
-                <ThemedText
-                  style={[
-                    styles.statusButtonText,
-                    (!transactionReference || statusChecking) && styles.statusButtonTextDisabled,
-                  ]}>
-                  Check Status
-                </ThemedText>
-              )}
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+            <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
+          </TouchableOpacity>
 
           {transactionStatus ? (
             <View style={styles.statusBanner}>
@@ -1997,43 +1917,17 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
     paddingTop: 10,
   },
-  primaryActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
-  },
   continueButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
-    flex: 1,
+    width: '100%',
   },
   continueButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-  },
-  statusButton: {
-    borderWidth: 1.5,
-    borderColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusButtonDisabled: {
-    opacity: 0.6,
-  },
-  statusButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FF7F00',
-  },
-  statusButtonTextDisabled: {
-    color: '#B0B0B0',
   },
   statusBanner: {
     flexDirection: 'row',

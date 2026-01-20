@@ -126,19 +126,21 @@ serve(async (req) => {
     const serviceId = getEBillsBettingServiceId(betting_provider);
     
     // Generate unique request ID if not provided
-    const requestId = request_id || `req_${Date.now()}_${user.id.substring(0, 8)}`;
+    const requestId = request_id || `req_${Date.now()}_${user.id.substring(0, 8)}_${Math.random().toString(36).substring(7)}`;
 
-    // Check for duplicate request_id
+    // Check for duplicate request_id only for recent transactions (within last 2 minutes)
     if (request_id) {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
       const { data: existingTransaction } = await supabase
         .from('betting_transactions')
-        .select('id')
+        .select('id, created_at')
         .eq('reference', requestId)
+        .gte('created_at', twoMinutesAgo)
         .maybeSingle();
 
       if (existingTransaction) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Duplicate request ID' }),
+          JSON.stringify({ success: false, error: 'Duplicate request detected. Please wait a moment before trying again.' }),
           { status: 409, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
         );
       }
@@ -374,10 +376,14 @@ serve(async (req) => {
           customer_email_address: purchaseResult.data.customer_email_address,
           customer_phone_number: purchaseResult.data.customer_phone_number,
           amount: purchaseAmount,
-          amount_charged: isRefunded ? '0.00' : purchaseResult.data.amount_charged,
+          purchase_amount: purchaseAmount,
+          charge_fee: isRefunded ? 0 : chargeFee,
+          amount_charged: isRefunded ? 0 : totalAmount,
+          total_amount: isRefunded ? 0 : totalAmount,
           discount: purchaseResult.data.discount,
           initial_balance: purchaseResult.data.initial_balance,
           final_balance: purchaseResult.data.final_balance,
+          api_amount_charged: purchaseResult.data.amount_charged,
           status: purchaseResult.data.status,
           transaction_status: transactionStatus,
           balance_before: debitResult.balanceBefore,

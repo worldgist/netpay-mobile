@@ -91,11 +91,8 @@ export default function CableTVScreen() {
         .eq('setting_key', 'cable_provider')
         .maybeSingle();
 
-      const rawProvider = providerSetting?.setting_value?.provider || 'ebills';
-      // Normalize provider value (handle both 'ebills' and 'ebills.africa')
-      // Also migrate 'mobilenig' to 'ebills' if found
-      const normalizedProvider = rawProvider === 'ebills.africa' ? 'ebills' : (rawProvider === 'mobilenig' ? 'ebills' : rawProvider);
-      const vendingProvider = normalizedProvider;
+      const rawProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+      const vendingProvider = rawProvider;
       console.log('Cable TV vending provider (fetchPackagesForAllProviders):', vendingProvider, '(raw:', rawProvider, ')');
 
       // Fetch packages for each static provider from API
@@ -110,17 +107,17 @@ export default function CableTVScreen() {
           if (vendingProvider === 'vtpass') {
             functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
-          } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
-            functionName = 'fetch-ebills-cable-packages';
+          } else if (vendingProvider === 'mobilenig') {
+            functionName = 'fetch-mobilenig-cable-packages';
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'anyone') {
-            // ANYONE provider - use eBills as fallback
-            functionName = 'fetch-ebills-cable-packages';
+            // ANYONE provider - use VTpass as fallback
+            functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
           } else {
-            // Default to eBills if unknown provider
-            console.warn(`Unknown provider: ${vendingProvider}, defaulting to eBills`);
-            functionName = 'fetch-ebills-cable-packages';
+            // Default to VTpass if unknown provider
+            console.warn(`Unknown provider: ${vendingProvider}, defaulting to VTpass`);
+            functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
           }
 
@@ -392,11 +389,8 @@ export default function CableTVScreen() {
         .eq('setting_key', 'cable_provider')
         .maybeSingle();
 
-      const rawProvider = providerSetting?.setting_value?.provider || 'ebills';
-      // Normalize provider value (handle both 'ebills' and 'ebills.africa')
-      // Also migrate 'mobilenig' to 'ebills' if found
-      const normalizedProvider = rawProvider === 'ebills.africa' ? 'ebills' : (rawProvider === 'mobilenig' ? 'ebills' : rawProvider);
-      const vendingProvider = normalizedProvider;
+      const rawProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+      const vendingProvider = rawProvider;
       console.log('Cable TV vending provider (fetchPackagesFromAPI):', vendingProvider, '(raw:', rawProvider, ')');
 
       // Fetch packages for each static provider
@@ -409,17 +403,17 @@ export default function CableTVScreen() {
           if (vendingProvider === 'vtpass') {
             functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
-          } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
-            functionName = 'fetch-ebills-cable-packages';
+          } else if (vendingProvider === 'mobilenig') {
+            functionName = 'fetch-mobilenig-cable-packages';
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'anyone') {
-            // ANYONE provider - use eBills as fallback
-            functionName = 'fetch-ebills-cable-packages';
+            // ANYONE provider - use VTpass as fallback
+            functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
           } else {
-            // Default to eBills if unknown provider
-            console.warn(`Unknown provider: ${vendingProvider}, defaulting to eBills`);
-            functionName = 'fetch-ebills-cable-packages';
+            // Default to VTpass if unknown provider
+            console.warn(`Unknown provider: ${vendingProvider}, defaulting to VTpass`);
+            functionName = 'fetch-vtpass-cable-packages';
             requestBody = { provider: provider.name };
           }
 

@@ -140,27 +140,29 @@ const PurchaseCableTv = () => {
       setLoadingPlans(true);
       try {
         // Get the active cable vending provider setting
-        const { data: providerSetting } = await supabase
+        const { data: providerSetting, error: settingError } = await supabase
           .from('app_settings')
           .select('setting_value')
           .eq('setting_key', 'cable_provider')
           .maybeSingle();
 
-        const vendingProvider = providerSetting?.setting_value?.provider || 'ebills';
+        console.log('Cable provider query result:', { providerSetting, settingError });
+
+        const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
         console.log('Fetching cable plans for provider:', selectedProvider, 'from vending provider:', vendingProvider);
+        console.log('Provider setting data:', providerSetting);
 
         // Determine which API function to call based on vending provider
         let apiFunctionName = '';
         if (vendingProvider === 'mobilenig') {
-          apiFunctionName = 'fetch-cable-packages';
+          apiFunctionName = 'fetch-mobilenig-cable-packages';
         } else if (vendingProvider === 'vtpass') {
           apiFunctionName = 'fetch-vtpass-cable-packages';
-        } else if (vendingProvider === 'ebills') {
-          apiFunctionName = 'fetch-ebills-cable-packages';
         }
 
         // If using a supported API provider, try fetching packages directly from API first
         if (apiFunctionName) {
+          console.log('Invoking edge function:', apiFunctionName);
           try {
             const { data: apiData, error: apiError } = await supabase.functions.invoke(apiFunctionName, {
               body: {
@@ -168,6 +170,8 @@ const PurchaseCableTv = () => {
                 vending_provider: vendingProvider
               }
             });
+
+            console.log('API Response:', { apiData, apiError });
 
             if (!apiError && apiData?.success && apiData?.data?.length > 0) {
               // Transform API response to match our format

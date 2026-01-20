@@ -375,6 +375,12 @@ function TransactionDetailsScreen() {
           // Extract token - check database field first, then api_response
           let extractedToken = data.token;
           
+          console.log('Transaction details - Electricity token extraction:', {
+            hasDbToken: !!extractedToken,
+            dbToken: extractedToken,
+            hasApiResponse: !!(data as any).api_response,
+          });
+          
           // If token is null, try to extract from api_response
           if (!extractedToken && (data as any).api_response) {
             const apiResponse = (data as any).api_response;
@@ -384,6 +390,12 @@ function TransactionDetailsScreen() {
                             apiResponse?.details?.token ||
                             null;
             
+            console.log('Transaction details - Token from api_response:', {
+              foundToken: !!extractedToken,
+              tokenValue: extractedToken,
+              apiResponseDataKeys: apiResponse?.data ? Object.keys(apiResponse.data) : [],
+            });
+            
             // Convert to string and validate
             if (extractedToken) {
               extractedToken = String(extractedToken).trim();
@@ -392,6 +404,11 @@ function TransactionDetailsScreen() {
               }
             }
           }
+          
+          console.log('Transaction details - Final token for metadata:', {
+            hasToken: !!extractedToken,
+            tokenValue: extractedToken,
+          });
           
           detail = {
             id: data.id,

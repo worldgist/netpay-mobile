@@ -645,10 +645,6 @@ serve(async (req) => {
       return await verifyWithVTpass(card_number, provider, corsHeaders);
     }
 
-    if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
-      return await verifyWithEBills(card_number, provider, corsHeaders);
-    }
-
     // Default to MobileNig verification
     return await verifyWithMobileNig(card_number, provider, corsHeaders);
 

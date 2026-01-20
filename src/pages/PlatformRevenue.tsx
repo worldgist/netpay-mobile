@@ -43,10 +43,14 @@ interface RevenueStats {
   educationRevenue: number;
   electricityRevenue: number;
   dataRevenue: number;
+  bettingRevenue: number;
+  cableTvRevenue: number;
   totalTransactions: number;
   educationTransactions: number;
   electricityTransactions: number;
   dataTransactions: number;
+  bettingTransactions: number;
+  cableTvTransactions: number;
   averageRevenuePerTransaction: number;
 }
 
@@ -57,10 +61,14 @@ export default function PlatformRevenue() {
     educationRevenue: 0,
     electricityRevenue: 0,
     dataRevenue: 0,
+    bettingRevenue: 0,
+    cableTvRevenue: 0,
     totalTransactions: 0,
     educationTransactions: 0,
     electricityTransactions: 0,
     dataTransactions: 0,
+    bettingTransactions: 0,
+    cableTvTransactions: 0,
     averageRevenuePerTransaction: 0,
   });
   const [loading, setLoading] = useState(false);
@@ -185,10 +193,18 @@ export default function PlatformRevenue() {
       const dataRevenue = revenueData
         .filter(r => r.transaction_type === 'data')
         .reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0);
+      const bettingRevenue = revenueData
+        .filter(r => r.transaction_type === 'betting')
+        .reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0);
+      const cableTvRevenue = revenueData
+        .filter(r => r.transaction_type === 'cable_tv')
+        .reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0);
       const totalTransactions = revenueData.length;
       const educationTransactions = revenueData.filter(r => r.transaction_type === 'education').length;
       const electricityTransactions = revenueData.filter(r => r.transaction_type === 'electricity').length;
       const dataTransactions = revenueData.filter(r => r.transaction_type === 'data').length;
+      const bettingTransactions = revenueData.filter(r => r.transaction_type === 'betting').length;
+      const cableTvTransactions = revenueData.filter(r => r.transaction_type === 'cable_tv').length;
       const averageRevenuePerTransaction = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
 
       setStats({
@@ -196,13 +212,17 @@ export default function PlatformRevenue() {
         educationRevenue,
         electricityRevenue,
         dataRevenue,
+        bettingRevenue,
+        cableTvRevenue,
         totalTransactions,
         educationTransactions,
         electricityTransactions,
         dataTransactions,
+        bettingTransactions,
+        cableTvTransactions,
         averageRevenuePerTransaction,
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching revenue stats:', error);
     }
   };
@@ -223,6 +243,12 @@ export default function PlatformRevenue() {
         return 'default';
       case 'electricity':
         return 'secondary';
+      case 'betting':
+        return 'destructive';
+      case 'cable_tv':
+        return 'default';
+      case 'data':
+        return 'outline';
       default:
         return 'outline';
     }
@@ -297,6 +323,32 @@ export default function PlatformRevenue() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Betting Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.bettingRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.bettingTransactions} transactions (10% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Cable TV Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.cableTvRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.cableTvTransactions} transactions (10% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Avg Revenue/Transaction</CardTitle>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
@@ -354,6 +406,8 @@ export default function PlatformRevenue() {
                       <SelectItem value="education">Education</SelectItem>
                       <SelectItem value="electricity">Electricity</SelectItem>
                       <SelectItem value="data">Data</SelectItem>
+                      <SelectItem value="betting">Betting</SelectItem>
+                      <SelectItem value="cable_tv">Cable TV</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={dateFilter} onValueChange={setDateFilter}>

@@ -123,7 +123,8 @@ serve(async (req) => {
       // Android requires channelId to be specified in the push notification payload
       if (platform === "android") {
         // Use "transactions" channel for transaction-related notifications, "default" for others
-        const channelId = (item.data?.transactionType || item.data?.reference) ? "transactions" : "default";
+        // Check for both 'transactionType' and 'type' fields for backward compatibility
+        const channelId = (item.data?.transactionType || item.data?.type || item.data?.reference) ? "transactions" : "default";
         message.channelId = channelId;
       }
 

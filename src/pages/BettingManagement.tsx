@@ -70,7 +70,8 @@ export default function BettingManagement() {
       }
 
       if (data?.setting_value) {
-        const provider = (data.setting_value as any)?.provider || 'ebills';
+        const settingValue = data.setting_value as { provider?: string } | null;
+        const provider = settingValue?.provider || 'ebills';
         const validProviders: BettingVendingProvider[] = ['vtpass', 'mobilenig', 'smeplug', 'ebills'];
         const selectedProvider = validProviders.includes(provider as BettingVendingProvider) 
           ? (provider as BettingVendingProvider)
@@ -110,11 +111,11 @@ export default function BettingManagement() {
         title: "Success",
         description: `Betting vending provider switched to ${newProvider.toUpperCase()}. This will be used as the default for all betting purchases.`,
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error updating betting provider:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update betting provider",
+        description: error instanceof Error ? error.message : "Failed to update betting provider",
         variant: "destructive",
       });
     } finally {
@@ -152,11 +153,11 @@ export default function BettingManagement() {
       }
 
       setTransactions(data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching transactions:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to fetch betting transactions",
+        description: error instanceof Error ? error.message : "Failed to fetch betting transactions",
         variant: "destructive",
       });
     } finally {
@@ -187,6 +188,13 @@ export default function BettingManagement() {
       'BETWAY': '/betway.png',
       'ACCESSBET': '/accessbet.png',
       'MERRYBET': '/merrybet.png',
+      'BANGBET': '/bangbet.png',
+      'BETLAND': '/betland.png',
+      'BETLION': '/betlion.png',
+      'CLOUDBET': '/cloudbet.png',
+      'LIVESCOREBET': '/livescorebet.png',
+      'NAIJABET': '/naijabet.png',
+      'SUPABET': '/supabet.png',
     };
     return logos[provider.toUpperCase()] || '';
   };

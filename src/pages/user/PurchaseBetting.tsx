@@ -29,18 +29,20 @@ interface BettingProvider {
 
 const providers: BettingProvider[] = [
   { id: 'bet9ja', name: 'Bet9ja', logo: '/bet9ja.png', providerCode: 'BET9JA' },
+  { id: 'sportybet', name: 'SportyBet', logo: '/sportybet.png', providerCode: 'SPORTYBET' },
   { id: 'nairabet', name: 'Nairabet', logo: '/nairabet.png', providerCode: 'NAIRABET' },
   { id: '1xbet', name: '1xBet', logo: '/1xbet.png', providerCode: '1XBET' },
   { id: 'betking', name: 'BetKing', logo: '/betking.png', providerCode: 'BETKING' },
   { id: 'betway', name: 'Betway', logo: '/betway.png', providerCode: 'BETWAY' },
+  { id: 'accessbet', name: 'AccessBet', logo: '/accessbet.png', providerCode: 'ACCESSBET' },
   { id: 'merrybet', name: 'MerryBet', logo: '/merrybet.png', providerCode: 'MERRYBET' },
-  { id: 'bangbet', name: 'BangBet', logo: '/logo.png', providerCode: 'BANGBET' },
-  { id: 'betland', name: 'BetLand', logo: '/logo.png', providerCode: 'BETLAND' },
-  { id: 'betlion', name: 'BetLion', logo: '/logo.png', providerCode: 'BETLION' },
-  { id: 'cloudbet', name: 'CloudBet', logo: '/logo.png', providerCode: 'CLOUDBET' },
-  { id: 'livescorebet', name: 'LiveScoreBet', logo: '/logo.png', providerCode: 'LIVESCOREBET' },
-  { id: 'naijabet', name: 'NaijaBet', logo: '/logo.png', providerCode: 'NAIJABET' },
-  { id: 'supabet', name: 'SupaBet', logo: '/logo.png', providerCode: 'SUPABET' },
+  { id: 'bangbet', name: 'BangBet', logo: '/bangbet.png', providerCode: 'BANGBET' },
+  { id: 'betland', name: 'BetLand', logo: '/betland.png', providerCode: 'BETLAND' },
+  { id: 'betlion', name: 'BetLion', logo: '/betlion.png', providerCode: 'BETLION' },
+  { id: 'cloudbet', name: 'CloudBet', logo: '/cloudbet.png', providerCode: 'CLOUDBET' },
+  { id: 'livescorebet', name: 'LiveScoreBet', logo: '/livescorebet.png', providerCode: 'LIVESCOREBET' },
+  { id: 'naijabet', name: 'NaijaBet', logo: '/naijabet.png', providerCode: 'NAIJABET' },
+  { id: 'supabet', name: 'SupaBet', logo: '/supabet.png', providerCode: 'SUPABET' },
 ];
 
 const PurchaseBetting = () => {

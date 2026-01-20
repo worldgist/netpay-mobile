@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendPushNotification } from "./push-notifications.ts";
 
 type DebitOptions = {
   supabase: SupabaseClient;
@@ -130,6 +131,19 @@ export const debitUserWallet = async ({
         if (recipientError) {
           console.error("Failed to create notification recipient record:", recipientError);
         }
+
+        // Send push notification to user's device
+        await sendPushNotification(
+          supabase,
+          userId,
+          notification.title,
+          notification.message,
+          {
+            type: transactionType,
+            reference: txReference,
+            amount: debitAmount,
+          }
+        );
       }
     } catch (notificationException) {
       console.error("Unexpected error while creating notification:", notificationException);
@@ -269,6 +283,19 @@ export const creditUserWallet = async ({
         if (recipientError) {
           console.error("Failed to create notification recipient record:", recipientError);
         }
+
+        // Send push notification to user's device
+        await sendPushNotification(
+          supabase,
+          userId,
+          notification.title,
+          notification.message,
+          {
+            type: transactionType,
+            reference: txReference,
+            amount: creditAmount,
+          }
+        );
       }
     } catch (notificationException) {
       console.error("Unexpected error while creating notification:", notificationException);
