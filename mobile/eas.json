@@ -30,6 +30,9 @@
       },
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_USE_COMMUNITY_AUTOLINKING": "0"
       }
     }
   },

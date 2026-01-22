@@ -62,7 +62,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -78,13 +78,9 @@
           "icon": "./assets/images/logo.png",
           "color": "#ffffff",
           "mode": "production",
-          "sounds": [
-            "default"
-          ],
           "android": {
             "icon": "./assets/images/logo.png",
             "color": "#ffffff",
-            "sound": "default",
             "enableVibration": true
           }
         }
