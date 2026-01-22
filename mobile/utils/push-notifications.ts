@@ -158,14 +158,19 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
     // Set up Android notification channels BEFORE requesting permissions
     // This is critical for Android - channels must exist before permission request
     if (Platform.OS === 'android') {
+      console.log('Setting up Android notification channels before permission request...');
       await setupAndroidChannels(notifications);
     }
 
     // Request permissions - Android 13+ requires explicit permission
+    console.log('Checking notification permissions...');
     const { status: existingStatus } = await notifications.getPermissionsAsync();
+    console.log('Current permission status:', existingStatus);
+    
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
+      console.log('Requesting notification permissions...');
       // For Android, request permissions with proper options
       const permissionRequest = Platform.OS === 'android'
         ? await notifications.requestPermissionsAsync({
@@ -179,6 +184,14 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
         : await notifications.requestPermissionsAsync();
       
       finalStatus = permissionRequest.status;
+      console.log('Permission request result:', {
+        status: finalStatus,
+        granted: finalStatus === 'granted',
+        canAskAgain: permissionRequest.canAskAgain,
+        platform: Platform.OS,
+      });
+    } else {
+      console.log('Notification permissions already granted');
     }
 
     if (finalStatus !== 'granted') {
@@ -200,19 +213,46 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
     
     // Add Android-specific options if on Android
     if (Platform.OS === 'android') {
-      tokenOptions.applicationId = Constants.expoConfig?.android?.package || 'com.netpay.mobile';
+      const androidPackage = Constants.expoConfig?.android?.package || 'com.netpay.mobile';
+      tokenOptions.applicationId = androidPackage;
+      
+      console.log('Android token options:', {
+        projectId,
+        applicationId: androidPackage,
+      });
     }
     
     // Get Expo push token - this is critical and must succeed
     let expoToken: string;
     try {
+      console.log('Requesting Expo push token with options:', {
+        platform: Platform.OS,
+        hasProjectId: !!tokenOptions.projectId,
+        hasApplicationId: !!tokenOptions.applicationId,
+      });
+      
       const tokenResult = await notifications.getExpoPushTokenAsync(tokenOptions);
+      
       if (!tokenResult?.data) {
         throw new Error('Failed to get Expo push token: token data is empty');
       }
+      
       expoToken = tokenResult.data;
+      
+      console.log('Expo push token obtained successfully:', {
+        platform: Platform.OS,
+        tokenLength: expoToken.length,
+        tokenPrefix: expoToken.substring(0, 30),
+        tokenStartsWith: expoToken.startsWith('ExponentPushToken'),
+      });
     } catch (tokenError) {
-      console.error('Failed to get Expo push token:', tokenError);
+      console.error('Failed to get Expo push token:', {
+        error: tokenError,
+        message: tokenError instanceof Error ? tokenError.message : 'Unknown error',
+        platform: Platform.OS,
+        projectId,
+        applicationId: tokenOptions.applicationId,
+      });
       return { 
         registered: false, 
         reason: `Failed to obtain push token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}` 
@@ -342,7 +382,10 @@ export const scheduleLocalNotification = async (
         body,
         data,
       },
-      trigger: { seconds },
+      trigger: {
+        type: 'timeInterval',
+        seconds,
+      },
     });
   } catch (error) {
     console.warn('Failed to schedule local notification:', error);

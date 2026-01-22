@@ -105,11 +105,8 @@ serve(async (req) => {
     console.log('Push token registered successfully:', {
       platform: platform,
       userId: userData.user.id,
+      tokenPrefix: expoToken.substring(0, 20),
     });
-
-    if (upsertError) {
-      throw upsertError;
-    }
 
     return new Response(
       JSON.stringify({ success: true }),

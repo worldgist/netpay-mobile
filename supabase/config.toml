@@ -86,3 +86,6 @@ verify_jwt = true
 
 [functions.create-demo-user]
 verify_jwt = false
+
+[functions.statement-of-account]
+verify_jwt = true

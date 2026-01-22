@@ -231,6 +231,7 @@ export default function RootLayout() {
           <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
           <Stack.Screen name="delete-account" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="edit-profile" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="statement-of-account" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="referral" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="contact-us" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />

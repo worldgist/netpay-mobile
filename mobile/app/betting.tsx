@@ -10,6 +10,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InvalidAccountModal } from '@/components/invalid-account-modal';
+import { NetworkUnavailableModal } from '@/components/network-unavailable-modal';
+import Constants from 'expo-constants';
 
 type BettingProvider = {
   id: string;
@@ -68,7 +70,12 @@ export default function BettingScreen() {
   const [verifyingCustomer, setVerifyingCustomer] = useState(false);
   const [showInvalidAccountModal, setShowInvalidAccountModal] = useState(false);
   const [invalidAccountError, setInvalidAccountError] = useState<string>('');
+  const [showNetworkUnavailableModal, setShowNetworkUnavailableModal] = useState(false);
   const isMounted = useRef(true);
+  
+  // Check if we're in production (not Expo Go)
+  // In production builds, executionEnvironment will be 'standalone' or 'bare'
+  const isProduction = Constants.executionEnvironment !== 'storeClient';
 
   useEffect(() => {
     isMounted.current = true;
@@ -673,28 +680,58 @@ export default function BettingScreen() {
         fullError: JSON.stringify(purchaseError, Object.getOwnPropertyNames(purchaseError), 2)
       });
       
-      let message = 'Unable to complete betting purchase. Please try again.';
+      // Close modal first
+      setShowConfirmModal(false);
+      setPurchasing(false);
       
-      // Handle network errors
-      const errorMessage = purchaseError?.message || String(purchaseError);
+      // Extract error message from various sources
+      const errorMessage = purchaseError?.message || purchaseError?.error || String(purchaseError || '');
       const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
       const errorStack = purchaseError?.stack || '';
-      const isNetworkError = errorMessage.includes('Network request failed') ||
-                            errorMessage.includes('Failed to send a request to the Edge Function') ||
-                            errorMessage.includes('Failed to fetch') ||
-                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
-                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
-                            errorMessage.includes('TypeError') ||
+      const errorCode = purchaseError?.code || purchaseError?.details?.code || '';
+      const errorDetails = purchaseError?.details || purchaseError?.data || {};
+      
+      // Check for network/API/provider errors
+      const isNetworkError = errorMessage.toLowerCase().includes('network request failed') ||
+                            errorMessage.toLowerCase().includes('failed to send a request to the edge function') ||
+                            errorMessage.toLowerCase().includes('failed to fetch') ||
+                            errorMessage.toLowerCase().includes('err_internet_disconnected') ||
+                            errorMessage.toLowerCase().includes('err_network_changed') ||
+                            errorMessage.toLowerCase().includes('network error') ||
                             errorStack.includes('fetch.umd.js') ||
                             errorStack.includes('Network request failed') ||
                             errorName === 'FunctionsFetchError' ||
                             errorName === 'TypeError' ||
-                            purchaseError?.code === 'NETWORK_ERROR';
+                            errorCode === 'NETWORK_ERROR';
       
+      // Check for API/provider errors
+      const isApiError = errorMessage.toLowerCase().includes('api error') ||
+                        errorMessage.toLowerCase().includes('provider error') ||
+                        errorMessage.toLowerCase().includes('ebills') ||
+                        errorMessage.toLowerCase().includes('insufficient funds') && errorMessage.toLowerCase().includes('provider') ||
+                        errorMessage.toLowerCase().includes('service unavailable') ||
+                        errorMessage.toLowerCase().includes('service error') ||
+                        errorMessage.toLowerCase().includes('network unavailable') ||
+                        errorMessage.toLowerCase().includes('networks error') ||
+                        errorCode === 'SERVICE_UNAVAILABLE' ||
+                        errorCode === 'PROVIDER_ERROR' ||
+                        errorCode === 'API_ERROR';
+      
+      // Check for insufficient funds from provider (not user wallet)
+      const isProviderInsufficientFunds = errorMessage.toLowerCase().includes('insufficient funds') &&
+                                         (errorMessage.toLowerCase().includes('provider') ||
+                                          errorMessage.toLowerCase().includes('api') ||
+                                          errorMessage.toLowerCase().includes('ebills') ||
+                                          errorDetails?.source === 'provider');
+      
+      // In production, show Network Unavailable modal for API/provider errors
+      if (isProduction && (isNetworkError || isApiError || isProviderInsufficientFunds)) {
+        setShowNetworkUnavailableModal(true);
+        return;
+      }
+      
+      // Handle network errors (show connection error)
       if (isNetworkError) {
-        // Close modal and show error
-        setShowConfirmModal(false);
-        setPurchasing(false);
         Alert.alert(
           'Connection Error',
           'Network connection failed. Please check your internet connection and try again.',
@@ -703,7 +740,8 @@ export default function BettingScreen() {
         return;
       }
       
-      // Extract error message from various sources
+      // In development, show detailed error messages
+      let message = 'Unable to complete betting purchase. Please try again.';
       if (purchaseError instanceof Error) {
         message = purchaseError.message || message;
       } else if (purchaseError?.error) {
@@ -719,12 +757,8 @@ export default function BettingScreen() {
       } else if (purchaseError?.data?.message) {
         message = purchaseError.data.message;
       }
-
-      // Close modal and show error
-      setShowConfirmModal(false);
-      setPurchasing(false);
       
-      // Show detailed error to user
+      // Show error to user
       Alert.alert(
         'Betting Purchase Failed',
         message,
@@ -875,6 +909,14 @@ export default function BettingScreen() {
           />
         );
       })()}
+
+      {/* Network Unavailable Modal */}
+      <NetworkUnavailableModal
+        visible={showNetworkUnavailableModal}
+        onClose={() => {
+          setShowNetworkUnavailableModal(false);
+        }}
+      />
     </ThemedView>
   );
 }

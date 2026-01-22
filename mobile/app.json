@@ -4,7 +4,7 @@
     "slug": "netpay",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/favicon.png",
+    "icon": "./assets/images/logo.png",
     "scheme": "netpay",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -13,11 +13,6 @@
       "bundleIdentifier": "com.netpay.mobile",
       "infoPlist": {
         "CFBundleURLTypes": [
-          {
-            "CFBundleURLSchemes": [
-              "netpay"
-            ]
-          },
           {
             "CFBundleURLSchemes": [
               "netpay"
@@ -60,7 +55,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/logo.png"
     },
     "plugins": [
       "expo-router",
@@ -80,14 +75,14 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/favicon.png",
+          "icon": "./assets/images/logo.png",
           "color": "#ffffff",
           "mode": "production",
           "sounds": [
             "default"
           ],
           "android": {
-            "icon": "./assets/images/favicon.png",
+            "icon": "./assets/images/logo.png",
             "color": "#ffffff",
             "sound": "default",
             "enableVibration": true
