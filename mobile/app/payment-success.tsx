@@ -204,7 +204,7 @@ export default function PaymentSuccessScreen() {
               <View style={[styles.detailRow, { backgroundColor: '#FFF5E6', borderWidth: 2, borderColor: '#FF7F00', borderRadius: 8, padding: 16, marginVertical: 8, flexDirection: 'column' }]}>
                 <ThemedText style={[styles.detailLabel, { color: '#FF7F00', fontWeight: '600', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }]}>Electricity Token</ThemedText>
                 <ThemedText style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 20, fontWeight: 'bold', textAlign: 'center', letterSpacing: 2, marginBottom: 8 }]} numberOfLines={0}>{token}</ThemedText>
-                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center' }}>Keep this token safe. You'll need it to recharge your meter.</ThemedText>
+                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center' }}>Keep this token safe. You&apos;ll need it to recharge your meter.</ThemedText>
               </View>
             )}
             {isEducationPurchase && pins.length > 0 && (
@@ -226,7 +226,7 @@ export default function PaymentSuccessScreen() {
                     )}
                   </View>
                 ))}
-                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>Keep this PIN safe. You'll need it for your exam registration.</ThemedText>
+                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>Keep this PIN safe. You&apos;ll need it for your exam registration.</ThemedText>
               </View>
             )}
             <View style={styles.detailRow}>

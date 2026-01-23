@@ -209,7 +209,7 @@ export default function PayBillsScreen() {
         const userId = session.user.id;
 
         // Fetch cable TV providers from transactions (cable_tv_plans table no longer exists)
-        let cablePlansRes = { data: [], error: null };
+        let cablePlansRes: { data: Array<{ provider: string }>, error: null } = { data: [], error: null };
         try {
           const cableTxRes = await supabase
             .from('cable_tv_transactions')

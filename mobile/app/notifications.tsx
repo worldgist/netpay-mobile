@@ -238,7 +238,7 @@ export default function NotificationsScreen() {
             <MaterialIcons name="notifications-off" size={48} color="#FFB366" />
             <ThemedText style={styles.emptyTitle}>No notifications yet</ThemedText>
             <ThemedText style={styles.emptySubtitle}>
-              When there's something new, it will show up here.
+              When there&apos;s something new, it will show up here.
             </ThemedText>
           </View>
         ) : (

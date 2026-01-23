@@ -270,7 +270,8 @@ export default function BettingScreen() {
           
           // Handle different error types
           const lowerMessage = errorMessage.toLowerCase();
-          const bettingProvider = data?.details?.betting_provider || selectedProvider?.name || 'This provider';
+          const providerObj = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
+          const bettingProvider = data?.details?.betting_provider || providerObj?.name || selectedProvider || 'This provider';
           
           if (errorType === 'invalid_service_id' || 
               lowerMessage.includes('invalid field') ||

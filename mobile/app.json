@@ -25,6 +25,7 @@
     },
     "android": {
       "package": "com.netpay.mobile",
+      "icon": "./assets/images/logo.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#FFFFFF"

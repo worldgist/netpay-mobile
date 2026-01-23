@@ -134,7 +134,7 @@ export default function PrivacyPolicyScreen() {
           </View>
 
           <View style={styles.sectionCard}>
-            <ThemedText style={styles.sectionTitle}>9. Age Restrictions and Children's Privacy</ThemedText>
+            <ThemedText style={styles.sectionTitle}>9. Age Restrictions and Children&apos;s Privacy</ThemedText>
             <ThemedText style={styles.sectionText}>
               Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netpayy.ng.
             </ThemedText>
@@ -173,7 +173,7 @@ export default function PrivacyPolicyScreen() {
               For privacy-related questions, requests, or complaints:
             </ThemedText>
             <ThemedText style={styles.contactInfo}>Data Controller: NetPay (registered in Nigeria)</ThemedText>
-            <ThemedText style={styles.contactInfo}>Email: support@netpayy.ng (include "Privacy Request" in subject line)</ThemedText>
+            <ThemedText style={styles.contactInfo}>Email: support@netpayy.ng (include &quot;Privacy Request&quot; in subject line)</ThemedText>
             <ThemedText style={styles.contactInfo}>Phone: +234 706 739 8399</ThemedText>
             <ThemedText style={styles.contactInfo}>Address: Lagos, Nigeria (specific address available upon request)</ThemedText>
             <ThemedText style={styles.contactInfo}>Response Time: We aim to respond to privacy requests within 30 days</ThemedText>

@@ -1295,9 +1295,7 @@ export default function ElectricityScreen() {
         errorObj?.errorCode === '018' ||
         errorObj?.errorCode === 'invalid_customer_id' ||
         purchaseError?.errorCode === '018' ||
-        purchaseError?.errorCode === 'invalid_customer_id' ||
-        (typeof responseData !== 'undefined' && responseData && responseData.details?.code === 'invalid_customer_id') ||
-        (typeof responseData !== 'undefined' && responseData && responseData.errorCode === 'invalid_customer_id');
+        purchaseError?.errorCode === 'invalid_customer_id';
       
       // Check if this is a user wallet balance error from our system
       // Note: "LOW WALLET BALANCE" from MobileNig API is ambiguous - it could mean:
