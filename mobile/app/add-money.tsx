@@ -210,6 +210,7 @@ export default function AddMoneyScreen() {
               account_number: account.account_number,
               account_name: account.account_name,
               tracking_reference: account.trackingReference || account.tracking_reference || null,
+              nin: nin.trim(),
             },
             { onConflict: 'user_id,bank_code' }
           );

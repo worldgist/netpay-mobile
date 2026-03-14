@@ -3,6 +3,9 @@ import { StyleSheet, View, Dimensions, ScrollView, TouchableOpacity } from 'reac
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+
+const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 
 const { width, height } = Dimensions.get('window');
 
@@ -11,7 +14,12 @@ export default function OnboardingScreen() {
   const [currentPage, setCurrentPage] = useState(0);
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const handleNext = () => {
+  const completeOnboarding = async () => {
+    await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
+    router.replace('/auth/login');
+  };
+
+  const handleNext = async () => {
     if (currentPage < 2) {
       const nextPage = currentPage + 1;
       setCurrentPage(nextPage);
@@ -19,13 +27,13 @@ export default function OnboardingScreen() {
         scrollRef.current.scrollTo({ x: nextPage * width, animated: true });
       }
     } else {
-      // Navigate to login after onboarding
-      router.replace('/auth/login');
+      // Persist onboarding completion and continue to login.
+      await completeOnboarding();
     }
   };
 
-  const handleSkip = () => {
-    router.replace('/auth/login');
+  const handleSkip = async () => {
+    await completeOnboarding();
   };
 
   return (

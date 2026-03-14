@@ -41,7 +41,7 @@ const EMAIL_KEY = 'supabase_email';
 supabase.auth.onAuthStateChange(async (event, session) => {
   try {
     // Skip if using placeholder client
-    if (SUPABASE_URL === undefined || SUPABASE_ANON_KEY === undefined) {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return;
     }
 
@@ -72,15 +72,15 @@ supabase.auth.onAuthStateChange(async (event, session) => {
 
 // Helper function to check if Supabase is properly initialized
 export const isSupabaseInitialized = (): boolean => {
-  return SUPABASE_URL !== undefined && SUPABASE_ANON_KEY !== undefined && 
+  return !!SUPABASE_URL && !!SUPABASE_ANON_KEY &&
          SUPABASE_URL !== 'https://placeholder.supabase.co' && 
          SUPABASE_ANON_KEY !== 'placeholder-key';
 };
 
 // Get configuration status for error messages
 export const getSupabaseConfigStatus = () => {
-  const hasUrl = SUPABASE_URL !== undefined && SUPABASE_URL !== 'https://placeholder.supabase.co';
-  const hasKey = SUPABASE_ANON_KEY !== undefined && SUPABASE_ANON_KEY !== 'placeholder-key';
+  const hasUrl = !!SUPABASE_URL && SUPABASE_URL !== 'https://placeholder.supabase.co';
+  const hasKey = !!SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'placeholder-key';
   
   if (!hasUrl || !hasKey) {
     return {

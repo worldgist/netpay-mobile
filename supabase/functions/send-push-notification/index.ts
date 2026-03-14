@@ -75,60 +75,62 @@ serve(async (req) => {
 
     for (const item of notifications) {
       const userId = normalizeString(item.user_id);
-      let token = normalizeString(item.expo_push_token);
-      let platform: string | null = null;
+      const directToken = normalizeString(item.expo_push_token);
+      const resolvedTargets: Array<{ token: string; platform: string | null }> = [];
 
-      if (!token && userId) {
-        const { data: tokenData, error: tokenError } = await supabase
+      if (!directToken && userId) {
+        const { data: tokenRows, error: tokenError } = await supabase
           .from("user_push_tokens")
           .select("expo_push_token, platform")
           .eq("user_id", userId)
           .eq("is_active", true)
-          .order("updated_at", { ascending: false })
-          .maybeSingle();
+          .order("updated_at", { ascending: false });
 
         if (tokenError) {
           errors.push({ target: { user_id: userId }, error: tokenError.message });
           continue;
         }
 
-        token = normalizeString(tokenData?.expo_push_token);
-        platform = tokenData?.platform || null;
-      } else if (token) {
-        // If token is provided directly, try to get platform info
+        for (const row of tokenRows ?? []) {
+          const token = normalizeString(row.expo_push_token);
+          if (token) {
+            resolvedTargets.push({ token, platform: row.platform || null });
+          }
+        }
+      } else if (directToken) {
+        // If a token is provided directly, try to enrich with platform info
         const { data: tokenData } = await supabase
           .from("user_push_tokens")
           .select("platform")
-          .eq("expo_push_token", token)
+          .eq("expo_push_token", directToken)
           .maybeSingle();
-        platform = tokenData?.platform || null;
+        resolvedTargets.push({ token: directToken, platform: tokenData?.platform || null });
       }
 
-      if (!token) {
+      if (resolvedTargets.length === 0) {
         errors.push({ target: { user_id: item.user_id, expo_push_token: item.expo_push_token }, error: "Missing Expo push token" });
         continue;
       }
 
-      // Build message payload
-      const message: Record<string, unknown> = {
-        to: token,
-        title: item.title,
-        body: item.body,
-        data: item.data ?? {},
-        sound: item.sound ?? "default",
-        priority: item.priority ?? "high",
-      };
+      // A user can have multiple active device tokens, so enqueue one message per token.
+      for (const target of resolvedTargets) {
+        const message: Record<string, unknown> = {
+          to: target.token,
+          title: item.title,
+          body: item.body,
+          data: item.data ?? {},
+          sound: item.sound ?? "default",
+          priority: item.priority ?? "high",
+        };
 
-      // Add Android-specific channelId for proper notification display
-      // Android requires channelId to be specified in the push notification payload
-      if (platform === "android") {
-        // Use "transactions" channel for transaction-related notifications, "default" for others
-        // Check for both 'transactionType' and 'type' fields for backward compatibility
-        const channelId = (item.data?.transactionType || item.data?.type || item.data?.reference) ? "transactions" : "default";
-        message.channelId = channelId;
+        // Android requires channelId in the push payload for reliable display behavior.
+        if (target.platform === "android") {
+          const channelId = (item.data?.transactionType || item.data?.type || item.data?.reference) ? "transactions" : "default";
+          message.channelId = channelId;
+        }
+
+        expoMessages.push(message);
       }
-
-      expoMessages.push(message);
     }
 
     if (expoMessages.length === 0) {

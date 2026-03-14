@@ -376,6 +376,9 @@ const Index = () => {
                   <button onClick={() => navigate("/careers")} className="hover:text-foreground transition-colors text-left">
                     Careers
                   </button>
+                  <p className="text-xs leading-relaxed text-muted-foreground/90 pt-1">
+                    Registered with the Corporate Affairs Commission (CAC), RC: RN7062973.
+                  </p>
                 </div>
               </div>
 
@@ -448,6 +451,9 @@ const Index = () => {
           <div className="border-t border-border/30 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground text-center md:text-left">
               © {new Date().getFullYear()} NetPay. All rights reserved. Built in Lagos, powering payments across Nigeria.
+            </p>
+            <p className="text-xs text-muted-foreground text-center md:text-right">
+              Corporate Affairs Commission Registration: RN7062973.
             </p>
           </div>
         </div>

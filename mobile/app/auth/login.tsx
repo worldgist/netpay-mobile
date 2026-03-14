@@ -12,6 +12,7 @@ import * as SecureStore from 'expo-secure-store';
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
 const EMAIL_KEY = 'supabase_email';
+const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -94,6 +95,7 @@ export default function LoginScreen() {
           })
         );
         await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
+        await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
       } catch (storageError) {
         console.warn('Unable to persist Supabase session for biometrics:', storageError);
       }
@@ -141,6 +143,16 @@ export default function LoginScreen() {
 
   const handleBiometric = async () => {
     try {
+      if (!isSupabaseInitialized()) {
+        const configStatus = getSupabaseConfigStatus();
+        Alert.alert(
+          'Configuration Error',
+          configStatus.message + '\n\nBiometric login requires a working Supabase connection. If you just added env vars, restart Expo and try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       setBiometricLoading(true);
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       if (!hasHardware) {
@@ -244,6 +256,21 @@ export default function LoginScreen() {
       }
 
       if (errorMessage) {
+        const normalizedError = errorMessage.toLowerCase();
+        if (
+          normalizedError.includes('failed to send a request to the edge function') ||
+          normalizedError.includes('network request failed') ||
+          normalizedError.includes('failed to fetch') ||
+          normalizedError.includes('placeholder')
+        ) {
+          Alert.alert(
+            'Connection Error',
+            'Unable to reach the authentication service for biometric login. Check your internet connection and Supabase app configuration, then restart Expo and try again.'
+          );
+          setBiometricLoading(false);
+          return;
+        }
+
         Alert.alert('Biometric Login', errorMessage);
         setBiometricLoading(false);
         return;
@@ -293,6 +320,7 @@ export default function LoginScreen() {
           })
         );
         await SecureStore.setItemAsync(EMAIL_KEY, storedEmail);
+        await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
       } catch (storageError) {
         console.warn('Unable to persist session after biometric login:', storageError);
       }
