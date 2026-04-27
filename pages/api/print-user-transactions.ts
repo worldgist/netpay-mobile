@@ -1,5 +1,16 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
 import { generateStatementPDF } from '../../utils/generate-statement';
+
+/** Minimal request/response shapes for this handler (standalone; not wired to Next.js in this Vite app). */
+type ApiRequest = {
+  query: Record<string, string | string[] | undefined>;
+};
+
+type ApiResponse = {
+  status(code: number): ApiResponse;
+  json(body: unknown): void;
+  setHeader(name: string, value: string): void;
+  end(chunk?: Buffer): void;
+};
 
 // Helper to send email with PDF attachment using RESEND API
 async function sendStatementEmail({ to, pdfBuffer }: { to: string, pdfBuffer: Buffer }) {
@@ -42,7 +53,7 @@ async function sendStatementEmail({ to, pdfBuffer }: { to: string, pdfBuffer: Bu
   return await resendResponse.json();
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: ApiRequest, res: ApiResponse) {
   const { user_id } = req.query;
   if (!user_id || typeof user_id !== 'string') {
     res.status(400).json({ error: 'Missing user_id' });
