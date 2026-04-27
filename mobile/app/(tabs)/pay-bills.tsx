@@ -353,26 +353,28 @@ export default function PayBillsScreen() {
           </View>
         ) : null}
 
-        <View style={styles.servicesGrid}>
-          {(services.length ? services : SERVICE_CONFIG.map(s => ({ ...s, availableLabel: 'Service available' } as ServiceStat))).map((service: ServiceStat) => (
-            <TouchableOpacity
-              key={service.id}
-              style={styles.serviceCard}
-              onPress={() => handleServicePress(service)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.iconCircle}>
-                <MaterialIcons
-                  name={service.icon}
-                  size={28}
-                  color="#FF7F00"
-                />
-              </View>
-              <ThemedText style={styles.serviceName} numberOfLines={1}>
-                {formatServiceName(service.name)}
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.servicesContainer}>
+          <View style={styles.servicesGrid}>
+            {(services.length ? services : SERVICE_CONFIG.map(s => ({ ...s, availableLabel: 'Service available' } as ServiceStat))).map((service: ServiceStat) => (
+              <TouchableOpacity
+                key={service.id}
+                style={styles.serviceCard}
+                onPress={() => handleServicePress(service)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.iconCircle}>
+                  <MaterialIcons
+                    name={service.icon}
+                    size={24}
+                    color="#FF7F00"
+                  />
+                </View>
+                <ThemedText style={styles.serviceName} numberOfLines={1}>
+                  {formatServiceName(service.name)}
+                </ThemedText>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </ScrollView>
     </ThemedView>
@@ -431,40 +433,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
   },
+  servicesContainer: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+  },
   servicesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 20,
+    paddingHorizontal: 4,
     justifyContent: 'space-between',
-    gap: 14,
+    gap: 10,
   },
   serviceCard: {
     width: '47%',
-    aspectRatio: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#F0F2F5',
-    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingVertical: 18,
-    gap: 14,
-    shadowColor: '#152238',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    paddingVertical: 4,
+    gap: 8,
   },
   iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: '#FFF5E9',
     justifyContent: 'center',
     alignItems: 'center',
   },
   serviceName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#152238',
     textAlign: 'center',

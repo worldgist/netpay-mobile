@@ -100,7 +100,8 @@ export default function SetupBiometricScreen() {
   };
 
   const handleSkip = () => {
-    router.replace('/(tabs)');
+    // After signup flow, show notification prompt before home.
+    setShowNotificationModal(true);
   };
 
   const handleCloseModal = () => {

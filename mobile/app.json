@@ -5,6 +5,11 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
+    "splash": {
+      "image": "./assets/images/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "scheme": "netpay",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -25,6 +30,7 @@
     },
     "android": {
       "package": "com.netpay.mobile",
+      "googleServicesFile": "./google-services.json",
       "icon": "./assets/images/logo.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
@@ -96,6 +102,11 @@
       "router": {},
       "eas": {
         "projectId": "a962982c-3160-42f2-9e64-3ab04ced7bf5"
+      },
+      "firebase": {
+        "projectId": "netpay-47909",
+        "messagingSenderId": "748935923743",
+        "androidAppId": "1:748935923743:android:0965f31a7e6e61ff702d2a"
       }
     }
   }

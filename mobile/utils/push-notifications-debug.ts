@@ -5,14 +5,19 @@
 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import { supabase } from '@/lib/supabase';
 
 export const debugPushNotifications = async () => {
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? null;
+
   const debugInfo: any = {
     platform: Platform.OS,
+    isDevice: Device.isDevice,
     isExpoGo: Constants.executionEnvironment === 'storeClient',
     isAndroidExpoGo: Constants.executionEnvironment === 'storeClient' && Platform.OS === 'android',
-    projectId: Constants.expoConfig?.extra?.eas?.projectId || 'a962982c-3160-42f2-9e64-3ab04ced7bf5',
+    projectId,
     androidPackage: Constants.expoConfig?.android?.package || 'com.netpay.mobile',
   };
 
@@ -42,16 +47,14 @@ export const debugPushNotifications = async () => {
 
       // Try to get device push token
       try {
-        const projectId = Constants.expoConfig?.extra?.eas?.projectId || 'a962982c-3160-42f2-9e64-3ab04ced7bf5';
-        const tokenOptions: any = { projectId };
-        
-        if (Platform.OS === 'android') {
-          tokenOptions.applicationId = Constants.expoConfig?.android?.package || 'com.netpay.mobile';
-        }
-
-        const { data: expoToken } = await Notifications.getExpoPushTokenAsync(tokenOptions);
+        if (!projectId) {
+          debugInfo.tokenError = 'Missing EAS projectId (extra.eas.projectId)';
+          debugInfo.tokenObtained = false;
+        } else {
+        const { data: expoToken } = await Notifications.getExpoPushTokenAsync({ projectId });
         debugInfo.expoToken = expoToken;
         debugInfo.tokenObtained = true;
+        }
       } catch (e) {
         debugInfo.tokenError = e instanceof Error ? e.message : String(e);
         debugInfo.tokenObtained = false;

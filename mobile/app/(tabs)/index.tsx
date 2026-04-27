@@ -815,7 +815,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -840,17 +840,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   welcomeGreeting: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
   },
   welcomeName: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
     color: '#111',
   },
   welcomeBack: {
     marginTop: 6,
-    fontSize: 14,
+    fontSize: 12,
     color: '#888',
   },
   balanceCard: {
@@ -867,7 +867,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   balanceLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#fff',
     opacity: 0.95,
     fontWeight: '500',
@@ -882,7 +882,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   balanceAmount: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
     lineHeight: 40,
@@ -900,7 +900,7 @@ const styles = StyleSheet.create({
   },
   addMoneyText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   transferButton: {
@@ -912,7 +912,7 @@ const styles = StyleSheet.create({
   },
   transferText: {
     color: '#FF7F00',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   transactionsSection: {
@@ -926,7 +926,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -943,7 +943,7 @@ const styles = StyleSheet.create({
   },
   viewAllButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   transactionItem: {
@@ -974,26 +974,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   transactionType: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#333',
     marginBottom: 4,
   },
   transactionDate: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
   },
   transactionAmountContainer: {
     alignItems: 'flex-end',
   },
   transactionAmount: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#4CAF50',
     marginBottom: 4,
   },
   transactionStatus: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#4CAF50',
     opacity: 0.8,
   },
@@ -1004,7 +1004,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyStateText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#777',
   },
   errorContainer: {
@@ -1015,7 +1015,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#d32f2f',
-    fontSize: 14,
+    fontSize: 12,
   },
   loadingContainer: {
     position: 'absolute',

@@ -33,6 +33,13 @@ yarn-error.*
 # local env files
 .env*.local
 
+# FCM / Google service account JSON (private key — never commit)
+fcm-service-account.json
+*-firebase-adminsdk-*.json
+
+# Firebase Android client config (download from Firebase Console)
+google-services.json
+
 # typescript
 *.tsbuildinfo
 

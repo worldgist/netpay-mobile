@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import { supabase } from '@/lib/supabase';
 
 // Check if running in Expo Go (where push notifications are limited)
@@ -41,6 +42,8 @@ const initializeNotifications = () => {
 
           return {
             shouldShowAlert: true,
+            shouldShowBanner: true,
+            shouldShowList: true,
             shouldPlaySound: true,
             shouldSetBadge: true,
           };
@@ -69,7 +72,7 @@ const setupAndroidChannels = async (notifications: typeof import('expo-notificat
     
     await notifications.setNotificationChannelAsync('default', {
       name: 'Default',
-      importance: notifications.AndroidImportance.HIGH,
+      importance: notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#FF231F7C',
       enableVibrate: true,
@@ -77,10 +80,10 @@ const setupAndroidChannels = async (notifications: typeof import('expo-notificat
     });
     console.log('Default notification channel created');
 
-    // Create a high priority channel for transactions
+    // Optional channel for in-app / local use; remote pushes use "default" so they never miss this id.
     await notifications.setNotificationChannelAsync('transactions', {
       name: 'Transactions',
-      importance: notifications.AndroidImportance.HIGH,
+      importance: notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#FF231F7C',
       enableVibrate: true,
@@ -103,7 +106,8 @@ const setupAndroidChannels = async (notifications: typeof import('expo-notificat
   }
 };
 
-const isPhysicalDevice = () => Platform.OS !== 'web';
+/** Expo push does not work on emulators/simulators — must be a real device. */
+const isPhysicalDevice = () => Device.isDevice;
 
 const getDeviceIdentifier = async () => {
   const notifications = initializeNotifications();
@@ -150,7 +154,11 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
     }
 
     if (!isPhysicalDevice()) {
-      return { registered: false, reason: 'Push notifications require a physical device.' };
+      return {
+        registered: false,
+        reason:
+          'Push notifications require a physical phone. Android emulators and iOS simulators cannot receive remote push.',
+      };
     }
 
     // Set up Android notification channels BEFORE requesting permissions
@@ -201,32 +209,25 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
       };
     }
 
-    // Get Expo project ID from Constants (required for EAS builds)
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId || 'a962982c-3160-42f2-9e64-3ab04ced7bf5';
-    
-    // Get Expo push token with Android-specific configuration
-    const tokenOptions: any = {
-      projectId,
-    };
-    
-    // Add Android-specific options if on Android
-    if (Platform.OS === 'android') {
-      const androidPackage = Constants.expoConfig?.android?.package || 'com.netpay.mobile';
-      tokenOptions.applicationId = androidPackage;
-      
-      console.log('Android token options:', {
-        projectId,
-        applicationId: androidPackage,
-      });
+    // EAS / Expo push: only projectId is supported here (see Expo push setup docs).
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? undefined;
+    if (!projectId) {
+      return {
+        registered: false,
+        reason:
+          'Missing EAS projectId for push tokens. Ensure app.json has extra.eas.projectId and rebuild the app.',
+      };
     }
+
+    const tokenOptions = { projectId };
     
     // Get Expo push token - this is critical and must succeed
     let expoToken: string;
     try {
       console.log('Requesting Expo push token with options:', {
         platform: Platform.OS,
-        hasProjectId: !!tokenOptions.projectId,
-        hasApplicationId: !!tokenOptions.applicationId,
+        projectId,
       });
       
       const tokenResult = await notifications.getExpoPushTokenAsync(tokenOptions);
@@ -249,7 +250,6 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
         message: tokenError instanceof Error ? tokenError.message : 'Unknown error',
         platform: Platform.OS,
         projectId,
-        applicationId: tokenOptions.applicationId,
       });
       return { 
         registered: false, 

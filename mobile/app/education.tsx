@@ -966,7 +966,7 @@ export default function EducationScreen() {
         style={styles.keyboardView}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <MaterialIcons name="arrow-back" size={24} color="#000" />
+            <MaterialIcons name="arrow-back" size={22} color="#000" />
           </TouchableOpacity>
           <ThemedText style={styles.headerTitle}>Education</ThemedText>
           <View style={styles.placeholder} />
@@ -1031,79 +1031,81 @@ export default function EducationScreen() {
                 <ThemedText style={{ color: '#8B1D1D', textAlign: 'center' }}>{error}</ThemedText>
               </View>
             ) : (
-              <View style={styles.networkContainer}>
-                {services.map((service) => {
-                  return (
-                  <TouchableOpacity
-                    key={service.id}
-                    style={[
-                      styles.networkItem,
-                      selectedServiceId === service.id && styles.networkItemActive,
-                    ]}
-                    onPress={() => {
-                      setSelectedServiceId(service.id);
-                    }}
-                  >
-                    <View style={[
-                      styles.networkLogoContainer,
-                      selectedServiceId === service.id && styles.networkLogoContainerActive
-                    ]}>
-                      {service.logoUrl ? (
-                        <Image
-                          source={{ uri: service.logoUrl }}
-                          style={styles.networkLogoImage}
-                          contentFit="contain"
-                        />
-                      ) : service.logo ? (
-                        <Image
-                          source={service.logo}
-                          style={styles.networkLogoImage}
-                          contentFit="contain"
-                        />
-                      ) : (
-                        <MaterialIcons name="school" size={32} color={selectedServiceId === service.id ? "#FF7F00" : "#666"} />
-                      )}
-                    </View>
-                    <ThemedText style={[
-                      styles.networkName,
-                      selectedServiceId === service.id && styles.networkNameActive,
-                    ]}>
-                      {service.examType === "WAEC" 
-                        ? "WAEC Result Checker PIN" 
-                        : service.examType === "NECO"
-                        ? "NECO Result Checker PIN"
-                        : service.name
-                      }
-            </ThemedText>
-                      <ThemedText style={styles.networkHint}>
-                        {(() => {
-                          // Show exact total amount from API (highest priority)
-                          const exactTotalAmount = fetchedTotalAmounts[service.examType];
-                          if (exactTotalAmount && exactTotalAmount > 0) {
-                            return formatCurrency(exactTotalAmount);
-                          }
-                          
-                          // Fallback: Calculate from fetched price and fee
-                          const fetchedPrice = fetchedPrices[service.examType];
-                          const fetchedFee = fetchedChargeFees[service.examType];
-                          if (fetchedPrice && fetchedPrice > 0) {
-                            const calculatedTotal = fetchedPrice + (fetchedFee || Math.round(fetchedPrice * EDUCATION_CHARGE_FEE_RATE * 100) / 100);
-                            return formatCurrency(calculatedTotal);
-                          }
-                          
-                          // Show loading indicator if currently fetching
-                          if (fetchingPrice && selectedServiceId === service.id) {
-                            return 'Loading...';
-                          }
-                          
-                          // Last fallback: Use service price from database
-                          return formatCurrency(service.price);
-                        })()}
-                      </ThemedText>
-                  </TouchableOpacity>
-                  );
-                })}
-          </View>
+              <View style={styles.networksOuterContainer}>
+                <View style={styles.networkContainer}>
+                  {services.map((service) => {
+                    return (
+                    <TouchableOpacity
+                      key={service.id}
+                      style={[
+                        styles.networkItem,
+                        selectedServiceId === service.id && styles.networkItemActive,
+                      ]}
+                      onPress={() => {
+                        setSelectedServiceId(service.id);
+                      }}
+                    >
+                      <View style={[
+                        styles.networkLogoContainer,
+                        selectedServiceId === service.id && styles.networkLogoContainerActive
+                      ]}>
+                        {service.logoUrl ? (
+                          <Image
+                            source={{ uri: service.logoUrl }}
+                            style={styles.networkLogoImage}
+                            contentFit="contain"
+                          />
+                        ) : service.logo ? (
+                          <Image
+                            source={service.logo}
+                            style={styles.networkLogoImage}
+                            contentFit="contain"
+                          />
+                        ) : (
+                          <MaterialIcons name="school" size={26} color={selectedServiceId === service.id ? "#FF7F00" : "#666"} />
+                        )}
+                      </View>
+                      <ThemedText style={[
+                        styles.networkName,
+                        selectedServiceId === service.id && styles.networkNameActive,
+                      ]}>
+                        {service.examType === "WAEC" 
+                          ? "WAEC Result Checker PIN" 
+                          : service.examType === "NECO"
+                          ? "NECO Result Checker PIN"
+                          : service.name
+                        }
+              </ThemedText>
+                        <ThemedText style={styles.networkHint}>
+                          {(() => {
+                            // Show exact total amount from API (highest priority)
+                            const exactTotalAmount = fetchedTotalAmounts[service.examType];
+                            if (exactTotalAmount && exactTotalAmount > 0) {
+                              return formatCurrency(exactTotalAmount);
+                            }
+                            
+                            // Fallback: Calculate from fetched price and fee
+                            const fetchedPrice = fetchedPrices[service.examType];
+                            const fetchedFee = fetchedChargeFees[service.examType];
+                            if (fetchedPrice && fetchedPrice > 0) {
+                              const calculatedTotal = fetchedPrice + (fetchedFee || Math.round(fetchedPrice * EDUCATION_CHARGE_FEE_RATE * 100) / 100);
+                              return formatCurrency(calculatedTotal);
+                            }
+                            
+                            // Show loading indicator if currently fetching
+                            if (fetchingPrice && selectedServiceId === service.id) {
+                              return 'Loading...';
+                            }
+                            
+                            // Last fallback: Use service price from database
+                            return formatCurrency(service.price);
+                          })()}
+                        </ThemedText>
+                    </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
             )}
           </View>
 
@@ -1164,7 +1166,7 @@ export default function EducationScreen() {
                   >
                     <MaterialIcons 
                       name="remove" 
-                      size={24} 
+                      size={20} 
                       color={quantity <= 1 ? "#ccc" : "#FF7F00"} 
                     />
                   </TouchableOpacity>
@@ -1182,7 +1184,7 @@ export default function EducationScreen() {
                   >
                     <MaterialIcons 
                       name="add" 
-                      size={24} 
+                      size={20} 
                       color={quantity >= 10 ? "#ccc" : "#FF7F00"} 
                     />
                   </TouchableOpacity>
@@ -1355,7 +1357,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#000',
   },
@@ -1380,7 +1382,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   balanceLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: '#fff',
     marginBottom: 12,
@@ -1391,7 +1393,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   balanceAmount: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
     lineHeight: 40,
@@ -1401,27 +1403,38 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 16,
+  },
+  networksOuterContainer: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
   },
   networkContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: 8,
     gap: 12,
   },
   networkItem: {
     alignItems: 'center',
     width: '30%',
     minWidth: 100,
-    padding: 8,
+    padding: 10,
     borderRadius: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   networkItemActive: {
     backgroundColor: '#FFF5E6',
+    borderColor: '#FFB366',
   },
   networkLogoContainer: {
     width: 70,
@@ -1443,7 +1456,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   networkName: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#333',
     fontWeight: '500',
     textAlign: 'center',
@@ -1454,7 +1467,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   networkHint: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#777',
     marginTop: 4,
   },
@@ -1473,7 +1486,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   inputLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#000',
     marginBottom: 8,
@@ -1487,7 +1500,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   input: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#333',
     paddingVertical: 12,
   },
@@ -1495,7 +1508,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   readOnlyAmount: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
   },
@@ -1511,7 +1524,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   continueButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -1527,7 +1540,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     color: '#8B1D1D',
   },
   quantityContainer: {
@@ -1557,7 +1570,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   quantityText: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '600',
     color: '#333',
   },
@@ -1588,7 +1601,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF5E6',
   },
   serviceTypeText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: '#666',
   },
@@ -1620,7 +1633,7 @@ const styles = StyleSheet.create({
   },
   verifyButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   demoCard: {
@@ -1641,7 +1654,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#FFE082',
   },
   demoCardTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#E65100',
   },
@@ -1650,7 +1663,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   demoCardLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: '#666',
   },
@@ -1665,7 +1678,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   demoCardValue: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: '#000',
     flex: 1,
@@ -1691,7 +1704,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   verifiedDetailsText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#2E7D32',
     fontWeight: '500',
   },

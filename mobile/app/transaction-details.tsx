@@ -955,7 +955,7 @@ function TransactionDetailsScreen() {
     <ThemedView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color="#000" />
+          <MaterialIcons name="arrow-back" size={22} color="#000" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>Transaction Details</ThemedText>
         <View style={styles.placeholder} />
@@ -983,7 +983,7 @@ function TransactionDetailsScreen() {
               ) : (
                 <MaterialIcons 
                   name={getTypeIcon(transaction.type) as any} 
-                  size={32} 
+                  size={26} 
                   color={getTypeColor(transaction.type)} 
                 />
               )}
@@ -1143,7 +1143,7 @@ function TransactionDetailsScreen() {
                 </View>
                 <ThemedText style={{ 
                   fontFamily: 'monospace', 
-                  fontSize: 20, 
+                  fontSize: 17, 
                   fontWeight: 'bold', 
                   textAlign: 'center', 
                   letterSpacing: 2,
@@ -1178,7 +1178,7 @@ function TransactionDetailsScreen() {
                           <TouchableOpacity
                             style={styles.copyRow}
                             onPress={() => handleCopy(pinData.Serial || '', 'Serial number')}>
-                            <ThemedText style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: '600', color: '#333' }} numberOfLines={1}>
+                          <ThemedText style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: '600', color: '#333' }} numberOfLines={1}>
                               {pinData.Serial}
                             </ThemedText>
                             <MaterialIcons name="content-copy" size={16} color="#FF7F00" style={styles.copyIcon} />
@@ -1191,7 +1191,7 @@ function TransactionDetailsScreen() {
                           <TouchableOpacity
                             style={styles.copyRow}
                             onPress={() => handleCopy(pinData.Pin || '', 'PIN')}>
-                            <ThemedText style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }} numberOfLines={0}>
+                          <ThemedText style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }} numberOfLines={0}>
                               {pinData.Pin}
                             </ThemedText>
                             <MaterialIcons name="content-copy" size={16} color="#FF7F00" style={styles.copyIcon} />
@@ -1346,7 +1346,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
   },
@@ -1377,43 +1377,43 @@ const styles = StyleSheet.create({
   amountCard: {
     backgroundColor: '#F5F5F5',
     borderRadius: 16,
-    padding: 32,
+    padding: 24,
     marginHorizontal: 20,
-    marginBottom: 24,
+    marginBottom: 16,
     alignItems: 'center',
-    minHeight: 200,
+    minHeight: 170,
     justifyContent: 'center',
   },
   iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    padding: 12,
+    marginBottom: 14,
+    padding: 10,
   },
   transactionLogo: {
     width: '100%',
     height: '100%',
   },
   amountLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     marginBottom: 12,
     fontWeight: '500',
   },
   amountValueContainer: {
-    minHeight: 60,
+    minHeight: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 14,
     width: '100%',
   },
   amountValue: {
-    fontSize: 40,
+    fontSize: 34,
     fontWeight: 'bold',
-    lineHeight: 48,
+    lineHeight: 40,
     textAlign: 'center',
   },
   statusBadge: {
@@ -1422,27 +1422,27 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   statusText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   infoSection: {
     backgroundColor: '#F5F5F5',
     borderRadius: 12,
-    padding: 20,
+    padding: 16,
     marginHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
@@ -1450,19 +1450,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   infoLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     flex: 1,
   },
   infoValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#333',
     flex: 1,
     textAlign: 'right',
   },
   infoValueMultiline: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#333',
     flex: 1,
@@ -1491,13 +1491,13 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 30,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   printButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
-    paddingVertical: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1506,7 +1506,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   printButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
   },

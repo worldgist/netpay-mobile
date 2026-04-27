@@ -142,10 +142,10 @@ export default function EmailVerificationScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <ThemedView style={styles.card}>
           <View style={styles.header}>
-            <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+            <ThemedText style={styles.title}>
               Verify Your Email
             </ThemedText>
-            <ThemedText style={styles.subtitle} numberOfLines={3} ellipsizeMode="tail">
+            <ThemedText style={styles.subtitle}>
               {email
                 ? `Enter the ${CODE_LENGTH}-digit verification code we sent to ${email}.`
                 : `Enter the ${CODE_LENGTH}-digit verification code we sent to your email address.`}
@@ -249,14 +249,12 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
     paddingHorizontal: 4,
     width: '100%',
-    paddingTop: Platform.OS === 'ios' ? 12 : 0,
-    paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   title: {
-    fontSize: Platform.OS === 'ios' ? 28 : 32,
+    fontSize: Platform.OS === 'ios' ? 27 : 28,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
@@ -265,17 +263,16 @@ const styles = StyleSheet.create({
     width: '100%',
     flexShrink: 1,
     paddingHorizontal: 4,
-    paddingTop: Platform.OS === 'ios' ? 8 : 0,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 0,
-    lineHeight: Platform.OS === 'ios' ? 38 : 40,
-    overflow: 'visible',
+    lineHeight: Platform.OS === 'ios' ? 34 : 36,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 21,
     width: '100%',
+    flexShrink: 1,
+    alignSelf: 'stretch',
     paddingHorizontal: 4,
   },
   codeContainer: {

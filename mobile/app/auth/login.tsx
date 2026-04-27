@@ -8,6 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase, isSupabaseInitialized, getSupabaseConfigStatus } from '@/lib/supabase';
 import * as SecureStore from 'expo-secure-store';
+import { promptEnableNotifications, hasSeenNotificationPrompt } from '@/utils/notification-prompt';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
@@ -120,18 +121,10 @@ export default function LoginScreen() {
         }
       }
 
-      // Register for push notifications after successful login
-      try {
-        const { registerForPushNotifications } = await import('@/utils/push-notifications');
-        const result = await registerForPushNotifications();
-        if (result.registered) {
-          console.log('Push notifications registered after login');
-        } else {
-          console.log('Push notification registration after login:', result.reason);
-        }
-      } catch (pushError) {
-        console.warn('Failed to register push notifications after login:', pushError);
-        // Non-critical, continue with login
+      // Prompt on first login on this device.
+      const seenPromptOnThisDevice = await hasSeenNotificationPrompt();
+      if (!seenPromptOnThisDevice) {
+        await promptEnableNotifications();
       }
 
       router.replace('/(tabs)');
@@ -325,18 +318,10 @@ export default function LoginScreen() {
         console.warn('Unable to persist session after biometric login:', storageError);
       }
 
-      // Register for push notifications after successful biometric login
-      try {
-        const { registerForPushNotifications } = await import('@/utils/push-notifications');
-        const result = await registerForPushNotifications();
-        if (result.registered) {
-          console.log('Push notifications registered after biometric login');
-        } else {
-          console.log('Push notification registration after biometric login:', result.reason);
-        }
-      } catch (pushError) {
-        console.warn('Failed to register push notifications after biometric login:', pushError);
-        // Non-critical, continue with login
+      // Prompt on first biometric login on this device.
+      const seenPromptOnThisDevice = await hasSeenNotificationPrompt();
+      if (!seenPromptOnThisDevice) {
+        await promptEnableNotifications();
       }
 
       setBiometricLoading(false);
@@ -488,26 +473,34 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   logoImage: {
-    width: 140,
-    height: 140,
+    width: 120,
+    height: 120,
   },
   welcomeSection: {
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 24,
+    width: '100%',
+    paddingHorizontal: 4,
   },
   welcomeTitle: {
-    fontSize: 28,
+    fontSize: Platform.OS === 'ios' ? 27 : 28,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 6,
     textAlign: 'center',
-    lineHeight: 34,
+    lineHeight: Platform.OS === 'ios' ? 34 : 36,
+    includeFontPadding: true,
+    width: '100%',
+    flexShrink: 1,
   },
   welcomeSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 21,
+    width: '100%',
+    flexShrink: 1,
+    alignSelf: 'stretch',
   },
   inputContainer: {
     flexDirection: 'row',

@@ -639,7 +639,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
   },
@@ -671,7 +671,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF7F00',
   },
   bankToggleText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#FF7F00',
   },
@@ -698,13 +698,13 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   infoIcon: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#fff',
   },
   infoText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     color: '#333',
   },
   feeNoticeBanner: {
@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   feeNoticeTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#E65100',
     marginBottom: 4,
@@ -766,12 +766,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   accountLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
     marginBottom: 4,
   },
   accountValue: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#000',
   },
@@ -785,7 +785,7 @@ const styles = StyleSheet.create({
   },
   copyButtonText: {
     marginLeft: 6,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#FF7F00',
   },
@@ -799,7 +799,7 @@ const styles = StyleSheet.create({
   },
   recommendedText: {
     marginLeft: 4,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#4CAF50',
   },
@@ -811,7 +811,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   instructionsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 16,
@@ -821,7 +821,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   instructionNumber: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#fff',
     marginRight: 12,
@@ -829,7 +829,7 @@ const styles = StyleSheet.create({
   },
   instructionText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: '#fff',
     lineHeight: 24,
   },
@@ -841,7 +841,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   noteText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#333',
     lineHeight: 20,
   },
@@ -884,13 +884,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   createTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#000',
     marginBottom: 8,
   },
   createDescription: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#555',
     marginBottom: 16,
   },
@@ -898,7 +898,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#333',
     marginBottom: 8,
@@ -918,12 +918,12 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: '#333',
     paddingVertical: 12,
   },
   helperText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#777',
   },
   createButton: {
@@ -936,7 +936,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   createButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
   },
@@ -953,7 +953,7 @@ const styles = StyleSheet.create({
   },
   securityText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
     color: '#2E7D32',
     lineHeight: 18,
   },
@@ -972,7 +972,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   dashboardButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
   },

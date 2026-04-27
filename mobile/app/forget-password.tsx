@@ -76,7 +76,7 @@ export default function ForgetPasswordScreen() {
           </TouchableOpacity>
 
           <View style={styles.header}>
-            <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+            <ThemedText style={styles.title}>
               Forgot Password?
             </ThemedText>
             <ThemedText style={styles.subtitle}>
@@ -153,30 +153,35 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   header: {
-    marginBottom: 32,
+    marginBottom: 28,
     overflow: 'visible',
     flexShrink: 1,
     width: '100%',
   },
   title: {
-    fontSize: 28,
+    fontSize: Platform.OS === 'ios' ? 27 : 28,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 12,
-    includeFontPadding: false,
-    lineHeight: 36,
+    includeFontPadding: true,
+    lineHeight: Platform.OS === 'ios' ? 34 : 36,
     overflow: 'visible',
     flexShrink: 1,
     width: '100%',
-    flexWrap: 'wrap',
+    textAlign: 'center',
+    paddingHorizontal: 4,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
-    lineHeight: 24,
+    lineHeight: 21,
     includeFontPadding: false,
     overflow: 'visible',
     flexShrink: 1,
+    textAlign: 'center',
+    width: '100%',
+    alignSelf: 'stretch',
+    paddingHorizontal: 4,
   },
   inputContainer: {
     flexDirection: 'row',

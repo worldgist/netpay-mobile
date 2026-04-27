@@ -117,13 +117,18 @@ const Dashboard = () => {
         .from('user_transactions')
         .select('*', { count: 'exact', head: true });
 
-      // Calculate total revenue
-      const { data: revenueData } = await supabase
-        .from('user_transactions')
-        .select('amount')
-        .eq('transaction_type', 'debit');
+      // Calculate platform revenue from charge fees/markup records (not wallet debits).
+      const { data: revenueData, error: revenueError } = await supabase
+        .from('platform_revenue')
+        .select('revenue_amount, transaction_status')
+        .eq('transaction_status', 'completed');
 
-      const totalRevenue = revenueData?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
+      if (revenueError) {
+        throw revenueError;
+      }
+
+      const totalRevenue =
+        revenueData?.reduce((sum, row) => sum + Number(row.revenue_amount || 0), 0) || 0;
 
       setStats({
         totalRevenue,

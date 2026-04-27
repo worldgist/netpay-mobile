@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
+import { promptEnableNotifications } from '@/utils/notification-prompt';
 
 const PIN_LENGTH = 4;
 const PIN_STORAGE_KEY = 'supabase_pin_hash';
@@ -124,8 +125,14 @@ export default function SetupPinScreen() {
     }
   };
 
-  const handleSkipBiometric = () => {
+  const handleSkipBiometric = async () => {
     setShowSuccessModal(false);
+    // Post-signup path to home should always prompt once here.
+    await promptEnableNotifications({
+      forcePrompt: true,
+      title: 'Enable Notifications',
+      message: 'Would you like to enable notifications before continuing to your home screen?',
+    });
     router.replace('/(tabs)');
   };
 

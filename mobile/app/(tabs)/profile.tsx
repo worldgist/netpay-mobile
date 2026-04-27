@@ -325,6 +325,13 @@ export default function ProfileScreen() {
     }
   }, [pinEnabled, router]);
 
+  const handleResetPassword = useCallback(() => {
+    router.push({
+      pathname: '/reset-password',
+      params: { mode: 'authenticated' },
+    });
+  }, [router]);
+
   const handleEditProfile = useCallback(() => {
     router.push('/edit-profile');
   }, [router]);
@@ -342,6 +349,9 @@ export default function ProfileScreen() {
         
         // Optionally, you can also update push notification permissions here
         // For now, we're just storing the preference
+        if (enabled && isMounted.current) {
+          Alert.alert('Notifications', 'Notifications enabled successfully.');
+        }
       } catch (error) {
         console.error('Failed to update notifications setting:', error);
         if (isMounted.current) {
@@ -397,9 +407,9 @@ export default function ProfileScreen() {
           </ThemedText>
         </View>
 
-        {/* Account Section */}
+        {/* Profile Section */}
         <View style={styles.section}>
-          <ThemedText style={styles.sectionHeader}>ACCOUNT</ThemedText>
+          <ThemedText style={styles.sectionHeader}>PROFILE</ThemedText>
 
           {/* Edit Profile */}
           <TouchableOpacity style={styles.optionCard} onPress={handleEditProfile} activeOpacity={0.7}>
@@ -411,6 +421,11 @@ export default function ProfileScreen() {
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
           </TouchableOpacity>
+        </View>
+
+        {/* Account Section */}
+        <View style={styles.section}>
+          <ThemedText style={styles.sectionHeader}>ACCOUNT</ThemedText>
 
           {/* Notifications */}
           <TouchableOpacity
@@ -497,20 +512,6 @@ export default function ProfileScreen() {
             />
           </TouchableOpacity>
 
-          {/* PIN Code */}
-          <TouchableOpacity style={styles.optionCard} onPress={handlePINCode} activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="lock" size={24} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>{pinEnabled ? 'Change PIN' : 'Set Up PIN'}</ThemedText>
-                <ThemedText style={styles.optionDescription}>
-                  {pinEnabled ? 'Change your PIN' : 'Set up PIN'}
-                </ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
-          </TouchableOpacity>
-
           {/* Statement of Account */}
           <TouchableOpacity
             style={styles.optionCard}
@@ -524,6 +525,23 @@ export default function ProfileScreen() {
                 <ThemedText style={styles.optionDescription}>
                   View, download or email your transaction statement
                 </ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#999" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Security Section */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => router.push('/security')}
+            activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="security" size={24} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Security</ThemedText>
+                <ThemedText style={styles.optionDescription}>Manage your PIN and password</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
@@ -615,13 +633,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   userName: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 4,
   },
   userEmail: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
   },
   section: {
@@ -629,7 +647,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionHeader: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#666',
     marginBottom: 12,
@@ -660,12 +678,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
     color: '#333',
   },
   optionDescription: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
     marginTop: 2,
   },
@@ -682,7 +700,7 @@ const styles = StyleSheet.create({
     borderColor: '#FEE2E2',
   },
   deleteAccountTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#DC2626',
     marginBottom: 4,
@@ -704,7 +722,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   logoutText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#FF3B30',
   },

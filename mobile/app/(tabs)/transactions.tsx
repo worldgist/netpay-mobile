@@ -583,7 +583,7 @@ export default function TransactionsScreen() {
             ) : (
               <MaterialIcons
                 name={transaction.type === 'credit' ? 'arrow-downward' : 'arrow-upward'}
-                size={24}
+                size={20}
                 color={transaction.type === 'credit' ? '#4CAF50' : '#F44336'}
               />
             )}
@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -693,20 +693,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F5F5F5',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
   },
   transactionIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
-    padding: 8,
+    marginRight: 12,
+    padding: 6,
   },
   transactionLogo: {
     width: '100%',
@@ -716,32 +716,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   transactionType: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 4,
+    marginBottom: 2,
     textTransform: 'capitalize',
   },
   transactionDate: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   transactionReference: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
   },
   transactionAmountContainer: {
     alignItems: 'flex-end',
   },
   transactionAmount: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#4CAF50',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   transactionStatus: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#4CAF50',
     fontWeight: '500',
   },
@@ -752,14 +752,14 @@ const styles = StyleSheet.create({
     paddingVertical: 80,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#666',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#999',
     textAlign: 'center',
   },

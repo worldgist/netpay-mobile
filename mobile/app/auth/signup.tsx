@@ -300,10 +300,10 @@ export default function SignupScreen() {
 
           {/* Title Section */}
           <View style={styles.titleSection}>
-            <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+            <ThemedText style={styles.title}>
               Create Account
             </ThemedText>
-            <ThemedText style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
+            <ThemedText style={styles.subtitle}>
               Sign up to get started
             </ThemedText>
           </View>
@@ -557,7 +557,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 4 : 0,
   },
   title: {
-    fontSize: Platform.OS === 'ios' ? 28 : 32,
+    fontSize: Platform.OS === 'ios' ? 27 : 28,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 8,
@@ -568,14 +568,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingTop: Platform.OS === 'ios' ? 8 : 0,
     paddingBottom: Platform.OS === 'ios' ? 8 : 0,
-    lineHeight: Platform.OS === 'ios' ? 38 : 40,
+    lineHeight: Platform.OS === 'ios' ? 34 : 36,
     overflow: 'visible',
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
     textAlign: 'center',
+    lineHeight: 21,
     width: '100%',
+    flexShrink: 1,
+    alignSelf: 'stretch',
     paddingHorizontal: 4,
   },
   row: {

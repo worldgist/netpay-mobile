@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Eye, DollarSign, Ban, CheckCircle } from "lucide-react";
+import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -47,6 +47,7 @@ export default function Users() {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [isStatementPreviewOpen, setIsStatementPreviewOpen] = useState(false);
   const [isCreditDialogOpen, setIsCreditDialogOpen] = useState(false);
   const [isDebitDialogOpen, setIsDebitDialogOpen] = useState(false);
   const [amount, setAmount] = useState("");
@@ -81,7 +82,7 @@ export default function Users() {
       .select("*")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(100);
 
     if (error) {
       toast({
@@ -95,10 +96,147 @@ export default function Users() {
     setUserTransactions(data || []);
   };
 
+  const handlePrintUserTransactions = () => {
+    if (!selectedUser) return;
+
+    const rowsHtml =
+      userTransactions.length === 0
+        ? `<tr><td colspan="5" style="text-align:center;padding:12px;color:#6b7280;">No transactions found</td></tr>`
+        : userTransactions
+            .map((tx) => {
+              const amount = Number(tx.amount || 0).toFixed(2);
+              const balanceAfter = Number(tx.balance_after || 0).toFixed(2);
+              const txType = tx.transaction_type || "N/A";
+              const txDate = new Date(tx.created_at).toLocaleString();
+              const txDescription = tx.description || "-";
+              const txReference = tx.reference || "-";
+
+              return `
+                <tr>
+                  <td style="padding:10px;border-bottom:1px solid #e5e7eb;">${txDate}</td>
+                  <td style="padding:10px;border-bottom:1px solid #e5e7eb;">${txType}</td>
+                  <td style="padding:10px;border-bottom:1px solid #e5e7eb;">${txDescription}<br/><span style="font-size:12px;color:#6b7280;">Ref: ${txReference}</span></td>
+                  <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;">₦${amount}</td>
+                  <td style="padding:10px;border-bottom:1px solid #e5e7eb;text-align:right;">₦${balanceAfter}</td>
+                </tr>
+              `;
+            })
+            .join("");
+
+    const printWindow = window.open("", "_blank", "width=1000,height=800");
+    if (!printWindow) {
+      toast({
+        title: "Popup Blocked",
+        description: "Allow popups to print user transactions.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const joinedAt = new Date(selectedUser.created_at).toLocaleString();
+    const printedAt = new Date().toLocaleString();
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>User Transactions - ${selectedUser.full_name || selectedUser.email || selectedUser.id}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+            h1 { margin: 0 0 8px; }
+            .meta { margin-bottom: 16px; line-height: 1.5; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+            th { text-align: left; background: #f3f4f6; padding: 10px; border-bottom: 2px solid #d1d5db; }
+            .right { text-align: right; }
+            .footer { margin-top: 16px; color: #6b7280; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <h1>User Transactions Statement</h1>
+          <div class="meta">
+            <strong>Name:</strong> ${selectedUser.full_name || "N/A"}<br/>
+            <strong>Email:</strong> ${selectedUser.email || "N/A"}<br/>
+            <strong>User ID:</strong> ${selectedUser.id}<br/>
+            <strong>Joined:</strong> ${joinedAt}<br/>
+            <strong>Current Balance:</strong> ₦${Number(selectedUser.balance || 0).toFixed(2)}<br/>
+            <strong>Total Transactions Listed:</strong> ${userTransactions.length}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Description / Reference</th>
+                <th class="right">Amount</th>
+                <th class="right">Balance After</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          <div class="footer">Generated by NetPay Admin on ${printedAt}</div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  const handleExportUserTransactionsCsv = () => {
+    if (!selectedUser) return;
+
+    const escapeCsv = (value: string | number | null | undefined) => {
+      const str = value == null ? "" : String(value);
+      const escaped = str.replace(/"/g, '""');
+      return `"${escaped}"`;
+    };
+
+    const rows = userTransactions.map((tx) => [
+      new Date(tx.created_at).toLocaleString(),
+      tx.transaction_type || "",
+      tx.description || "",
+      tx.reference || "",
+      Number(tx.amount || 0).toFixed(2),
+      Number(tx.balance_before || 0).toFixed(2),
+      Number(tx.balance_after || 0).toFixed(2),
+    ]);
+
+    const header = [
+      "Date",
+      "Type",
+      "Description",
+      "Reference",
+      "Amount",
+      "Balance Before",
+      "Balance After",
+    ];
+
+    const csv = [
+      header.map(escapeCsv).join(","),
+      ...rows.map((row) => row.map(escapeCsv).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const name = (selectedUser.full_name || selectedUser.email || selectedUser.id).replace(/\s+/g, "_");
+    a.href = url;
+    a.download = `user-transactions-${name}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleViewUser = async (user: UserProfile) => {
     setSelectedUser(user);
     await fetchUserTransactions(user.id);
     setIsViewDialogOpen(true);
+  };
+
+  const handleOpenStatementPreview = () => {
+    if (!selectedUser) return;
+    setIsStatementPreviewOpen(true);
   };
 
   const handleCreditUser = (user: UserProfile) => {
@@ -218,6 +356,53 @@ export default function Users() {
       user.email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const userJoinStats = useMemo(() => {
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 7);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    let weekly = 0;
+    let monthly = 0;
+    let yearly = 0;
+
+    for (const user of users) {
+      if (!user.created_at) continue;
+      const joinedAt = new Date(user.created_at);
+      if (Number.isNaN(joinedAt.getTime())) continue;
+
+      if (joinedAt >= weekAgo) weekly += 1;
+      if (joinedAt >= monthStart) monthly += 1;
+      if (joinedAt >= yearStart) yearly += 1;
+    }
+
+    return {
+      total: users.length,
+      weekly,
+      monthly,
+      yearly,
+    };
+  }, [users]);
+
+  const selectedUserMetrics = useMemo(() => {
+    const credits = userTransactions
+      .filter((tx) => tx.transaction_type === "credit")
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const debits = userTransactions
+      .filter((tx) => tx.transaction_type === "debit")
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const net = credits - debits;
+
+    return {
+      credits,
+      debits,
+      net,
+      count: userTransactions.length,
+    };
+  }, [userTransactions]);
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -241,6 +426,52 @@ export default function Users() {
                   className="pl-10"
                 />
               </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+                  <UsersIcon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{userJoinStats.total}</div>
+                  <p className="text-xs text-muted-foreground">All registered users</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Joined This Week</CardTitle>
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{userJoinStats.weekly}</div>
+                  <p className="text-xs text-muted-foreground">Last 7 days</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Joined This Month</CardTitle>
+                  <CalendarRange className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{userJoinStats.monthly}</div>
+                  <p className="text-xs text-muted-foreground">Since month start</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Joined This Year</CardTitle>
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{userJoinStats.yearly}</div>
+                  <p className="text-xs text-muted-foreground">Since year start</p>
+                </CardContent>
+              </Card>
             </div>
 
             <Card>
@@ -313,14 +544,14 @@ export default function Users() {
 
       {/* View User Details Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>User Details</DialogTitle>
             <DialogDescription>Complete user information and transaction history</DialogDescription>
           </DialogHeader>
           {selectedUser && (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <Label className="text-muted-foreground">Full Name</Label>
                   <p className="font-medium">{selectedUser.full_name || "N/A"}</p>
@@ -351,6 +582,53 @@ export default function Users() {
                     {new Date(selectedUser.created_at).toLocaleDateString()}
                   </p>
                 </div>
+                <div>
+                  <Label className="text-muted-foreground">Joined Time</Label>
+                  <p className="font-medium">
+                    {new Date(selectedUser.created_at).toLocaleTimeString()}
+                  </p>
+                </div>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <Label className="text-muted-foreground">User ID</Label>
+                  <p className="font-mono text-xs break-all">{selectedUser.id}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Recent Tx Count</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xl font-bold">{selectedUserMetrics.count}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Credits (Recent)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xl font-bold text-green-600">₦{selectedUserMetrics.credits.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Debits (Recent)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xl font-bold text-red-600">₦{selectedUserMetrics.debits.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Net Flow (Recent)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className={`text-xl font-bold ${selectedUserMetrics.net >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      ₦{selectedUserMetrics.net.toFixed(2)}
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
 
               <div>
@@ -415,6 +693,24 @@ export default function Users() {
           <DialogFooter className="flex flex-col sm:flex-row gap-2">
             <div className="flex gap-2 flex-1">
               <Button
+                variant="outline"
+                onClick={handleOpenStatementPreview}
+                className="flex-1"
+                disabled={!selectedUser}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Print Transactions
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleOpenStatementPreview}
+                className="flex-1"
+                disabled={!selectedUser}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+              <Button
                 variant="default"
                 onClick={() => {
                   setIsViewDialogOpen(false);
@@ -461,6 +757,107 @@ export default function Users() {
             </div>
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isStatementPreviewOpen} onOpenChange={setIsStatementPreviewOpen}>
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Transaction Statement Preview</DialogTitle>
+            <DialogDescription>
+              Review this user's transaction statement before printing or downloading.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedUser && (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <Label className="text-muted-foreground">Name</Label>
+                  <p className="font-medium">{selectedUser.full_name || "N/A"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Email</Label>
+                  <p className="font-medium">{selectedUser.email || "N/A"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Current Balance</Label>
+                  <p className="font-semibold">₦{Number(selectedUser.balance || 0).toFixed(2)}</p>
+                </div>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <Label className="text-muted-foreground">User ID</Label>
+                  <p className="font-mono text-xs break-all">{selectedUser.id}</p>
+                </div>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Transactions ({userTransactions.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {userTransactions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No transactions found for this user.</p>
+                  ) : (
+                    <div className="max-h-[420px] overflow-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Description / Reference</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead className="text-right">Balance After</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {userTransactions.map((tx) => (
+                            <TableRow key={tx.id}>
+                              <TableCell>{new Date(tx.created_at).toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    tx.transaction_type === "credit"
+                                      ? "default"
+                                      : tx.transaction_type === "debit"
+                                      ? "destructive"
+                                      : "secondary"
+                                  }
+                                >
+                                  {tx.transaction_type}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm">
+                                  <p>{tx.description || "-"}</p>
+                                  <p className="text-xs text-muted-foreground">Ref: {tx.reference || "-"}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">₦{Number(tx.amount || 0).toFixed(2)}</TableCell>
+                              <TableCell className="text-right">₦{Number(tx.balance_after || 0).toFixed(2)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setIsStatementPreviewOpen(false)}>
+              Close Preview
+            </Button>
+            <Button variant="outline" onClick={handleExportUserTransactionsCsv} disabled={!selectedUser}>
+              <Download className="h-4 w-4 mr-2" />
+              Download CSV
+            </Button>
+            <Button onClick={handlePrintUserTransactions} disabled={!selectedUser}>
+              <Printer className="h-4 w-4 mr-2" />
+              Print Now
             </Button>
           </DialogFooter>
         </DialogContent>

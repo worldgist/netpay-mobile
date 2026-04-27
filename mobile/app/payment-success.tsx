@@ -202,31 +202,31 @@ export default function PaymentSuccessScreen() {
             )}
             {token && (
               <View style={[styles.detailRow, { backgroundColor: '#FFF5E6', borderWidth: 2, borderColor: '#FF7F00', borderRadius: 8, padding: 16, marginVertical: 8, flexDirection: 'column' }]}>
-                <ThemedText style={[styles.detailLabel, { color: '#FF7F00', fontWeight: '600', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }]}>Electricity Token</ThemedText>
-                <ThemedText style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 20, fontWeight: 'bold', textAlign: 'center', letterSpacing: 2, marginBottom: 8 }]} numberOfLines={0}>{token}</ThemedText>
-                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center' }}>Keep this token safe. You&apos;ll need it to recharge your meter.</ThemedText>
+                <ThemedText style={[styles.detailLabel, { color: '#FF7F00', fontWeight: '600', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }]}>Electricity Token</ThemedText>
+                <ThemedText style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 17, fontWeight: 'bold', textAlign: 'center', letterSpacing: 2, marginBottom: 8 }]} numberOfLines={0}>{token}</ThemedText>
+                <ThemedText style={{ fontSize: 10, color: '#666', textAlign: 'center' }}>Keep this token safe. You&apos;ll need it to recharge your meter.</ThemedText>
               </View>
             )}
             {isEducationPurchase && pins.length > 0 && (
               <View style={[styles.detailRow, { backgroundColor: '#E8F5E9', borderWidth: 2, borderColor: '#4CAF50', borderRadius: 8, padding: 16, marginVertical: 8, flexDirection: 'column' }]}>
-                <ThemedText style={[styles.detailLabel, { color: '#4CAF50', fontWeight: '600', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }]}>PIN Details</ThemedText>
+                <ThemedText style={[styles.detailLabel, { color: '#4CAF50', fontWeight: '600', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }]}>PIN Details</ThemedText>
                 {pins.map((pinData, index) => (
                   <View key={index} style={{ marginBottom: index < pins.length - 1 ? 16 : 0, paddingBottom: index < pins.length - 1 ? 16 : 0, borderBottomWidth: index < pins.length - 1 ? 1 : 0, borderBottomColor: '#C8E6C9' }}>
                     {pinData.Serial && (
                       <View style={{ marginBottom: 8 }}>
-                        <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Serial Number</ThemedText>
-                        <ThemedText style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: '600', color: '#333' }}>{pinData.Serial}</ThemedText>
+                        <ThemedText style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>Serial Number</ThemedText>
+                        <ThemedText style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: '600', color: '#333' }}>{pinData.Serial}</ThemedText>
                       </View>
                     )}
                     {pinData.Pin && (
                       <View>
-                        <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>PIN</ThemedText>
-                        <ThemedText style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }}>{pinData.Pin}</ThemedText>
+                        <ThemedText style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>PIN</ThemedText>
+                        <ThemedText style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }}>{pinData.Pin}</ThemedText>
                       </View>
                     )}
                   </View>
                 ))}
-                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>Keep this PIN safe. You&apos;ll need it for your exam registration.</ThemedText>
+                <ThemedText style={{ fontSize: 10, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>Keep this PIN safe. You&apos;ll need it for your exam registration.</ThemedText>
               </View>
             )}
             <View style={styles.detailRow}>
@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   successTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#000',
     textAlign: 'center',
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   successMessage: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
     textAlign: 'center',
     marginBottom: 32,
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   amountLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#fff',
     opacity: 0.95,
     marginBottom: 12,
@@ -343,7 +343,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   amountValue: {
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: 'bold',
     color: '#fff',
     lineHeight: 44,
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   detailsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 16,
@@ -371,19 +371,19 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   detailLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
     flex: 1,
   },
   detailValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#333',
     flex: 1,
     textAlign: 'right',
   },
   statusValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#4CAF50',
   },
@@ -406,7 +406,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   viewTransactionButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#FF7F00',
   },
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   doneButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
   },

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Download, Calendar } from "lucide-react";
+import { Search, Download, Calendar, CreditCard, CalendarDays, CalendarRange } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -89,6 +89,36 @@ export default function Transactions() {
       txn.description?.toLowerCase().includes(searchLower)
     );
   });
+
+  const transactionStats = useMemo(() => {
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 7);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    let weekly = 0;
+    let monthly = 0;
+    let yearly = 0;
+
+    for (const txn of transactions) {
+      if (!txn.date) continue;
+      const txDate = new Date(txn.date);
+      if (Number.isNaN(txDate.getTime())) continue;
+
+      if (txDate >= weekAgo) weekly += 1;
+      if (txDate >= monthStart) monthly += 1;
+      if (txDate >= yearStart) yearly += 1;
+    }
+
+    return {
+      total: transactions.length,
+      weekly,
+      monthly,
+      yearly,
+    };
+  }, [transactions]);
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status.toLowerCase()) {
@@ -341,6 +371,52 @@ export default function Transactions() {
                   Export
                 </Button>
               </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{transactionStats.total}</div>
+                  <p className="text-xs text-muted-foreground">All fetched transactions</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">This Week</CardTitle>
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{transactionStats.weekly}</div>
+                  <p className="text-xs text-muted-foreground">Last 7 days</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">This Month</CardTitle>
+                  <CalendarRange className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{transactionStats.monthly}</div>
+                  <p className="text-xs text-muted-foreground">Since month start</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">This Year</CardTitle>
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{transactionStats.yearly}</div>
+                  <p className="text-xs text-muted-foreground">Since year start</p>
+                </CardContent>
+              </Card>
             </div>
 
             <Tabs value={statusFilter} onValueChange={setStatusFilter}>

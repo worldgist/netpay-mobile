@@ -21,11 +21,14 @@ const CODE_LENGTH = 8;
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ email?: string }>();
+  const params = useLocalSearchParams<{ email?: string; mode?: string }>();
+  const isAuthenticatedPasswordUpdate = params.mode === 'authenticated';
   const [email, setEmail] = useState(typeof params.email === 'string' ? params.email : '');
   const [token, setToken] = useState(Array(CODE_LENGTH).fill(''));
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [oldPassword, setOldPassword] = useState('');
+  const [showOldPassword, setShowOldPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -33,7 +36,7 @@ export default function ResetPasswordScreen() {
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [codeVerified, setCodeVerified] = useState(false);
+  const [codeVerified, setCodeVerified] = useState(isAuthenticatedPasswordUpdate);
   const inputRefs = useRef<Array<TextInput | null>>([]);
 
   useEffect(() => {
@@ -167,6 +170,11 @@ export default function ResetPasswordScreen() {
   };
 
   const handleResetPassword = async () => {
+    if (isAuthenticatedPasswordUpdate && !oldPassword) {
+      Alert.alert('Reset Password', 'Please enter your current password.');
+      return;
+    }
+
     if (!password || !confirmPassword) {
       Alert.alert('Reset Password', 'Please complete both password fields.');
       return;
@@ -201,6 +209,26 @@ export default function ResetPasswordScreen() {
     try {
       setResetting(true);
 
+      if (isAuthenticatedPasswordUpdate) {
+        const currentUserEmail = session.user.email?.trim().toLowerCase();
+        if (!currentUserEmail) {
+          setResetting(false);
+          Alert.alert('Reset Password', 'Unable to verify current password. Please sign in again.');
+          return;
+        }
+
+        const { error: verifyOldPasswordError } = await supabase.auth.signInWithPassword({
+          email: currentUserEmail,
+          password: oldPassword,
+        });
+
+        if (verifyOldPasswordError) {
+          setResetting(false);
+          Alert.alert('Reset Password', 'Current password is incorrect.');
+          return;
+        }
+      }
+
       // Use Supabase's built-in updateUser to change password
       const { error } = await supabase.auth.updateUser({
         password: password.trim(),
@@ -233,14 +261,19 @@ export default function ResetPasswordScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.pageHeader}>
+        <TouchableOpacity style={styles.pageHeaderBackButton} onPress={() => router.back()}>
+          <MaterialIcons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+        <ThemedText style={styles.pageHeaderTitle}>
+          {codeVerified ? 'Create New Password' : 'Reset Password'}
+        </ThemedText>
+        <View style={styles.pageHeaderSpacer} />
+      </View>
+
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <ThemedView style={styles.card}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <MaterialIcons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-
           <View style={styles.header}>
-            <ThemedText style={styles.title}>Reset Password</ThemedText>
             <ThemedText style={styles.subtitle}>
               {codeVerified
                 ? 'Choose a new password that is different from the previous one.'
@@ -302,6 +335,25 @@ export default function ResetPasswordScreen() {
             </>
           ) : (
             <>
+              {isAuthenticatedPasswordUpdate ? (
+                <View style={styles.inputContainer}>
+                  <MaterialIcons name="lock" size={20} color="#666" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Current password"
+                    placeholderTextColor="#999"
+                    value={oldPassword}
+                    onChangeText={setOldPassword}
+                    secureTextEntry={!showOldPassword}
+                    autoCapitalize="none"
+                    editable={!resetting}
+                  />
+                  <TouchableOpacity onPress={() => setShowOldPassword(!showOldPassword)} style={styles.eyeIcon}>
+                    <MaterialIcons name={showOldPassword ? 'visibility' : 'visibility-off'} size={20} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               <View style={styles.inputContainer}>
                 <MaterialIcons name="lock" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
@@ -349,9 +401,11 @@ export default function ResetPasswordScreen() {
             </>
           )}
 
-          <TouchableOpacity style={styles.backToLoginButton} onPress={() => router.replace('/auth/login')}>
-            <ThemedText style={styles.backToLoginText}>Back to Login</ThemedText>
-          </TouchableOpacity>
+          {!isAuthenticatedPasswordUpdate ? (
+            <TouchableOpacity style={styles.backToLoginButton} onPress={() => router.replace('/auth/login')}>
+              <ThemedText style={styles.backToLoginText}>Back to Login</ThemedText>
+            </TouchableOpacity>
+          ) : null}
         </ThemedView>
       </ScrollView>
 
@@ -406,8 +460,32 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingVertical: 32,
+    paddingTop: 20,
+    paddingBottom: 32,
     justifyContent: 'center',
+  },
+  pageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    backgroundColor: '#F8F9FC',
+  },
+  pageHeaderBackButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  pageHeaderTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  pageHeaderSpacer: {
+    width: 40,
   },
   card: {
     width: '100%',
@@ -424,36 +502,20 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    marginBottom: 24,
-  },
   header: {
-    alignItems: 'center',
-    marginBottom: 32,
+    alignItems: 'stretch',
+    marginBottom: 28,
     paddingHorizontal: 4,
     width: '100%',
-  },
-  title: {
-    fontSize: Platform.OS === 'ios' ? 28 : 32,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-    textAlign: 'center',
-    includeFontPadding: true,
-    width: '100%',
-    flexShrink: 1,
-    paddingHorizontal: 4,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 21,
     width: '100%',
+    flexShrink: 1,
+    alignSelf: 'stretch',
     paddingHorizontal: 4,
   },
   codeContainer: {

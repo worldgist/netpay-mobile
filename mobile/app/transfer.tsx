@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
   },
@@ -601,7 +601,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   balanceLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#fff',
     marginBottom: 12,
     opacity: 0.95,
@@ -612,7 +612,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   balanceAmount: {
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: 'bold',
     color: '#fff',
     lineHeight: 44,
@@ -633,7 +633,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#333',
     marginBottom: 8,
@@ -653,7 +653,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: '#333',
     paddingVertical: 12,
   },
@@ -670,7 +670,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   verifyButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#333',
   },
@@ -689,18 +689,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   recipientTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#2E7D32',
     marginBottom: 4,
   },
   recipientName: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: '#1B5E20',
   },
   recipientEmail: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#2E7D32',
   },
   feeInfo: {
@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   inlineErrorText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#d32f2f',
   },
   transferButton: {
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   transferButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -756,7 +756,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   noteText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#555',
     lineHeight: 18,
   },
@@ -794,14 +794,14 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   successTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: '#1B5E20',
     marginBottom: 12,
     textAlign: 'center',
   },
   successMessage: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#4A4A4A',
     textAlign: 'center',
     lineHeight: 22,
@@ -815,7 +815,7 @@ const styles = StyleSheet.create({
   },
   successButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   demoEmailCard: {
@@ -839,7 +839,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   demoEmailTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: '#E65100',
     flex: 1,
@@ -852,7 +852,7 @@ const styles = StyleSheet.create({
     borderColor: '#FFE082',
   },
   demoEmailLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#666',
     marginBottom: 8,
@@ -867,7 +867,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   demoEmailValue: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     color: '#000',
     fontFamily: 'monospace',

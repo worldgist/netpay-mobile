@@ -78,7 +78,7 @@ serve(async (req) => {
       const directToken = normalizeString(item.expo_push_token);
       const resolvedTargets: Array<{ token: string; platform: string | null }> = [];
 
-      if (!directToken && userId) {
+        if (!directToken && userId) {
         const { data: tokenRows, error: tokenError } = await supabase
           .from("user_push_tokens")
           .select("expo_push_token, platform")
@@ -94,7 +94,11 @@ serve(async (req) => {
         for (const row of tokenRows ?? []) {
           const token = normalizeString(row.expo_push_token);
           if (token) {
-            resolvedTargets.push({ token, platform: row.platform || null });
+            const p = row.platform?.trim();
+            resolvedTargets.push({
+              token,
+              platform: p ? p.toLowerCase() : null,
+            });
           }
         }
       } else if (directToken) {
@@ -104,7 +108,11 @@ serve(async (req) => {
           .select("platform")
           .eq("expo_push_token", directToken)
           .maybeSingle();
-        resolvedTargets.push({ token: directToken, platform: tokenData?.platform || null });
+        const p = tokenData?.platform?.trim();
+        resolvedTargets.push({
+          token: directToken,
+          platform: p ? p.toLowerCase() : null,
+        });
       }
 
       if (resolvedTargets.length === 0) {
@@ -123,10 +131,12 @@ serve(async (req) => {
           priority: item.priority ?? "high",
         };
 
-        // Android requires channelId in the push payload for reliable display behavior.
+        // Android: only reference a channel that definitely exists. Expo docs: if channelId
+        // is set but the channel was never created on the device, the notification is not shown.
+        // We always register "default" in the app; do not use "transactions" here or cold-start
+        // / first-push cases silently drop notifications.
         if (target.platform === "android") {
-          const channelId = (item.data?.transactionType || item.data?.type || item.data?.reference) ? "transactions" : "default";
-          message.channelId = channelId;
+          message.channelId = "default";
         }
 
         expoMessages.push(message);

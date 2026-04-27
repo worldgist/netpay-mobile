@@ -65,8 +65,9 @@ serve(async (req) => {
     }
 
     const deviceId = normalize(payload.device_id);
-    // Normalize platform but preserve the value (don't convert to empty string)
-    const platform = payload.platform?.trim() || null;
+    // Lowercase for consistent Android/iOS checks (e.g. send-push-notification channelId).
+    const rawPlatform = payload.platform?.trim();
+    const platform = rawPlatform ? rawPlatform.toLowerCase() : null;
 
     // Log registration attempt for debugging
     console.log('Registering push token:', {

@@ -18,10 +18,13 @@ export default function ChangePinScreen() {
   const [step, setStep] = useState<'current' | 'new' | 'confirm'>('current');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showWrongPinModal, setShowWrongPinModal] = useState(false);
+  const [showSamePinModal, setShowSamePinModal] = useState(false);
+  const [showPinMismatchModal, setShowPinMismatchModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [verifiedCurrentPin, setVerifiedCurrentPin] = useState(false);
+  const [verifiedCurrentPinValue, setVerifiedCurrentPinValue] = useState('');
   const [isDemoUser, setIsDemoUser] = useState(false);
 
   // Create refs for PIN inputs - must be created at component level, not in callbacks
@@ -84,10 +87,35 @@ export default function ChangePinScreen() {
           );
         }
       } catch (error) {
-        console.error('Failed to load PIN info:', error);
+        const errorDetails =
+          error instanceof Error
+            ? {
+                message: error.message,
+                name: error.name,
+                stack: error.stack,
+              }
+            : {
+                message:
+                  (error as any)?.message ||
+                  (error as any)?.error_description ||
+                  (error as any)?.details ||
+                  JSON.stringify(error),
+                code: (error as any)?.code,
+                details: (error as any)?.details,
+                hint: (error as any)?.hint,
+              };
+
+        console.error('Failed to load PIN info:', errorDetails);
+
+        const friendlyMessage =
+          (error as any)?.message ||
+          (error as any)?.details ||
+          (error as any)?.error_description ||
+          'Please try again later.';
+
         Alert.alert(
           'Unable to load PIN',
-          error instanceof Error ? error.message : 'Please try again later.',
+          friendlyMessage,
           [{ text: 'OK', onPress: () => router.back() }],
         );
       } finally {
@@ -128,12 +156,8 @@ export default function ChangePinScreen() {
       }, 200);
     }
 
-    if (type === 'confirm' && next.every((digit) => digit) && index === PIN_LENGTH - 1) {
-      // Auto-submit when confirm PIN is complete
-      setTimeout(() => {
-        handleChangePin();
-      }, 200);
-    }
+    // Do not auto-submit on confirm step.
+    // User must explicitly tap the confirm button.
   };
 
   const verifyCurrentPin = async (pinString: string) => {
@@ -158,6 +182,7 @@ export default function ChangePinScreen() {
           if (!verifyError && verifyData) {
             // PIN is correct, move to next step
             setVerifiedCurrentPin(true);
+            setVerifiedCurrentPinValue(pinString);
             setStep('new');
             setTimeout(() => {
               newPinRefs[0].current?.focus();
@@ -183,6 +208,7 @@ export default function ChangePinScreen() {
             if (storedHash === currentHash) {
               // PIN is correct (SHA256), move to next step
               setVerifiedCurrentPin(true);
+              setVerifiedCurrentPinValue(pinString);
               setStep('new');
               setTimeout(() => {
                 newPinRefs[0].current?.focus();
@@ -231,6 +257,7 @@ export default function ChangePinScreen() {
 
       // PIN is correct, move to next step
       setVerifiedCurrentPin(true);
+      setVerifiedCurrentPinValue(pinString);
       setStep('new');
       setTimeout(() => {
         newPinRefs[0].current?.focus();
@@ -287,9 +314,9 @@ export default function ChangePinScreen() {
       return;
     }
 
-    const currentPinString = currentPin.join('');
+    const currentPinString = verifiedCurrentPinValue || currentPin.join('');
     if (newPinString === currentPinString) {
-      Alert.alert('Error', 'New PIN must be different from current PIN');
+      setShowSamePinModal(true);
       setNewPin(Array(PIN_LENGTH).fill(''));
       setStep('new');
       newPinRefs[0].current?.focus();
@@ -305,7 +332,7 @@ export default function ChangePinScreen() {
     }
 
     if (newPinString !== confirmPinString) {
-      Alert.alert('Error', 'New PIN and confirm PIN do not match');
+      setShowPinMismatchModal(true);
       setConfirmPin(Array(PIN_LENGTH).fill(''));
       setStep('confirm');
       confirmPinRefs[0].current?.focus();
@@ -337,6 +364,7 @@ export default function ChangePinScreen() {
       setCurrentPin(Array(PIN_LENGTH).fill(''));
       setStep('current');
       setVerifiedCurrentPin(false);
+      setVerifiedCurrentPinValue('');
     } catch (error) {
       console.error('Failed to save new PIN:', error);
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save new PIN');
@@ -356,6 +384,7 @@ export default function ChangePinScreen() {
       setStep('current');
       setNewPin(Array(PIN_LENGTH).fill(''));
       setVerifiedCurrentPin(false);
+      setVerifiedCurrentPinValue('');
       // Don't clear currentPin - user might want to go back and verify again
       setTimeout(() => {
         currentPinRefs[0].current?.focus();
@@ -375,8 +404,25 @@ export default function ChangePinScreen() {
     setCurrentPin(Array(PIN_LENGTH).fill(''));
     setStep('current');
     setVerifiedCurrentPin(false);
+    setVerifiedCurrentPinValue('');
     setTimeout(() => {
       currentPinRefs[0].current?.focus();
+    }, 100);
+  };
+
+  const handleCloseSamePinModal = () => {
+    setShowSamePinModal(false);
+    setStep('new');
+    setTimeout(() => {
+      newPinRefs[0].current?.focus();
+    }, 100);
+  };
+
+  const handleClosePinMismatchModal = () => {
+    setShowPinMismatchModal(false);
+    setStep('confirm');
+    setTimeout(() => {
+      confirmPinRefs[0].current?.focus();
     }, 100);
   };
 
@@ -524,7 +570,7 @@ export default function ChangePinScreen() {
           {updating ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <ThemedText style={styles.changeButtonText}>Change PIN</ThemedText>
+            <ThemedText style={styles.changeButtonText}>Confirm New PIN</ThemedText>
           )}
         </TouchableOpacity>
       </View>
@@ -649,6 +695,54 @@ export default function ChangePinScreen() {
               The current PIN you entered is incorrect. Please try again.
             </ThemedText>
             <TouchableOpacity style={styles.modalButton} onPress={handleCloseWrongPinModal}>
+              <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showSamePinModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseSamePinModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.warningIconContainer}>
+              <View style={styles.warningIconCircle}>
+                <MaterialIcons name="warning-amber" size={44} color="#fff" />
+              </View>
+            </View>
+            <ThemedText style={styles.modalTitle}>PIN Not Allowed</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              New PIN must be different from your current PIN.
+            </ThemedText>
+            <TouchableOpacity style={styles.modalButton} onPress={handleCloseSamePinModal}>
+              <ThemedText style={styles.modalButtonText}>Use Different PIN</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showPinMismatchModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleClosePinMismatchModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.warningIconContainer}>
+              <View style={styles.warningIconCircle}>
+                <MaterialIcons name="warning-amber" size={44} color="#fff" />
+              </View>
+            </View>
+            <ThemedText style={styles.modalTitle}>PIN Mismatch</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              New PIN and confirm PIN do not match. Please re-enter your confirm PIN.
+            </ThemedText>
+            <TouchableOpacity style={styles.modalButton} onPress={handleClosePinMismatchModal}>
               <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
             </TouchableOpacity>
           </View>
@@ -800,7 +894,10 @@ const styles = StyleSheet.create({
   changeButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
+    width: '100%',
+    maxWidth: 340,
     paddingVertical: 16,
+    paddingHorizontal: 18,
     alignItems: 'center',
     marginTop: 20,
     shadowColor: '#FF7F00',
@@ -815,9 +912,10 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   changeButtonText: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#fff',
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,
@@ -865,6 +963,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#F44336',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  warningIconContainer: {
+    marginBottom: 24,
+  },
+  warningIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FF7F00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF7F00',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
