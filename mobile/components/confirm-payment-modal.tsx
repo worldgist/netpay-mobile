@@ -1,8 +1,9 @@
-import { StyleSheet, View, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Modal, ActivityIndicator, ScrollView } from 'react-native';
 import { useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ConfirmPaymentModalProps {
   visible: boolean;
@@ -36,6 +37,7 @@ export function ConfirmPaymentModal({
   quantity = 1,
   customerName,
 }: ConfirmPaymentModalProps) {
+  const insets = useSafeAreaInsets();
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-US', {
     month: '2-digit',
@@ -72,6 +74,7 @@ export function ConfirmPaymentModal({
       visible={visible}
       transparent={true}
       animationType="slide"
+      statusBarTranslucent
       onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <TouchableOpacity 
@@ -80,7 +83,7 @@ export function ConfirmPaymentModal({
           onPress={isBusy ? undefined : onClose}
           disabled={isBusy}
         />
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
           <View style={styles.modalContent}>
             {/* Header with Amount */}
             <View style={styles.headerRow}>
@@ -100,70 +103,76 @@ export function ConfirmPaymentModal({
               <View style={styles.closeButtonPlaceholder} />
             </View>
 
-            {/* Payment Details Card */}
-            <View style={styles.detailsCard}>
-              <ThemedText style={styles.cardTitle}>Payment Details</ThemedText>
-              <View style={styles.detailRow}>
-                <ThemedText style={styles.detailLabel}>Price {quantity > 1 ? `(×${quantity})` : ''}</ThemedText>
-                <ThemedText style={styles.detailValue}>
-                  ₦{(amount * quantity).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  {quantity > 1 && (
-                    <ThemedText style={{ fontSize: 12, color: '#666' }}> (₦{amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each)</ThemedText>
-                  )}
-                </ThemedText>
-              </View>
-              {numericCharges > 0 && (
+            <ScrollView
+              style={styles.detailsScroll}
+              contentContainerStyle={styles.detailsScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled">
+              {/* Payment Details Card */}
+              <View style={styles.detailsCard}>
+                <ThemedText style={styles.cardTitle}>Payment Details</ThemedText>
                 <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>Charge Fee {quantity > 1 ? `(×${quantity})` : ''}</ThemedText>
+                  <ThemedText style={styles.detailLabel}>Price {quantity > 1 ? `(×${quantity})` : ''}</ThemedText>
                   <ThemedText style={styles.detailValue}>
-                    ₦{(numericCharges * quantity).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ₦{(amount * quantity).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     {quantity > 1 && (
-                      <ThemedText style={{ fontSize: 12, color: '#666' }}> (₦{numericCharges.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each)</ThemedText>
+                      <ThemedText style={{ fontSize: 12, color: '#666' }}> (₦{amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each)</ThemedText>
                     )}
                   </ThemedText>
                 </View>
-              )}
-              {quantity > 1 && (
+                {numericCharges > 0 && (
+                  <View style={styles.detailRow}>
+                    <ThemedText style={styles.detailLabel}>Charge Fee {quantity > 1 ? `(×${quantity})` : ''}</ThemedText>
+                    <ThemedText style={styles.detailValue}>
+                      ₦{(numericCharges * quantity).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {quantity > 1 && (
+                        <ThemedText style={{ fontSize: 12, color: '#666' }}> (₦{numericCharges.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} each)</ThemedText>
+                      )}
+                    </ThemedText>
+                  </View>
+                )}
+                {quantity > 1 && (
+                  <View style={styles.detailRow}>
+                    <ThemedText style={styles.detailLabel}>Quantity</ThemedText>
+                    <ThemedText style={styles.detailValue}>{quantity} PIN{quantity > 1 ? 's' : ''}</ThemedText>
+                  </View>
+                )}
                 <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>Quantity</ThemedText>
-                  <ThemedText style={styles.detailValue}>{quantity} PIN{quantity > 1 ? 's' : ''}</ThemedText>
+                  <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
+                  <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{recipient || 'N/A'}</ThemedText>
                 </View>
-              )}
-              <View style={styles.detailRow}>
-                <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
-                <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{recipient || 'N/A'}</ThemedText>
-              </View>
-              {customerName && (
                 <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>Customer Name</ThemedText>
-                  <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{customerName}</ThemedText>
+                  <ThemedText style={styles.detailLabel}>Provider</ThemedText>
+                  <View style={styles.providerInfo}>
+                    <Image source={networkLogo} style={styles.providerLogo} contentFit="contain" />
+                    <ThemedText style={styles.providerName} numberOfLines={1} ellipsizeMode="tail">{network}</ThemedText>
+                  </View>
                 </View>
-              )}
-              <View style={styles.detailRow}>
-                <ThemedText style={styles.detailLabel}>Provider</ThemedText>
-                <View style={styles.providerInfo}>
-                  <Image source={networkLogo} style={styles.providerLogo} contentFit="contain" />
-                  <ThemedText style={styles.providerName} numberOfLines={1} ellipsizeMode="tail">{network}</ThemedText>
-                </View>
+                {customerName && (
+                  <View style={styles.detailRow}>
+                    <ThemedText style={styles.detailLabel}>Customer Name</ThemedText>
+                    <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{customerName}</ThemedText>
+                  </View>
+                )}
               </View>
-            </View>
 
-            {/* Transaction Status Card */}
-            <View style={styles.statusCard}>
-              <ThemedText style={styles.cardTitle}>Transaction Status</ThemedText>
-              <View style={styles.detailRow}>
-                <ThemedText style={styles.detailLabel}>Date</ThemedText>
-                <ThemedText style={styles.detailValue} numberOfLines={1}>
-                  {formattedDate}, {formattedTime}
-                </ThemedText>
+              {/* Transaction Status Card */}
+              <View style={styles.statusCard}>
+                <ThemedText style={styles.cardTitle}>Transaction Status</ThemedText>
+                <View style={styles.detailRow}>
+                  <ThemedText style={styles.detailLabel}>Date</ThemedText>
+                  <ThemedText style={styles.detailValue} numberOfLines={1}>
+                    {formattedDate}, {formattedTime}
+                  </ThemedText>
+                </View>
+                <View style={styles.detailRow}>
+                  <ThemedText style={styles.detailLabel}>Status</ThemedText>
+                  <ThemedText style={[styles.statusValue, styles.statusProcessing]}>
+                    {isBusy ? 'Processing' : 'Ready'}
+                  </ThemedText>
+                </View>
               </View>
-              <View style={styles.detailRow}>
-                <ThemedText style={styles.detailLabel}>Status</ThemedText>
-                <ThemedText style={[styles.statusValue, styles.statusProcessing]}>
-                  {isBusy ? 'Processing' : 'Ready'}
-                </ThemedText>
-              </View>
-            </View>
+            </ScrollView>
 
             {/* Confirm Button */}
             <TouchableOpacity 
@@ -203,7 +212,15 @@ const styles = StyleSheet.create({
   modalContent: {
     paddingHorizontal: 20,
     paddingTop: 20,
+    flexShrink: 1,
     overflow: 'visible',
+  },
+  detailsScroll: {
+    flexGrow: 0,
+    marginBottom: 16,
+  },
+  detailsScrollContent: {
+    paddingBottom: 4,
   },
   headerRow: {
     flexDirection: 'row',
@@ -264,7 +281,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E8E8E8',
   },

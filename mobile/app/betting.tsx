@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -168,6 +168,8 @@ export default function BettingScreen() {
   );
 
   const handleContinue = async () => {
+    Keyboard.dismiss();
+
     if (!selectedProvider) {
       Alert.alert('Error', 'Please select a betting service provider');
       return;
@@ -337,6 +339,7 @@ export default function BettingScreen() {
         }
 
         setCustomerName(verifiedName);
+        Keyboard.dismiss();
         setShowConfirmModal(true);
       } catch (error: any) {
         console.error('Error verifying customer:', {
@@ -371,6 +374,7 @@ export default function BettingScreen() {
     } else {
       // For other providers, show modal without customer name
       setCustomerName('');
+      Keyboard.dismiss();
       setShowConfirmModal(true);
     }
   };

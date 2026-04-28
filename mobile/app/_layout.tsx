@@ -1,7 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import * as Linking from 'expo-linking';
 import 'react-native-reanimated';
 import { AuthApiError } from '@supabase/supabase-js';
@@ -11,7 +11,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications, setupNotificationListeners } from '@/utils/push-notifications';
 import '@/utils/error-handler'; // Initialize error handler
-import { LogBox } from 'react-native';
+import { Alert, LogBox } from 'react-native';
 
 // Suppress handled network errors in development
 if (__DEV__) {
@@ -109,6 +109,28 @@ const handleDeepLink = (url: string) => {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const hasShownPushSetupAlertRef = useRef(false);
+
+  const maybeShowPushSetupAlert = (reason?: string) => {
+    if (!reason || hasShownPushSetupAlertRef.current) {
+      return;
+    }
+
+    const normalizedReason = reason.toLowerCase();
+    const isExpoGoAndroidLimitation =
+      normalizedReason.includes('android push notifications are not available in expo go') ||
+      normalizedReason.includes('development build');
+
+    if (!isExpoGoAndroidLimitation) {
+      return;
+    }
+
+    hasShownPushSetupAlertRef.current = true;
+    Alert.alert(
+      'Android Notifications Setup',
+      'Push notifications do not work in Expo Go on Android. Build and install a development build (or production APK/AAB), then test again.',
+    );
+  };
 
   useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
@@ -155,6 +177,7 @@ export default function RootLayout() {
             }
           } else {
             console.log('Push notification registration:', result.reason);
+            maybeShowPushSetupAlert(result.reason);
           }
         }
       } catch (error) {
@@ -189,6 +212,7 @@ export default function RootLayout() {
             }
           } else {
             console.log('Push notification registration after sign in:', result.reason);
+            maybeShowPushSetupAlert(result.reason);
           }
         } else if (event === 'SIGNED_OUT') {
           // Remove listeners when user signs out

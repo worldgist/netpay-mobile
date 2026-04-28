@@ -1,10 +1,26 @@
 import { Alert } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { registerForPushNotifications } from '@/utils/push-notifications';
 
 const NOTIFICATION_PROMPT_SEEN_KEY = 'notification_prompt_seen_v1';
 const NOTIFICATION_PROMPT_NEVER_KEY = 'notification_prompt_never_v1';
+const isExpoGo = Constants.executionEnvironment === 'storeClient';
+const isAndroidExpoGo = isExpoGo && Platform.OS === 'android';
+
+const getNotificationsModule = () => {
+  if (isAndroidExpoGo) {
+    return null;
+  }
+
+  try {
+    return require('expo-notifications') as typeof import('expo-notifications');
+  } catch (error) {
+    console.warn('expo-notifications module unavailable in notification prompt flow:', error);
+    return null;
+  }
+};
 
 type PromptChoice = 'enable' | 'later' | 'never';
 
@@ -63,6 +79,16 @@ export const promptEnableNotifications = async (options: PromptOptions = {}) => 
   } = options;
 
   try {
+    if (isAndroidExpoGo) {
+      // Android remote push is not supported in Expo Go (SDK 53+).
+      return;
+    }
+
+    const Notifications = getNotificationsModule();
+    if (!Notifications) {
+      return;
+    }
+
     const seenPrompt = await hasSeenNotificationPrompt();
     const disabledPrompt = await hasDisabledNotificationPrompt();
     const { status } = await Notifications.getPermissionsAsync();

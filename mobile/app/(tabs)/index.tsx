@@ -90,6 +90,7 @@ export default function HomeScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const isMounted = useRef(true);
   const notificationChannelRef = useRef<RealtimeChannel | null>(null);
+  const hasShownPushSetupAlertRef = useRef(false);
 
   const fetchNotificationPreview = useCallback(
     async (targetUserId: string, options: { showSpinner?: boolean } = {}) => {
@@ -155,6 +156,18 @@ export default function HomeScreen() {
             console.log('Push notifications registered from home screen');
           } else {
             console.log('Push notification registration from home:', result.reason);
+            const reason = (result.reason || '').toLowerCase();
+            if (
+              !hasShownPushSetupAlertRef.current &&
+              (reason.includes('android push notifications are not available in expo go') ||
+                reason.includes('development build'))
+            ) {
+              hasShownPushSetupAlertRef.current = true;
+              Alert.alert(
+                'Android Notifications Setup',
+                'Push notifications do not work in Expo Go on Android. Build and install a development build (or production APK/AAB), then test again.',
+              );
+            }
           }
         }
       } catch (error) {

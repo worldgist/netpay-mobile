@@ -395,9 +395,9 @@ export default function ProfileScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}>
         {/* User Profile Section */}
-        <View style={[styles.profileSection, { paddingTop: Math.max(insets.top + 20, 60) }]}>
+        <View style={[styles.profileSection, { paddingTop: Math.max(insets.top + 16, 52) }]}>
           <View style={styles.avatarContainer}>
-            <MaterialIcons name="person" size={48} color="#FF7F00" />
+            <MaterialIcons name="person" size={36} color="#FF7F00" />
           </View>
           <ThemedText style={styles.userName}>
             {userName || (loading ? 'Loading...' : 'User')}
@@ -414,12 +414,12 @@ export default function ProfileScreen() {
           {/* Edit Profile */}
           <TouchableOpacity style={styles.optionCard} onPress={handleEditProfile} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="edit" size={24} color="#FF7F00" />
+              <MaterialIcons name="edit" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Edit Profile</ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
         </View>
 
@@ -441,7 +441,7 @@ export default function ProfileScreen() {
             }}
             disabled={loading || notificationsUpdating || !userId}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="notifications" size={24} color="#FF7F00" />
+              <MaterialIcons name="notifications" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Notifications</ThemedText>
                 <ThemedText style={styles.optionDescription}>
@@ -461,24 +461,24 @@ export default function ProfileScreen() {
           {/* Referral */}
           <TouchableOpacity style={styles.optionCard} onPress={handleReferral} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="people" size={24} color="#FF7F00" />
+              <MaterialIcons name="people" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Referral</ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
 
           {/* Contact Us */}
           <TouchableOpacity style={styles.optionCard} onPress={handleContactUs} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="email" size={24} color="#FF7F00" />
+              <MaterialIcons name="email" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Contact us</ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
           {/* Biometric Login */}
@@ -495,7 +495,7 @@ export default function ProfileScreen() {
             }}
             disabled={loading || biometricUpdating || !userId}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="fingerprint" size={24} color="#FF7F00" />
+              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
                 <ThemedText style={styles.optionDescription}>
@@ -519,7 +519,7 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.optionLeft}>
-              <MaterialIcons name="description" size={24} color="#FF7F00" />
+              <MaterialIcons name="description" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Statement of Account</ThemedText>
                 <ThemedText style={styles.optionDescription}>
@@ -527,7 +527,7 @@ export default function ProfileScreen() {
                 </ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
         </View>
 
@@ -538,38 +538,38 @@ export default function ProfileScreen() {
             onPress={() => router.push('/security')}
             activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="security" size={24} color="#FF7F00" />
+              <MaterialIcons name="security" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Security</ThemedText>
                 <ThemedText style={styles.optionDescription}>Manage your PIN and password</ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
         </View>
 
-        {/* Legal Section */}
+        {/* Legal — card chrome aligned with terms-and-conditions.tsx sectionCard */}
         <View style={styles.section}>
           {/* Terms & Conditions */}
-          <TouchableOpacity style={styles.optionCard} onPress={handleTerms} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.legalDocOptionCard} onPress={handleTerms} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="description" size={24} color="#FF7F00" />
+              <MaterialIcons name="description" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Terms & Conditions</ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
           {/* Privacy Policy */}
-          <TouchableOpacity style={styles.optionCard} onPress={handlePrivacy} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.legalDocOptionCard} onPress={handlePrivacy} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="security" size={24} color="#FF7F00" />
+              <MaterialIcons name="description" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Privacy Policy</ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#999" />
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
         </View>
 
@@ -580,7 +580,7 @@ export default function ProfileScreen() {
             onPress={() => router.push('/delete-account')}
             activeOpacity={0.7}>
             <View style={styles.optionLeft}>
-              <MaterialIcons name="delete" size={24} color="#DC2626" />
+              <MaterialIcons name="delete" size={20} color="#DC2626" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.deleteAccountTitle}>Delete Account</ThemedText>
                 <ThemedText style={styles.deleteAccountDescription}>
@@ -588,7 +588,7 @@ export default function ProfileScreen() {
                 </ThemedText>
               </View>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="#DC2626" />
+            <MaterialIcons name="chevron-right" size={20} color="#DC2626" />
           </TouchableOpacity>
         </View>
 
@@ -618,22 +618,22 @@ const styles = StyleSheet.create({
   },
   profileSection: {
     alignItems: 'center',
-    paddingBottom: 32,
+    paddingBottom: 22,
     paddingHorizontal: 20,
   },
   avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: '#FFF3E0',
     borderWidth: 2,
     borderColor: '#FF7F00',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   userName: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 4,
@@ -644,13 +644,13 @@ const styles = StyleSheet.create({
   },
   section: {
     paddingHorizontal: 20,
-    marginBottom: 24,
+    marginBottom: 18,
   },
   sectionHeader: {
     fontSize: 12,
     fontWeight: '600',
     color: '#666',
-    marginBottom: 12,
+    marginBottom: 8,
     letterSpacing: 0.5,
   },
   optionCard: {
@@ -658,9 +658,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F5F5F5',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  /** Matches `sectionCard` on terms-and-conditions.tsx (white, orange accent, light shadow) */
+  legalDocOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF7F00',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   optionCardWithSwitch: {
     paddingRight: 12,
@@ -674,7 +691,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionTextContainer: {
-    marginLeft: 12,
+    marginLeft: 10,
     flex: 1,
   },
   optionTitle: {
@@ -692,8 +709,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 10,
+    padding: 12,
     borderLeftWidth: 4,
     borderLeftColor: '#DC2626',
     borderWidth: 1,
@@ -715,8 +732,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#FF3B30',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 10,
+    padding: 12,
     marginHorizontal: 20,
     marginTop: 8,
     gap: 8,
