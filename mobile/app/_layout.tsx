@@ -90,6 +90,28 @@ const handleDeepLink = (url: string) => {
 
     console.log('Extracted tokens:', { hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken, type });
 
+    // NetPay AI app: netpay://pay?screen=data_purchase
+    const normalizedPath = String(path).replace(/\/+$/, '');
+    if (normalizedPath === 'pay') {
+      const screen = typeof query.screen === 'string' ? query.screen.trim() : '';
+      const payRoutes: Record<string, string> = {
+        data_purchase: '/data-purchase',
+        airtime: '/airtime-purchase',
+        electricity: '/electricity',
+        cable_tv: '/cable-tv',
+        education: '/education',
+        betting: '/betting',
+        pay_bills: '/(tabs)/pay-bills',
+        add_money: '/add-money',
+        transfer: '/transfer',
+      };
+      const target = payRoutes[screen];
+      if (target) {
+        router.push(target as import('expo-router').Href);
+        return;
+      }
+    }
+
     if (path === 'reset-password' || path === 'reset-password/' || path.includes('reset-password')) {
       const params: Record<string, string> = {};
       if (accessToken) params.access_token = accessToken;
