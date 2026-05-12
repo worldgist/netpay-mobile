@@ -69,11 +69,11 @@ export const diagnoseAndroidPushNotifications = async (): Promise<AndroidPushDia
 
   // Check project configuration
   if (diagnostics.projectId === 'not-set') {
-    diagnostics.recommendations.push('⚠️ EAS project ID is not set. Check app.json extra.eas.projectId');
+    diagnostics.recommendations.push('⚠️ EAS project ID is not set. Check app.config.js extra.eas.projectId');
   }
 
   if (diagnostics.androidPackage === 'not-set') {
-    diagnostics.recommendations.push('⚠️ Android package name is not set. Check app.json android.package');
+    diagnostics.recommendations.push('⚠️ Android package name is not set. Check app.config.js android.package');
   }
 
   // Check permissions

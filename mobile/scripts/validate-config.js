@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Local Expo config validator
- * Validates app.json/app.config.js without requiring network connection
+ * Local Expo config validator (no network).
+ * Prefers app.config.js when app.json is absent.
  */
 
 const fs = require('fs');
@@ -16,7 +16,6 @@ const appConfigTsPath = path.join(projectRoot, 'app.config.ts');
 let errors = [];
 let warnings = [];
 
-// Check if config file exists
 let configExists = false;
 if (fs.existsSync(appJsonPath)) {
   configExists = true;
@@ -33,49 +32,58 @@ if (!configExists) {
   errors.push('No Expo config file found (app.json, app.config.js, or app.config.ts)');
 }
 
-// Validate app.json if it exists
+function validateExpoObject(expo, label) {
+  const requiredFields = ['name', 'slug', 'version'];
+  requiredFields.forEach((field) => {
+    if (!expo?.[field]) {
+      errors.push(`Missing required field: ${field} (${label})`);
+    }
+  });
+
+  if (expo?.plugins) {
+    if (!Array.isArray(expo.plugins)) {
+      errors.push('plugins must be an array');
+    }
+  }
+
+  if (expo?.ios) {
+    if (!expo.ios.bundleIdentifier) {
+      warnings.push('iOS bundleIdentifier not set');
+    }
+  }
+
+  if (expo?.android) {
+    if (!expo.android.package) {
+      warnings.push('Android package name not set');
+    }
+  }
+
+  console.log(`✓ Project name: ${expo?.name || 'N/A'}`);
+  console.log(`✓ Project slug: ${expo?.slug || 'N/A'}`);
+  console.log(`✓ Version: ${expo?.version || 'N/A'}`);
+}
+
 if (fs.existsSync(appJsonPath)) {
   try {
     const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
-    
-    // Required fields
-    const requiredFields = ['name', 'slug', 'version'];
-    requiredFields.forEach(field => {
-      if (!appJson.expo?.[field]) {
-        errors.push(`Missing required field: expo.${field}`);
-      }
-    });
-    
-    // Check for common issues
-    if (appJson.expo?.plugins) {
-      if (!Array.isArray(appJson.expo.plugins)) {
-        errors.push('expo.plugins must be an array');
-      }
-    }
-    
-    if (appJson.expo?.ios) {
-      if (!appJson.expo.ios.bundleIdentifier) {
-        warnings.push('iOS bundleIdentifier not set');
-      }
-    }
-    
-    if (appJson.expo?.android) {
-      if (!appJson.expo.android.package) {
-        warnings.push('Android package not set');
-      }
-    }
-    
+    validateExpoObject(appJson.expo, 'app.json');
     console.log('✓ app.json is valid JSON');
-    console.log(`✓ Project name: ${appJson.expo?.name || 'N/A'}`);
-    console.log(`✓ Project slug: ${appJson.expo?.slug || 'N/A'}`);
-    console.log(`✓ Version: ${appJson.expo?.version || 'N/A'}`);
-    
   } catch (e) {
     errors.push(`Invalid JSON in app.json: ${e.message}`);
   }
+} else if (fs.existsSync(appConfigJsPath)) {
+  try {
+    delete require.cache[require.resolve(appConfigJsPath)];
+    const expo = require(appConfigJsPath);
+    validateExpoObject(expo, 'app.config.js');
+    console.log('✓ app.config.js loaded');
+  } catch (e) {
+    errors.push(`Could not load app.config.js: ${e.message}`);
+  }
+} else if (fs.existsSync(appConfigTsPath)) {
+  console.log('✓ app.config.ts present (skipped deep validation; use app.config.js or app.json for script checks)');
 }
 
-// Summary
 console.log('\n--- Validation Summary ---');
 if (errors.length === 0 && warnings.length === 0) {
   console.log('✓ All checks passed! Your Expo config is valid.');
@@ -83,25 +91,12 @@ if (errors.length === 0 && warnings.length === 0) {
 } else {
   if (warnings.length > 0) {
     console.log('\n⚠ Warnings:');
-    warnings.forEach(w => console.log(`  - ${w}`));
+    warnings.forEach((w) => console.log(`  - ${w}`));
   }
   if (errors.length > 0) {
     console.log('\n✗ Errors:');
-    errors.forEach(e => console.log(`  - ${e}`));
+    errors.forEach((e) => console.log(`  - ${e}`));
     process.exit(1);
   }
   process.exit(0);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

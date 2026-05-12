@@ -228,7 +228,7 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
       return {
         registered: false,
         reason:
-          'Missing EAS projectId for push tokens. Ensure app.json has extra.eas.projectId and rebuild the app.',
+          'Missing EAS projectId for push tokens. Ensure app.config.js has extra.eas.projectId and rebuild the app.',
       };
     }
 
