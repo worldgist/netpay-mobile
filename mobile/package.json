@@ -14,7 +14,8 @@
     "generate:icons": "node ./scripts/generate-square-icons.js",
     "build:android:apk": "npx eas-cli@latest build --platform android --profile preview",
     "build:android:aab": "npx eas-cli@latest build --platform android --profile production",
-    "prebuild:android": "expo prebuild --platform android",
+    "prebuild:android": "expo prebuild --platform android && node ./scripts/patch-android-gradle-network.js",
+    "prebuild:android:clean": "expo prebuild --platform android --clean && node ./scripts/patch-android-gradle-network.js",
     "android:assemble:release": "expo run:android --variant release"
   },
   "dependencies": {
