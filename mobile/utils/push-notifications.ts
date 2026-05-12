@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { supabase } from '@/lib/supabase';
+import { createTransactionNotification } from '@/utils/notifications';
 
 // Check if running in Expo Go (where push notifications are limited)
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
@@ -515,6 +516,9 @@ export const sendTransactionNotification = async (params: TransactionNotificatio
         body += ' completed';
         break;
     }
+
+    // In-app notification bell / notifications screen (independent of push delivery)
+    await createTransactionNotification({ title, message: body });
 
     await sendPushNotification({
       user_id: userId,
