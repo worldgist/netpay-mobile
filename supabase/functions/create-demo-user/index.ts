@@ -151,6 +151,14 @@ serve(async (req) => {
       throw new Error(`Failed to verify profile: ${verifyProfileError?.message || 'Profile not found'}`);
     }
 
+    // Open support chat thread + starter message for QA / App Review (idempotent RPC).
+    const { data: supportSeed, error: supportSeedError } = await supabase.rpc('seed_demo_support_chat');
+    if (supportSeedError) {
+      console.warn('seed_demo_support_chat RPC failed (support chat may still work from the app):', supportSeedError);
+    } else {
+      console.log('Support chat seed:', supportSeed);
+    }
+
     console.log('Demo user setup complete!');
 
     // Get referral code
@@ -181,6 +189,7 @@ serve(async (req) => {
           pin_enabled: profile.pin_enabled,
           biometric_enabled: profile.biometric_enabled,
         },
+        support_chat_seed: supportSeed ?? null,
         features_available: [
           'Airtime Purchase',
           'Data Purchase',
@@ -192,6 +201,7 @@ serve(async (req) => {
           'Referral Code Testing',
           'Biometric Authentication',
           'Delete Account',
+          'Chat support (demo thread seeded when RPC is available)',
         ],
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

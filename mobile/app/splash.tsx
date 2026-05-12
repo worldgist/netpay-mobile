@@ -1,11 +1,13 @@
-import { Image } from 'expo-image';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase, isSupabaseInitialized } from '@/lib/supabase';
+import { isPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
+import { needsDeviceWelcomeSetup } from '@/utils/device-welcome';
 
 const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 const EMAIL_KEY = 'supabase_email';
@@ -69,10 +71,25 @@ export default function SplashScreen() {
         }
 
         if (hasReturningUser) {
+          const skipBiometric = await isPendingBiometricReenrollment();
+          if (skipBiometric) {
+            if (!isMounted) return;
+            router.replace('/auth/login');
+            return;
+          }
+
           const biometricSignedIn = await autoSignInWithBiometric(storedEmail);
           if (!isMounted) return;
 
           if (biometricSignedIn) {
+            if (!isMounted) return;
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            if (session?.user?.id && (await needsDeviceWelcomeSetup(session.user.id))) {
+              router.replace({ pathname: '/setup-biometric', params: { from: 'new_device' } } as Href);
+              return;
+            }
             router.replace('/(tabs)');
             return;
           }
@@ -103,13 +120,7 @@ export default function SplashScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={styles.logoWrapper}>
-        <Image
-          source={require('@/assets/images/logo.png')}
-          style={styles.logo}
-          contentFit="contain"
-        />
-      </View>
+      <NetpayLoadingAnimation />
     </ThemedView>
   );
 }
@@ -120,18 +131,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
-  },
-  logoWrapper: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderBottomWidth: 0,
-  },
-  logo: {
-    width: '100%',
-    height: '100%',
   },
 });
 

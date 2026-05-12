@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, Modal, Text } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Text } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -280,7 +281,7 @@ export default function DeleteAccountScreen() {
             disabled={loading || confirmText !== requiredText}
             activeOpacity={0.7}>
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <>
                 <MaterialIcons name="delete" size={20} color="#fff" />

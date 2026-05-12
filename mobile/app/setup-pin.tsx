@@ -9,8 +9,8 @@ import {
   ScrollView,
   Modal,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
@@ -192,7 +192,7 @@ export default function SetupPinScreen() {
             onPress={handleContinue}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.continueButtonText}>Save PIN</ThemedText>
             )}

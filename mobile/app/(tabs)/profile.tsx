@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl, Modal } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -22,7 +23,13 @@ export default function ProfileScreen() {
   const [notificationsUpdating, setNotificationsUpdating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
+  const [isSupportAdmin, setIsSupportAdmin] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    visible: boolean;
+    variant: 'success' | 'error';
+    title: string;
+    message: string;
+  }>({ visible: false, variant: 'success', title: '', message: '' });
 
   const isMounted = useRef(true);
 
@@ -248,6 +255,22 @@ export default function ProfileScreen() {
       isMounted.current = true;
       fetchProfile();
 
+      (async () => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user?.id;
+        if (!uid || !isMounted.current) {
+          if (isMounted.current) setIsSupportAdmin(false);
+          return;
+        }
+        const { data: adminRole } = await supabase
+          .from('user_roles')
+          .select('id')
+          .eq('user_id', uid)
+          .eq('role', 'admin')
+          .maybeSingle();
+        if (isMounted.current) setIsSupportAdmin(Boolean(adminRole));
+      })();
+
       return () => {
         isMounted.current = false;
       };
@@ -277,12 +300,32 @@ export default function ProfileScreen() {
         if (error) {
           throw error;
         }
+
+        if (enabled) {
+          await clearPendingBiometricReenrollment();
+        }
+
+        if (isMounted.current) {
+          setFeedbackModal({
+            visible: true,
+            variant: 'success',
+            title: 'Biometric login',
+            message: enabled
+              ? 'Biometric login has been enabled successfully. You can use Face ID or fingerprint to sign in faster.'
+              : 'Biometric login has been turned off. You can enable it again anytime from this screen.',
+          });
+        }
       } catch (error) {
         console.error('Failed to update biometric setting:', error);
         if (isMounted.current) {
           setBiometricEnabled(previousValue);
           const message = error instanceof Error ? error.message : 'Unable to update biometric setting. Please try again.';
-          Alert.alert('Biometric Login', message);
+          setFeedbackModal({
+            visible: true,
+            variant: 'error',
+            title: 'Biometric login',
+            message,
+          });
         }
       } finally {
         if (isMounted.current) {
@@ -346,18 +389,28 @@ export default function ProfileScreen() {
 
       try {
         await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, JSON.stringify(enabled));
-        
-        // Optionally, you can also update push notification permissions here
-        // For now, we're just storing the preference
-        if (enabled && isMounted.current) {
-          Alert.alert('Notifications', 'Notifications enabled successfully.');
+
+        if (isMounted.current) {
+          setFeedbackModal({
+            visible: true,
+            variant: 'success',
+            title: 'Notifications',
+            message: enabled
+              ? 'Notifications have been enabled successfully. You will receive updates and alerts when they are available.'
+              : 'Notifications have been turned off. You can turn them back on anytime from this screen.',
+          });
         }
       } catch (error) {
         console.error('Failed to update notifications setting:', error);
         if (isMounted.current) {
           setNotificationsEnabled(previousValue);
           const message = error instanceof Error ? error.message : 'Unable to update notifications setting. Please try again.';
-          Alert.alert('Notifications', message);
+          setFeedbackModal({
+            visible: true,
+            variant: 'error',
+            title: 'Notifications',
+            message,
+          });
         }
       } finally {
         if (isMounted.current) {
@@ -481,6 +534,37 @@ export default function ProfileScreen() {
             <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
+          {/* Live chat support */}
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => router.push('/support-chat')}
+            activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="chat" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Chat support</ThemedText>
+                <ThemedText style={styles.optionDescription}>Message our team in real time</ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
+          </TouchableOpacity>
+
+          {isSupportAdmin ? (
+            <TouchableOpacity
+              style={styles.optionCard}
+              onPress={() => router.push('/support-admin')}
+              activeOpacity={0.7}>
+              <View style={styles.optionLeft}>
+                <MaterialIcons name="support-agent" size={20} color="#FF7F00" />
+                <View style={styles.optionTextContainer}>
+                  <ThemedText style={styles.optionTitle}>Support center</ThemedText>
+                  <ThemedText style={styles.optionDescription}>Open threads and reply to customers</ThemedText>
+                </View>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#999" />
+            </TouchableOpacity>
+          ) : null}
+
           {/* Biometric Login */}
           <TouchableOpacity
             style={[
@@ -601,6 +685,32 @@ export default function ProfileScreen() {
         <View style={{ height: 16 }} />
       </ScrollView>
 
+      <Modal
+        visible={feedbackModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFeedbackModal((m) => ({ ...m, visible: false }))}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View
+              style={feedbackModal.variant === 'success' ? styles.modalIconCircleSuccess : styles.modalIconCircleError}>
+              <MaterialIcons
+                name={feedbackModal.variant === 'success' ? 'check-circle' : 'error-outline'}
+                size={36}
+                color="#fff"
+              />
+            </View>
+            <ThemedText style={styles.modalTitle}>{feedbackModal.title}</ThemedText>
+            <ThemedText style={styles.modalMessage}>{feedbackModal.message}</ThemedText>
+            <TouchableOpacity
+              style={styles.modalButton}
+              activeOpacity={0.85}
+              onPress={() => setFeedbackModal((m) => ({ ...m, visible: false }))}>
+              <ThemedText style={styles.modalButtonText}>OK</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -742,6 +852,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FF3B30',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 36,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+  },
+  modalIconCircleSuccess: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalIconCircleError: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F44336',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 26,
+    lineHeight: 22,
+  },
+  modalButton: {
+    backgroundColor: '#FF7F00',
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 12,
+    minWidth: 140,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
   },
 });
 

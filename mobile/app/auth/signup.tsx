@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { checkSignupAvailability } from '@/utils/signup-availability';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -26,10 +28,9 @@ export default function SignupScreen() {
   const emailCheckTimeout = useRef<NodeJS.Timeout | null>(null);
   const phoneCheckTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // Check email availability
   const checkEmailAvailability = async (emailToCheck: string) => {
     const trimmedEmail = emailToCheck.trim().toLowerCase();
-    
+
     if (!trimmedEmail || !trimmedEmail.includes('@')) {
       setEmailExists(false);
       return;
@@ -37,40 +38,15 @@ export default function SignupScreen() {
 
     try {
       setCheckingEmail(true);
-      const { data: availability, error } = await supabase.functions.invoke(
-        'check-signup-availability',
-        {
-          body: {
-            email: trimmedEmail,
-            phone: null,
-          },
-        }
-      );
+      const availability = await checkSignupAvailability({ email: trimmedEmail, phone: null });
 
-      console.log('Email availability check result:', { 
-        availability, 
-        error, 
-        email: trimmedEmail,
-        emailExists: availability?.emailExists,
-        success: availability?.success
-      });
-
-      if (error) {
-        console.error('Error from check-signup-availability:', error);
+      if (!availability.success) {
+        console.warn('Email availability check failed:', availability.error);
         setEmailExists(false);
         return;
       }
 
-      if (!error && availability) {
-        setEmailExists(availability.emailExists || false);
-        console.log('Email exists check:', { 
-          emailExists: availability.emailExists, 
-          fullResponse: availability 
-        });
-      } else {
-        console.log('No availability data returned or error occurred');
-        setEmailExists(false);
-      }
+      setEmailExists(availability.emailExists);
     } catch (err) {
       console.error('Error checking email availability:', err);
       setEmailExists(false);
@@ -79,10 +55,9 @@ export default function SignupScreen() {
     }
   };
 
-  // Check phone availability
   const checkPhoneAvailability = async (phoneToCheck: string) => {
     const sanitizedPhone = phoneToCheck.replace(/[^0-9]/g, '');
-    
+
     if (!sanitizedPhone || sanitizedPhone.length < 10) {
       setPhoneExists(false);
       return;
@@ -90,21 +65,15 @@ export default function SignupScreen() {
 
     try {
       setCheckingPhone(true);
-      const { data: availability, error } = await supabase.functions.invoke(
-        'check-signup-availability',
-        {
-          body: {
-            email: null,
-            phone: sanitizedPhone,
-          },
-        }
-      );
+      const availability = await checkSignupAvailability({ email: null, phone: sanitizedPhone });
 
-      if (!error && availability) {
-        setPhoneExists(availability.phoneExists || false);
-      } else {
+      if (!availability.success) {
+        console.warn('Phone availability check failed:', availability.error);
         setPhoneExists(false);
+        return;
       }
+
+      setPhoneExists(availability.phoneExists);
     } catch (err) {
       console.error('Error checking phone availability:', err);
       setPhoneExists(false);
@@ -196,27 +165,22 @@ export default function SignupScreen() {
     try {
       setLoading(true);
 
-      const { data: availability, error: availabilityError } = await supabase.functions.invoke(
-        'check-signup-availability',
-        {
-          body: {
-            email: trimmedEmail,
-            phone: sanitizedPhone || null,
-          },
-        }
-      );
+      const availability = await checkSignupAvailability({
+        email: trimmedEmail,
+        phone: sanitizedPhone || null,
+      });
 
-      if (availabilityError) {
-        throw availabilityError;
+      if (!availability.success) {
+        throw new Error(availability.error || 'Unable to verify email and phone.');
       }
 
-      if (availability?.emailExists) {
+      if (availability.emailExists) {
         setLoading(false);
         Alert.alert('Sign Up', 'An account with this email already exists. Please sign in instead.');
         return;
       }
 
-      if (sanitizedPhone && availability?.phoneExists) {
+      if (sanitizedPhone && availability.phoneExists) {
         setLoading(false);
         Alert.alert('Sign Up', 'This phone number is already linked to an account.');
         return;
@@ -356,7 +320,7 @@ export default function SignupScreen() {
                 autoCorrect={false}
               />
               {checkingEmail && (
-                <ActivityIndicator size="small" color="#FF7F00" style={styles.checkingIndicator} />
+                <NetpayLoadingAnimation size={22} strokeWidth={2} style={styles.checkingIndicator} />
               )}
               {!checkingEmail && email && email.includes('@') && (
                 <MaterialIcons 
@@ -391,7 +355,7 @@ export default function SignupScreen() {
                 keyboardType="phone-pad"
               />
               {checkingPhone && (
-                <ActivityIndicator size="small" color="#FF7F00" style={styles.checkingIndicator} />
+                <NetpayLoadingAnimation size={22} strokeWidth={2} style={styles.checkingIndicator} />
               )}
               {!checkingPhone && phone && phone.replace(/[^0-9]/g, '').length >= 10 && (
                 <MaterialIcons 
@@ -476,7 +440,7 @@ export default function SignupScreen() {
             onPress={handleCreateAccount}
             disabled={loading || emailExists || phoneExists}>
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <View style={styles.buttonTextContainer}>
                 <ThemedText 

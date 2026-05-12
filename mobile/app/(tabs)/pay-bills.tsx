@@ -4,8 +4,8 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ const SERVICE_CONFIG = [
   { id: 'data', name: 'Data', icon: 'wifi' as const, route: '/data-purchase' },
   { id: 'education', name: 'Education', icon: 'school' as const, route: '/education' },
   { id: 'electricity', name: 'Electricity', icon: 'flash-on' as const, route: '/electricity' },
+  { id: 'flight', name: 'Flights', icon: 'flight' as const, route: '/flight-booking' },
   { id: 'betting', name: 'Betting', icon: 'casino' as const, route: '/betting' },
 ] as const;
 
@@ -170,6 +171,14 @@ export default function PayBillsScreen() {
                 status: electricityLast.status,
               }
             : undefined,
+        };
+      }
+
+      if (service.id === 'flight') {
+        return {
+          ...service,
+          availableLabel: 'Coming soon',
+          comingSoon: true,
         };
       }
 
@@ -331,7 +340,7 @@ export default function PayBillsScreen() {
     <ThemedView style={styles.container}>
       {loading && !refreshing ? (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FF7F00" />
+          <NetpayLoadingAnimation message="Loading…" />
         </View>
       ) : null}
 
@@ -362,16 +371,21 @@ export default function PayBillsScreen() {
                 onPress={() => handleServicePress(service)}
                 activeOpacity={0.7}
               >
-                <View style={styles.iconCircle}>
+                <View style={[styles.iconCircle, service.comingSoon && styles.iconCircleMuted]}>
                   <MaterialIcons
                     name={service.icon}
                     size={24}
-                    color="#FF7F00"
+                    color={service.comingSoon ? '#B0B8C4' : '#FF7F00'}
                   />
                 </View>
-                <ThemedText style={styles.serviceName} numberOfLines={1}>
+                <ThemedText
+                  style={[styles.serviceName, service.comingSoon && styles.serviceNameMuted]}
+                  numberOfLines={1}>
                   {formatServiceName(service.name)}
                 </ThemedText>
+                {service.comingSoon ? (
+                  <ThemedText style={styles.comingSoonLabel}>Coming soon</ThemedText>
+                ) : null}
               </TouchableOpacity>
             ))}
           </View>
@@ -468,11 +482,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  iconCircleMuted: {
+    backgroundColor: '#F0F2F5',
+  },
   serviceName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#152238',
     textAlign: 'center',
+  },
+  serviceNameMuted: {
+    color: '#7A8699',
+  },
+  comingSoonLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FF7F00',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 2,
   },
   transactionRow: {
     flexDirection: 'row',

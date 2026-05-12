@@ -1,5 +1,17 @@
-import { useState } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { useState, useCallback } from 'react';
+import {
+  StyleSheet,
+  View,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  Modal,
+} from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { useFocusEffect } from '@react-navigation/native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Image } from 'expo-image';
@@ -8,12 +20,28 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase, isSupabaseInitialized, getSupabaseConfigStatus } from '@/lib/supabase';
 import * as SecureStore from 'expo-secure-store';
-import { promptEnableNotifications, hasSeenNotificationPrompt } from '@/utils/notification-prompt';
+import {
+  clearPendingBiometricReenrollment,
+  isPendingBiometricReenrollment,
+} from '@/utils/pending-biometric-reenrollment';
+import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
 const EMAIL_KEY = 'supabase_email';
 const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
+
+const DEFAULT_BIOMETRIC_NOT_ENABLED_MESSAGE =
+  'Biometric login is not enabled for this account yet. Sign in with your email and password, then open Profile and enable biometric login.';
+
+function isBiometricNotEnabledMessage(msg: string): boolean {
+  const s = msg.toLowerCase();
+  return (
+    s.includes('biometric login is not enabled') ||
+    s.includes('not enabled for this account') ||
+    (s.includes('biometric') && s.includes('not enabled') && s.includes('profile'))
+  );
+}
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -22,6 +50,37 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [biometricLoading, setBiometricLoading] = useState(false);
+  const [showBiometricLogin, setShowBiometricLogin] = useState(false);
+  const [biometricNotEnabledModalVisible, setBiometricNotEnabledModalVisible] = useState(false);
+  const [biometricNotEnabledModalMessage, setBiometricNotEnabledModalMessage] = useState('');
+
+  const openBiometricNotEnabledModal = (message: string) => {
+    const trimmed = message.trim();
+    setBiometricNotEnabledModalMessage(
+      trimmed.length > 0 ? trimmed : DEFAULT_BIOMETRIC_NOT_ENABLED_MESSAGE
+    );
+    setBiometricNotEnabledModalVisible(true);
+  };
+
+  const closeBiometricNotEnabledModal = () => {
+    setBiometricNotEnabledModalVisible(false);
+    setBiometricNotEnabledModalMessage('');
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        const pending = await isPendingBiometricReenrollment();
+        if (active) {
+          setShowBiometricLogin(!pending);
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const handleSignIn = async () => {
     const trimmedEmail = email.trim().toLowerCase();
@@ -87,6 +146,8 @@ export default function LoginScreen() {
         return;
       }
 
+      await clearPendingBiometricReenrollment();
+
       try {
         await SecureStore.setItemAsync(
           SESSION_KEY,
@@ -121,13 +182,7 @@ export default function LoginScreen() {
         }
       }
 
-      // Prompt on first login on this device.
-      const seenPromptOnThisDevice = await hasSeenNotificationPrompt();
-      if (!seenPromptOnThisDevice) {
-        await promptEnableNotifications();
-      }
-
-      router.replace('/(tabs)');
+      await navigateAfterAuthenticatedSession(router);
     } catch (err) {
       setLoading(false);
       Alert.alert('Sign In Error', err instanceof Error ? err.message : 'An unexpected error occurred.');
@@ -264,17 +319,29 @@ export default function LoginScreen() {
           return;
         }
 
+        if (isBiometricNotEnabledMessage(errorMessage)) {
+          openBiometricNotEnabledModal(errorMessage);
+          setBiometricLoading(false);
+          return;
+        }
+
         Alert.alert('Biometric Login', errorMessage);
         setBiometricLoading(false);
         return;
       }
 
       if (!pinData?.success) {
-        console.error('Biometric sign-in function responded with error:', pinData);
         const errorMsg = typeof pinData?.error === 'string' && pinData.error.trim().length > 0
-          ? pinData.error
+          ? pinData.error.trim()
           : 'Unable to authenticate with biometrics. Please sign in manually.';
-        
+
+        if (isBiometricNotEnabledMessage(errorMsg)) {
+          openBiometricNotEnabledModal(errorMsg);
+          setBiometricLoading(false);
+          return;
+        }
+
+        console.error('Biometric sign-in function responded with error:', pinData);
         Alert.alert('Biometric Login', errorMsg);
         setBiometricLoading(false);
         return;
@@ -318,14 +385,8 @@ export default function LoginScreen() {
         console.warn('Unable to persist session after biometric login:', storageError);
       }
 
-      // Prompt on first biometric login on this device.
-      const seenPromptOnThisDevice = await hasSeenNotificationPrompt();
-      if (!seenPromptOnThisDevice) {
-        await promptEnableNotifications();
-      }
-
       setBiometricLoading(false);
-      router.replace('/(tabs)');
+      await navigateAfterAuthenticatedSession(router);
     } catch (error) {
       console.error('Biometric login unexpected error:', error);
       setBiometricLoading(false);
@@ -403,24 +464,28 @@ export default function LoginScreen() {
             onPress={handleSignIn}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.signInButtonText}>Sign In</ThemedText>
             )}
           </TouchableOpacity>
 
-          {/* Biometric Button */}
-          <TouchableOpacity
-            style={[styles.biometricButton, (loading || biometricLoading) && { opacity: 0.7 }]}
-            onPress={handleBiometric}
-            disabled={loading || biometricLoading}>
-            {biometricLoading ? (
-              <ActivityIndicator color="#FF7F00" style={styles.biometricIcon} />
-            ) : (
-              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" style={styles.biometricIcon} />
-            )}
-            <ThemedText style={styles.biometricButtonText}>Sign in with Biometric</ThemedText>
-          </TouchableOpacity>
+          {/* Biometric — hidden until user signs in with password or re-enables biometrics in Profile after a password change */}
+          {showBiometricLogin ? (
+            <TouchableOpacity
+              style={[styles.biometricButton, (loading || biometricLoading) && { opacity: 0.7 }]}
+              onPress={handleBiometric}
+              disabled={loading || biometricLoading}>
+              {biometricLoading ? (
+                <View style={styles.biometricIcon}>
+                  <NetpayLoadingAnimation size={22} strokeWidth={2} />
+                </View>
+              ) : (
+                <MaterialIcons name="fingerprint" size={20} color="#FF7F00" style={styles.biometricIcon} />
+              )}
+              <ThemedText style={styles.biometricButtonText}>Sign in with Biometric</ThemedText>
+            </TouchableOpacity>
+          ) : null}
 
           {/* Links */}
           <TouchableOpacity style={styles.linkContainer} onPress={() => router.push('/forget-password')}>
@@ -436,6 +501,28 @@ export default function LoginScreen() {
           </View>
         </ThemedView>
       </ScrollView>
+
+      <Modal
+        visible={biometricNotEnabledModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeBiometricNotEnabledModal}>
+        <View style={styles.biometricModalOverlay}>
+          <View style={styles.biometricModalCard}>
+            <View style={styles.biometricModalIconCircle}>
+              <MaterialIcons name="fingerprint" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.biometricModalTitle}>Biometric login isn&apos;t enabled</ThemedText>
+            <ThemedText style={styles.biometricModalMessage}>{biometricNotEnabledModalMessage}</ThemedText>
+            <TouchableOpacity
+              style={styles.biometricModalButton}
+              onPress={closeBiometricNotEnabledModal}
+              activeOpacity={0.85}>
+              <ThemedText style={styles.biometricModalButtonText}>OK</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -556,6 +643,58 @@ const styles = StyleSheet.create({
     color: '#FF7F00',
     fontSize: 16,
     fontWeight: '600',
+  },
+  biometricModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  biometricModalCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 28,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+  },
+  biometricModalIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#FFF3E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  biometricModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  biometricModalMessage: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#555',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  biometricModalButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    minWidth: 160,
+    alignItems: 'center',
+  },
+  biometricModalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   linkContainer: {
     marginBottom: 16,

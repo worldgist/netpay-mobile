@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -11,12 +10,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
+import { disableBiometricLoginForCurrentUser } from '@/utils/disable-biometric-after-password-change';
+import { markPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -107,6 +109,17 @@ export default function ChangePasswordScreen() {
         setUpdating(false);
         Alert.alert('Change Password', updateError.message || 'Failed to change password. Please try again.');
         return;
+      }
+
+      const bio = await disableBiometricLoginForCurrentUser();
+      if (!bio.ok) {
+        console.warn('Could not disable biometric on profile after password change:', bio.error);
+        Alert.alert(
+          'Biometric login',
+          'Your password was updated, but biometric could not be turned off automatically. Please disable Biometric login in Profile, then turn it on again after signing in with your new password.',
+        );
+      } else {
+        await markPendingBiometricReenrollment();
       }
 
       setUpdating(false);
@@ -212,7 +225,7 @@ export default function ChangePasswordScreen() {
             onPress={step === 'current' ? handleVerifyCurrentPassword : handleChangePassword}
             disabled={updating}>
             {updating ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.updateButtonText}>
                 {step === 'current' ? 'Continue' : 'Update Password'}
@@ -247,7 +260,7 @@ export default function ChangePasswordScreen() {
             </View>
             <ThemedText style={styles.modalTitle}>Password Updated</ThemedText>
             <ThemedText style={styles.modalMessage}>
-              Your password has been changed successfully.
+              Your password has been changed successfully. For security, biometric login is turned off until you enable it again in Profile settings.
             </ThemedText>
             <TouchableOpacity style={styles.modalButton} onPress={handleCloseSuccess}>
               <ThemedText style={styles.modalButtonText}>Done</ThemedText>

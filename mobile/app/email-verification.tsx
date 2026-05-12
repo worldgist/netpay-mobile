@@ -9,8 +9,8 @@ import {
   ScrollView,
   Modal,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -182,7 +182,7 @@ export default function EmailVerificationScreen() {
             onPress={handleVerify}
             disabled={verifying}>
             {verifying ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.verifyButtonText}>Verify Email</ThemedText>
             )}
@@ -193,7 +193,7 @@ export default function EmailVerificationScreen() {
             onPress={handleResendCode}
             disabled={resending}>
             {resending ? (
-              <ActivityIndicator color="#FF7F00" />
+              <NetpayLoadingAnimation size={28} strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.resendButtonText}>Resend Code</ThemedText>
             )}

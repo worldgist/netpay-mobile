@@ -1,6 +1,7 @@
-import { StyleSheet, View, TouchableOpacity, Modal, Platform, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Modal, Platform, ScrollView } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 
 interface ConfirmTransferModalProps {
   visible: boolean;
@@ -133,8 +134,8 @@ export function ConfirmTransferModal({
           >
             {loading ? (
               <View style={styles.confirmButtonContent}>
-                <ActivityIndicator color="#fff" style={styles.confirmButtonSpinner} />
-                <ThemedText style={styles.confirmButtonText}>Processing…</ThemedText>
+                <NetpayLoadingAnimation size={40} strokeWidth={2.5} variant="onBrand" />
+                <ThemedText style={[styles.confirmButtonText, styles.confirmButtonTextLoading]}>Processing…</ThemedText>
               </View>
             ) : (
               <ThemedText style={styles.confirmButtonText}>Confirm Transfer</ThemedText>
@@ -142,10 +143,9 @@ export function ConfirmTransferModal({
           </TouchableOpacity>
         </View>
         {loading && (
-          <View style={styles.loadingOverlay}>
+          <View style={styles.loadingOverlay} pointerEvents="auto">
             <View style={styles.loadingCard}>
-              <ActivityIndicator size="large" color="#FF7F00" style={styles.loadingSpinner} />
-              <ThemedText style={styles.loadingText}>Processing transfer…</ThemedText>
+              <NetpayLoadingAnimation message="Processing transfer…" />
             </View>
           </View>
         )}
@@ -306,9 +306,11 @@ const styles = StyleSheet.create({
   confirmButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
-  confirmButtonSpinner: {
-    marginRight: 12,
+  confirmButtonTextLoading: {
+    marginLeft: 4,
   },
   confirmButtonText: {
     fontSize: 18,
@@ -322,23 +324,16 @@ const styles = StyleSheet.create({
   },
   loadingCard: {
     backgroundColor: '#fff',
-    borderRadius: 18,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
+    borderRadius: 22,
+    paddingVertical: 28,
+    paddingHorizontal: 32,
     alignItems: 'center',
+    minWidth: 260,
     shadowColor: '#000',
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 12,
-  },
-  loadingSpinner: {
-    marginBottom: 12,
-  },
-  loadingText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 16,
   },
 });
 

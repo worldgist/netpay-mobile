@@ -4,7 +4,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
   Pressable,
   Alert,
 } from 'react-native';
@@ -18,7 +17,9 @@ import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { registerForPushNotifications } from '@/utils/push-notifications';
+import { useThemeColor } from '@/hooks/use-theme-color';
 import { Image } from 'expo-image';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 
 const NETWORK_LOGOS: Record<string, any> = {
   MTN: require('@/assets/images/mtn.png'),
@@ -75,6 +76,7 @@ const SHOW_NOTIFICATION_PANEL = false;
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const headerIconColor = useThemeColor({}, 'icon');
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [balance, setBalance] = useState<number | null>(null);
   const [userName, setUserName] = useState('User');
@@ -523,6 +525,9 @@ export default function HomeScreen() {
       case 'data':
         return `${txn.network || 'Data'} Bundle`;
       default:
+        if (txn.type === 'user' && (txn.transaction_type || '').toLowerCase() === 'refund') {
+          return 'Refund';
+        }
         return txn.description || txn.transaction_type || 'Transaction';
     }
   };
@@ -545,8 +550,11 @@ export default function HomeScreen() {
         ? txn.type
         : txn.type;
 
+    const isWalletRefund =
+      txn.type === 'user' && (txn.transaction_type || '').toLowerCase() === 'refund';
     const isCredit =
       txn.type === 'transfer_received' ||
+      isWalletRefund ||
       (typeof txn.transaction_type === 'string' && txn.transaction_type.toLowerCase().includes('credit'));
 
     const status = (txn as any)?.status || (isCredit ? 'Completed' : 'Completed');
@@ -567,6 +575,8 @@ export default function HomeScreen() {
           ? 'Data Bundle'
           : baseCategory === 'transfer_sent' || baseCategory === 'transfer_received'
           ? 'Transfer'
+          : isWalletRefund
+          ? 'Refund'
           : 'Wallet Transaction',
       network: String((txn as any)?.network || ''),
       date: createdAt,
@@ -629,7 +639,7 @@ export default function HomeScreen() {
             <View style={styles.notificationPanelBody}>
               {notificationLoading ? (
                 <View style={styles.notificationPanelLoading}>
-                  <ActivityIndicator size="small" color="#FF7F00" />
+                  <NetpayLoadingAnimation size={36} strokeWidth={3} />
                 </View>
               ) : notificationPreview.length === 0 ? (
                 <View style={styles.notificationPanelEmpty}>
@@ -693,31 +703,36 @@ export default function HomeScreen() {
         </>
       )}
 
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerTitleWrap}>
+          <ThemedText style={styles.headerTitle} numberOfLines={1}>
+            Home
+          </ThemedText>
+        </View>
+        <TouchableOpacity
+          style={styles.notificationButton}
+          onPress={handleNotificationBellPress}
+          activeOpacity={0.8}
+          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+        >
+          <MaterialIcons name="notifications" size={28} color={headerIconColor} />
+          {unreadCount > 0 && (
+            <View style={styles.notificationBadge}>
+              <ThemedText style={styles.notificationBadgeText}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </ThemedText>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
 
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF7F00" />}>
-        <View style={[styles.header, { paddingTop: insets.top + 8 }] }>
-          <ThemedText style={styles.headerTitle}>Home</ThemedText>
-          <TouchableOpacity
-            style={styles.notificationButton}
-            onPress={handleNotificationBellPress}
-            activeOpacity={0.8}
-            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-          >
-            <MaterialIcons name="notifications" size={28} color="#333" />
-            {unreadCount > 0 && (
-              <View style={styles.notificationBadge}>
-                <ThemedText style={styles.notificationBadgeText}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </ThemedText>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.welcomeSection}>
           <View style={styles.welcomeTextGroup}>
             <ThemedText style={styles.welcomeGreeting}>Hello,</ThemedText>
@@ -735,7 +750,7 @@ export default function HomeScreen() {
           </View>
           <View style={styles.balanceAmountContainer}>
             {loading && !refreshing && balance === null ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.balanceAmount}>
                 {balanceVisible ? formatCurrency(balance) : '₦••••'}
@@ -776,8 +791,11 @@ export default function HomeScreen() {
             </View>
           ) : (
             displayedTransactions.map((txn) => {
+              const isWalletRefund =
+                txn.type === 'user' && (txn.transaction_type || '').toLowerCase() === 'refund';
               const isCredit =
                 txn.type === 'transfer_received' ||
+                isWalletRefund ||
                 (typeof txn.transaction_type === 'string' && txn.transaction_type.toLowerCase().includes('credit'));
 
               return (
@@ -796,7 +814,7 @@ export default function HomeScreen() {
                   <View style={styles.transactionAmountContainer}>
                     {renderTransactionAmount(txn, isCredit)}
                     <ThemedText style={styles.transactionStatus}>
-                      {isCredit ? 'Credit' : 'Debit'}
+                      {isWalletRefund ? 'Refund' : isCredit ? 'Credit' : 'Debit'}
                     </ThemedText>
                   </View>
                 </TouchableOpacity>
@@ -826,11 +844,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 12,
+    backgroundColor: '#f7f7f7',
+    zIndex: 2,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    marginRight: 12,
+    minWidth: 0,
   },
   headerTitle: {
     fontSize: 21,
     fontWeight: 'bold',
     color: '#333',
+  },
+  notificationButton: {
+    position: 'relative',
+    padding: 4,
+    flexShrink: 0,
   },
   welcomeSection: {
     backgroundColor: '#fff',
@@ -1044,10 +1074,6 @@ const styles = StyleSheet.create({
   loadingLogo: {
     width: 120,
     height: 120,
-  },
-  notificationButton: {
-    position: 'relative',
-    padding: 4,
   },
   notificationOverlay: {
     ...StyleSheet.absoluteFillObject,

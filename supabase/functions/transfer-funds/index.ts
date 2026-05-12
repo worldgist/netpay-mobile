@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { debitUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const corsHeaders = {
@@ -14,20 +13,152 @@ type TransferPayload = {
   description?: string;
 };
 
+type TransferRiskLimits = {
+  max_single_txn: number;
+  daily_outflow_cap: number;
+  hourly_txn_count_cap: number;
+  new_account_days: number;
+  new_account_daily_outflow_cap: number;
+};
+
+const DEFAULT_TRANSFER_LIMITS: TransferRiskLimits = {
+  max_single_txn: 500_000,
+  daily_outflow_cap: 5_000_000,
+  hourly_txn_count_cap: 40,
+  new_account_days: 7,
+  new_account_daily_outflow_cap: 500_000,
+};
+
 const normalizeEmail = (value?: string | null) => value?.trim().toLowerCase() ?? "";
 
-// Transfer fee configuration
-const TRANSFER_FEE_PERCENTAGE = 0.05; // 5% fee (e.g., ₦50 for ₦1000 transfer)
-const MIN_TRANSFER_FEE = 10; // Minimum fee of ₦10
+const TRANSFER_FEE_PERCENTAGE = 0.05;
+const MIN_TRANSFER_FEE = 10;
 
-/**
- * Calculate transfer fee based on percentage
- * Charges 5% of transfer amount (e.g., ₦50 for ₦1000)
- * Minimum fee is ₦10
- */
 const calculateTransferFee = (amount: number): number => {
   const percentageFee = amount * TRANSFER_FEE_PERCENTAGE;
-  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100); // Round to 2 decimal places
+  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100);
+};
+
+const startOfUtcDayIso = (): string => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0)).toISOString();
+};
+
+const utcDayAgeInDays = (createdAt: string): number => {
+  const t = Date.parse(createdAt);
+  if (!Number.isFinite(t)) return Infinity;
+  return (Date.now() - t) / 86_400_000;
+};
+
+async function loadTransferRiskLimits(supabase: ReturnType<typeof createClient>): Promise<TransferRiskLimits> {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("setting_value")
+    .eq("setting_key", "transfer_risk_limits")
+    .maybeSingle();
+
+  if (error || !data?.setting_value || typeof data.setting_value !== "object") {
+    return DEFAULT_TRANSFER_LIMITS;
+  }
+
+  const v = data.setting_value as Record<string, unknown>;
+  const num = (key: string, fallback: number) => {
+    const n = Number(v[key]);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+
+  return {
+    max_single_txn: num("max_single_txn", DEFAULT_TRANSFER_LIMITS.max_single_txn),
+    daily_outflow_cap: num("daily_outflow_cap", DEFAULT_TRANSFER_LIMITS.daily_outflow_cap),
+    hourly_txn_count_cap: num("hourly_txn_count_cap", DEFAULT_TRANSFER_LIMITS.hourly_txn_count_cap),
+    new_account_days: num("new_account_days", DEFAULT_TRANSFER_LIMITS.new_account_days),
+    new_account_daily_outflow_cap: num(
+      "new_account_daily_outflow_cap",
+      DEFAULT_TRANSFER_LIMITS.new_account_daily_outflow_cap,
+    ),
+  };
+}
+
+/**
+ * Velocity / daily caps before the atomic transfer RPC runs.
+ * Demo user is exempt so QA is not blocked.
+ */
+async function enforceTransferRiskLimits(params: {
+  supabase: ReturnType<typeof createClient>;
+  senderId: string;
+  senderEmail: string | null | undefined;
+  senderCreatedAt: string;
+  amount: number;
+}): Promise<void> {
+  const senderEmail = normalizeEmail(params.senderEmail);
+  if (senderEmail === "demo@netpayy.ng") {
+    return;
+  }
+
+  const limits = await loadTransferRiskLimits(params.supabase);
+  const { amount, senderId, supabase, senderCreatedAt } = params;
+
+  if (amount > limits.max_single_txn) {
+    throw new Error(
+      `Transfer exceeds the maximum per transaction (₦${limits.max_single_txn.toLocaleString("en-NG")}).`,
+    );
+  }
+
+  const dayStart = startOfUtcDayIso();
+  const { data: dayRows, error: dayErr } = await supabase
+    .from("transfer_transactions")
+    .select("amount")
+    .eq("sender_id", senderId)
+    .eq("status", "completed")
+    .gte("created_at", dayStart);
+
+  if (dayErr) {
+    console.error("transfer risk: daily sum query failed", dayErr);
+    throw new Error("Unable to verify transfer limits. Please try again.");
+  }
+
+  const dailyOut = (dayRows ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const ageDays = utcDayAgeInDays(senderCreatedAt);
+  const isNewAccount = ageDays < limits.new_account_days;
+  const dailyCap = isNewAccount ? limits.new_account_daily_outflow_cap : limits.daily_outflow_cap;
+
+  if (dailyOut + amount > dailyCap) {
+    throw new Error(
+      isNewAccount
+        ? `For new accounts (under ${limits.new_account_days} days), daily outgoing transfers are limited to ₦${limits.new_account_daily_outflow_cap.toLocaleString("en-NG")}. Try again tomorrow or complete verification.`
+        : `Daily outgoing transfer limit (₦${limits.daily_outflow_cap.toLocaleString("en-NG")}) would be exceeded.`,
+    );
+  }
+
+  const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+  const { count, error: hourErr } = await supabase
+    .from("transfer_transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("sender_id", senderId)
+    .eq("status", "completed")
+    .gte("created_at", hourAgo);
+
+  if (hourErr) {
+    console.error("transfer risk: hourly count query failed", hourErr);
+    throw new Error("Unable to verify transfer limits. Please try again.");
+  }
+
+  if ((count ?? 0) >= limits.hourly_txn_count_cap) {
+    throw new Error(
+      `Too many transfers in the last hour (limit ${limits.hourly_txn_count_cap}). Please wait and try again.`,
+    );
+  }
+}
+
+type RpcTransferResult = {
+  success?: boolean;
+  error?: string;
+  required?: number;
+  available?: number;
+  sender_balance_before?: number;
+  sender_balance_after?: number;
+  recipient_balance_before?: number;
+  recipient_balance_after?: number;
 };
 
 serve(async (req) => {
@@ -98,182 +229,115 @@ serve(async (req) => {
       throw new Error("You cannot transfer to your own account");
     }
 
-    // Calculate transfer fee
     const transferFee = calculateTransferFee(amountValue);
     const totalAmount = amountValue + transferFee;
 
-    // Check sender balance before proceeding
     const { data: senderProfile, error: senderProfileError } = await supabase
       .from("profiles")
-      .select("balance")
+      .select("balance, created_at")
       .eq("id", sender.id)
       .single();
 
     if (senderProfileError || !senderProfile) {
-      throw new Error("Unable to fetch sender balance");
+      throw new Error("Unable to fetch sender profile");
     }
 
     const senderBalanceBefore = Number(senderProfile.balance) || 0;
-
     if (senderBalanceBefore < totalAmount) {
-      throw new Error(`Insufficient balance. You need ₦${totalAmount.toFixed(2)} (₦${amountValue.toFixed(2)} + ₦${transferFee.toFixed(2)} fee)`);
+      throw new Error(
+        `Insufficient balance. You need ₦${totalAmount.toFixed(2)} (₦${amountValue.toFixed(2)} + ₦${transferFee.toFixed(2)} fee)`,
+      );
     }
+
+    await enforceTransferRiskLimits({
+      supabase,
+      senderId: sender.id,
+      senderEmail: sender.email,
+      senderCreatedAt: String(senderProfile.created_at ?? new Date().toISOString()),
+      amount: amountValue,
+    });
 
     const transferReference = `TRF-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-
-    // First, debit the transfer amount
-    let debitResult: { balanceBefore: number; balanceAfter: number; reference: string } | null = null;
-
-    try {
-      debitResult = await debitUserWallet({
-        supabase,
-        userId: sender.id,
-        amount: amountValue,
-        transactionType: "debit",
-        description: description ?? `Transfer to ${recipientProfile.email}`,
-        reference: transferReference,
-        performedBy: sender.id,
-        balanceBefore: senderBalanceBefore,
-        notification: {
-          title: "Transfer Successful",
-          message: `You sent ₦${amountValue.toFixed(2)} to ${recipientProfile.email}`,
-          sentBy: sender.id,
-        },
-      });
-    } catch (debitError) {
-      console.error("Debit failed:", debitError);
-      throw debitError instanceof Error ? debitError : new Error("Unable to debit sender wallet");
-    }
-
-    // Then, debit the transfer fee as a separate transaction
     const feeReference = `${transferReference}-FEE`;
-    let feeDebitResult: { balanceBefore: number; balanceAfter: number; reference: string } | null = null;
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc("execute_internal_transfer", {
+      p_sender_id: sender.id,
+      p_recipient_id: recipientProfile.id,
+      p_amount: amountValue,
+      p_transfer_fee: transferFee,
+      p_reference: transferReference,
+      p_fee_reference: feeReference,
+      p_description: description,
+      p_sender_email: sender.email ?? "NetPay user",
+      p_recipient_email: recipientProfile.email ?? recipientEmail,
+    });
+
+    if (rpcError) {
+      console.error("execute_internal_transfer RPC error:", rpcError);
+      throw new Error(rpcError.message || "Transfer could not be completed");
+    }
+
+    const result = (rpcData ?? {}) as RpcTransferResult;
+    if (!result.success) {
+      if (result.error === "insufficient_balance") {
+        throw new Error(
+          `Insufficient balance. Required ₦${Number(result.required ?? 0).toFixed(2)}; available ₦${Number(result.available ?? 0).toFixed(2)}.`,
+        );
+      }
+      if (result.error === "duplicate_reference") {
+        throw new Error("Duplicate transfer reference. Please retry.");
+      }
+      throw new Error(result.error === "transfer_failed" ? "Transfer failed" : (result.error ?? "Transfer failed"));
+    }
+
+    const recipientBalanceBefore = Number(result.recipient_balance_before ?? 0);
+    const recipientBalanceAfter = Number(result.recipient_balance_after ?? 0);
 
     try {
-      feeDebitResult = await debitUserWallet({
+      await sendPushNotification(
         supabase,
-        userId: sender.id,
-        amount: transferFee,
-        transactionType: "transfer_fee",
-        description: `Transfer fee for transfer to ${recipientProfile.email}`,
-        reference: feeReference,
-        performedBy: sender.id,
-        balanceBefore: debitResult.balanceAfter,
-      });
-    } catch (feeDebitError) {
-      console.error("Fee debit failed:", feeDebitError);
-      // If fee debit fails, we should rollback the transfer debit
-      try {
-        await supabase.from("profiles").update({ balance: senderBalanceBefore }).eq("id", sender.id);
-        await supabase.from("user_transactions").insert({
-          user_id: sender.id,
-          transaction_type: "credit",
+        sender.id,
+        "Transfer successful",
+        `You sent ₦${amountValue.toFixed(2)} to ${recipientProfile.email}`,
+        {
+          type: "transfer",
+          reference: transferReference,
           amount: amountValue,
-          balance_before: debitResult.balanceAfter,
-          balance_after: senderBalanceBefore,
-          reference: `${transferReference}-REVERSAL`,
-          description: "Transfer reversal due to fee debit failure",
-          performed_by: sender.id,
-        });
-      } catch (rollbackError) {
-        console.error("Failed to rollback transfer debit:", rollbackError);
-      }
-      throw new Error("Unable to process transfer fee");
-    }
-
-    const recipientBalanceBefore = Number(recipientProfile.balance) || 0;
-    const recipientBalanceAfter = recipientBalanceBefore + amountValue;
-
-    const { error: recipientUpdateError } = await supabase
-      .from("profiles")
-      .update({ balance: recipientBalanceAfter })
-      .eq("id", recipientProfile.id);
-
-    if (recipientUpdateError) {
-      console.error("Failed to credit recipient balance:", recipientUpdateError);
-      // Attempt to roll back both debits (transfer + fee)
-      try {
-        await supabase.from("profiles").update({ balance: senderBalanceBefore }).eq("id", sender.id);
-        // Rollback transfer debit
-        await supabase.from("user_transactions").insert({
-          user_id: sender.id,
-          transaction_type: "credit",
+        },
+      );
+      await sendPushNotification(
+        supabase,
+        recipientProfile.id,
+        "You received a transfer",
+        `You received ₦${amountValue.toFixed(2)} from ${sender.email ?? "a NetPay user"}`,
+        {
+          type: "transfer",
+          reference: transferReference,
           amount: amountValue,
-          balance_before: feeDebitResult.balanceAfter,
-          balance_after: senderBalanceBefore,
-          reference: `${transferReference}-REVERSAL`,
-          description: "Transfer reversal due to credit failure",
-          performed_by: sender.id,
-        });
-        // Rollback fee debit
-        await supabase.from("user_transactions").insert({
-          user_id: sender.id,
-          transaction_type: "credit",
-          amount: transferFee,
-          balance_before: feeDebitResult.balanceAfter,
-          balance_after: senderBalanceBefore,
-          reference: `${feeReference}-REVERSAL`,
-          description: "Transfer fee reversal due to credit failure",
-          performed_by: sender.id,
-        });
-      } catch (rollbackError) {
-        console.error("Failed to rollback sender debits:", rollbackError);
-      }
-      throw new Error("Failed to credit recipient wallet");
+        },
+      );
+    } catch (pushErr) {
+      console.warn("transfer push notification:", pushErr);
     }
 
-    const { error: recipientTransactionError } = await supabase.from("user_transactions").insert({
-      user_id: recipientProfile.id,
-      transaction_type: "credit",
-      amount: amountValue,
-      balance_before: recipientBalanceBefore,
-      balance_after: recipientBalanceAfter,
-      reference: transferReference,
-      description: description ?? `Transfer from ${sender.email ?? "NetPay user"}`,
-      performed_by: sender.id,
-    });
-
-    if (recipientTransactionError) {
-      console.error("Failed to record recipient transaction:", recipientTransactionError);
-    }
-
-    const { error: transferRecordError } = await supabase.from("transfer_transactions").insert({
-      sender_id: sender.id,
-      recipient_id: recipientProfile.id,
-      amount: amountValue,
-      description,
-      reference: transferReference,
-      sender_balance_before: debitResult.balanceBefore,
-      sender_balance_after: debitResult.balanceAfter,
-      recipient_balance_before: recipientBalanceBefore,
-      recipient_balance_after: recipientBalanceAfter,
-      status: "completed",
-    });
-
-    if (transferRecordError) {
-      console.error("Failed to create transfer record:", transferRecordError);
-    }
-
-    const responsePayload = {
-      success: true,
-      data: {
-        amount: amountValue,
-        transferFee,
-        totalAmount: totalAmount,
-        reference: transferReference,
-        recipientEmail: recipientProfile.email,
-        recipientName: recipientProfile.full_name,
-        senderBalanceBefore: debitResult.balanceBefore,
-        senderBalanceAfter: feeDebitResult.balanceAfter,
-        recipientBalanceBefore,
-        recipientBalanceAfter,
-      },
-    };
-
-    return new Response(JSON.stringify(responsePayload), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          amount: amountValue,
+          transferFee,
+          totalAmount,
+          reference: transferReference,
+          recipientEmail: recipientProfile.email,
+          recipientName: recipientProfile.full_name,
+          senderBalanceBefore: result.sender_balance_before,
+          senderBalanceAfter: result.sender_balance_after,
+          recipientBalanceBefore,
+          recipientBalanceAfter,
+        },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
     console.error("transfer-funds error:", error);
     const message = error instanceof Error ? error.message : "Unexpected error";

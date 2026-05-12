@@ -9,13 +9,21 @@ import {
   ScrollView,
   Modal,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { disableBiometricLoginForCurrentUser } from '@/utils/disable-biometric-after-password-change';
+import { markPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
+import {
+  getPasswordResetEmailUserMessage,
+  isPasswordResetNetworkError,
+} from '@/utils/auth-password-reset-errors';
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const CODE_LENGTH = 8;
 
@@ -147,15 +155,21 @@ export default function ResetPasswordScreen() {
 
     try {
       setResending(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'netpay://reset-password',
-      });
+      const redirectTo = 'netpay://reset-password';
+      let { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+      if (error && isPasswordResetNetworkError(error)) {
+        await sleep(2000);
+        const retry = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+        error = retry.error;
+      }
 
       setResending(false);
 
       if (error) {
-        console.error('Resend error:', error);
-        Alert.alert('Resend Failed', error.message || 'Unable to resend the verification code.');
+        console.warn('Resend reset email failed:', error);
+        const { title, message } = getPasswordResetEmailUserMessage(error);
+        Alert.alert(title, message);
         return;
       }
 
@@ -242,6 +256,17 @@ export default function ResetPasswordScreen() {
         return;
       }
 
+      const bio = await disableBiometricLoginForCurrentUser();
+      if (!bio.ok) {
+        console.warn('Could not disable biometric on profile after password reset:', bio.error);
+        Alert.alert(
+          'Biometric login',
+          'Your password was reset, but biometric could not be turned off automatically. Please sign in with your new password, then open Profile and turn biometric login off and on again.',
+        );
+      } else {
+        await markPendingBiometricReenrollment();
+      }
+
       // Sign out after password reset for security
       await supabase.auth.signOut();
       setShowSuccessModal(true);
@@ -316,7 +341,7 @@ export default function ResetPasswordScreen() {
                 onPress={handleVerifyCode}
                 disabled={verifying}>
                 {verifying ? (
-                  <ActivityIndicator color="#fff" />
+                  <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
                 ) : (
                   <ThemedText style={styles.verifyButtonText}>Verify Code</ThemedText>
                 )}
@@ -327,7 +352,7 @@ export default function ResetPasswordScreen() {
                 onPress={handleResendCode}
                 disabled={resending}>
                 {resending ? (
-                  <ActivityIndicator color="#FF7F00" />
+                  <NetpayLoadingAnimation size={28} strokeWidth={2.5} />
                 ) : (
                   <ThemedText style={styles.resendButtonText}>Resend Code</ThemedText>
                 )}
@@ -393,7 +418,7 @@ export default function ResetPasswordScreen() {
                 onPress={handleResetPassword}
                 disabled={resetting}>
                 {resetting ? (
-                  <ActivityIndicator color="#fff" />
+                  <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
                 ) : (
                   <ThemedText style={styles.resetButtonText}>Reset Password</ThemedText>
                 )}

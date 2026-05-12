@@ -73,6 +73,8 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* Pay Bills & deep links: stack-style screens inside tab navigator (hidden from tab bar) */}
+      <Tabs.Screen name="flight-booking" options={{ href: null, headerShown: false }} />
     </Tabs>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, ImageSourcePropType, Modal } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ImageSourcePropType, Modal } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -497,7 +498,7 @@ export default function AirtimePurchaseScreen() {
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
               )}
@@ -582,7 +583,7 @@ export default function AirtimePurchaseScreen() {
             ) : (
               <View style={styles.networkPlaceholder}>
                 {loading ? (
-                  <ActivityIndicator color="#FF7F00" />
+                  <NetpayLoadingAnimation size={36} strokeWidth={3} />
                 ) : (
                   <ThemedText style={styles.emptyPlansText}>
                     No airtime providers available. Please try again later.

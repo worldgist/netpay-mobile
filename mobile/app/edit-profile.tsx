@@ -1,4 +1,5 @@
-import { StyleSheet, View, TouchableOpacity, TextInput, ScrollView, Platform, Modal, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, TextInput, ScrollView, Platform, Modal, Alert } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -203,7 +204,7 @@ export default function EditProfileScreen() {
           onPress={handleSaveChanges}
           disabled={loadingProfile || saving}>
           {saving ? (
-            <ActivityIndicator color="#fff" />
+            <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
           ) : (
             <ThemedText style={styles.saveButtonText}>Save Changes</ThemedText>
           )}

@@ -109,6 +109,18 @@ const setupAndroidChannels = async (notifications: typeof import('expo-notificat
 /** Expo push does not work on emulators/simulators — must be a real device. */
 const isPhysicalDevice = () => Device.isDevice;
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Transient device → Expo push API failures (LAN builds, VPN, captive Wi‑Fi, DNS). */
+const isExpoPushTokenNetworkFailure = (err: unknown): boolean => {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes('Network request failed') ||
+    msg.includes('The Internet connection appears to be offline') ||
+    msg.includes('Could not connect to the server')
+  );
+};
+
 const getDeviceIdentifier = async () => {
   const notifications = initializeNotifications();
   if (!notifications) {
@@ -221,23 +233,22 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
     }
 
     const tokenOptions = { projectId };
-    
-    // Get Expo push token - this is critical and must succeed
+
+    // Minting the token calls Expo's push API from the device (HTTPS). "Network request failed" means
+    // the phone could not complete that request — unrelated to Metro LAN or notification permission.
     let expoToken: string;
     try {
       console.log('Requesting Expo push token with options:', {
         platform: Platform.OS,
         projectId,
       });
-      
+
       const tokenResult = await notifications.getExpoPushTokenAsync(tokenOptions);
-      
       if (!tokenResult?.data) {
         throw new Error('Failed to get Expo push token: token data is empty');
       }
-      
       expoToken = tokenResult.data;
-      
+
       console.log('Expo push token obtained successfully:', {
         platform: Platform.OS,
         tokenLength: expoToken.length,
@@ -245,16 +256,40 @@ export const registerForPushNotifications = async (): Promise<PushRegistrationRe
         tokenStartsWith: expoToken.startsWith('ExponentPushToken'),
       });
     } catch (tokenError) {
-      console.error('Failed to get Expo push token:', {
+      const isNetwork = isExpoPushTokenNetworkFailure(tokenError);
+      const log = isNetwork ? console.warn : console.error;
+      log('Failed to get Expo push token:', {
         error: tokenError,
         message: tokenError instanceof Error ? tokenError.message : 'Unknown error',
         platform: Platform.OS,
         projectId,
+        hint: isNetwork
+          ? 'Device could not reach Expo push servers. Try cellular data, disable VPN, or another Wi‑Fi; Expo push does not use your Metro bundler URL.'
+          : undefined,
       });
-      return { 
-        registered: false, 
-        reason: `Failed to obtain push token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}` 
-      };
+
+      if (isNetwork) {
+        try {
+          await sleep(2000);
+          const retryResult = await notifications.getExpoPushTokenAsync(tokenOptions);
+          if (!retryResult?.data) {
+            throw new Error('empty token on retry');
+          }
+          expoToken = retryResult.data;
+          console.log('Expo push token obtained after one retry following a network error.');
+        } catch {
+          return {
+            registered: false,
+            reason:
+              'Could not reach Expo to create a push token (network). Check internet, VPN, or try again on cellular data.',
+          };
+        }
+      } else {
+        return {
+          registered: false,
+          reason: `Failed to obtain push token: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`,
+        };
+      }
     }
 
     // Get device identifier (optional, but helpful for tracking)

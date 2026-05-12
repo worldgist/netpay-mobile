@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -942,8 +943,7 @@ export default function CableTVScreen() {
 
         {loading ? (
           <View style={styles.loaderContainer}>
-            <ActivityIndicator color="#FF7F00" size="large" />
-            <ThemedText style={styles.loaderText}>Loading cable packages…</ThemedText>
+            <NetpayLoadingAnimation message="Loading cable packages…" />
           </View>
         ) : (
           <ScrollView
@@ -955,7 +955,7 @@ export default function CableTVScreen() {
               <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
               <View style={styles.balanceAmountContainer}>
                 {balanceLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
                 ) : (
                   <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
                 )}
@@ -1046,7 +1046,7 @@ export default function CableTVScreen() {
                   disabled={refreshingPlans}
                 >
                   {refreshingPlans ? (
-                    <ActivityIndicator size="small" color="#FF7F00" />
+                    <NetpayLoadingAnimation size={22} strokeWidth={2} />
                   ) : (
                     <MaterialIcons name="refresh" size={20} color="#666" />
                   )}
@@ -1093,7 +1093,7 @@ export default function CableTVScreen() {
                 {!isDemoUser && (
                   <TouchableOpacity style={styles.verifyButton} onPress={handleVerifySmartCard}>
                     {verifying ? (
-                      <ActivityIndicator size="small" color="#FF7F00" />
+                      <NetpayLoadingAnimation size={24} strokeWidth={2} />
                     ) : (
                       <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
                     )}
@@ -1113,7 +1113,7 @@ export default function CableTVScreen() {
                 <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
                 {refreshingPlans && (
                   <View style={styles.loadingIndicatorRow}>
-                    <ActivityIndicator size="small" color="#FF7F00" />
+                    <NetpayLoadingAnimation size={22} strokeWidth={2} />
                     <ThemedText style={styles.loadingText}>Loading packages...</ThemedText>
                   </View>
                 )}
@@ -1170,8 +1170,7 @@ export default function CableTVScreen() {
         >
           <View style={styles.processingOverlay}>
             <View style={styles.processingContent}>
-              <ActivityIndicator size="large" color="#FF7F00" />
-              <ThemedText style={styles.processingText}>Processing purchase...</ThemedText>
+              <NetpayLoadingAnimation message="Processing purchase…" />
             </View>
           </View>
         </Modal>

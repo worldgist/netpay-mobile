@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Keyboard } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -798,7 +799,7 @@ export default function BettingScreen() {
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
               {balanceLoading ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.balanceAmount}>₦{balance.toFixed(2)}</ThemedText>
               )}
@@ -862,7 +863,7 @@ export default function BettingScreen() {
             onPress={handleContinue}
             disabled={verifyingCustomer}>
             {verifyingCustomer ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
             )}

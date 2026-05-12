@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -182,14 +182,83 @@ serve(async (req) => {
       `Purchasing airtime: ${normalizedAmount} for ${sanitizedPhone} on network ${smeplugNetworkId} (${normalizedNetworkName ?? 'UNKNOWN'})`
     );
 
-    // Check if user is demo user - mock the API response for demo users
     const isDemoUser = profile.email === 'demo@netpayy.ng';
-    
-    let apiResponse;
-    let response;
+
+    const fallbackNetworkId = network_id ?? smeplugNetworkId;
+    const displayNetwork =
+      normalizedNetworkName ||
+      (fallbackNetworkId !== null && fallbackNetworkId !== undefined && fallbackNetworkId !== ''
+        ? `Network ${fallbackNetworkId}`
+        : 'the selected network');
+    const formattedAmount = `₦${normalizedAmount.toFixed(2)}`;
+
+    // Debit wallet BEFORE calling SMEPlug so we never get "vendor success + user not debited"
+    // (e.g. client timeout / Edge failure after SMEPlug already processed the purchase).
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+    try {
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: normalizedAmount,
+        transactionType: 'airtime_purchase',
+        description: `Airtime purchase (pending vendor) — ${sanitizedPhone} (${displayNetwork})`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+        notification: undefined,
+      });
+    } catch (debitErr) {
+      console.error('Debit failed before SMEPlug:', debitErr);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitErr instanceof Error ? debitErr.message : 'Could not debit wallet for airtime purchase',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      try {
+        await creditUserWallet({
+          supabase,
+          userId: user.id,
+          amount: normalizedAmount,
+          transactionType: 'refund',
+          description: `Airtime purchase refunded — ${reason}`,
+          reference: `${reference}-${refSuffix}`,
+          performedBy: user.id,
+        });
+      } catch (refundErr) {
+        console.error('CRITICAL: refund failed after airtime vendor failure; manual reconciliation required.', {
+          refundErr,
+          userId: user.id,
+          reference,
+          amount: normalizedAmount,
+        });
+      }
+    };
+
+    const recordAirtimeFailure = async (apiPayload: unknown, _errMsg: string) => {
+      await supabase.from('airtime_transactions').insert({
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
+        service_id: normalizedServiceId,
+        amount: normalizedAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceBefore,
+        status: 'failed',
+        reference,
+        api_response: apiPayload ?? { note: _errMsg },
+        performed_by: user.id,
+      });
+    };
+
+    let apiResponse: Record<string, unknown> | string | null = null;
+    let response: Response | { ok: boolean; status?: number };
 
     if (isDemoUser) {
-      // Mock successful response for demo users
       console.log('Demo user detected - using mock API response');
       apiResponse = {
         success: true,
@@ -206,18 +275,17 @@ serve(async (req) => {
       };
       response = { ok: true };
     } else {
-      // Purchase airtime via SMEPLUG API for real users
       try {
         const requestBody = {
           network_id: smeplugNetworkId,
           phone: sanitizedPhone,
           amount: normalizedAmount,
-          customer_reference: reference
+          customer_reference: reference,
         };
-        
+
         console.log('Calling SMEPLUG API with:', JSON.stringify(requestBody, null, 2));
         console.log('SMEPLUG_SECRET_KEY present:', !!SECRET_KEY);
-        
+
         response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
           method: 'POST',
           headers: {
@@ -228,37 +296,44 @@ serve(async (req) => {
         });
 
         console.log('SMEPLUG API response status:', response.status, response.statusText);
-        
+
         const responseText = await response.text();
         console.log('SMEPLUG API raw response:', responseText.substring(0, 500));
-        
+
         try {
-          apiResponse = JSON.parse(responseText);
+          apiResponse = JSON.parse(responseText) as Record<string, unknown>;
         } catch (parseError) {
           console.error('Failed to parse SMEPLUG response:', responseText);
           console.error('Parse error:', parseError);
+          await refundWallet('invalid response from provider', 'REVK-PARSE');
+          await recordAirtimeFailure({ raw: responseText.substring(0, 2000) }, 'parse_error');
           return new Response(
-            JSON.stringify({ 
-              success: false, 
-              error: 'Service currently unavailable. Please try again later or contact support.'
+            JSON.stringify({
+              success: false,
+              error: 'Service currently unavailable. Please try again later or contact support.',
             }),
-            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
           );
         }
-        
+
         console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
       } catch (fetchError) {
         console.error('Network error calling SMEPLUG API:', fetchError);
         console.error('Error details:', {
           message: fetchError instanceof Error ? fetchError.message : String(fetchError),
-          stack: fetchError instanceof Error ? fetchError.stack : undefined
+          stack: fetchError instanceof Error ? fetchError.stack : undefined,
         });
+        await refundWallet('network error calling provider', 'REVK-NET');
+        await recordAirtimeFailure(
+          { error: fetchError instanceof Error ? fetchError.message : String(fetchError) },
+          'fetch_error',
+        );
         return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: 'Service currently unavailable. Please check your connection and try again later.'
+          JSON.stringify({
+            success: false,
+            error: 'Service currently unavailable. Please check your connection and try again later.',
           }),
-          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
         );
       }
     }
@@ -276,10 +351,15 @@ serve(async (req) => {
       apiResponse?.data?.status === true ||
       apiResponse?.data?.success === true;
 
+    const dataObj = apiResponse && typeof apiResponse === 'object' && apiResponse !== null && 'data' in apiResponse
+      ? (apiResponse as { data?: Record<string, unknown> }).data
+      : undefined;
+    const dataHasError = Boolean(dataObj && 'error' in dataObj && dataObj.error);
+
     const normalizedStatus =
       apiStatus ||
       (apiResponse?.status === 'success') ||
-      (apiResponse?.data && typeof apiResponse.data === 'object' && !apiResponse.data.error);
+      (dataObj && typeof dataObj === 'object' && !dataHasError);
 
     // If HTTP status is not OK or API indicates failure
     if (!httpStatusOk || !normalizedStatus) {
@@ -334,42 +414,22 @@ serve(async (req) => {
         const statusCode = 'status' in response ? response.status : 'N/A';
         console.error('SMEPLUG API error:', errorMessage, 'HTTP Status:', statusCode, 'Full response:', JSON.stringify(apiResponse, null, 2));
       }
-      
+
+      await refundWallet('provider reported failure or non-success', 'REVK-API');
+      await recordAirtimeFailure(apiResponse, String(errorMessage));
+
       return new Response(
-        JSON.stringify({ 
-          success: false, 
+        JSON.stringify({
+          success: false,
           error: errorMessage,
           details: apiResponse,
-          httpStatus: 'status' in response ? response.status : undefined
+          httpStatus: 'status' in response ? response.status : undefined,
         }),
-        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
       );
     }
 
-    const fallbackNetworkId = network_id ?? smeplugNetworkId;
-    const displayNetwork =
-      normalizedNetworkName ||
-      (fallbackNetworkId !== null && fallbackNetworkId !== undefined && fallbackNetworkId !== ''
-        ? `Network ${fallbackNetworkId}`
-        : 'the selected network');
-    const formattedAmount = `₦${normalizedAmount.toFixed(2)}`;
-
-    const debitResult = await debitUserWallet({
-      supabase,
-      userId: user.id,
-      amount: normalizedAmount,
-      transactionType: 'airtime_purchase',
-      description: `Airtime purchase - ${sanitizedPhone}`,
-      reference,
-      performedBy: user.id,
-      balanceBefore,
-      notification: {
-        title: 'Airtime purchase successful',
-        message: `${formattedAmount} airtime purchased for ${sanitizedPhone} on ${displayNetwork}. Reference: ${reference}.`,
-      },
-    });
-
-    await supabase.from('airtime_transactions').insert({
+    const { error: insertTxnError } = await supabase.from('airtime_transactions').insert({
       user_id: user.id,
       phone_number: sanitizedPhone,
       network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
@@ -380,8 +440,32 @@ serve(async (req) => {
       status: 'success',
       reference,
       api_response: apiResponse,
-      performed_by: user.id
+      performed_by: user.id,
     });
+
+    if (insertTxnError) {
+      // Wallet is already debited and SMEPlug already succeeded — do not refund automatically.
+      console.error('CRITICAL: airtime_transactions insert failed after successful debit + vendor:', insertTxnError, {
+        reference,
+        userId: user.id,
+      });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: 'Airtime was purchased but receipt sync failed. Your balance was updated; please contact support with this reference if history is missing.',
+          data: {
+            reference,
+            amount: normalizedAmount,
+            phone_number: sanitizedPhone,
+            network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter,
+            syncWarning: true,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
 
     // Send push notification
     await sendPushNotification(

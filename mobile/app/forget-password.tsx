@@ -8,13 +8,19 @@ import {
   Platform,
   ScrollView,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import {
+  getPasswordResetEmailUserMessage,
+  isPasswordResetNetworkError,
+} from '@/utils/auth-password-reset-errors';
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export default function ForgetPasswordScreen() {
   const router = useRouter();
@@ -32,20 +38,23 @@ export default function ForgetPasswordScreen() {
     try {
       setLoading(true);
 
-      // Use Supabase's built-in password reset
-      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo: 'netpay://reset-password',
+      const redirectTo = 'netpay://reset-password';
+      let { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo,
       });
+
+      if (error && isPasswordResetNetworkError(error)) {
+        await sleep(2000);
+        const retry = await supabase.auth.resetPasswordForEmail(trimmedEmail, { redirectTo });
+        error = retry.error;
+      }
 
       setLoading(false);
 
       if (error) {
-        console.error('Error sending reset code:', error);
-        const errorMessage = error.message || 'Unable to send reset instructions. Please try again.';
-        Alert.alert(
-          'Forgot Password', 
-          `${errorMessage}\n\nIf the problem persists, please check:\n• Your email address is correct\n• Your internet connection\n• Try again in a few minutes`
-        );
+        console.warn('Password reset email request failed:', error);
+        const { title, message } = getPasswordResetEmailUserMessage(error);
+        Alert.alert(title, message);
         return;
       }
 
@@ -104,7 +113,7 @@ export default function ForgetPasswordScreen() {
             onPress={handleSendResetCode}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.sendButtonText}>Send Reset Instructions</ThemedText>
             )}

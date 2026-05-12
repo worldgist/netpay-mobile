@@ -1,9 +1,10 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, ImageSourcePropType, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, ImageSourcePropType, RefreshControl } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
@@ -199,15 +200,17 @@ export default function TransactionsScreen() {
 
       const walletTransactions: MobileTransaction[] = (walletRes.data || []).map((txn) => {
         const createdDate = new Date(txn.created_at);
+        const tt = (txn.transaction_type || '').toLowerCase();
+        const isRefund = tt === 'refund';
         return {
           id: txn.id,
           category: 'wallet',
-          type: (txn.transaction_type || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit',
+          type: tt === 'credit' || isRefund ? 'credit' : 'debit',
           amount: Number(txn.amount) || 0,
           status: 'Completed',
           reference: txn.reference,
           description: txn.description,
-          serviceType: 'Wallet Transaction',
+          serviceType: isRefund ? 'Refund' : 'Wallet Transaction',
           provider: null,
           createdAt: txn.created_at,
           formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
@@ -522,7 +525,7 @@ export default function TransactionsScreen() {
     let title = '';
     switch (transaction.category) {
       case 'wallet':
-        title = 'Wallet Transaction';
+        title = transaction.serviceType === 'Refund' ? 'Refund' : 'Wallet Transaction';
         break;
       case 'airtime':
         title = 'Airtime Purchase';
@@ -553,7 +556,7 @@ export default function TransactionsScreen() {
     if (loading && !refreshing) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF7F00" />
+          <NetpayLoadingAnimation message="Loading transactions…" />
         </View>
       );
     }
@@ -605,7 +608,13 @@ export default function TransactionsScreen() {
               {transaction.type === 'credit' ? '+' : '-'}{formatCurrency(Math.abs(Number(transaction.amount)))}
             </ThemedText>
             <ThemedText style={styles.transactionStatus}>
-              {transaction.status ? toTitle(transaction.status) : transaction.type === 'credit' ? 'Credit' : 'Debit'}
+              {transaction.status
+                ? toTitle(transaction.status)
+                : transaction.serviceType === 'Refund'
+                  ? 'Refund'
+                  : transaction.type === 'credit'
+                    ? 'Credit'
+                    : 'Debit'}
             </ThemedText>
           </View>
         </TouchableOpacity>

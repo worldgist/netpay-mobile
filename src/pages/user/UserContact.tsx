@@ -157,7 +157,7 @@ export default function UserContact() {
     setSending(true);
 
     try {
-      const { error } = await supabase.from("support_messages").insert({
+      const { error } = await supabase.from("support_contact_submissions").insert({
         user_id: userId,
         name: trimmedName,
         email: trimmedEmail,

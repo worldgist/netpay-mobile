@@ -54,6 +54,7 @@ import TransactionDetails from "./pages/user/TransactionDetails";
 import Referrals from "./pages/Referrals";
 import ContentManagement from "./pages/ContentManagement";
 import StaffManagement from "./pages/StaffManagement";
+import SupportAdmin from "./pages/SupportAdmin";
 import UserNotifications from "./pages/user/UserNotifications";
 import UserReferrals from "./pages/user/UserReferrals";
 import UserContact from "./pages/user/UserContact";
@@ -98,6 +99,7 @@ const App = () => (
         <Route path="/about" element={<About />} />
         <Route path="/careers" element={<Careers />} />
         <Route path="/pricing" element={<Pricing />} />
+        <Route path="/support-admin" element={<SupportAdmin />} />
         <Route path="/contact-us" element={<ContactLanding />} />
         <Route path="/privacy" element={<PrivacyLanding />} />
         <Route path="/terms" element={<TermsLanding />} />

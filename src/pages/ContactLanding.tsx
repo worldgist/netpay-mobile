@@ -111,7 +111,7 @@ const ContactLanding = () => {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase.from("support_messages").insert({
+      const { error } = await supabase.from("support_contact_submissions").insert({
         name: trimmedName,
         email: trimmedEmail,
         subject: trimmedSubject,

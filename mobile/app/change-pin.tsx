@@ -1,4 +1,5 @@
-import { StyleSheet, View, TouchableOpacity, TextInput, Platform, Modal, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, TextInput, Platform, Modal, Alert, ScrollView } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -471,7 +472,7 @@ export default function ChangePinScreen() {
         </View>
         {verifying && (
           <View style={styles.verifyingContainer}>
-            <ActivityIndicator size="small" color="#FF7F00" />
+            <NetpayLoadingAnimation size={28} strokeWidth={2.5} />
             <ThemedText style={styles.verifyingText}>Verifying...</ThemedText>
           </View>
         )}
@@ -555,7 +556,7 @@ export default function ChangePinScreen() {
         </View>
         {updating && (
           <View style={styles.verifyingContainer}>
-            <ActivityIndicator size="small" color="#FF7F00" />
+            <NetpayLoadingAnimation size={28} strokeWidth={2.5} />
             <ThemedText style={styles.verifyingText}>Updating PIN...</ThemedText>
           </View>
         )}
@@ -568,7 +569,7 @@ export default function ChangePinScreen() {
           disabled={updating || !confirmPin.every((digit) => digit)}
         >
           {updating ? (
-            <ActivityIndicator color="#fff" />
+            <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
           ) : (
             <ThemedText style={styles.changeButtonText}>Confirm New PIN</ThemedText>
           )}
@@ -580,7 +581,7 @@ export default function ChangePinScreen() {
   if (loading) {
     return (
       <ThemedView style={styles.loadingContainer}>
-        <ActivityIndicator color="#FF7F00" size="large" />
+        <NetpayLoadingAnimation message="Loading…" />
       </ThemedView>
     );
   }

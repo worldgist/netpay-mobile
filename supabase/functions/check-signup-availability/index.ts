@@ -20,6 +20,10 @@ const normalizePhone = (value?: unknown) => {
   return digits;
 };
 
+/** Exact case-insensitive match for ILIKE (escape % and _). */
+const escapeIlikeExact = (value: string) =>
+  value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -61,36 +65,32 @@ serve(async (req) => {
 
     if (email) {
       try {
-        // First, check profiles table (more efficient and consistent with phone check)
         const { data: emailMatches, error: profileError } = await supabase
           .from("profiles")
           .select("id")
-          .eq("email", email.toLowerCase())
+          .ilike("email", escapeIlikeExact(email))
           .limit(1);
 
         if (profileError) {
           console.error("Profile email lookup error:", profileError);
-          // Fallback to auth check if profile check fails
         } else {
           emailExists = Boolean(emailMatches && emailMatches.length > 0);
           console.log("Profile email check result:", { emailExists, matches: emailMatches?.length });
-          
-          // If found in profiles, we're done
-          if (emailExists) {
-            console.log("Email found in profiles - already exists");
-          } else {
-            // Also check auth.users as a fallback (in case user exists in auth but not in profiles)
+
+          if (!emailExists) {
             try {
               const { data: userData, error: userError } = await supabase.auth.admin.getUserByEmail(email);
-              
+
               if (userError) {
-                const errorMessage = userError.message?.toLowerCase() || '';
-                const errorStatus = (userError as any)?.status;
-                
-                if (errorStatus === 404 || 
-                    errorMessage.includes('not found') || 
-                    errorMessage.includes('user not found') ||
-                    errorMessage.includes('no user found')) {
+                const errorMessage = userError.message?.toLowerCase() || "";
+                const errorStatus = (userError as { status?: number })?.status;
+
+                if (
+                  errorStatus === 404 ||
+                  errorMessage.includes("not found") ||
+                  errorMessage.includes("user not found") ||
+                  errorMessage.includes("no user found")
+                ) {
                   emailExists = false;
                   console.log("User not found in auth - email is available");
                 } else {
@@ -114,18 +114,29 @@ serve(async (req) => {
     }
 
     if (phone) {
-      const { data: phoneMatches, error: phoneError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("phone", phone)
-        .limit(1);
+      const { data: rpcResult, error: rpcError } = await supabase.rpc("check_duplicate_signup_phone", {
+        p_input: phone,
+      });
 
-      if (phoneError) {
-        console.error("Phone lookup error:", phoneError);
-        throw phoneError;
+      if (!rpcError && typeof rpcResult === "boolean") {
+        phoneExists = rpcResult;
+      } else {
+        if (rpcError) {
+          console.warn("check_duplicate_signup_phone RPC unavailable or error, using exact match:", rpcError);
+        }
+        const { data: phoneMatches, error: phoneError } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("phone", phone)
+          .limit(1);
+
+        if (phoneError) {
+          console.error("Phone lookup error:", phoneError);
+          throw phoneError;
+        }
+
+        phoneExists = Boolean(phoneMatches && phoneMatches.length > 0);
       }
-
-      phoneExists = Boolean(phoneMatches && phoneMatches.length > 0);
     }
 
     return new Response(
@@ -147,11 +158,3 @@ serve(async (req) => {
     );
   }
 });
-
-
-
-
-
-
-
-

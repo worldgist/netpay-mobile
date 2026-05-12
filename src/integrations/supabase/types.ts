@@ -973,7 +973,7 @@ export type Database = {
         }
         Relationships: []
       }
-      support_messages: {
+      support_contact_submissions: {
         Row: {
           assigned_to: string | null
           channel: string | null
@@ -1035,6 +1035,100 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_conversations: {
+        Row: {
+          created_at: string
+          id: string
+          last_message_at: string
+          last_seen_customer_at: string | null
+          last_seen_staff_at: string | null
+          status: string
+          subject: string
+          typing_customer_until: string | null
+          typing_staff_until: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          last_seen_customer_at?: string | null
+          last_seen_staff_at?: string | null
+          status?: string
+          subject?: string
+          typing_customer_until?: string | null
+          typing_staff_until?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          last_seen_customer_at?: string | null
+          last_seen_staff_at?: string | null
+          status?: string
+          subject?: string
+          typing_customer_until?: string | null
+          typing_staff_until?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_conversations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_messages: {
+        Row: {
+          attachment_mime: string | null
+          attachment_name: string | null
+          attachment_path: string | null
+          body: string
+          conversation_id: string
+          created_at: string
+          id: string
+          kind: string
+          sender_id: string
+        }
+        Insert: {
+          attachment_mime?: string | null
+          attachment_name?: string | null
+          attachment_path?: string | null
+          body: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          kind?: string
+          sender_id: string
+        }
+        Update: {
+          attachment_mime?: string | null
+          attachment_name?: string | null
+          attachment_path?: string | null
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "support_conversations"
             referencedColumns: ["id"]
           },
         ]

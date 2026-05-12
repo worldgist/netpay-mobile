@@ -99,7 +99,15 @@ export const debitUserWallet = async ({
     .insert(transactionPayload);
 
   if (transactionError) {
-    console.error("Failed to record user transaction:", transactionError);
+    console.error("Failed to record user transaction (debit):", transactionError.message, transactionError);
+    const { error: rollbackError } = await supabase
+      .from("profiles")
+      .update({ balance: startingBalance })
+      .eq("id", userId);
+    if (rollbackError) {
+      console.error("CRITICAL: failed to rollback wallet after debit ledger failure:", rollbackError);
+    }
+    throw new Error("Failed to record wallet transaction after debit");
   }
 
   if (notification) {
@@ -251,7 +259,15 @@ export const creditUserWallet = async ({
     .insert(transactionPayload);
 
   if (transactionError) {
-    console.error("Failed to record user transaction:", transactionError);
+    console.error("Failed to record user transaction (credit):", transactionError.message, transactionError);
+    const { error: rollbackError } = await supabase
+      .from("profiles")
+      .update({ balance: startingBalance })
+      .eq("id", userId);
+    if (rollbackError) {
+      console.error("CRITICAL: failed to rollback wallet after credit ledger failure:", rollbackError);
+    }
+    throw new Error("Failed to record wallet transaction after credit");
   }
 
   if (notification) {

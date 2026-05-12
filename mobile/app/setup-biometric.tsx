@@ -12,10 +12,11 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/utils/push-notifications';
+import { markDeviceWelcomeSetupComplete } from '@/utils/device-welcome';
 
 const getBiometricLabel = (type: LocalAuthentication.AuthenticationType) => {
   switch (type) {
@@ -32,6 +33,8 @@ const getBiometricLabel = (type: LocalAuthentication.AuthenticationType) => {
 
 export default function SetupBiometricScreen() {
   const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string }>();
+  const isNewDevice = from === 'new_device';
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
@@ -110,6 +113,16 @@ export default function SetupBiometricScreen() {
     setShowNotificationModal(true);
   };
 
+  const goHome = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await markDeviceWelcomeSetupComplete(user?.id);
+    } catch (e) {
+      console.warn('markDeviceWelcomeSetupComplete:', e);
+    }
+    router.replace('/(tabs)');
+  };
+
   const handleEnableNotifications = async () => {
     setRegisteringNotifications(true);
     try {
@@ -117,7 +130,7 @@ export default function SetupBiometricScreen() {
       if (result.registered) {
         console.log('Push notifications enabled successfully');
         setShowNotificationModal(false);
-        router.replace('/(tabs)');
+        await goHome();
       } else {
         Alert.alert(
           'Notifications',
@@ -125,9 +138,9 @@ export default function SetupBiometricScreen() {
           [
             {
               text: 'OK',
-              onPress: () => {
+              onPress: async () => {
                 setShowNotificationModal(false);
-                router.replace('/(tabs)');
+                await goHome();
               },
             },
           ]
@@ -141,9 +154,9 @@ export default function SetupBiometricScreen() {
         [
           {
             text: 'OK',
-            onPress: () => {
+            onPress: async () => {
               setShowNotificationModal(false);
-              router.replace('/(tabs)');
+              await goHome();
             },
           },
         ]
@@ -153,9 +166,9 @@ export default function SetupBiometricScreen() {
     }
   };
 
-  const handleSkipNotifications = () => {
+  const handleSkipNotifications = async () => {
     setShowNotificationModal(false);
-    router.replace('/(tabs)');
+    await goHome();
   };
 
   return (
@@ -171,8 +184,10 @@ export default function SetupBiometricScreen() {
           <ThemedText style={styles.title} numberOfLines={2} ellipsizeMode="tail">
             Enable Biometric Login
           </ThemedText>
-          <ThemedText style={styles.subtitle} numberOfLines={3} ellipsizeMode="tail">
-            Use your fingerprint or face ID for quick and secure access to your NetPay account.
+          <ThemedText style={styles.subtitle} numberOfLines={4} ellipsizeMode="tail">
+            {isNewDevice
+              ? 'This looks like a new device. Set up quick login and notifications to stay secure and informed.'
+              : 'Use your fingerprint or face ID for quick and secure access to your NetPay account.'}
           </ThemedText>
 
           {/* Demo User Banner */}

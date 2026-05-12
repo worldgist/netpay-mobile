@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Modal } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -1405,7 +1406,7 @@ export default function ElectricityScreen() {
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
               {balanceLoading ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
               )}
@@ -1494,7 +1495,7 @@ export default function ElectricityScreen() {
               {!isDemoUser && (
                 <TouchableOpacity style={styles.verifyButton} onPress={handleVerifyMeter}>
                   {verificationLoading ? (
-                    <ActivityIndicator size="small" color="#FF7F00" />
+                    <NetpayLoadingAnimation size={24} strokeWidth={2} />
                   ) : (
                     <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
                   )}

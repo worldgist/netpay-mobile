@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import * as Clipboard from 'expo-clipboard';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -982,7 +983,7 @@ export default function EducationScreen() {
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
               )}
@@ -1024,8 +1025,8 @@ export default function EducationScreen() {
             <ThemedText style={styles.sectionTitle}>Select Exam Type</ThemedText>
             {loading ? (
               <View style={{ padding: 20, alignItems: 'center' }}>
-                <ActivityIndicator color="#FF7F00" />
-            </View>
+                <NetpayLoadingAnimation size={44} strokeWidth={3} />
+              </View>
             ) : error ? (
               <View style={{ padding: 20, backgroundColor: '#FFE2E2', borderRadius: 12, marginTop: 12 }}>
                 <ThemedText style={{ color: '#8B1D1D', textAlign: 'center' }}>{error}</ThemedText>
@@ -1226,7 +1227,7 @@ export default function EducationScreen() {
                       disabled={!referenceNumber.trim() || verifyingProfile}
                     >
                       {verifyingProfile ? (
-                        <ActivityIndicator color="#fff" size="small" />
+                        <NetpayLoadingAnimation size={24} variant="onBrand" strokeWidth={2} />
                       ) : verifiedCandidateDetails ? (
                         <MaterialIcons name="check-circle" size={20} color="#fff" />
                       ) : (
@@ -1296,7 +1297,7 @@ export default function EducationScreen() {
               disabled={!selectedService || (selectedService.examType === 'JAMB' && !isDemoUser && !referenceNumber.trim()) || isProcessing}
             >
               {isProcessing ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
               )}

@@ -101,7 +101,10 @@ const handleDeepLink = (url: string) => {
         cable_tv: '/cable-tv',
         education: '/education',
         betting: '/betting',
+        flight_booking: '/flight-booking',
         pay_bills: '/(tabs)/pay-bills',
+        support_chat: '/support-chat',
+        support_admin: '/support-admin',
         add_money: '/add-money',
         transfer: '/transfer',
       };
@@ -280,6 +283,9 @@ export default function RootLayout() {
           <Stack.Screen name="statement-of-account" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="referral" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="contact-us" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="support-chat" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="support-inbox" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="support-admin" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="security" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="change-password" options={{ headerShown: false, presentation: 'card' }} />

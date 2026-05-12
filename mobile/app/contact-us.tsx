@@ -5,9 +5,9 @@ import {
   ScrollView,
   Platform,
   Linking,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -150,7 +150,7 @@ export default function ContactUsScreen() {
   if (loading) {
     return (
       <ThemedView style={styles.loadingContainer}>
-        <ActivityIndicator color="#FF7F00" size="large" />
+        <NetpayLoadingAnimation message="Loading…" />
       </ThemedView>
     );
   }

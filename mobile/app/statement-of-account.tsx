@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, RefreshControl, ActivityIndicator, Platform } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, RefreshControl, Platform } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -11,6 +12,7 @@ import { getSessionOrRedirect } from '@/utils/session';
 import { downloadStatementPDF, sendStatementEmail } from '@/utils/statement';
 
 type StatementTransaction = {
+  /** Stable key for lists; includes source prefix so merged rows never collide. */
   id: string;
   date: string;
   description: string;
@@ -147,18 +149,22 @@ export default function StatementOfAccountScreen() {
 
       // Combine and format transactions
       const combined: StatementTransaction[] = [
-        ...(userTxns.data || []).map((txn) => ({
-          id: txn.id,
-          date: txn.created_at,
-          description: txn.description || txn.transaction_type,
-          type: txn.transaction_type === 'credit' ? 'credit' : 'debit',
-          amount: txn.amount,
-          balanceAfter: txn.balance_after || 0,
-          reference: txn.reference || '',
-          category: 'Wallet',
-        })),
+        ...(userTxns.data || []).map((txn) => {
+          const tt = (txn.transaction_type || '').toLowerCase();
+          const isRefund = tt === 'refund';
+          return {
+            id: `wallet:${txn.id}`,
+            date: txn.created_at,
+            description: isRefund ? txn.description || 'Refund' : txn.description || txn.transaction_type,
+            type: tt === 'credit' || isRefund ? 'credit' : 'debit',
+            amount: txn.amount,
+            balanceAfter: txn.balance_after || 0,
+            reference: txn.reference || '',
+            category: 'Wallet',
+          };
+        }),
         ...(airtimeTxns.data || []).map((txn) => ({
-          id: txn.id,
+          id: `airtime:${txn.id}`,
           date: txn.created_at,
           description: `Airtime - ${txn.network} ${txn.phone_number}`,
           type: 'debit',
@@ -168,7 +174,7 @@ export default function StatementOfAccountScreen() {
           category: 'Airtime',
         })),
         ...(dataTxns.data || []).map((txn) => ({
-          id: txn.id,
+          id: `data:${txn.id}`,
           date: txn.created_at,
           description: `Data - ${txn.network} ${txn.plan_name}`,
           type: 'debit',
@@ -178,7 +184,7 @@ export default function StatementOfAccountScreen() {
           category: 'Data',
         })),
         ...(electricityTxns.data || []).map((txn) => ({
-          id: txn.id,
+          id: `electricity:${txn.id}`,
           date: txn.created_at,
           description: `Electricity - ${txn.provider} ${txn.meter_number}`,
           type: 'debit',
@@ -188,7 +194,7 @@ export default function StatementOfAccountScreen() {
           category: 'Electricity',
         })),
         ...(educationTxns.data || []).map((txn) => ({
-          id: txn.id,
+          id: `education:${txn.id}`,
           date: txn.created_at,
           description: `Education - ${txn.exam_type}`,
           type: 'debit',
@@ -198,7 +204,7 @@ export default function StatementOfAccountScreen() {
           category: 'Education',
         })),
         ...(bettingTxns.data || []).map((txn) => ({
-          id: txn.id,
+          id: `betting:${txn.id}`,
           date: txn.created_at,
           description: `Betting - ${txn.betting_provider}`,
           type: 'debit',
@@ -208,7 +214,7 @@ export default function StatementOfAccountScreen() {
           category: 'Betting',
         })),
         ...(transfersSent.data || []).map((txn) => ({
-          id: txn.id,
+          id: `transfer-out:${txn.id}`,
           date: txn.created_at,
           description: `Transfer to ${(txn.recipient as any)?.full_name || 'User'}`,
           type: 'debit',
@@ -218,7 +224,7 @@ export default function StatementOfAccountScreen() {
           category: 'Transfer',
         })),
         ...(transfersReceived.data || []).map((txn) => ({
-          id: txn.id,
+          id: `transfer-in:${txn.id}`,
           date: txn.created_at,
           description: `Transfer from ${(txn.sender as any)?.full_name || 'User'}`,
           type: 'credit',
@@ -303,8 +309,7 @@ export default function StatementOfAccountScreen() {
   if (loading && !refreshing) {
     return (
       <ThemedView style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#FF7F00" />
-        <ThemedText style={styles.loadingText}>Loading statement...</ThemedText>
+        <NetpayLoadingAnimation message="Loading statement…" />
       </ThemedView>
     );
   }
@@ -450,9 +455,9 @@ export default function StatementOfAccountScreen() {
               </ThemedText>
             </View>
           ) : (
-            transactions.slice(0, 4).map((transaction) => (
+            transactions.slice(0, 4).map((transaction, index) => (
               <TouchableOpacity
-                key={transaction.id}
+                key={`${transaction.id}:${index}`}
                 style={styles.transactionCard}
                 activeOpacity={0.7}
               >

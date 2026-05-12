@@ -1,4 +1,4 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Alert } from 'react-native';
 import { Image } from 'expo-image';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -146,6 +147,16 @@ const getTypeIcon = (type: string) => {
 
 const getTypeColor = (type: string) => (type.toLowerCase() === 'credit' ? '#4CAF50' : '#F44336');
 
+/** Wallet rows with `transaction_type` refund are stored as credits; surface them as Refund in UI. */
+const getLedgerTypeLabel = (
+  walletCategory: string,
+  serviceType: string | null | undefined,
+  ledgerType: 'credit' | 'debit'
+) => {
+  if (walletCategory === 'wallet' && (serviceType || '').toLowerCase() === 'refund') return 'Refund';
+  return ledgerType.charAt(0).toUpperCase() + ledgerType.slice(1);
+};
+
 const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
   IKEJA: NETWORK_LOGOS.IKEDC,
   IKEDC: NETWORK_LOGOS.IKEDC,
@@ -276,14 +287,16 @@ function TransactionDetailsScreen() {
         if (error) throw error;
         if (data) {
           const createdDate = new Date(data.created_at);
+          const tt = (data.transaction_type || '').toLowerCase();
+          const isRefund = tt === 'refund';
           detail = {
             id: data.id,
-            type: (data.transaction_type || 'debit').toLowerCase() === 'credit' ? 'credit' : 'debit',
+            type: tt === 'credit' || isRefund ? 'credit' : 'debit',
             amount: Number(data.amount) || 0,
             status: 'Completed',
             reference: data.reference,
             description: data.description,
-            serviceType: 'Wallet Transaction',
+            serviceType: isRefund ? 'Refund' : 'Wallet Transaction',
             provider: '',
             recipient: '',
             sender: '',
@@ -781,7 +794,7 @@ function TransactionDetailsScreen() {
             <div class="transaction-info">
               <div class="info-row">
                 <span class="info-label">Transaction Type</span>
-                <span class="info-value">${transaction.type.toUpperCase()}</span>
+                <span class="info-value">${getLedgerTypeLabel(category, transaction.serviceType, transaction.type).toUpperCase()}</span>
               </div>
               ${transaction.serviceType ? `
               <div class="info-row">
@@ -963,7 +976,7 @@ function TransactionDetailsScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF7F00" />
+          <NetpayLoadingAnimation message="Loading details…" />
         </View>
       ) : error ? (
         <View style={styles.errorContainer}>
@@ -1011,7 +1024,7 @@ function TransactionDetailsScreen() {
             <View style={styles.infoRow}>
               <ThemedText style={styles.infoLabel}>Transaction Type</ThemedText>
               <ThemedText style={styles.infoValue} numberOfLines={1}>
-                {transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                {getLedgerTypeLabel(category, transaction.serviceType, transaction.type)}
               </ThemedText>
             </View>
 

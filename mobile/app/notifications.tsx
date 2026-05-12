@@ -1,5 +1,4 @@
 import {
-  ActivityIndicator,
   StyleSheet,
   View,
   ScrollView,
@@ -7,6 +6,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -216,7 +216,7 @@ export default function NotificationsScreen() {
 
       {loading && !refreshing ? (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FF7F00" />
+          <NetpayLoadingAnimation message="Loading notifications…" />
         </View>
       ) : null}
 

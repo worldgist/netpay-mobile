@@ -1,11 +1,12 @@
 import { useState, useCallback, useMemo } from 'react';
-import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, RefreshControl, Modal } from 'react-native';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, RefreshControl, Modal } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
@@ -328,7 +329,7 @@ export default function TransferScreen() {
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
               {loadingBalance ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.balanceAmount}>
                   ₦{Number(balance).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -391,7 +392,7 @@ export default function TransferScreen() {
                     disabled={verifying || !recipientEmail.trim()}
                   >
                     {verifying ? (
-                      <ActivityIndicator size="small" color="#333" />
+                      <NetpayLoadingAnimation size={24} strokeWidth={2} />
                     ) : (
                       <ThemedText style={styles.verifyButtonText}>Verify</ThemedText>
                     )}
@@ -469,7 +470,7 @@ export default function TransferScreen() {
             disabled={!canTransfer}
           >
             {transferLoading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={44} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <>
                 <MaterialIcons name="send" size={20} color="#fff" style={styles.transferIcon} />

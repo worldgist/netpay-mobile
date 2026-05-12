@@ -9,14 +9,16 @@ import {
   ScrollView,
   Modal,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
+import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
+import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
 
 const PIN_LENGTH = 4;
 const PIN_STORAGE_KEY = 'supabase_pin_hash';
@@ -149,6 +151,8 @@ export default function SignInPinScreen() {
         return;
       }
 
+      await clearPendingBiometricReenrollment();
+
       await SecureStore.setItemAsync(PIN_STORAGE_KEY, enteredHash);
       await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
 
@@ -168,9 +172,9 @@ export default function SignInPinScreen() {
     }
   };
 
-  const handleCloseSuccess = () => {
+  const handleCloseSuccess = async () => {
     setShowSuccessModal(false);
-    router.replace('/(tabs)');
+    await navigateAfterAuthenticatedSession(router);
   };
 
   const handleBackToPassword = () => {
@@ -237,7 +241,7 @@ export default function SignInPinScreen() {
             onPress={handleSignIn}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
             ) : (
               <ThemedText style={styles.signInButtonText}>Sign In</ThemedText>
             )}

@@ -1,4 +1,5 @@
-import { StyleSheet, View, TouchableOpacity, Modal, ActivityIndicator, ScrollView } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -180,7 +181,7 @@ export function ConfirmPaymentModal({
               onPress={handleConfirm} 
               disabled={isBusy}>
               {isBusy ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.confirmButtonText}>Confirm to Pay</ThemedText>
               )}

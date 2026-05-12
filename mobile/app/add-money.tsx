@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, Platform, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, Platform, TextInput, RefreshControl } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -463,7 +464,7 @@ export default function AddMoneyScreen() {
 
         {loading && !refreshing && !virtualAccount && !showCreateForm ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#FF7F00" />
+            <NetpayLoadingAnimation message="Loading…" />
           </View>
         ) : null}
 
@@ -586,7 +587,7 @@ export default function AddMoneyScreen() {
               activeOpacity={0.8}
             >
               {creating ? (
-                <ActivityIndicator color="#fff" />
+                <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
               ) : (
                 <ThemedText style={styles.createButtonText}>Create Virtual Account</ThemedText>
               )}
@@ -609,7 +610,7 @@ export default function AddMoneyScreen() {
           disabled={isCheckingBalance}
         >
           {isCheckingBalance ? (
-            <ActivityIndicator color="#fff" />
+            <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
           ) : (
             <ThemedText style={styles.dashboardButtonText}>I have added the money</ThemedText>
           )}

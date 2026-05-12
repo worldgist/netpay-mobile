@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Mail,
   Dices,
+  Headset,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -58,7 +59,8 @@ const menuItems = [
   { title: "Content", url: "/content", icon: FileText },
   { title: "Notifications", url: "/notifications", icon: Bell },
   { title: "Email Notifications", url: "/email-notifications", icon: Mail },
-  { title: "Support", url: "/contact", icon: LifeBuoy },
+  { title: "Contact forms", url: "/contact-us", icon: LifeBuoy },
+  { title: "Live support", url: "/support-admin", icon: Headset },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
