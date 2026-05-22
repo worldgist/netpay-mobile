@@ -261,21 +261,39 @@ export default function TransactionsScreen() {
         
         // Extract token - check database field first, then api_response
         let extractedToken = txn.token;
+        let extractedAddress: string | null = null;
         
         // If token is null and we have api_response, try to extract from there
-        if (!extractedToken && (txn as any).api_response) {
+        if ((txn as any).api_response) {
           const apiResponse = (txn as any).api_response;
+
+          extractedAddress =
+            apiResponse?.data?.customer_address ||
+            apiResponse?.data?.address ||
+            apiResponse?.customer_address ||
+            apiResponse?.address ||
+            null;
+
+          if (extractedAddress) {
+            extractedAddress = String(extractedAddress).trim();
+            if (extractedAddress === '' || extractedAddress.toLowerCase() === 'null') {
+              extractedAddress = null;
+            }
+          }
+
+          if (!extractedToken) {
           // Check multiple possible locations in api_response
-          extractedToken = apiResponse?.data?.token ||
-                          apiResponse?.token ||
-                          apiResponse?.details?.token ||
-                          null;
-          
-          // Convert to string and validate
-          if (extractedToken) {
-            extractedToken = String(extractedToken).trim();
-            if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
-              extractedToken = null;
+            extractedToken = apiResponse?.data?.token ||
+                            apiResponse?.token ||
+                            apiResponse?.details?.token ||
+                            null;
+            
+            // Convert to string and validate
+            if (extractedToken) {
+              extractedToken = String(extractedToken).trim();
+              if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
+                extractedToken = null;
+              }
             }
           }
         }
@@ -298,6 +316,7 @@ export default function TransactionsScreen() {
             token: extractedToken, // Use extracted token (from DB or api_response)
             meter_number: txn.meter_number, 
             customerName: txn.customer_name,
+            customerAddress: extractedAddress,
             vendingProvider: (txn as any).vending_provider,
           },
         };
@@ -508,6 +527,7 @@ export default function TransactionsScreen() {
           token: transaction.extra?.token || '',
           meterNumber: transaction.extra?.meter_number || '',
           customerName: transaction.extra?.customerName || '',
+          customerAddress: transaction.extra?.customerAddress || '',
           phoneNumber: transaction.extra?.phone_number || transaction.extra?.phoneNumber || '',
           educationPin: transaction.extra?.educationPin || '',
           educationSerial: transaction.extra?.educationSerial || '',

@@ -36,6 +36,7 @@ type DetailTransaction = {
     meterType?: string;
     token?: string;
     customerName?: string;
+    customerAddress?: string;
     meterNumber?: string;
     educationPin?: string;
     educationSerial?: string;
@@ -230,6 +231,7 @@ function TransactionDetailsScreen() {
       meterType: (params.meterType as string) || '',
       token: (params.token as string) || '',
       customerName: (params.customerName as string) || '',
+      customerAddress: (params.customerAddress as string) || '',
       meterNumber: (params.meterNumber as string) || '',
       educationPin: (params.educationPin as string) || '',
       educationSerial: (params.educationSerial as string) || '',
@@ -387,6 +389,7 @@ function TransactionDetailsScreen() {
         if (data) {
           // Extract token - check database field first, then api_response
           let extractedToken = data.token;
+          let extractedAddress = (data as any)?.metadata?.customer_address || null;
           
           console.log('Transaction details - Electricity token extraction:', {
             hasDbToken: !!extractedToken,
@@ -394,26 +397,44 @@ function TransactionDetailsScreen() {
             hasApiResponse: !!(data as any).api_response,
           });
           
-          // If token is null, try to extract from api_response
-          if (!extractedToken && (data as any).api_response) {
+          if ((data as any).api_response) {
             const apiResponse = (data as any).api_response;
-            // Check multiple possible locations in api_response
-            extractedToken = apiResponse?.data?.token ||
-                            apiResponse?.token ||
-                            apiResponse?.details?.token ||
-                            null;
-            
-            console.log('Transaction details - Token from api_response:', {
-              foundToken: !!extractedToken,
-              tokenValue: extractedToken,
-              apiResponseDataKeys: apiResponse?.data ? Object.keys(apiResponse.data) : [],
-            });
-            
-            // Convert to string and validate
-            if (extractedToken) {
-              extractedToken = String(extractedToken).trim();
-              if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
-                extractedToken = null;
+
+            if (!extractedAddress) {
+              extractedAddress =
+                apiResponse?.data?.customer_address ||
+                apiResponse?.data?.address ||
+                apiResponse?.customer_address ||
+                apiResponse?.address ||
+                null;
+
+              if (extractedAddress) {
+                extractedAddress = String(extractedAddress).trim();
+                if (extractedAddress === '' || extractedAddress.toLowerCase() === 'null') {
+                  extractedAddress = null;
+                }
+              }
+            }
+
+            if (!extractedToken) {
+              // Check multiple possible locations in api_response
+              extractedToken = apiResponse?.data?.token ||
+                              apiResponse?.token ||
+                              apiResponse?.details?.token ||
+                              null;
+              
+              console.log('Transaction details - Token from api_response:', {
+                foundToken: !!extractedToken,
+                tokenValue: extractedToken,
+                apiResponseDataKeys: apiResponse?.data ? Object.keys(apiResponse.data) : [],
+              });
+              
+              // Convert to string and validate
+              if (extractedToken) {
+                extractedToken = String(extractedToken).trim();
+                if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
+                  extractedToken = null;
+                }
               }
             }
           }
@@ -447,6 +468,7 @@ function TransactionDetailsScreen() {
               meterType: data.meter_type,
               token: extractedToken, // Use extracted token (from DB or api_response)
               customerName: data.customer_name,
+              customerAddress: extractedAddress,
               meterNumber: data.meter_number,
             },
           };
@@ -820,6 +842,12 @@ function TransactionDetailsScreen() {
                 <span class="info-value">${transaction.metadata.customerName}</span>
               </div>
               ` : ''}
+              ${transaction.metadata?.customerAddress ? `
+              <div class="info-row">
+                <span class="info-label">Address</span>
+                <span class="info-value">${transaction.metadata.customerAddress}</span>
+              </div>
+              ` : ''}
               ${transaction.metadata?.examType ? `
               <div class="info-row">
                 <span class="info-label">Exam</span>
@@ -1113,6 +1141,21 @@ function TransactionDetailsScreen() {
               <View style={styles.infoRow}>
                 <ThemedText style={styles.infoLabel}>Customer</ThemedText>
                 <ThemedText style={styles.infoValue}>{transaction.metadata.customerName}</ThemedText>
+              </View>
+            )}
+
+            {/* Electricity Address */}
+            {transaction.metadata?.customerAddress && (
+              <View style={styles.infoRow}>
+                <ThemedText style={styles.infoLabel}>Address</ThemedText>
+                <TouchableOpacity
+                  style={styles.copyRow}
+                  onPress={() => handleCopy(transaction.metadata?.customerAddress || '', 'Address')}>
+                  <ThemedText style={styles.infoValue} numberOfLines={2}>
+                    {transaction.metadata.customerAddress}
+                  </ThemedText>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+                </TouchableOpacity>
               </View>
             )}
 

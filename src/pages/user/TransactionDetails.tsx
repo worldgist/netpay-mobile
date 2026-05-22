@@ -364,6 +364,12 @@ export default function TransactionDetails() {
                 <span class="info-value">${transaction.customer_name}</span>
               </div>
               ` : ''}
+              ${transaction?.customer_address ? `
+              <div class="info-row">
+                <span class="info-label">Address</span>
+                <span class="info-value">${transaction.customer_address}</span>
+              </div>
+              ` : ''}
               ${transaction?.token ? `
               <div class="token-section">
                 <div class="token-label">Electricity Token</div>
@@ -739,6 +745,12 @@ export default function TransactionDetails() {
                   <div className="flex justify-between py-3 border-b">
                     <span className="text-gray-600 text-sm">Customer Name</span>
                     <span className="font-medium text-gray-900 text-sm">{transaction.customer_name}</span>
+                  </div>
+                )}
+                {transaction.customer_address && (
+                  <div className="flex justify-between py-3 border-b">
+                    <span className="text-gray-600 text-sm">Address</span>
+                    <span className="font-medium text-gray-900 text-sm text-right max-w-[60%]">{transaction.customer_address}</span>
                   </div>
                 )}
                 {transaction.meter_type && (

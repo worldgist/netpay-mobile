@@ -23,6 +23,110 @@ export type DebitResult = {
   reference: string;
 };
 
+type LedgerPayload = Record<string, unknown>;
+
+const addLedgerCandidate = (
+  candidates: LedgerPayload[],
+  payload: LedgerPayload,
+) => {
+  const serialized = JSON.stringify(payload);
+  const exists = candidates.some((candidate) => JSON.stringify(candidate) === serialized);
+  if (!exists) {
+    candidates.push(payload);
+  }
+};
+
+const buildLedgerInsertCandidates = (
+  basePayload: LedgerPayload,
+  fallbackTypes: string[] = [],
+): LedgerPayload[] => {
+  const candidates: LedgerPayload[] = [];
+  addLedgerCandidate(candidates, basePayload);
+
+  const hasPerformedBy = !!basePayload.performed_by;
+  if (hasPerformedBy) {
+    addLedgerCandidate(candidates, {
+      ...basePayload,
+      performed_by: null,
+    });
+
+    const withoutPerformedBy = { ...basePayload };
+    delete withoutPerformedBy.performed_by;
+    addLedgerCandidate(candidates, withoutPerformedBy);
+  }
+
+  const txType = String(basePayload.transaction_type || "");
+  const typesToTry = [
+    ...fallbackTypes,
+    ...(txType && txType !== "purchase" ? ["purchase"] : []),
+  ];
+
+  for (const fallbackType of typesToTry) {
+    addLedgerCandidate(candidates, {
+      ...basePayload,
+      transaction_type: fallbackType,
+    });
+
+    if (hasPerformedBy) {
+      addLedgerCandidate(candidates, {
+        ...basePayload,
+        transaction_type: fallbackType,
+        performed_by: null,
+      });
+    }
+
+    const reducedPayload: LedgerPayload = {
+      user_id: basePayload.user_id,
+      transaction_type: fallbackType,
+      amount: basePayload.amount,
+      balance_before: basePayload.balance_before,
+      balance_after: basePayload.balance_after,
+    };
+    addLedgerCandidate(candidates, reducedPayload);
+  }
+
+  return candidates;
+};
+
+const insertUserTransactionWithFallback = async (
+  supabase: SupabaseClient,
+  payload: LedgerPayload,
+  fallbackTypes: string[] = [],
+): Promise<{ error: any | null; payloadUsed: LedgerPayload | null }> => {
+  const candidates = buildLedgerInsertCandidates(payload, fallbackTypes);
+  let lastError: any | null = null;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const { error } = await supabase.from("user_transactions").insert(candidate);
+
+    if (!error) {
+      if (index > 0) {
+        console.warn("user_transactions insert succeeded using fallback payload", {
+          originalType: payload.transaction_type,
+          usedType: candidate.transaction_type,
+          usedPerformedBy: candidate.performed_by,
+        });
+      }
+      return { error: null, payloadUsed: candidate };
+    }
+
+    lastError = error;
+    console.error("Failed to insert user_transactions candidate", {
+      attempt: index + 1,
+      totalAttempts: candidates.length,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      candidateType: candidate.transaction_type,
+      candidatePerformedBy: candidate.performed_by,
+    });
+  }
+
+  return { error: lastError, payloadUsed: null };
+};
+
 export const debitUserWallet = async ({
   supabase,
   userId,
@@ -94,9 +198,11 @@ export const debitUserWallet = async ({
     performed_by: performedBy ?? userId,
   };
 
-  const { error: transactionError } = await supabase
-    .from("user_transactions")
-    .insert(transactionPayload);
+  const { error: transactionError } = await insertUserTransactionWithFallback(
+    supabase,
+    transactionPayload,
+    ["debit", "purchase"],
+  );
 
   if (transactionError) {
     console.error("Failed to record user transaction (debit):", transactionError.message, transactionError);
@@ -107,7 +213,15 @@ export const debitUserWallet = async ({
     if (rollbackError) {
       console.error("CRITICAL: failed to rollback wallet after debit ledger failure:", rollbackError);
     }
-    throw new Error("Failed to record wallet transaction after debit");
+    throw new Error(
+      `Failed to record wallet transaction after debit${
+        transactionError?.message
+          ? `: ${transactionError.message}`
+          : transactionError
+            ? `: ${JSON.stringify(transactionError)}`
+            : ""
+      }`,
+    );
   }
 
   if (notification) {
@@ -254,9 +368,11 @@ export const creditUserWallet = async ({
     performed_by: performedBy ?? userId,
   };
 
-  const { error: transactionError } = await supabase
-    .from("user_transactions")
-    .insert(transactionPayload);
+  const { error: transactionError } = await insertUserTransactionWithFallback(
+    supabase,
+    transactionPayload,
+    ["credit", "purchase"],
+  );
 
   if (transactionError) {
     console.error("Failed to record user transaction (credit):", transactionError.message, transactionError);
@@ -267,7 +383,15 @@ export const creditUserWallet = async ({
     if (rollbackError) {
       console.error("CRITICAL: failed to rollback wallet after credit ledger failure:", rollbackError);
     }
-    throw new Error("Failed to record wallet transaction after credit");
+    throw new Error(
+      `Failed to record wallet transaction after credit${
+        transactionError?.message
+          ? `: ${transactionError.message}`
+          : transactionError
+            ? `: ${JSON.stringify(transactionError)}`
+            : ""
+      }`,
+    );
   }
 
   if (notification) {

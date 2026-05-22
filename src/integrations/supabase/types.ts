@@ -434,6 +434,7 @@ export type Database = {
           balance_after: number
           balance_before: number
           created_at: string
+          customer_address: string | null
           customer_name: string | null
           id: string
           meter_number: string
@@ -452,6 +453,7 @@ export type Database = {
           balance_after: number
           balance_before: number
           created_at?: string
+          customer_address?: string | null
           customer_name?: string | null
           id?: string
           meter_number: string
@@ -470,6 +472,7 @@ export type Database = {
           balance_after?: number
           balance_before?: number
           created_at?: string
+          customer_address?: string | null
           customer_name?: string | null
           id?: string
           meter_number?: string
