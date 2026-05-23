@@ -460,9 +460,59 @@ export default function ProfileScreen() {
           </ThemedText>
         </View>
 
-        {/* Profile Section */}
+        {/* Security Section */}
         <View style={styles.section}>
-          <ThemedText style={styles.sectionHeader}>PROFILE</ThemedText>
+          <ThemedText style={styles.sectionHeader}>SECURITY</ThemedText>
+
+          {/* Biometric Login */}
+          <TouchableOpacity
+            style={[
+              styles.optionCard,
+              styles.optionCardWithSwitch,
+              (loading || biometricUpdating || !userId) && styles.optionCardDisabled,
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (loading || biometricUpdating || !userId) return;
+              handleToggleBiometric(!biometricEnabled);
+            }}
+            disabled={loading || biometricUpdating || !userId}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  {biometricEnabled ? 'Use fingerprint or Face ID to sign in' : 'Enable fingerprint or Face ID sign in'}
+                </ThemedText>
+              </View>
+            </View>
+            <Switch
+              value={biometricEnabled}
+              onValueChange={handleToggleBiometric}
+              trackColor={{ false: '#E0E0E0', true: '#FFE0BF' }}
+              thumbColor={biometricEnabled ? '#FF7F00' : '#FF7F00'}
+              disabled={loading || biometricUpdating || !userId}
+            />
+          </TouchableOpacity>
+
+          {/* PIN Management */}
+          <TouchableOpacity style={styles.optionCard} onPress={handlePINCode} activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="lock" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>PIN Code</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  {pinEnabled ? 'Change your transaction PIN' : 'Set up a transaction PIN'}
+                </ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Account Section */}
+        <View style={styles.section}>
+          <ThemedText style={styles.sectionHeader}>ACCOUNT</ThemedText>
 
           {/* Edit Profile */}
           <TouchableOpacity style={styles.optionCard} onPress={handleEditProfile} activeOpacity={0.7}>
@@ -474,11 +524,6 @@ export default function ProfileScreen() {
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
-        </View>
-
-        {/* Account Section */}
-        <View style={styles.section}>
-          <ThemedText style={styles.sectionHeader}>ACCOUNT</ThemedText>
 
           {/* Notifications */}
           <TouchableOpacity
@@ -534,7 +579,47 @@ export default function ProfileScreen() {
             <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
-          {/* Live chat support */}
+          {/* Statement */}
+          <TouchableOpacity
+            style={styles.optionCard}
+            onPress={() => router.push('/statement-of-account')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="description" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Statement</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  View, download or email your transaction statement
+                </ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
+          </TouchableOpacity>
+
+          {/* Terms & Conditions */}
+          <TouchableOpacity style={styles.legalDocOptionCard} onPress={handleTerms} activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="description" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Terms & Conditions</ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
+          </TouchableOpacity>
+
+          {/* Privacy Policy */}
+          <TouchableOpacity style={styles.legalDocOptionCard} onPress={handlePrivacy} activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="description" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Privacy Policy</ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
+          </TouchableOpacity>
+
+          {/* Keep support options below website-equivalent items */}
           <TouchableOpacity
             style={styles.optionCard}
             onPress={() => router.push('/support-chat')}
@@ -565,100 +650,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {/* Biometric Login */}
-          <TouchableOpacity
-            style={[
-              styles.optionCard,
-              styles.optionCardWithSwitch,
-              (loading || biometricUpdating || !userId) && styles.optionCardDisabled,
-            ]}
-            activeOpacity={0.7}
-            onPress={() => {
-              if (loading || biometricUpdating || !userId) return;
-              handleToggleBiometric(!biometricEnabled);
-            }}
-            disabled={loading || biometricUpdating || !userId}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
-                <ThemedText style={styles.optionDescription}>
-                  {biometricEnabled ? 'Biometric login is enabled' : 'Enable biometric login for quick access'}
-                </ThemedText>
-              </View>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              onValueChange={handleToggleBiometric}
-              trackColor={{ false: '#E0E0E0', true: '#FFE0BF' }}
-              thumbColor={biometricEnabled ? '#FF7F00' : '#FF7F00'}
-              disabled={loading || biometricUpdating || !userId}
-            />
-          </TouchableOpacity>
-
-          {/* Statement of Account */}
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => router.push('/statement-of-account')}
-            activeOpacity={0.7}
-          >
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="description" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Statement of Account</ThemedText>
-                <ThemedText style={styles.optionDescription}>
-                  View, download or email your transaction statement
-                </ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={20} color="#999" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Security Section */}
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={() => router.push('/security')}
-            activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="security" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Security</ThemedText>
-                <ThemedText style={styles.optionDescription}>Manage your PIN and password</ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={20} color="#999" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Legal — card chrome aligned with terms-and-conditions.tsx sectionCard */}
-        <View style={styles.section}>
-          {/* Terms & Conditions */}
-          <TouchableOpacity style={styles.legalDocOptionCard} onPress={handleTerms} activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="description" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Terms & Conditions</ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={20} color="#999" />
-          </TouchableOpacity>
-
-          {/* Privacy Policy */}
-          <TouchableOpacity style={styles.legalDocOptionCard} onPress={handlePrivacy} activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="description" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Privacy Policy</ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={20} color="#999" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Delete Account Section */}
-        <View style={styles.section}>
+          {/* Delete Account */}
           <TouchableOpacity
             style={styles.deleteAccountCard}
             onPress={() => router.push('/delete-account')}

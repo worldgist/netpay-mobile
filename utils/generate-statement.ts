@@ -404,7 +404,7 @@ function drawTableRow(
 }
 
 /**
- * Generates a comprehensive statement of account PDF
+ * Generates a comprehensive statement PDF
  */
 export async function generateStatementPDF(options: StatementOptions): Promise<Uint8Array> {
   const { userId, startDate, endDate } = options;
@@ -457,7 +457,7 @@ export async function generateStatementPDF(options: StatementOptions): Promise<U
     color: rgb(1, 0.5, 0), // Orange color #FF7F00
   });
 
-  page.drawText('STATEMENT OF ACCOUNT', {
+  page.drawText('STATEMENT', {
     x: margin,
     y: y - 30,
     size: 16,

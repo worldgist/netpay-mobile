@@ -115,7 +115,7 @@ export async function downloadStatementPDF(
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(fileUri, {
         mimeType: 'application/pdf',
-        dialogTitle: 'Share Statement of Account',
+        dialogTitle: 'Share Statement',
       });
     } else {
       Alert.alert('Success', 'Statement downloaded successfully');

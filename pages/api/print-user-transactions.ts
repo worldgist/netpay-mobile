@@ -27,7 +27,7 @@ async function sendStatementEmail({ to, pdfBuffer }: { to: string, pdfBuffer: Bu
   const emailPayload: any = {
     from: FROM_ADDRESS,
     to: [to],
-    subject: 'Your Netpay Statement of Account',
+    subject: 'Your Netpay Statement',
     text: 'Your statement is attached as a PDF.',
     html: '<p>Your statement is attached as a PDF.</p>',
     tags: [

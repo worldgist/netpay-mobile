@@ -348,7 +348,7 @@ async function getOpeningBalance(supabase: any, userId: string, startDate: Date)
 }
 
 /**
- * Generates a comprehensive statement of account PDF
+ * Generates a comprehensive statement PDF
  */
 async function generateStatementPDF(
   supabase: any,
@@ -452,7 +452,7 @@ async function generateStatementPDF(
       color: rgb(1, 1, 1), // White text
     });
 
-    page.drawText("STATEMENT OF ACCOUNT", {
+    page.drawText("STATEMENT", {
       x: companyX,
       y: height - 75,
       size: 14,
@@ -972,7 +972,7 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
           <!-- Header -->
           <div style="background: linear-gradient(135deg, #ff7f00 0%, #ff9f3f 100%); padding: 40px 32px; text-align: center;">
             <img src="${LOGO_URL}" alt="NetPay Logo" style="height: 60px; width: auto; margin-bottom: 16px;" />
-            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">Statement of Account</h1>
+            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">Statement</h1>
           </div>
 
           <!-- Content -->
@@ -982,7 +982,7 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
             </p>
 
             <p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">
-              Thank you for being a valued NetPay customer. As requested, please find attached your Statement of Account for the period from <strong>${formattedStartDate}</strong> to <strong>${formattedEndDate}</strong>.
+              Thank you for being a valued NetPay customer. As requested, please find attached your Statement for the period from <strong>${formattedStartDate}</strong> to <strong>${formattedEndDate}</strong>.
             </p>
 
             <p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">
@@ -1037,7 +1037,7 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
   const emailText = `
 Dear ${userName || "Valued Customer"},
 
-Thank you for being a valued NetPay customer. As requested, please find attached your Statement of Account for the period from ${formattedStartDate} to ${formattedEndDate}.
+Thank you for being a valued NetPay customer. As requested, please find attached your Statement for the period from ${formattedStartDate} to ${formattedEndDate}.
 
 This statement provides a comprehensive overview of all your transactions during this period, including account credits and debits, airtime and data purchases, utility bill payments, education payments, betting transactions, money transfers, and account funding transactions.
 
@@ -1059,7 +1059,7 @@ This is an automated email. Please do not reply directly to this message.
   const emailPayload = {
     from: FROM_ADDRESS,
     to: [to],
-    subject: `Your NetPay Statement of Account - ${formattedStartDate} to ${formattedEndDate}`,
+    subject: `Your NetPay Statement - ${formattedStartDate} to ${formattedEndDate}`,
     text: emailText,
     html: emailHtml,
     tags: [{ name: "notification_type", value: "statement" }],
@@ -1088,7 +1088,7 @@ This is an automated email. Please do not reply directly to this message.
 }
 
 serve(async (req) => {
-  console.log("=== Statement of Account Function Called ===");
+  console.log("=== Statement Function Called ===");
   console.log("Method:", req.method);
   console.log("URL:", req.url);
   

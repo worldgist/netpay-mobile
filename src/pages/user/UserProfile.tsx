@@ -6,7 +6,6 @@ import BottomNav from "@/components/BottomNav";
 import { Switch } from "@/components/ui/switch";
 import {
   Edit,
-  TrendingUp,
   Bell,
   Users,
   Mail,
@@ -29,6 +28,11 @@ export default function UserProfile() {
   const [userId, setUserId] = useState("");
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [pinEnabled, setPinEnabled] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationsUpdating, setNotificationsUpdating] = useState(false);
+  const [isSupportAdmin, setIsSupportAdmin] = useState(false);
+
+  const NOTIFICATIONS_ENABLED_KEY = "@netpay_notifications_enabled";
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -55,6 +59,24 @@ export default function UserProfile() {
           setUserName(session.user.email?.split('@')[0] || 'User');
           toast.error("Failed to load profile. Please refresh the page.");
         }
+
+        try {
+          const storedNotificationPreference = window.localStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
+          if (storedNotificationPreference !== null) {
+            setNotificationsEnabled(JSON.parse(storedNotificationPreference));
+          }
+        } catch (storageError) {
+          console.error("Failed to load notifications preference:", storageError);
+        }
+
+        const { data: adminRole } = await supabase
+          .from("user_roles")
+          .select("id")
+          .eq("user_id", session.user.id)
+          .eq("role", "admin")
+          .maybeSingle();
+
+        setIsSupportAdmin(Boolean(adminRole));
       } catch (error: any) {
         console.error('Error loading profile:', error);
         toast.error(error.message || "Failed to load profile");
@@ -86,6 +108,26 @@ export default function UserProfile() {
     navigate("/user/setup-pin");
   };
 
+  const handleResetPassword = () => {
+    navigate("/user/forgot-password");
+  };
+
+  const handleToggleNotifications = async (enabled: boolean) => {
+    setNotificationsUpdating(true);
+    const previousValue = notificationsEnabled;
+    setNotificationsEnabled(enabled);
+
+    try {
+      window.localStorage.setItem(NOTIFICATIONS_ENABLED_KEY, JSON.stringify(enabled));
+      toast.success(enabled ? "Notifications enabled" : "Notifications disabled");
+    } catch (error: any) {
+      setNotificationsEnabled(previousValue);
+      toast.error(error?.message || "Failed to update notifications setting");
+    } finally {
+      setNotificationsUpdating(false);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Logged out successfully");
@@ -94,18 +136,29 @@ export default function UserProfile() {
 
   const menuItems = [
     { icon: Edit, label: "Edit Profile", onClick: () => navigate("/user/edit-profile"), color: "text-brand" },
-    { icon: Bell, label: "Notifications", onClick: () => navigate("/user/notifications"), color: "text-brand" },
+    { icon: Bell, label: "Notification Inbox", onClick: () => navigate("/user/notifications"), color: "text-brand" },
     { icon: Users, label: "Referral", onClick: () => navigate("/user/referrals"), color: "text-brand" },
     { icon: Mail, label: "Contact us", onClick: () => navigate("/user/contact"), color: "text-brand" },
+    { icon: FileText, label: "Statement", onClick: () => navigate("/user/statement-of-account"), color: "text-brand" },
+    { icon: Lock, label: "Reset Password", onClick: handleResetPassword, color: "text-brand" },
     { icon: FileText, label: "Terms & Conditions", onClick: () => navigate("/user/terms"), color: "text-brand" },
     { icon: Shield, label: "Privacy Policy", onClick: () => navigate("/user/privacy"), color: "text-brand" },
+    ...(isSupportAdmin
+      ? [{ icon: Mail, label: "Support Center", onClick: () => navigate("/support-admin"), color: "text-brand" }]
+      : []),
     { icon: Trash2, label: "Delete Account", onClick: () => navigate("/user/delete-account"), color: "text-red-500" },
   ];
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 pb-20 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand"></div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative h-12 w-12">
+            <div className="absolute inset-0 rounded-full border-4 border-orange-100"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-brand animate-spin"></div>
+          </div>
+          <p className="text-sm text-gray-600">Loading profile...</p>
+        </div>
       </div>
     );
   }
@@ -162,6 +215,24 @@ export default function UserProfile() {
       {/* Menu Items */}
       <div className="px-4 py-4 space-y-1">
         <h3 className="text-sm font-semibold text-gray-500 mb-3 px-2">ACCOUNT</h3>
+
+        <div className="w-full bg-white rounded-xl px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Bell className="w-5 h-5 text-brand" />
+            <div>
+              <span className="font-medium text-gray-900 block">Notifications</span>
+              <span className="text-xs text-gray-500">
+                {notificationsEnabled ? "Notifications are enabled" : "Notifications are disabled"}
+              </span>
+            </div>
+          </div>
+          <Switch
+            checked={notificationsEnabled}
+            onCheckedChange={handleToggleNotifications}
+            disabled={notificationsUpdating}
+          />
+        </div>
+
         {menuItems.map((item) => {
           const Icon = item.icon;
           return (

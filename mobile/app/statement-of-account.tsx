@@ -321,7 +321,7 @@ export default function StatementOfAccountScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <ThemedText style={styles.headerTitle}>Statement of Account</ThemedText>
+        <ThemedText style={styles.headerTitle}>Statement</ThemedText>
         <View style={styles.placeholder} />
       </View>
 

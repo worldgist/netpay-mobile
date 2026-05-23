@@ -63,6 +63,7 @@ import UserContact from "./pages/user/UserContact";
 import UserTerms from "./pages/user/UserTerms";
 import UserPrivacy from "./pages/user/UserPrivacy";
 import DeleteAccount from "./pages/user/DeleteAccount";
+import StatementOfAccount from "./pages/user/StatementOfAccount";
 
 const App = () => (
   <>
@@ -137,6 +138,7 @@ const App = () => (
         <Route path="/user/contact" element={<UserContact />} />
         <Route path="/user/terms" element={<UserTerms />} />
         <Route path="/user/privacy" element={<UserPrivacy />} />
+        <Route path="/user/statement-of-account" element={<StatementOfAccount />} />
         <Route path="/user/delete-account" element={<DeleteAccount />} />
         
         <Route path="*" element={<NotFound />} />
