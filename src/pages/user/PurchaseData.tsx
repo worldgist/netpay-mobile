@@ -51,6 +51,21 @@ const generateVtpassRequestId = () => {
   return `${timestamp}${random}`;
 };
 
+const normalizePhoneNumber = (value: string) => {
+  let normalized = value.trim().replace(/\s+/g, "");
+
+  if (normalized.startsWith("+234")) {
+    normalized = `0${normalized.slice(4)}`;
+  } else if (normalized.startsWith("234") && normalized.length === 13) {
+    normalized = `0${normalized.slice(3)}`;
+  }
+
+  normalized = normalized.replace(/[^0-9]/g, "");
+  return normalized;
+};
+
+const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
+
 const dataSchema = z.object({
   phone_number: z.string().min(11, "Phone number must be at least 11 digits").max(11, "Phone number must be 11 digits"),
 });
@@ -95,6 +110,8 @@ const PurchaseData = () => {
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [showInvalidPhoneModal, setShowInvalidPhoneModal] = useState(false);
+  const [invalidPhoneMessage, setInvalidPhoneMessage] = useState("Please enter a valid 11-digit phone number (e.g. 08012345678).");
 
   const { register, formState: { errors } } = useForm({
     resolver: zodResolver(dataSchema)
@@ -429,6 +446,17 @@ const PurchaseData = () => {
       return;
     }
 
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    if (!isValidNigerianPhone(normalizedPhone)) {
+      setInvalidPhoneMessage("Please enter a valid 11-digit phone number (e.g. 08012345678).");
+      setShowInvalidPhoneModal(true);
+      return;
+    }
+
+    if (normalizedPhone !== phoneNumber) {
+      setPhoneNumber(normalizedPhone);
+    }
+
     const plan = dataPlans.find(p => p.id === selectedPlan);
     if (!plan) return;
 
@@ -472,8 +500,19 @@ const PurchaseData = () => {
       if (!plan) throw new Error("Invalid plan");
 
       // Use the new unified purchase-data endpoint with automatic fallback
+
+      const normalizedPhone = normalizePhoneNumber(phoneNumber);
+      if (!isValidNigerianPhone(normalizedPhone)) {
+        setInvalidPhoneMessage("Please enter a valid 11-digit phone number (e.g. 08012345678).");
+        setShowInvalidPhoneModal(true);
+        return;
+      }
+
+      if (normalizedPhone !== phoneNumber) {
+        setPhoneNumber(normalizedPhone);
+      }
       const requestBody = {
-        phone_number: phoneNumber,
+        phone_number: normalizedPhone,
         plan_id: plan.id,
       };
 
@@ -849,6 +888,18 @@ const PurchaseData = () => {
           return plan ? getEffectivePrice(plan) : undefined;
         })()}
       />
+
+      <Dialog open={showInvalidPhoneModal} onOpenChange={setShowInvalidPhoneModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invalid Phone Number</DialogTitle>
+            <DialogDescription>{invalidPhoneMessage}</DialogDescription>
+          </DialogHeader>
+          <Button onClick={() => setShowInvalidPhoneModal(false)} className="w-full">
+            Okay
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

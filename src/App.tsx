@@ -10,6 +10,7 @@ import Analytics from "./pages/Analytics";
 import Notifications from "./pages/Notifications";
 import EmailNotifications from "./pages/EmailNotifications";
 import Settings from "./pages/Settings";
+import Flutterwave from "./pages/Flutterwave";
 import Smeplug from "./pages/Smeplug";
 import EBills from "./pages/EBills";
 import ElectricityPlans from "./pages/ElectricityPlans";
@@ -49,6 +50,7 @@ import PurchaseCableTv from "./pages/user/PurchaseCableTv";
 import PurchaseEducation from "./pages/user/PurchaseEducation";
 import PurchaseElectricity from "./pages/user/PurchaseElectricity";
 import PurchaseBetting from "./pages/user/PurchaseBetting";
+import FlightBooking from "./pages/user/FlightBooking";
 import Transfer from "./pages/user/Transfer";
 import TransactionDetails from "./pages/user/TransactionDetails";
 import Referrals from "./pages/Referrals";
@@ -87,6 +89,7 @@ const App = () => (
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/email-notifications" element={<EmailNotifications />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/flutterwave" element={<Flutterwave />} />
         <Route path="/hr" element={<HrManager />} />
         <Route path="/electricity" element={<ElectricityPlans />} />
         <Route path="/cable-tv" element={<CableTvPlans />} />
@@ -124,6 +127,7 @@ const App = () => (
         <Route path="/user/purchase-electricity" element={<PurchaseElectricity />} />
         <Route path="/user/purchase-education" element={<PurchaseEducation />} />
         <Route path="/user/purchase-betting" element={<PurchaseBetting />} />
+        <Route path="/user/flight-booking" element={<FlightBooking />} />
         <Route path="/user/transactions" element={<UserTransactions />} />
         <Route path="/user/transaction/:type/:id" element={<TransactionDetails />} />
         <Route path="/user/profile" element={<UserProfile />} />

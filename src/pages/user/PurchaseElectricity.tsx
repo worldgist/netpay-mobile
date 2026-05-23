@@ -24,6 +24,21 @@ const electricitySchema = z.object({
   phone: z.string().min(11, "Phone number must be at least 11 digits").max(11, "Phone number must be 11 digits"),
 });
 
+const normalizePhoneNumber = (value: string) => {
+  let normalized = value.trim().replace(/\s+/g, "");
+
+  if (normalized.startsWith("+234")) {
+    normalized = `0${normalized.slice(4)}`;
+  } else if (normalized.startsWith("234") && normalized.length === 13) {
+    normalized = `0${normalized.slice(3)}`;
+  }
+
+  normalized = normalized.replace(/[^0-9]/g, "");
+  return normalized;
+};
+
+const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
+
 interface ElectricityProvider {
   id: string;
   name: string;
@@ -368,6 +383,20 @@ const PurchaseElectricity = () => {
       return;
     }
 
+    const normalizedPhone = normalizePhoneNumber(phone);
+    if (!isValidNigerianPhone(normalizedPhone)) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid 11-digit phone number (e.g. 08012345678)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (normalizedPhone !== phone) {
+      setPhone(normalizedPhone);
+    }
+
     const purchaseAmount = Number(amount);
     if (isNaN(purchaseAmount) || purchaseAmount < 100) {
       toast({
@@ -378,7 +407,10 @@ const PurchaseElectricity = () => {
       return;
     }
 
-    if (balance < purchaseAmount) {
+    const chargeFee = Math.round(purchaseAmount * 0.02 * 100) / 100;
+    const totalAmount = purchaseAmount + chargeFee;
+
+    if (balance < totalAmount) {
       setShowInsufficientBalance(true);
       return;
     }
@@ -396,7 +428,7 @@ const PurchaseElectricity = () => {
           provider: selectedProvider,
           meter_type: meterType,
           amount: Number(amount),
-          phone: phone,
+          phone: normalizePhoneNumber(phone),
         vending_provider: vendingProvider,
         customer_name: meterInfo?.customer_name,
         customer_address: meterInfo?.address,
@@ -848,6 +880,16 @@ const PurchaseElectricity = () => {
               <span>Amount:</span>
               <span className="font-semibold">{formatNaira(Number(amount))}</span>
             </div>
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Service Charge (2%):</span>
+              <span>{formatNaira(Math.round(Number(amount) * 0.02 * 100) / 100)}</span>
+            </div>
+            <div className="flex justify-between border-t pt-2 font-semibold">
+              <span>Total Amount:</span>
+              <span className="text-primary">
+                {formatNaira(Number(amount) + Math.round(Number(amount) * 0.02 * 100) / 100)}
+              </span>
+            </div>
             <div className="flex gap-3 mt-4">
               <Button variant="outline" onClick={() => setShowSummary(false)} className="flex-1">
                 Cancel
@@ -952,7 +994,7 @@ const PurchaseElectricity = () => {
         open={showInsufficientBalance}
         onOpenChange={setShowInsufficientBalance}
         currentBalance={balance}
-        requiredAmount={Number(amount)}
+        requiredAmount={Number(amount) + Math.round(Number(amount) * 0.02 * 100) / 100}
       />
 
       <IncorrectMeterNumberModal

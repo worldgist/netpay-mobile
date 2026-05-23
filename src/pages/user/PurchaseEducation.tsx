@@ -22,6 +22,21 @@ interface EducationService {
   vending_provider?: string | null;
 }
 
+const normalizePhoneNumber = (value: string) => {
+  let normalized = value.trim().replace(/\s+/g, "");
+
+  if (normalized.startsWith("+234")) {
+    normalized = `0${normalized.slice(4)}`;
+  } else if (normalized.startsWith("234") && normalized.length === 13) {
+    normalized = `0${normalized.slice(3)}`;
+  }
+
+  normalized = normalized.replace(/[^0-9]/g, "");
+  return normalized;
+};
+
+const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
+
 const PurchaseEducation = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -145,7 +160,22 @@ const PurchaseEducation = () => {
         return;
       }
     }
-    // Phone number is optional for WAEC/NECO - the function handles it automatically
+    // Phone number is optional for WAEC/NECO, but validate if provided.
+    if (phoneNumber.trim()) {
+      const normalizedPhone = normalizePhoneNumber(phoneNumber);
+      if (!isValidNigerianPhone(normalizedPhone)) {
+        toast({
+          title: "Error",
+          description: "Please enter a valid 11-digit phone number (e.g. 08012345678)",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (normalizedPhone !== phoneNumber) {
+        setPhoneNumber(normalizedPhone);
+      }
+    }
 
     if (!selectedServiceData) return;
 
@@ -190,7 +220,7 @@ const PurchaseEducation = () => {
       // For WAEC/NECO, no additional fields needed
       if (selectedServiceData.exam_type === "JAMB") {
         requestBody.billers_code = jambProfileId.trim();
-        requestBody.phone_number = phoneNumber || ""; // Optional for JAMB
+        requestBody.phone_number = phoneNumber ? normalizePhoneNumber(phoneNumber) : ""; // Optional for JAMB
       }
       
       // Add quantity (defaults to 1 in function if not provided)

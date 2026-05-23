@@ -45,6 +45,21 @@ const providers: BettingProvider[] = [
   { id: 'supabet', name: 'SupaBet', logo: '/supabet.png', providerCode: 'SUPABET' },
 ];
 
+const normalizePhoneNumber = (value: string) => {
+  let normalized = value.trim().replace(/\s+/g, "");
+
+  if (normalized.startsWith("+234")) {
+    normalized = `0${normalized.slice(4)}`;
+  } else if (normalized.startsWith("234") && normalized.length === 13) {
+    normalized = `0${normalized.slice(3)}`;
+  }
+
+  normalized = normalized.replace(/[^0-9]/g, "");
+  return normalized;
+};
+
+const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
+
 const PurchaseBetting = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -60,6 +75,7 @@ const PurchaseBetting = () => {
   const [purchasing, setPurchasing] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [verifiedCustomerName, setVerifiedCustomerName] = useState("");
 
   const { register, formState: { errors } } = useForm({
     resolver: zodResolver(bettingSchema)
@@ -140,7 +156,7 @@ const PurchaseBetting = () => {
     fetchInitialData();
   }, [navigate, toast]);
 
-  const handlePurchase = () => {
+  const handlePurchase = async () => {
     if (!accountNumber || !amount || !selectedProvider) {
       toast({
         title: "Error",
@@ -148,6 +164,22 @@ const PurchaseBetting = () => {
         variant: "destructive",
       });
       return;
+    }
+
+    if (phoneNumber.trim()) {
+      const normalizedPhone = normalizePhoneNumber(phoneNumber);
+      if (!isValidNigerianPhone(normalizedPhone)) {
+        toast({
+          title: "Error",
+          description: "Please enter a valid 11-digit phone number (e.g. 08012345678)",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (normalizedPhone !== phoneNumber) {
+        setPhoneNumber(normalizedPhone);
+      }
     }
 
     const purchaseAmount = Number(amount);
@@ -160,9 +192,46 @@ const PurchaseBetting = () => {
       return;
     }
 
-    if (balance < purchaseAmount) {
+    const CHARGE_FEE_RATE = 0.1;
+    const chargeFee = Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100;
+    const totalAmount = purchaseAmount + chargeFee;
+
+    if (balance < totalAmount) {
       setShowInsufficientBalance(true);
       return;
+    }
+
+    if (vendingProvider === 'ebills') {
+      try {
+        const provider = providers.find((p) => p.id === selectedProvider);
+        if (!provider) {
+          throw new Error('Invalid provider selected');
+        }
+
+        const { data, error } = await supabase.functions.invoke('verify-ebills-betting-customer', {
+          body: {
+            customer_id: accountNumber.trim(),
+            betting_provider: provider.providerCode,
+          },
+        });
+
+        if (error) {
+          throw new Error(error.message || 'Unable to verify betting account');
+        }
+
+        if (data?.success === false || data?.error) {
+          throw new Error(data?.error || data?.message || 'Unable to verify betting account');
+        }
+
+        setVerifiedCustomerName(data?.data?.customer_name || '');
+      } catch (verifyError: any) {
+        toast({
+          title: 'Verification Failed',
+          description: verifyError?.message || 'Unable to verify account. Please check your account and try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     setShowSummary(true);
@@ -192,6 +261,61 @@ const PurchaseBetting = () => {
       // Insert betting transaction
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Session expired");
+
+      if (vendingProvider === 'ebills') {
+        const provider = providers.find((p) => p.id === selectedProvider);
+        if (!provider) throw new Error('Invalid provider');
+
+        const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
+        const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
+          body: {
+            customer_id: accountNumber.trim(),
+            betting_provider: provider.providerCode,
+            amount: Number(purchaseAmount),
+            request_id: requestId,
+          },
+        });
+
+        if (error) {
+          throw new Error(error.message || 'Unable to process betting purchase');
+        }
+
+        if (!data?.success) {
+          throw new Error(data?.error || data?.message || 'Betting purchase failed');
+        }
+
+        const purchaseData = data.data || {};
+
+        setTransactionDetails({
+          provider_name: provider.name,
+          account_number: purchaseData.account_number || accountNumber,
+          reference: purchaseData.reference || purchaseData.request_id,
+          purchase_amount: purchaseData.purchase_amount ?? purchaseAmount,
+          charge_fee: purchaseData.charge_fee ?? chargeFee,
+          amount: purchaseData.amount ?? totalAmount,
+          balance_after: purchaseData.balance_after,
+          customer_name: verifiedCustomerName,
+        });
+
+        // Refresh wallet balance
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('balance')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile) {
+          setBalance(profile.balance || 0);
+        }
+
+        setShowSuccess(true);
+
+        toast({
+          title: 'Success',
+          description: 'Betting purchase completed successfully',
+        });
+        return;
+      }
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -451,6 +575,12 @@ const PurchaseBetting = () => {
               <span>Account Number:</span>
               <span className="font-semibold">{accountNumber}</span>
             </div>
+            {verifiedCustomerName && (
+              <div className="flex justify-between">
+                <span>Customer:</span>
+                <span className="font-semibold">{verifiedCustomerName}</span>
+              </div>
+            )}
             {phoneNumber && (
               <div className="flex justify-between">
                 <span>Phone Number:</span>
