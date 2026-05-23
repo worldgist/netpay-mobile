@@ -100,12 +100,9 @@ serve(async (req) => {
         priority: payload.priority ?? "high",
       };
 
-      // Add Android-specific channelId for proper notification display
-      // Android requires channelId to be specified in the push notification payload
+      // Use the default Android channel so notifications are visible even on first launch.
       if (row.platform === "android") {
-        // Use "transactions" channel for transaction-related notifications, "default" for others
-        const channelId = (payload.data?.transactionType || payload.data?.reference) ? "transactions" : "default";
-        message.channelId = channelId;
+        message.channelId = "default";
       }
 
       return message;
