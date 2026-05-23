@@ -265,6 +265,11 @@ export default function CableTvPlans() {
     );
   });
 
+  const totalFilteredAmount = filteredTransactions.reduce(
+    (sum, txn) => sum + Number(txn.amount || 0),
+    0,
+  );
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -391,6 +396,20 @@ export default function CableTvPlans() {
                       <SelectItem value="failed">Failed</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="mb-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Total Transaction Amount</CardTitle>
+                      <CardDescription>
+                        Sum of displayed cable TV transactions
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{formatNaira(totalFilteredAmount)}</div>
+                    </CardContent>
+                  </Card>
                 </div>
 
                 <div className="rounded-md border">

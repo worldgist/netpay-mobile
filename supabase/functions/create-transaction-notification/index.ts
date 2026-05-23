@@ -9,7 +9,6 @@ const CORS_HEADERS = {
 interface NotificationPayload {
   title?: string;
   message?: string;
-  metadata?: Record<string, unknown>;
 }
 
 const normalize = (value?: string | null) => {
@@ -63,7 +62,6 @@ serve(async (req) => {
     const body = (await req.json()) as NotificationPayload;
     const title = normalize(body?.title);
     const message = normalize(body?.message);
-    const metadata = body?.metadata ?? null;
 
     if (!title || !message) {
       return new Response(
@@ -77,11 +75,10 @@ serve(async (req) => {
       .insert({
         title,
         message,
-        recipient_type: "individual",
+        recipient_type: "single",
         recipient_ids: [user.id],
         sent_by: user.id,
         is_read: false,
-        metadata,
       })
       .select()
       .single();

@@ -21,6 +21,7 @@ interface ConfirmPaymentModalProps {
   quantity?: number; // Optional quantity (for WAEC/NECO PINs)
   disabled?: boolean;
   customerName?: string; // Optional customer name (for betting, etc.)
+  recipientLabel?: string;
 }
 
 export function ConfirmPaymentModal({
@@ -37,6 +38,7 @@ export function ConfirmPaymentModal({
   charges = 0,
   quantity = 1,
   customerName,
+  recipientLabel = 'Recipient',
 }: ConfirmPaymentModalProps) {
   const insets = useSafeAreaInsets();
   const currentDate = new Date();
@@ -139,7 +141,7 @@ export function ConfirmPaymentModal({
                   </View>
                 )}
                 <View style={styles.detailRow}>
-                  <ThemedText style={styles.detailLabel}>Recipient</ThemedText>
+                  <ThemedText style={styles.detailLabel}>{recipientLabel}</ThemedText>
                   <ThemedText style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">{recipient || 'N/A'}</ThemedText>
                 </View>
                 <View style={styles.detailRow}>

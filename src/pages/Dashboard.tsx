@@ -117,7 +117,7 @@ const Dashboard = () => {
         .from('user_transactions')
         .select('*', { count: 'exact', head: true });
 
-      // Calculate platform revenue from charge fees/markup records (not wallet debits).
+      // Calculate platform revenue from charge fees/markup records plus funding fees.
       const { data: revenueData, error: revenueError } = await supabase
         .from('platform_revenue')
         .select('revenue_amount, transaction_status')
@@ -127,8 +127,20 @@ const Dashboard = () => {
         throw revenueError;
       }
 
-      const totalRevenue =
+      const { data: fundingFeeData, error: fundingFeeError } = await supabase
+        .from('user_transactions')
+        .select('amount')
+        .eq('transaction_type', 'funding_fee');
+
+      if (fundingFeeError) {
+        throw fundingFeeError;
+      }
+
+      const platformRevenue =
         revenueData?.reduce((sum, row) => sum + Number(row.revenue_amount || 0), 0) || 0;
+      const fundingFeeRevenue =
+        fundingFeeData?.reduce((sum, row) => sum + Number(row.amount || 0), 0) || 0;
+      const totalRevenue = platformRevenue + fundingFeeRevenue;
 
       setStats({
         totalRevenue,

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
 import { Plus, Trash2, Pencil, RefreshCw } from "lucide-react";
@@ -39,6 +40,8 @@ const AirtimeProviders = () => {
   const [isFetching, setIsFetching] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<AirtimeProvider | null>(null);
+  const [airtimeProvider, setAirtimeProvider] = useState<'smeplug' | 'vtpass'>('smeplug');
+  const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     network_name: "",
@@ -52,6 +55,64 @@ const AirtimeProviders = () => {
   useEffect(() => {
     checkAdminAndFetch();
   }, [navigate]);
+
+  const fetchAirtimeProvider = async () => {
+    try {
+      const { data } = await supabase
+        .from('app_settings')
+        .select('setting_value')
+        .eq('setting_key', 'airtime_provider')
+        .maybeSingle();
+
+      if (data?.setting_value) {
+        const val = typeof data.setting_value === 'string'
+          ? data.setting_value
+          : (data.setting_value as any)?.provider;
+        const normalized = String(val || '').trim().toLowerCase();
+        if (normalized === 'smeplug' || normalized === 'vtpass') {
+          setAirtimeProvider(normalized as 'smeplug' | 'vtpass');
+          return;
+        }
+      }
+
+      setAirtimeProvider('smeplug');
+    } catch (error) {
+      console.error('Error fetching airtime provider:', error);
+    }
+  };
+
+  const updateAirtimeProvider = async (newProvider: 'smeplug' | 'vtpass') => {
+    if (airtimeProvider === newProvider) return;
+
+    setIsUpdatingProvider(true);
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          setting_key: 'airtime_provider',
+          setting_value: newProvider,
+          setting_category: 'system',
+          description: 'Airtime vending provider: smeplug or vtpass',
+        }, { onConflict: 'setting_key' });
+
+      if (error) throw error;
+
+      setAirtimeProvider(newProvider);
+      toast({
+        title: 'Success',
+        description: `Airtime provider switched to ${newProvider.toUpperCase()}`,
+      });
+    } catch (error: any) {
+      console.error('Error updating airtime provider:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update airtime provider',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdatingProvider(false);
+    }
+  };
 
   const checkAdminAndFetch = async () => {
     try {
@@ -80,6 +141,7 @@ const AirtimeProviders = () => {
       }
 
       await fetchProviders();
+      await fetchAirtimeProvider();
       setLoading(false);
     } catch (error) {
       console.error('Error:', error);
@@ -288,25 +350,34 @@ const AirtimeProviders = () => {
     }
   };
 
-  const fetchProvidersFromAPI = async () => {
+  const fetchProvidersFromAPI = async (source: 'smeplug' | 'vtpass' = 'smeplug') => {
     setIsFetching(true);
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-smeplug-airtime-providers');
+      let providersToInsert: any[];
 
-      if (error) throw error;
+      if (source === 'vtpass') {
+        providersToInsert = [
+          { network_name: 'MTN', api_code: '1', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
+          { network_name: 'Airtel', api_code: '2', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
+          { network_name: '9Mobile', api_code: '3', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
+          { network_name: 'Glo', api_code: '4', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
+        ];
+      } else {
+        const { data, error } = await supabase.functions.invoke('fetch-smeplug-airtime-providers');
+        if (error) throw error;
 
-      if (data?.success && data?.data) {
-        const providersArray = Array.isArray(data.data) ? data.data : [];
-
-        if (!providersArray.length) {
-          toast({
-            title: 'No Providers Found',
-            description: 'The API returned no airtime providers.',
-          });
+        if (!data?.success || !data?.data) {
+          toast({ title: 'No Providers Found', description: 'The API returned no airtime providers.' });
           return;
         }
 
-        const providersToInsert = providersArray.map((provider: any) => ({
+        const providersArray = Array.isArray(data.data) ? data.data : [];
+        if (!providersArray.length) {
+          toast({ title: 'No Providers Found', description: 'The API returned no airtime providers.' });
+          return;
+        }
+
+        providersToInsert = providersArray.map((provider: any) => ({
           network_name: provider.network || provider.name || 'Unknown',
           api_code: String(provider.network_id ?? provider.code ?? provider.api_code ?? provider.id ?? ''),
           min_amount: parseFloat(provider.min_amount) || 50,
@@ -314,24 +385,21 @@ const AirtimeProviders = () => {
           commission: parseFloat(provider.commission) || 0,
           is_active: provider.is_active !== undefined ? provider.is_active : true,
         }));
-
-        const { error: insertError } = await supabase
-          .from('airtime_providers')
-          .upsert(providersToInsert, { 
-            onConflict: 'api_code',
-            ignoreDuplicates: false 
-          });
-
-        if (insertError) throw insertError;
-
-        await fetchProviders();
-        setIsImportDialogOpen(false);
-        
-        toast({
-          title: "Success",
-          description: `Imported ${providersToInsert.length} airtime providers from SMEPLUG`,
-        });
       }
+
+      const { error: insertError } = await supabase
+        .from('airtime_providers')
+        .upsert(providersToInsert, { onConflict: 'api_code', ignoreDuplicates: false });
+
+      if (insertError) throw insertError;
+
+      await fetchProviders();
+      setIsImportDialogOpen(false);
+
+      toast({
+        title: "Success",
+        description: `Imported ${providersToInsert.length} airtime providers from ${source === 'vtpass' ? 'VTPASS' : 'SMEPLUG'}`,
+      });
     } catch (error: any) {
       console.error('Error fetching providers from API:', error);
       toast({
@@ -387,38 +455,49 @@ const AirtimeProviders = () => {
               <div className="flex-1 flex justify-between items-center">
                 <div>
                   <h1 className="text-3xl font-bold">Airtime Providers Management</h1>
-                  <p className="text-muted-foreground">Manage airtime providers and commissions from SMEPLUG</p>
+                  <p className="text-muted-foreground">Manage airtime network providers and commissions</p>
                 </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Vending Provider:</span>
+                    <Select
+                      value={airtimeProvider}
+                      onValueChange={(v) => updateAirtimeProvider(v as 'smeplug' | 'vtpass')}
+                      disabled={isUpdatingProvider}
+                    >
+                      <SelectTrigger className="w-[160px]">
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="smeplug">SMEPLUG</SelectItem>
+                        <SelectItem value="vtpass">VTPASS</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 <div className="flex gap-2">
                   <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
                     <DialogTrigger asChild>
                       <Button variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Import from API
-          </Button>
-        </DialogTrigger>
-        <Button 
-          onClick={handleClearAll} 
-          variant="destructive"
-          disabled={isClearing}
-        >
-          {isClearing ? 'Clearing...' : 'Clear All'}
-        </Button>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Import from API
+                      </Button>
+                    </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Import Airtime Providers from SMEPLUG</DialogTitle>
+                        <DialogTitle>Import Airtime Network Providers</DialogTitle>
                         <DialogDescription>
-                          Fetch and import airtime providers from the SMEPLUG API
+                          Import network providers (MTN, Airtel, Glo, 9Mobile) with their API codes
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
                         <p className="text-sm text-muted-foreground">
-                          This will fetch all available airtime providers and update your database.
+                          Choose the provider source to import network codes from. This will update your database.
                         </p>
-                        <Button 
-                          onClick={fetchProvidersFromAPI} 
+                        <Button
+                          onClick={() => fetchProvidersFromAPI('smeplug')}
                           disabled={isFetching}
                           className="w-full"
+                          variant="outline"
                         >
                           {isFetching ? (
                             <>
@@ -426,12 +505,34 @@ const AirtimeProviders = () => {
                               Fetching...
                             </>
                           ) : (
-                            'Fetch & Import Providers'
+                            'Import from SMEPLUG'
+                          )}
+                        </Button>
+                        <Button
+                          onClick={() => fetchProvidersFromAPI('vtpass')}
+                          disabled={isFetching}
+                          className="w-full"
+                          variant="outline"
+                        >
+                          {isFetching ? (
+                            <>
+                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                              Fetching...
+                            </>
+                          ) : (
+                            'Import from VTPASS'
                           )}
                         </Button>
                       </div>
                     </DialogContent>
                   </Dialog>
+                  <Button
+                    onClick={handleClearAll}
+                    variant="destructive"
+                    disabled={isClearing}
+                  >
+                    {isClearing ? 'Clearing...' : 'Clear All'}
+                  </Button>
                   <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                     <DialogTrigger asChild>
                       <Button onClick={resetForm}>
@@ -520,8 +621,9 @@ const AirtimeProviders = () => {
                   </DialogContent>
                 </Dialog>
               </div>
+                </div>
+              </div>
             </div>
-          </div>
 
             <Card>
               <CardHeader>

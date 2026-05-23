@@ -483,29 +483,6 @@ serve(async (req) => {
       }
     );
 
-    // Send email with PDF receipt (non-blocking)
-    if (profile.email) {
-      try {
-        await supabase.functions.invoke('send-purchase-email', {
-          body: {
-            type: 'airtime',
-            email: profile.email,
-            fullName: profile.full_name,
-            network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
-            phoneNumber: sanitizedPhone,
-            amount: normalizedAmount,
-            reference: reference,
-            purchasedAt: new Date().toISOString(),
-            balanceBefore: debitResult.balanceBefore,
-            balanceAfter: debitResult.balanceAfter,
-          },
-        });
-      } catch (emailError) {
-        console.error('Failed to send email receipt:', emailError);
-        // Don't fail the transaction if email fails
-      }
-    }
-
     return new Response(
       JSON.stringify({ 
         success: true,

@@ -212,6 +212,11 @@ export default function BettingManagement() {
     );
   });
 
+  const totalFilteredAmount = filteredTransactions.reduce(
+    (sum, txn) => sum + Number(txn.amount || 0),
+    0,
+  );
+
   // Get unique betting providers for filter
   const uniqueProviders = Array.from(new Set(transactions.map(t => t.betting_provider))).sort();
 
@@ -323,6 +328,20 @@ export default function BettingManagement() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="mb-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Total Transaction Amount</CardTitle>
+                      <CardDescription>
+                        Sum of displayed betting transactions
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{formatNaira(totalFilteredAmount)}</div>
+                    </CardContent>
+                  </Card>
                 </div>
 
                 <div className="rounded-md border">

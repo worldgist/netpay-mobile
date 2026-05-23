@@ -40,12 +40,14 @@ interface PlatformRevenue {
 
 interface RevenueStats {
   totalRevenue: number;
+  fundingFeeRevenue: number;
   educationRevenue: number;
   electricityRevenue: number;
   dataRevenue: number;
   bettingRevenue: number;
   cableTvRevenue: number;
   totalTransactions: number;
+  fundingFeeTransactions: number;
   educationTransactions: number;
   electricityTransactions: number;
   dataTransactions: number;
@@ -58,12 +60,14 @@ export default function PlatformRevenue() {
   const [revenue, setRevenue] = useState<PlatformRevenue[]>([]);
   const [stats, setStats] = useState<RevenueStats>({
     totalRevenue: 0,
+    fundingFeeRevenue: 0,
     educationRevenue: 0,
     electricityRevenue: 0,
     dataRevenue: 0,
     bettingRevenue: 0,
     cableTvRevenue: 0,
     totalTransactions: 0,
+    fundingFeeTransactions: 0,
     educationTransactions: 0,
     electricityTransactions: 0,
     dataTransactions: 0,
@@ -77,6 +81,24 @@ export default function PlatformRevenue() {
   const [dateFilter, setDateFilter] = useState("all"); // all, today, week, month, year
   const { toast } = useToast();
 
+  const getStartDateForFilter = (filter: string): Date | null => {
+    if (filter === 'all') return null;
+
+    const now = new Date();
+    switch (filter) {
+      case 'today':
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      case 'week':
+        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      case 'month':
+        return new Date(now.getFullYear(), now.getMonth(), 1);
+      case 'year':
+        return new Date(now.getFullYear(), 0, 1);
+      default:
+        return null;
+    }
+  };
+
   useEffect(() => {
     fetchRevenue();
     fetchStats();
@@ -85,6 +107,7 @@ export default function PlatformRevenue() {
   const fetchRevenue = async () => {
     try {
       setLoading(true);
+
       let query = supabase
         .from('platform_revenue')
         .select(`
@@ -97,42 +120,75 @@ export default function PlatformRevenue() {
         .order('created_at', { ascending: false })
         .limit(500);
 
-      if (typeFilter !== 'all') {
+      if (typeFilter !== 'all' && typeFilter !== 'funding_fee') {
         query = query.eq('transaction_type', typeFilter);
       }
 
-      // Apply date filter
-      if (dateFilter !== 'all') {
-        const now = new Date();
-        let startDate: Date;
-        
-        switch (dateFilter) {
-          case 'today':
-            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            break;
-          case 'week':
-            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            break;
-          case 'month':
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-            break;
-          case 'year':
-            startDate = new Date(now.getFullYear(), 0, 1);
-            break;
-          default:
-            startDate = new Date(0);
-        }
-        
+      const startDate = getStartDateForFilter(dateFilter);
+      if (startDate) {
         query = query.gte('created_at', startDate.toISOString());
       }
 
-      const { data, error } = await query;
+      const { data, error } = typeFilter === 'funding_fee'
+        ? { data: [], error: null }
+        : await query;
 
       if (error) {
         throw error;
       }
 
-      setRevenue(data || []);
+      let fundingFeeQuery = supabase
+        .from('user_transactions')
+        .select(`
+          id,
+          user_id,
+          amount,
+          reference,
+          description,
+          created_at,
+          profiles:user_id (
+            full_name,
+            email
+          )
+        `)
+        .eq('transaction_type', 'funding_fee')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (startDate) {
+        fundingFeeQuery = fundingFeeQuery.gte('created_at', startDate.toISOString());
+      }
+
+      const { data: fundingFeeData, error: fundingFeeError } =
+        typeFilter === 'all' || typeFilter === 'funding_fee'
+          ? await fundingFeeQuery
+          : { data: [], error: null };
+
+      if (fundingFeeError) {
+        throw fundingFeeError;
+      }
+
+      const fundingFeeRevenue: PlatformRevenue[] = (fundingFeeData || []).map((item: any) => ({
+        id: `funding-fee-${item.id}`,
+        transaction_id: item.id,
+        transaction_type: 'funding_fee',
+        transaction_table: 'user_transactions',
+        revenue_amount: Number(item.amount || 0),
+        purchase_amount: Number(item.amount || 0),
+        charge_fee_rate: 0.05,
+        user_id: item.user_id,
+        transaction_reference: item.reference,
+        transaction_status: 'completed',
+        metadata: { description: item.description, source: 'flutterwave_funding_fee' },
+        created_at: item.created_at,
+        profiles: item.profiles,
+      }));
+
+      const combined = [...(data || []), ...fundingFeeRevenue]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 500);
+
+      setRevenue(combined);
     } catch (error: any) {
       console.error('Error fetching platform revenue:', error);
       toast({
@@ -151,28 +207,8 @@ export default function PlatformRevenue() {
         .from('platform_revenue')
         .select('revenue_amount, transaction_type');
 
-      // Apply date filter to stats too
-      if (dateFilter !== 'all') {
-        const now = new Date();
-        let startDate: Date;
-        
-        switch (dateFilter) {
-          case 'today':
-            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            break;
-          case 'week':
-            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            break;
-          case 'month':
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-            break;
-          case 'year':
-            startDate = new Date(now.getFullYear(), 0, 1);
-            break;
-          default:
-            startDate = new Date(0);
-        }
-        
+      const startDate = getStartDateForFilter(dateFilter);
+      if (startDate) {
         query = query.gte('created_at', startDate.toISOString());
       }
 
@@ -182,8 +218,23 @@ export default function PlatformRevenue() {
         throw error;
       }
 
+      let fundingFeeQuery = supabase
+        .from('user_transactions')
+        .select('amount')
+        .eq('transaction_type', 'funding_fee');
+
+      if (startDate) {
+        fundingFeeQuery = fundingFeeQuery.gte('created_at', startDate.toISOString());
+      }
+
+      const { data: fundingFeeData, error: fundingFeeError } = await fundingFeeQuery;
+      if (fundingFeeError) {
+        throw fundingFeeError;
+      }
+
       const revenueData = data || [];
-      const totalRevenue = revenueData.reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0);
+      const fundingFeeRevenue = (fundingFeeData || []).reduce((sum, r: any) => sum + Number(r.amount || 0), 0);
+      const totalRevenue = revenueData.reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0) + fundingFeeRevenue;
       const educationRevenue = revenueData
         .filter(r => r.transaction_type === 'education')
         .reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0);
@@ -199,7 +250,8 @@ export default function PlatformRevenue() {
       const cableTvRevenue = revenueData
         .filter(r => r.transaction_type === 'cable_tv')
         .reduce((sum, r) => sum + Number(r.revenue_amount || 0), 0);
-      const totalTransactions = revenueData.length;
+      const fundingFeeTransactions = (fundingFeeData || []).length;
+      const totalTransactions = revenueData.length + fundingFeeTransactions;
       const educationTransactions = revenueData.filter(r => r.transaction_type === 'education').length;
       const electricityTransactions = revenueData.filter(r => r.transaction_type === 'electricity').length;
       const dataTransactions = revenueData.filter(r => r.transaction_type === 'data').length;
@@ -209,12 +261,14 @@ export default function PlatformRevenue() {
 
       setStats({
         totalRevenue,
+        fundingFeeRevenue,
         educationRevenue,
         electricityRevenue,
         dataRevenue,
         bettingRevenue,
         cableTvRevenue,
         totalTransactions,
+        fundingFeeTransactions,
         educationTransactions,
         electricityTransactions,
         dataTransactions,
@@ -249,6 +303,8 @@ export default function PlatformRevenue() {
         return 'default';
       case 'data':
         return 'outline';
+      case 'funding_fee':
+        return 'secondary';
       default:
         return 'outline';
     }
@@ -317,6 +373,19 @@ export default function PlatformRevenue() {
                   <div className="text-2xl font-bold">{formatNaira(stats.dataRevenue)}</div>
                   <p className="text-xs text-muted-foreground">
                     {stats.dataTransactions} transactions (markup)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Funding Fee Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.fundingFeeRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.fundingFeeTransactions} transactions (5% fee)
                   </p>
                 </CardContent>
               </Card>
@@ -406,6 +475,7 @@ export default function PlatformRevenue() {
                       <SelectItem value="education">Education</SelectItem>
                       <SelectItem value="electricity">Electricity</SelectItem>
                       <SelectItem value="data">Data</SelectItem>
+                      <SelectItem value="funding_fee">Funding Fee</SelectItem>
                       <SelectItem value="betting">Betting</SelectItem>
                       <SelectItem value="cable_tv">Cable TV</SelectItem>
                     </SelectContent>

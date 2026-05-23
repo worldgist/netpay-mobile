@@ -3,10 +3,16 @@ project_id = "rekkdwpkzkhgnejgzhac"
 [functions.payvessel-webhook]
 verify_jwt = false
 
+[functions.flutterwave-webhook]
+verify_jwt = false
+
 [functions.fetch-payvessel-balance]
 verify_jwt = true
 
 [functions.fetch-payvessel-transactions]
+verify_jwt = true
+
+[functions.fetch-flutterwave-admin-data]
 verify_jwt = true
 
 [functions.fetch-cable-packages]
@@ -28,6 +34,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.fetch-smeplug-networks]
+verify_jwt = true
+
+[functions.fetch-airtime-purchase-options]
 verify_jwt = true
 
 [functions.fetch-smeplug-data-plans]
@@ -94,4 +103,13 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.netpay-ai-chat]
+verify_jwt = true
+
+[functions.fetch-ai-audit-logs]
+verify_jwt = true
+
+[functions.initialize-flutterwave-payment]
+verify_jwt = true
+
+[functions.get-flutterwave-virtual-account]
 verify_jwt = true

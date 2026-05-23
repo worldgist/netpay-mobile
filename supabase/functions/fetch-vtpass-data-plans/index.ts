@@ -16,6 +16,17 @@ const NETWORK_SERVICE_MAP: Record<string, string> = {
   'ETISALAT': '9mobile-data',
 };
 
+const inferPlanType = (planName: string) => {
+  const normalized = planName.toUpperCase();
+  if (normalized.includes('T2')) return 'T2';
+  if (normalized.includes('GIFTING') || normalized.includes('GIFT')) return 'Gifting';
+  if (normalized.includes('VTU')) return 'VTU';
+  if (normalized.includes('CORPORATE')) return 'Corporate';
+  if (normalized.includes('DIRECT')) return 'Direct';
+  if (normalized.includes('SME')) return 'SME';
+  return 'SME';
+};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -342,7 +353,7 @@ serve(async (req) => {
             vtpass_code: variationCode,
             provider: 'vtpass',
             is_active: true,
-            plan_type: 'SME',
+            plan_type: inferPlanType(planName),
           };
 
           if (size) {

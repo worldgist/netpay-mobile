@@ -6,6 +6,21 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const inferPlanType = (planName: string, explicitType?: string | null) => {
+  if (explicitType && explicitType.trim()) {
+    return explicitType.trim();
+  }
+
+  const normalized = planName.toUpperCase();
+  if (normalized.includes('T2')) return 'T2';
+  if (normalized.includes('GIFTING') || normalized.includes('GIFT')) return 'Gifting';
+  if (normalized.includes('VTU')) return 'VTU';
+  if (normalized.includes('CORPORATE')) return 'Corporate';
+  if (normalized.includes('DIRECT')) return 'Direct';
+  if (normalized.includes('SME')) return 'SME';
+  return 'SME';
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
@@ -377,7 +392,10 @@ async function handleImport(supabase: any, body: any) {
         plan_name: plan.name || plan.plan_name || plan.variation_name || 'Unknown Plan',
         price: planPrice,
         original_price: planPrice,
-        plan_type: plan.plan_type || 'SME',
+        plan_type: inferPlanType(
+          plan.name || plan.plan_name || plan.variation_name || 'Unknown Plan',
+          plan.plan_type,
+        ),
         size: plan.size || null,
         validity: plan.validity || 'N/A',
         provider: vendor,

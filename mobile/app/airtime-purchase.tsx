@@ -67,6 +67,21 @@ const formatCurrency = (amount?: number | null) => {
   })}`;
 };
 
+const normalizePhoneNumber = (value: string) => {
+  let normalized = value.trim().replace(/\s+/g, '');
+
+  if (normalized.startsWith('+234')) {
+    normalized = `0${normalized.slice(4)}`;
+  } else if (normalized.startsWith('234') && normalized.length === 13) {
+    normalized = `0${normalized.slice(3)}`;
+  }
+
+  normalized = normalized.replace(/[^0-9]/g, '');
+  return normalized;
+};
+
+const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
+
 type ProviderDetails = {
   id: string;
   network: string;
@@ -74,6 +89,8 @@ type ProviderDetails = {
   minAmount: number;
   maxAmount: number;
   apiCode: string;
+  identifierLabel: string;
+  placeholder?: string;
   logo?: ImageSourcePropType;
 };
 
@@ -89,6 +106,8 @@ export default function AirtimePurchaseScreen() {
   const [error, setError] = useState<string | null>(null);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
+  const [showInvalidPhoneModal, setShowInvalidPhoneModal] = useState(false);
+  const [invalidPhoneMessage, setInvalidPhoneMessage] = useState('Please enter a valid 11-digit phone number (e.g. 08012345678).');
   const [isDemoUser, setIsDemoUser] = useState(false);
 
   const isMounted = useRef(true);
@@ -147,11 +166,7 @@ export default function AirtimePurchaseScreen() {
           .select('balance')
           .eq('id', userId)
           .single(),
-        supabase
-          .from('airtime_providers')
-          .select('id, network_name, min_amount, max_amount, api_code, is_active')
-          .eq('is_active', true)
-          .order('network_name', { ascending: true }),
+        supabase.functions.invoke('fetch-airtime-purchase-options'),
       ]);
 
       if (profileRes.error && profileRes.error.code !== 'PGRST116') {
@@ -162,11 +177,15 @@ export default function AirtimePurchaseScreen() {
         throw providersRes.error;
       }
 
+      if (!providersRes.data?.success) {
+        throw new Error(providersRes.data?.error || 'Unable to load airtime providers.');
+      }
+
       const balanceValue = profileRes.data ? Number(profileRes.data.balance) : 0;
 
-      const mappedProviders: ProviderDetails[] = (providersRes.data || [])
+      const mappedProviders: ProviderDetails[] = (providersRes.data?.data || [])
         .map((provider) => {
-          const normalized = normalizeNetwork(provider.network_name);
+          const normalized = normalizeNetwork(provider.name || provider.display_name);
           if (!normalized) return null;
           const displayName = getNetworkDisplayName(normalized);
           return {
@@ -175,16 +194,40 @@ export default function AirtimePurchaseScreen() {
             displayName,
             minAmount: Number(provider.min_amount) || 0,
             maxAmount: Number(provider.max_amount) || 0,
-            apiCode: provider.api_code && /^\d+$/.test(String(provider.api_code))
-              ? String(provider.api_code)
+            apiCode: provider.network_id
+              ? String(provider.network_id).trim()
               : SMEPLUG_NETWORK_IDS[normalized] || '1',
+            identifierLabel: provider.identifier_label || 'Phone Number',
+            placeholder: provider.placeholder,
             logo: NETWORK_LOGOS[normalized] || DEFAULT_NETWORK_LOGO,
           } as ProviderDetails;
         })
         .filter((item): item is ProviderDetails => Boolean(item));
 
+      const dedupedProviders = Array.from(
+        mappedProviders.reduce((acc, provider) => {
+          const existing = acc.get(provider.network);
+          if (!existing) {
+            acc.set(provider.network, provider);
+            return acc;
+          }
+
+          // Prefer the entry with wider limits if duplicated imports exist.
+          const shouldReplace =
+            provider.maxAmount > existing.maxAmount ||
+            (provider.maxAmount === existing.maxAmount && provider.minAmount < existing.minAmount);
+
+          if (shouldReplace) {
+            acc.set(provider.network, provider);
+          }
+
+          return acc;
+        }, new Map<string, ProviderDetails>())
+        .values()
+      );
+
       const order: Record<string, number> = { MTN: 0, AIRTEL: 1, '9MOBILE': 2, GLO: 3 };
-      const sortedProviders = mappedProviders.sort((a, b) => {
+      const sortedProviders = dedupedProviders.sort((a, b) => {
         const orderA = order[a.network] ?? 99;
         const orderB = order[b.network] ?? 99;
         if (orderA !== orderB) return orderA - orderB;
@@ -235,9 +278,10 @@ export default function AirtimePurchaseScreen() {
     }
 
     // Basic phone number normalization (remove spaces, format)
-    const normalizedPhone = phoneNumber.trim().replace(/\s+/g, '');
-    if (!normalizedPhone || normalizedPhone.length < 10) {
-      Alert.alert('Error', 'Please enter a valid phone number');
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    if (!isValidNigerianPhone(normalizedPhone)) {
+      setInvalidPhoneMessage('Please enter a valid 11-digit phone number (e.g. 08012345678).');
+      setShowInvalidPhoneModal(true);
       return;
     }
 
@@ -279,12 +323,12 @@ export default function AirtimePurchaseScreen() {
         (currentSelectedProviderDetails.network ? SMEPLUG_NETWORK_IDS[currentSelectedProviderDetails.network] : null);
       const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
 
-      if (!normalizedNetworkId || !/^\d+$/.test(normalizedNetworkId)) {
-        Alert.alert('Airtime Purchase', 'Unable to determine the network ID for this provider. Please try again.');
+      if (!normalizedNetworkId) {
+        Alert.alert('Airtime Purchase', 'Unable to determine the network code for this provider. Please try again.');
         return;
       }
 
-    const sanitizedPhoneNumber = phoneNumber.replace(/\s+/g, '').trim();
+    const sanitizedPhoneNumber = normalizePhoneNumber(phoneNumber);
     const submissionAmount = Number.parseFloat(amount.replace(/,/g, '').trim());
 
     if (!Number.isFinite(submissionAmount) || submissionAmount <= 0) {
@@ -439,18 +483,19 @@ export default function AirtimePurchaseScreen() {
     }
   }, [amount, phoneNumber, router, selectedProvider, providers]);
 
-  const getNetworkLogo = (networkName: string) => {
-    const network = providers.find(n => n.network === networkName);
-    return network?.logo;
-  };
-
-  const selectedNetworkLogo = selectedProvider ? getNetworkLogo(selectedProvider) : null;
-
   const selectedProviderDetails = useMemo(() => {
     return selectedProvider ? providers.find((provider) => provider.id === selectedProvider) : undefined;
   }, [providers, selectedProvider]);
 
+  const selectedNetworkLogo = selectedProviderDetails?.logo || DEFAULT_NETWORK_LOGO;
+
   const selectedProviderName = selectedProviderDetails?.displayName || '';
+  const selectedProviderIdentifierLabel = selectedProviderDetails?.identifierLabel || 'Phone Number';
+  const selectedProviderPlaceholder = selectedProviderDetails?.placeholder === 'Mobile Number'
+    ? '08012345678'
+    : selectedProviderDetails?.placeholder
+      ? `Enter ${selectedProviderDetails.placeholder.toLowerCase()}`
+      : '08012345678';
   const minAmount = selectedProviderDetails?.minAmount ?? 0;
   const maxAmount = selectedProviderDetails?.maxAmount ?? 0;
   const selectedProviderNetworkId = selectedProviderDetails?.apiCode;
@@ -595,11 +640,11 @@ export default function AirtimePurchaseScreen() {
 
           {/* Phone Number Input */}
           <View style={styles.section}>
-            <ThemedText style={styles.inputLabel}>Phone Number</ThemedText>
+            <ThemedText style={styles.inputLabel}>{selectedProviderIdentifierLabel}</ThemedText>
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
-                placeholder="08012345678"
+                placeholder={selectedProviderPlaceholder}
                 placeholderTextColor="#999"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
@@ -645,6 +690,7 @@ export default function AirtimePurchaseScreen() {
           network={selectedProviderName}
           networkLogo={selectedNetworkLogo}
           recipient={phoneNumber}
+          recipientLabel={selectedProviderIdentifierLabel}
           serviceType={`Airtime VTU • Network ID ${selectedProviderNetworkId || ''}`}
         />
       )}
@@ -677,6 +723,29 @@ export default function AirtimePurchaseScreen() {
                 style={styles.modalSecondaryButton}
                 onPress={() => setShowInsufficientFundsModal(false)}>
                 <ThemedText style={styles.modalSecondaryButtonText}>Close</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={showInvalidPhoneModal}
+        onRequestClose={() => setShowInvalidPhoneModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="phone-android" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Invalid Phone Number</ThemedText>
+            <ThemedText style={styles.modalMessage}>{invalidPhoneMessage}</ThemedText>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={() => setShowInvalidPhoneModal(false)}>
+                <ThemedText style={styles.modalPrimaryButtonText}>Okay</ThemedText>
               </TouchableOpacity>
             </View>
           </View>

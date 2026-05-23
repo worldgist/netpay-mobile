@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Mail, User, DollarSign, CheckCircle, AlertCircle, Send, X } from "lucide-react";
+import { ArrowLeft, Mail, User, DollarSign, CheckCircle, AlertCircle, Send, X, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 
@@ -30,49 +30,85 @@ export default function Transfer() {
   const [transferData, setTransferData] = useState<any>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
+  const [isDemoUser, setIsDemoUser] = useState(false);
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate("/user/auth");
-        return;
-      }
+  const fetchBalance = useCallback(async () => {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-      setCurrentUserEmail(session.user.email || "");
+    if (sessionError) {
+      throw sessionError;
+    }
 
-      // Get user balance
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('balance')
-        .eq('id', session.user.id)
-        .single();
+    if (!session) {
+      navigate("/user/auth");
+      return null;
+    }
 
-      if (profile) {
-        setCurrentBalance(Number(profile.balance) || 0);
-      }
-    };
+    const userEmail = session.user.email || "";
+    setCurrentUserEmail(userEmail);
+    setIsDemoUser(userEmail === "demo@netpayy.ng");
 
-    checkAuth();
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("balance")
+      .eq("id", session.user.id)
+      .single();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    setCurrentBalance(Number(profile?.balance) || 0);
+    return session;
   }, [navigate]);
 
+  useEffect(() => {
+    fetchBalance().catch((error) => {
+      console.error("Failed to load transfer balance:", error);
+      toast.error(error instanceof Error ? error.message : "Unable to load balance");
+    });
+  }, [fetchBalance]);
+
   const verifyRecipient = async () => {
-    if (!recipientEmail || !recipientEmail.includes('@')) {
+    const trimmedEmail = recipientEmail.trim().toLowerCase();
+
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
       toast.error("Please enter a valid email address");
       return;
     }
 
-    if (recipientEmail.toLowerCase() === currentUserEmail.toLowerCase()) {
+    if (trimmedEmail === currentUserEmail.toLowerCase()) {
       toast.error("You cannot transfer to yourself");
+      return;
+    }
+
+    if (isDemoUser && trimmedEmail === "demo-recipient@netpayy.ng") {
+      setRecipientDetails({
+        email: "demo-recipient@netpayy.ng",
+        full_name: "Demo Recipient",
+      });
+      toast.success("Demo recipient ready");
       return;
     }
 
     setVerifying(true);
     try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session) {
+        navigate("/user/auth");
+        return;
+      }
+
       const { data: verifyResponse, error } = await supabase.functions.invoke('verify-transfer-recipient', {
         body: {
-          email: recipientEmail.toLowerCase(),
+          email: trimmedEmail,
         },
+        headers: session.access_token
+          ? {
+              Authorization: `Bearer ${session.access_token}`,
+            }
+          : undefined,
       });
 
       if (error) {
@@ -88,7 +124,8 @@ export default function Transfer() {
       setRecipientDetails(verifyResponse.data);
       toast.success("Recipient verified successfully!");
     } catch (error) {
-      toast.error("Error verifying recipient");
+      console.error("Error verifying recipient:", error);
+      toast.error(error instanceof Error ? error.message : "Error verifying recipient");
       setRecipientDetails(null);
     } finally {
       setVerifying(false);
@@ -96,9 +133,18 @@ export default function Transfer() {
   };
 
   const handleTransfer = async () => {
-    if (!recipientDetails) {
+    const trimmedEmail = recipientEmail.trim().toLowerCase();
+
+    if (!recipientDetails && !(isDemoUser && trimmedEmail === "demo-recipient@netpayy.ng")) {
       toast.error("Please verify recipient first");
       return;
+    }
+
+    if (!recipientDetails && isDemoUser && trimmedEmail === "demo-recipient@netpayy.ng") {
+      setRecipientDetails({
+        email: "demo-recipient@netpayy.ng",
+        full_name: "Demo Recipient",
+      });
     }
 
     if (!amount || Number(amount) <= 0) {
@@ -121,19 +167,35 @@ export default function Transfer() {
   const confirmTransfer = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
       if (!session) {
         toast.error("Session expired. Please login again.");
         navigate("/user/auth");
         return;
       }
 
+      const finalRecipientEmail =
+        isDemoUser && recipientEmail.trim().toLowerCase() === "demo-recipient@netpayy.ng"
+          ? "demo-recipient@netpayy.ng"
+          : recipientDetails?.email?.toLowerCase();
+
+      if (!finalRecipientEmail) {
+        toast.error("Recipient details are missing");
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('transfer-funds', {
         body: {
-          recipientEmail: recipientEmail.toLowerCase(),
+          recipientEmail: finalRecipientEmail,
           amount: Number(amount),
           description: description || undefined,
         },
+        headers: session.access_token
+          ? {
+              Authorization: `Bearer ${session.access_token}`,
+            }
+          : undefined,
       });
 
       if (error) throw error;
@@ -144,6 +206,7 @@ export default function Transfer() {
         
         // Update balance
         setCurrentBalance(data.data.senderBalanceAfter);
+        await fetchBalance();
         
         // Close confirmation and show success
         setShowConfirmation(false);
@@ -153,7 +216,15 @@ export default function Transfer() {
       }
     } catch (error: any) {
       console.error('Transfer error:', error);
-      toast.error(error.message || "Transfer failed. Please try again.");
+      const message = error?.message || "Transfer failed. Please try again.";
+      const isNetworkError =
+        message.includes("Network request failed") ||
+        message.includes("Failed to send a request to the Edge Function") ||
+        message.includes("Failed to fetch") ||
+        error?.name === "FunctionsFetchError" ||
+        error?.name === "TypeError";
+
+      toast.error(isNetworkError ? "Network connection failed. Please check your internet connection and try again." : message);
     } finally {
       setLoading(false);
     }
@@ -180,6 +251,35 @@ export default function Transfer() {
           <p className="text-white/90 text-sm mb-2">Available Balance</p>
           <p className="text-3xl font-bold">₦{currentBalance.toLocaleString()}</p>
         </div>
+
+        {isDemoUser && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-900">Demo transfer recipient</p>
+                <p className="text-sm text-amber-800">Use the test recipient below for demo transfers and app review.</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 bg-white rounded-xl border px-4 py-3">
+              <span className="text-sm font-medium text-gray-900 break-all">demo-recipient@netpayy.ng</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  await navigator.clipboard.writeText("demo-recipient@netpayy.ng");
+                  setRecipientEmail("demo-recipient@netpayy.ng");
+                  setRecipientDetails(null);
+                  toast.success("Demo recipient copied and filled");
+                }}
+              >
+                <Copy className="w-4 h-4 mr-1" />
+                Use
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Transfer Form */}
         <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-6">
@@ -209,6 +309,9 @@ export default function Transfer() {
                 {verifying ? "Verifying..." : "Verify"}
               </Button>
             </div>
+            {isDemoUser && recipientEmail.trim().toLowerCase() === "demo-recipient@netpayy.ng" && !recipientDetails && (
+              <p className="text-xs text-amber-700">Demo recipient can be used directly, even before verification.</p>
+            )}
           </div>
 
           {/* Recipient Details */}

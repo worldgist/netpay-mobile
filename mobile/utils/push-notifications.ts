@@ -42,7 +42,6 @@ const initializeNotifications = () => {
           });
 
           return {
-            shouldShowAlert: true,
             shouldShowBanner: true,
             shouldShowList: true,
             shouldPlaySound: true,

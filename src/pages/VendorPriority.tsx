@@ -24,7 +24,7 @@ interface VendorPriority {
 }
 
 const NETWORKS = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
-const PLAN_TYPES = ['SME', 'Gifting', 'VTU', 'Corporate', 'Direct'];
+const PLAN_TYPES = ['SME', 'T2', 'Gifting', 'VTU', 'Corporate', 'Direct'];
 const VENDORS = ['vtpass', 'smeplug', 'mobilenig'];
 
 const VendorPriority = () => {

@@ -43,6 +43,21 @@ interface Network {
   network_id: string;
 }
 
+const inferPlanType = (planName: string, explicitType?: string | null) => {
+  if (explicitType && explicitType.trim()) {
+    return explicitType.trim();
+  }
+
+  const normalized = planName.toUpperCase();
+  if (normalized.includes('T2')) return 'T2';
+  if (normalized.includes('GIFTING') || normalized.includes('GIFT')) return 'Gifting';
+  if (normalized.includes('VTU')) return 'VTU';
+  if (normalized.includes('CORPORATE')) return 'Corporate';
+  if (normalized.includes('DIRECT')) return 'Direct';
+  if (normalized.includes('SME')) return 'SME';
+  return 'SME';
+};
+
 const DataPlans = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -507,7 +522,7 @@ const DataPlans = () => {
             if (sizeMatch) {
               planObj.size = sizeMatch[1];
             }
-            planObj.plan_type = 'SME';
+            planObj.plan_type = inferPlanType(planName);
 
             return planObj;
           }).filter((p: any) => p.api_code && Number.isFinite(p.price));
@@ -1036,15 +1051,10 @@ const DataPlans = () => {
             }
 
             // Extract plan type and size if available
-            if (plan.plan_type) {
-              planObj.plan_type = plan.plan_type;
-            } else if (planName.includes('SME') || planName.includes('sme')) {
-              planObj.plan_type = 'SME';
-            } else if (planName.includes('Gifting') || planName.includes('gift')) {
-              planObj.plan_type = 'Gifting';
-            } else {
-              planObj.plan_type = 'SME'; // Default
-            }
+            planObj.plan_type = inferPlanType(
+              typeof planName === 'string' ? planName : '',
+              typeof plan.plan_type === 'string' ? plan.plan_type : null,
+            );
 
             // Extract size from plan name if possible
             const sizeMatch = planName.match(/(\d+\s*(GB|MB|TB))/i);

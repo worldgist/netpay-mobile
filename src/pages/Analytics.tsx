@@ -66,13 +66,20 @@ export default function Analytics() {
 
   const fetchAnalytics = async () => {
     try {
-      // Fetch total revenue
-      const { data: revenueTransactions } = await supabase
-        .from('user_transactions')
-        .select('amount, created_at')
-        .eq('transaction_type', 'debit');
+      // Fetch total revenue from platform charge fees + funding fees.
+      const { data: platformRevenueRows } = await supabase
+        .from('platform_revenue')
+        .select('revenue_amount')
+        .eq('transaction_status', 'completed');
 
-      const totalRevenue = revenueTransactions?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
+      const { data: fundingFeeRows } = await supabase
+        .from('user_transactions')
+        .select('amount')
+        .eq('transaction_type', 'funding_fee');
+
+      const totalRevenue =
+        (platformRevenueRows?.reduce((sum, t) => sum + Number(t.revenue_amount || 0), 0) || 0) +
+        (fundingFeeRows?.reduce((sum, t) => sum + Number(t.amount || 0), 0) || 0);
 
       // Fetch active users
       const { count: userCount } = await supabase
@@ -107,14 +114,23 @@ export default function Analytics() {
           const nextDay = new Date(date);
           nextDay.setDate(nextDay.getDate() + 1);
 
-          const { data } = await supabase
-            .from('user_transactions')
-            .select('amount')
-            .eq('transaction_type', 'debit')
+          const { data: dayPlatformRevenue } = await supabase
+            .from('platform_revenue')
+            .select('revenue_amount')
+            .eq('transaction_status', 'completed')
             .gte('created_at', date)
             .lt('created_at', nextDay.toISOString().split('T')[0]);
 
-          const total = data?.reduce((sum, t) => sum + Number(t.amount), 0) || 0;
+          const { data: dayFundingFees } = await supabase
+            .from('user_transactions')
+            .select('amount')
+            .eq('transaction_type', 'funding_fee')
+            .gte('created_at', date)
+            .lt('created_at', nextDay.toISOString().split('T')[0]);
+
+          const total =
+            (dayPlatformRevenue?.reduce((sum, t) => sum + Number(t.revenue_amount || 0), 0) || 0) +
+            (dayFundingFees?.reduce((sum, t) => sum + Number(t.amount || 0), 0) || 0);
 
           return {
             date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
