@@ -419,6 +419,11 @@ export default function AddMoneyScreen() {
         return;
       }
 
+      let reconciliationResult: {
+        creditedCount?: number;
+        totalNetCredited?: number;
+      } | null = null;
+
       // Check if user is demo user
       const isDemoUser = session.user.email === 'demo@netpayy.ng';
       
@@ -445,6 +450,28 @@ export default function AddMoneyScreen() {
         } catch (demoError) {
           console.warn('Demo auto-credit error:', demoError);
           // Continue to check balance anyway
+        }
+      }
+
+      // Reconcile pending Flutterwave credits in case webhook delivery/signature failed.
+      if (!isDemoUser) {
+        try {
+          const { data: reconcileData, error: reconcileError } = await supabase.functions.invoke('reconcile-flutterwave-funding', {
+            body: {
+              maxLookbackMinutes: 180,
+            },
+          });
+
+          if (reconcileError) {
+            console.warn('Flutterwave reconciliation failed:', reconcileError);
+          } else if (reconcileData?.success) {
+            reconciliationResult = {
+              creditedCount: Number(reconcileData.creditedCount || 0),
+              totalNetCredited: Number(reconcileData.totalNetCredited || 0),
+            };
+          }
+        } catch (reconcileInvokeError) {
+          console.warn('Error invoking Flutterwave reconciliation (non-critical):', reconcileInvokeError);
         }
       }
 
@@ -491,6 +518,17 @@ export default function AddMoneyScreen() {
 
       // Navigate to home page immediately
       router.push('/(tabs)');
+
+      const creditedCount = Number(reconciliationResult?.creditedCount || 0);
+      const reconciledAmount = Number(reconciliationResult?.totalNetCredited || 0);
+
+      if (creditedCount > 0) {
+        Alert.alert(
+          'Payment Received!',
+          `We found and credited ${creditedCount} pending Flutterwave payment${creditedCount > 1 ? 's' : ''}. Net credited: ₦${reconciledAmount.toLocaleString()}. Current balance: ₦${newBalance.toLocaleString()}`
+        );
+        return;
+      }
       
       if (recentTransactions && recentTransactions.length > 0) {
         Alert.alert(

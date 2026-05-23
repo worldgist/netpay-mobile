@@ -24,6 +24,7 @@ if (__DEV__) {
 
 export const unstable_settings = {
   anchor: '(tabs)',
+  initialRouteName: 'index',
 };
 
 const handleDeepLink = (url: string) => {
@@ -260,7 +261,8 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
+        <Stack initialRouteName="index">
+          <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           <Stack.Screen name="airtime-purchase" options={{ headerShown: false, presentation: 'card' }} />

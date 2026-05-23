@@ -1,13 +1,31 @@
-import { Image } from 'expo-image';
 import { StyleSheet, View, Dimensions, ScrollView, TouchableOpacity } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { Image } from 'expo-image';
 
 const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 
 const { width, height } = Dimensions.get('window');
+
+const slides = [
+  {
+    image: require('@/assets/images/splash1.png'),
+    title: 'Pay Bills Faster',
+    description: 'Airtime, data, electricity, cable TV, education, and betting in one app.',
+  },
+  {
+    image: require('@/assets/images/splash2.png'),
+    title: 'Fund & Transfer Easily',
+    description: 'Top up with your virtual account and send money securely in seconds.',
+  },
+  {
+    image: require('@/assets/images/splash.png'),
+    title: 'Track Every Payment',
+    description: 'Get transaction records, receipts, and statement history whenever you need them.',
+  },
+];
 
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -20,7 +38,7 @@ export default function OnboardingScreen() {
   };
 
   const handleNext = async () => {
-    if (currentPage < 2) {
+    if (currentPage < slides.length - 1) {
       const nextPage = currentPage + 1;
       setCurrentPage(nextPage);
       if (scrollRef.current) {
@@ -49,67 +67,28 @@ export default function OnboardingScreen() {
         }}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}>
-        {/* Page 1 */}
-        <View style={[styles.page, { width }]}>
-          <Image
-            source={require('@/assets/images/splash1.png')}
-            style={styles.fullScreenImage}
-            contentFit="cover"
-          />
-          <View style={styles.overlay}>
-            <View style={styles.contentContainer}>
-              <ThemedText type="title" style={styles.title}>
-                Welcome to NetPay
-              </ThemedText>
-              <ThemedText style={styles.description}>
-                Your all-in-one payment solution for seamless transactions
-              </ThemedText>
+        {slides.map((slide, index) => (
+          <View key={slide.title} style={[styles.page, { width }]}> 
+            <Image
+              source={slide.image}
+              style={styles.backgroundImage}
+              contentFit="cover"
+            />
+            <View style={styles.slideBackground}>
+              <View style={styles.contentContainer}>
+                <ThemedText type="title" style={styles.title}>
+                  {slide.title}
+                </ThemedText>
+                <ThemedText style={styles.description}>{slide.description}</ThemedText>
+              </View>
             </View>
           </View>
-        </View>
-
-        {/* Page 2 */}
-        <View style={[styles.page, { width }]}>
-          <Image
-            source={require('@/assets/images/splash2.png')}
-            style={styles.fullScreenImage}
-            contentFit="cover"
-          />
-          <View style={styles.overlay}>
-            <View style={styles.contentContainer}>
-              <ThemedText type="title" style={styles.title}>
-                Secure & Fast
-              </ThemedText>
-              <ThemedText style={styles.description}>
-                Experience lightning-fast payments with bank-level security
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-
-        {/* Page 3 */}
-        <View style={[styles.page, { width }]}>
-          <Image
-            source={require('@/assets/images/splash.png')}
-            style={styles.fullScreenImage}
-            contentFit="cover"
-          />
-          <View style={styles.overlay}>
-            <View style={styles.contentContainer}>
-              <ThemedText type="title" style={styles.title}>
-                Get Started
-              </ThemedText>
-              <ThemedText style={styles.description}>
-                Start making payments and managing your finances today
-              </ThemedText>
-            </View>
-          </View>
-        </View>
+        ))}
       </ScrollView>
 
       {/* Pagination Dots */}
       <View style={styles.pagination}>
-        {[0, 1, 2].map((index) => (
+        {slides.map((_, index) => (
           <View
             key={index}
             style={[
@@ -127,7 +106,7 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
         <TouchableOpacity onPress={handleNext} style={styles.nextButton}>
           <ThemedText style={styles.nextButtonText}>
-            {currentPage === 2 ? 'Get Started' : 'Next'}
+            {currentPage === slides.length - 1 ? 'Get Started' : 'Next'}
           </ThemedText>
         </TouchableOpacity>
       </View>
@@ -149,28 +128,23 @@ const styles = StyleSheet.create({
   page: {
     height,
     width,
+    justifyContent: 'center',
     position: 'relative',
     overflow: 'hidden',
   },
-  fullScreenImage: {
-    width: width,
-    height: height,
+  backgroundImage: {
+    width,
+    height,
     position: 'absolute',
     top: 0,
     left: 0,
-    zIndex: 0,
   },
-  overlay: {
-    width: width,
-    height: height,
-    position: 'absolute',
-    top: 0,
-    left: 0,
+  slideBackground: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    zIndex: 1,
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
   contentContainer: {
     alignItems: 'center',
@@ -183,13 +157,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
     color: '#fff',
+    fontSize: 34,
   },
   description: {
     textAlign: 'center',
     fontSize: 16,
     lineHeight: 24,
     color: '#fff',
-    opacity: 0.9,
+    opacity: 0.95,
+    maxWidth: 320,
   },
   pagination: {
     flexDirection: 'row',
@@ -205,7 +181,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
   },
   activeDot: {
     width: 24,

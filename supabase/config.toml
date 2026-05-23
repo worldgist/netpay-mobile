@@ -113,3 +113,6 @@ verify_jwt = true
 
 [functions.get-flutterwave-virtual-account]
 verify_jwt = true
+
+[functions.reconcile-flutterwave-funding]
+verify_jwt = false

@@ -283,7 +283,7 @@ export default function ProfileScreen() {
 
   const handleToggleBiometric = useCallback(
     async (enabled: boolean) => {
-      if (!userId) return;
+      if (!userId || biometricUpdating) return;
 
       if (!isMounted.current) return;
 
@@ -292,10 +292,18 @@ export default function ProfileScreen() {
       setBiometricEnabled(enabled);
 
       try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        const session = sessionData.session;
+        if (!session?.user?.id) {
+          throw new Error('Your session has expired. Please sign in again.');
+        }
+
         const { error } = await supabase
           .from('profiles')
-          .update({ biometric_enabled: enabled })
-          .eq('id', userId);
+          .update({ biometric_enabled: enabled, updated_at: new Date().toISOString() })
+          .eq('id', session.user.id);
 
         if (error) {
           throw error;
@@ -316,15 +324,32 @@ export default function ProfileScreen() {
           });
         }
       } catch (error) {
-        console.error('Failed to update biometric setting:', error);
+        const messageFromObject =
+          (error as any)?.message ||
+          (error as any)?.error_description ||
+          (error as any)?.details ||
+          (error as any)?.hint ||
+          '';
+        const fallbackMessage =
+          typeof error === 'string'
+            ? error
+            : messageFromObject ||
+              'Unable to update biometric setting. Please check your network or try again later.';
+
+        console.error('Failed to update biometric setting:', {
+          error,
+          message: fallbackMessage,
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+        });
         if (isMounted.current) {
           setBiometricEnabled(previousValue);
-          const message = error instanceof Error ? error.message : 'Unable to update biometric setting. Please try again.';
           setFeedbackModal({
             visible: true,
             variant: 'error',
             title: 'Biometric login',
-            message,
+            message: fallbackMessage,
           });
         }
       } finally {
@@ -333,7 +358,7 @@ export default function ProfileScreen() {
         }
       }
     },
-    [userId, biometricEnabled]
+    [userId, biometricEnabled, biometricUpdating, router]
   );
 
   const handleLogout = useCallback(() => {
@@ -368,11 +393,8 @@ export default function ProfileScreen() {
     }
   }, [pinEnabled, router]);
 
-  const handleResetPassword = useCallback(() => {
-    router.push({
-      pathname: '/reset-password',
-      params: { mode: 'authenticated' },
-    });
+  const handleChangePassword = useCallback(() => {
+    router.push('/change-password');
   }, [router]);
 
   const handleEditProfile = useCallback(() => {
@@ -439,6 +461,10 @@ export default function ProfileScreen() {
     router.push('/privacy-policy');
   }, [router]);
 
+  const handleSecurity = useCallback(() => {
+    router.push('/security');
+  }, [router]);
+
 
   return (
     <ThemedView style={styles.container}>
@@ -460,56 +486,6 @@ export default function ProfileScreen() {
           </ThemedText>
         </View>
 
-        {/* Security Section */}
-        <View style={styles.section}>
-          <ThemedText style={styles.sectionHeader}>SECURITY</ThemedText>
-
-          {/* Biometric Login */}
-          <TouchableOpacity
-            style={[
-              styles.optionCard,
-              styles.optionCardWithSwitch,
-              (loading || biometricUpdating || !userId) && styles.optionCardDisabled,
-            ]}
-            activeOpacity={0.7}
-            onPress={() => {
-              if (loading || biometricUpdating || !userId) return;
-              handleToggleBiometric(!biometricEnabled);
-            }}
-            disabled={loading || biometricUpdating || !userId}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
-                <ThemedText style={styles.optionDescription}>
-                  {biometricEnabled ? 'Use fingerprint or Face ID to sign in' : 'Enable fingerprint or Face ID sign in'}
-                </ThemedText>
-              </View>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              onValueChange={handleToggleBiometric}
-              trackColor={{ false: '#E0E0E0', true: '#FFE0BF' }}
-              thumbColor={biometricEnabled ? '#FF7F00' : '#FF7F00'}
-              disabled={loading || biometricUpdating || !userId}
-            />
-          </TouchableOpacity>
-
-          {/* PIN Management */}
-          <TouchableOpacity style={styles.optionCard} onPress={handlePINCode} activeOpacity={0.7}>
-            <View style={styles.optionLeft}>
-              <MaterialIcons name="lock" size={20} color="#FF7F00" />
-              <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>PIN Code</ThemedText>
-                <ThemedText style={styles.optionDescription}>
-                  {pinEnabled ? 'Change your transaction PIN' : 'Set up a transaction PIN'}
-                </ThemedText>
-              </View>
-            </View>
-            <MaterialIcons name="chevron-right" size={20} color="#999" />
-          </TouchableOpacity>
-        </View>
-
         {/* Account Section */}
         <View style={styles.section}>
           <ThemedText style={styles.sectionHeader}>ACCOUNT</ThemedText>
@@ -520,6 +496,7 @@ export default function ProfileScreen() {
               <MaterialIcons name="edit" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Edit Profile</ThemedText>
+                <ThemedText style={styles.optionDescription}>Update your personal account information</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#999" />
@@ -562,6 +539,7 @@ export default function ProfileScreen() {
               <MaterialIcons name="people" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Referral</ThemedText>
+                <ThemedText style={styles.optionDescription}>Invite friends and earn referral rewards</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#999" />
@@ -574,6 +552,7 @@ export default function ProfileScreen() {
               <MaterialIcons name="email" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Contact us</ThemedText>
+                <ThemedText style={styles.optionDescription}>Reach our team for help and feedback</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#999" />
@@ -597,12 +576,56 @@ export default function ProfileScreen() {
             <MaterialIcons name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
+          {/* Security */}
+          <TouchableOpacity style={styles.optionCard} onPress={handleSecurity} activeOpacity={0.7}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="security" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Security</ThemedText>
+                <ThemedText style={styles.optionDescription}>Manage change PIN and change password</ThemedText>
+              </View>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#999" />
+          </TouchableOpacity>
+
+          {/* Biometric Login */}
+          <TouchableOpacity
+            style={[
+              styles.optionCard,
+              styles.optionCardWithSwitch,
+              (loading || biometricUpdating || !userId) && styles.optionCardDisabled,
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (loading || biometricUpdating || !userId) return;
+              handleToggleBiometric(!biometricEnabled);
+            }}
+            disabled={loading || biometricUpdating || !userId}>
+            <View style={styles.optionLeft}>
+              <MaterialIcons name="fingerprint" size={20} color="#FF7F00" />
+              <View style={styles.optionTextContainer}>
+                <ThemedText style={styles.optionTitle}>Biometric Login</ThemedText>
+                <ThemedText style={styles.optionDescription}>
+                  {biometricEnabled ? 'Use fingerprint or Face ID to sign in' : 'Enable fingerprint or Face ID sign in'}
+                </ThemedText>
+              </View>
+            </View>
+            <Switch
+              value={biometricEnabled}
+              onValueChange={handleToggleBiometric}
+              trackColor={{ false: '#E0E0E0', true: '#FFE0BF' }}
+              thumbColor={biometricEnabled ? '#FF7F00' : '#FF7F00'}
+              disabled={loading || biometricUpdating || !userId}
+            />
+          </TouchableOpacity>
+
           {/* Terms & Conditions */}
           <TouchableOpacity style={styles.legalDocOptionCard} onPress={handleTerms} activeOpacity={0.7}>
             <View style={styles.optionLeft}>
               <MaterialIcons name="description" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Terms & Conditions</ThemedText>
+                <ThemedText style={styles.optionDescription}>Read the rules and terms for using NetPay</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#999" />
@@ -614,6 +637,7 @@ export default function ProfileScreen() {
               <MaterialIcons name="description" size={20} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
                 <ThemedText style={styles.optionTitle}>Privacy Policy</ThemedText>
+                <ThemedText style={styles.optionDescription}>See how your personal data is collected and used</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#999" />

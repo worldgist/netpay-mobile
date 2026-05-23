@@ -175,6 +175,19 @@ serve(async (req) => {
       }
     }
 
+    // Some Flutterwave flows persist tx_ref in api_response while reference may differ.
+    if (!existingTx && txRef) {
+      const { data: byApiResponseTxRef } = await supabase
+        .from("funding_transactions")
+        .select("id, user_id, status, amount, account_name, account_number")
+        .contains("api_response", { tx_ref: txRef })
+        .limit(1);
+
+      if (byApiResponseTxRef && byApiResponseTxRef.length > 0) {
+        existingTx = byApiResponseTxRef[0];
+      }
+    }
+
     if (!existingTx) {
       let resolvedUserId: string | null = null;
       let resolvedAccountName: string | null = null;
@@ -238,6 +251,36 @@ serve(async (req) => {
         resolvedAccountNumber = virtualAccount.account_number || accountNumber;
       }
 
+      // Fallback: match by tracking reference emitted during Flutterwave virtual-account creation.
+      if (!resolvedUserId) {
+        const trackingCandidates = [providerReference, txRef, flwRef]
+          .filter((candidate, idx, arr): candidate is string => !!candidate && arr.indexOf(candidate) === idx);
+
+        if (trackingCandidates.length > 0) {
+          const { data: byTrackingReference } = await supabase
+            .from("virtual_accounts")
+            .select("user_id, account_name, bank_name, account_number, bank_code, tracking_reference")
+            .in("tracking_reference", trackingCandidates)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (byTrackingReference) {
+            resolvedUserId = byTrackingReference.user_id;
+            resolvedAccountName = byTrackingReference.account_name;
+            resolvedBankName = byTrackingReference.bank_name;
+            resolvedAccountNumber = byTrackingReference.account_number || accountNumber;
+            virtualAccount = {
+              user_id: byTrackingReference.user_id,
+              account_name: byTrackingReference.account_name,
+              bank_name: byTrackingReference.bank_name,
+              account_number: byTrackingReference.account_number,
+              bank_code: byTrackingReference.bank_code,
+            };
+          }
+        }
+      }
+
       // Fallback for Flutterwave payloads where originator account number is masked/unavailable.
       if (!resolvedUserId) {
         const customerEmail = typeof data?.customer?.email === "string" ? data.customer.email.trim().toLowerCase() : "";
@@ -257,6 +300,14 @@ serve(async (req) => {
       }
 
       if (!resolvedUserId) {
+        console.error("Unable to resolve Flutterwave funding user", {
+          providerReference,
+          txRef,
+          flwRef,
+          accountNumber,
+          event,
+          status,
+        });
         return new Response(
           JSON.stringify({ success: false, error: `Funding transaction not found for reference ${providerReference}` }),
           { status: 404, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },

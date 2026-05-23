@@ -75,7 +75,7 @@ export default function SecurityScreen() {
             <View style={styles.optionLeft}>
               <MaterialIcons name="lock" size={24} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>{pinEnabled ? 'Change PIN' : 'Set Up PIN'}</ThemedText>
+                <ThemedText style={styles.optionTitle}>Change PIN</ThemedText>
                 <ThemedText style={styles.optionDescription}>
                   {pinEnabled ? 'Change your transaction PIN' : 'Set up your transaction PIN'}
                 </ThemedText>
@@ -91,8 +91,8 @@ export default function SecurityScreen() {
             <View style={styles.optionLeft}>
               <MaterialIcons name="password" size={24} color="#FF7F00" />
               <View style={styles.optionTextContainer}>
-                <ThemedText style={styles.optionTitle}>Reset Password</ThemedText>
-                <ThemedText style={styles.optionDescription}>Create a new password for your account</ThemedText>
+                <ThemedText style={styles.optionTitle}>Change Password</ThemedText>
+                <ThemedText style={styles.optionDescription}>Update your login password for better security</ThemedText>
               </View>
             </View>
             <MaterialIcons name="chevron-right" size={24} color="#999" />
