@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { authRedirectUrls, NETPAY_SITE_URL } from '@/constants/site';
 
 export default function ReferralScreen() {
   const router = useRouter();
@@ -188,7 +189,7 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
   }, [fetchReferralData]);
 
 const referralLink = useMemo(
-  () => (referralCode ? `https://netpayy.ng/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}` : ''),
+  () => (referralCode ? authRedirectUrls.signupWithReferral(referralCode) : ''),
   [referralCode]
 );
 
@@ -240,7 +241,7 @@ const handleShareLink = () => {
 
   const message = referralLink
     ? `Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${referralLink}`
-    : `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Visit netpayy.ng and enter the code during signup.`;
+    : `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Download the app: ${NETPAY_SITE_URL}`;
 
   Share.share({
     message,

@@ -211,7 +211,7 @@ We use collected information for the following purposes:
 
 We may share your information with:
 
-- **Payment Processors:** Third-party payment service providers (e.g., Paystack, Flutterwave) to process transactions - they are required to maintain similar privacy protections
+- **Payment Processors:** Third-party payment service providers (e.g., Paystack) to process transactions - they are required to maintain similar privacy protections
 - **Service Providers:** Cloud hosting providers (Supabase), analytics services, customer support platforms - all bound by confidentiality agreements
 - **Telecommunications Vendors:** Airtime and data providers (MTN, Airtel, Glo, 9mobile), electricity distribution companies, cable TV providers - necessary to fulfill service requests
 - **Legal and Regulatory:** Government agencies, law enforcement, regulatory bodies when required by law or to protect rights

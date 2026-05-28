@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Loader2, DollarSign, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { z } from "zod";
+import { assertNetworkAccessAllowed } from "@/utils/network-access";
 
 const authSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(255, "Email too long"),
@@ -146,6 +147,8 @@ const Auth = () => {
     setValidationError(null);
 
     try {
+      await assertNetworkAccessAllowed(supabase);
+
       // Validate input
       const validation = authSchema.safeParse({ email: email.trim(), password });
       if (!validation.success) {

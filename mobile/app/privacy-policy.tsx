@@ -29,7 +29,7 @@ export default function PrivacyPolicyScreen() {
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>1. Introduction</ThemedText>
             <ThemedText style={styles.sectionText}>
-              NetPay ("we," "our," "us," or "the Company") operates the NetPay mobile application and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.
+              NetPay, referred to as we, our, us, or the Company, operates the NetPay mobile application and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.
             </ThemedText>
           </View>
 
@@ -65,7 +65,7 @@ export default function PrivacyPolicyScreen() {
             <ThemedText style={styles.sectionText}>
               We may share your information with:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Payment Processors: Third-party payment service providers (e.g., Paystack, Flutterwave) to process transactions - they are required to maintain similar privacy protections</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Payment Processors: Third-party payment service providers (e.g., Paystack) to process transactions - they are required to maintain similar privacy protections</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Service Providers: Cloud hosting providers (Supabase), analytics services, customer support platforms - all bound by confidentiality agreements</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Telecommunications Vendors: Airtime and data providers (MTN, Airtel, Glo, 9mobile), electricity distribution companies, cable TV providers - necessary to fulfill service requests</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Legal and Regulatory: Government agencies, law enforcement, regulatory bodies when required by law or to protect rights</ThemedText>
@@ -160,7 +160,7 @@ export default function PrivacyPolicyScreen() {
               We may update this Privacy Policy periodically to reflect changes in our practices, technology, legal requirements, or other factors. We will:
             </ThemedText>
             <ThemedText style={styles.bulletPoint}>• Notify you of material changes via email, in-app notification, or prominent notice in the app</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Update the "Last updated" date at the top of this policy</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Update the Last updated date at the top of this policy</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Your continued use after changes constitutes acceptance - we encourage periodic review</ThemedText>
             <ThemedText style={styles.noteText}>
               Material changes affecting your rights will be communicated at least 30 days in advance when possible.

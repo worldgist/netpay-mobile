@@ -4,13 +4,16 @@ import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { checkSignupAvailability } from '@/utils/signup-availability';
+import { assertNetworkAccessAllowed } from '@/utils/network-access';
+import { authRedirectUrls } from '@/constants/site';
 
 export default function SignupScreen() {
   const router = useRouter();
+  const { ref: refParam } = useLocalSearchParams<{ ref?: string }>();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -27,6 +30,12 @@ export default function SignupScreen() {
   const [checkingPhone, setCheckingPhone] = useState(false);
   const emailCheckTimeout = useRef<NodeJS.Timeout | null>(null);
   const phoneCheckTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (typeof refParam === 'string' && refParam.trim()) {
+      setReferralCode(refParam.trim());
+    }
+  }, [refParam]);
 
   const checkEmailAvailability = async (emailToCheck: string) => {
     const trimmedEmail = emailToCheck.trim().toLowerCase();
@@ -164,6 +173,7 @@ export default function SignupScreen() {
 
     try {
       setLoading(true);
+      await assertNetworkAccessAllowed(supabase);
 
       const availability = await checkSignupAvailability({
         email: trimmedEmail,
@@ -190,6 +200,7 @@ export default function SignupScreen() {
         email: trimmedEmail,
         password,
         options: {
+          emailRedirectTo: authRedirectUrls.emailVerification(trimmedEmail),
           data: {
             first_name: trimmedFirstName,
             last_name: trimmedLastName,

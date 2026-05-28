@@ -12,6 +12,7 @@
     "validate": "node ./scripts/validate-config.js",
     "doctor": "node ./scripts/validate-config.js && npx expo-doctor || echo 'Note: expo-doctor network check failed, but local validation passed'",
     "generate:icons": "node ./scripts/generate-square-icons.js",
+    "generate:notification-icon": "node ./scripts/generate-notification-icon.js",
     "build:android:apk": "npx eas-cli@latest build --platform android --profile preview",
     "build:android:aab": "npx eas-cli@latest build --platform android --profile production",
     "prebuild:android": "expo prebuild --platform android && node ./scripts/patch-android-gradle-network.js",

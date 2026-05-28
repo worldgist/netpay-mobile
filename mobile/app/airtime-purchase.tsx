@@ -10,6 +10,8 @@ import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import { suppressHandledNetworkError } from '@/utils/error-handler';
+import { validateNigerianPhoneNumber } from '@/utils/phone';
 import * as Clipboard from 'expo-clipboard';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
@@ -32,6 +34,7 @@ const NETWORK_KEY_MAP: Record<string, string> = {
   '9MOBILE': '9MOBILE',
   '9 MOBILE': '9MOBILE',
   ETISALAT: '9MOBILE',
+  T2: '9MOBILE',
 };
 
 const NETWORK_DISPLAY_NAMES: Record<string, string> = {
@@ -77,6 +80,12 @@ const normalizePhoneNumber = (value: string) => {
   }
 
   normalized = normalized.replace(/[^0-9]/g, '');
+
+  // 10-digit numbers like 8012345678 → 08012345678
+  if (/^[789]\d{9}$/.test(normalized)) {
+    normalized = `0${normalized}`;
+  }
+
   return normalized;
 };
 
@@ -123,6 +132,24 @@ export default function AirtimePurchaseScreen() {
   useEffect(() => {
     providerRef.current = selectedProvider;
   }, [selectedProvider]);
+
+  const handlePhoneChange = useCallback(
+    (value: string) => {
+      setPhoneNumber(value);
+      const normalized = normalizePhoneNumber(value);
+      if (!isValidNigerianPhone(normalized) || providers.length === 0) return;
+
+      const matchedProvider = providers.find((provider) => {
+        const check = validateNigerianPhoneNumber(normalized, provider.network);
+        return check.isMatch;
+      });
+
+      if (matchedProvider) {
+        setSelectedProvider(matchedProvider.id);
+      }
+    },
+    [providers]
+  );
 
   const handleAmountChange = useCallback((value: string) => {
     let sanitized = value.replace(/[^0-9.]/g, '');
@@ -318,9 +345,10 @@ export default function AirtimePurchaseScreen() {
     if (!currentSelectedProviderDetails) return;
 
     try {
-      const rawNetworkId =
-        currentSelectedProviderDetails.apiCode ||
-        (currentSelectedProviderDetails.network ? SMEPLUG_NETWORK_IDS[currentSelectedProviderDetails.network] : null);
+      const canonicalNetworkId = currentSelectedProviderDetails.network
+        ? SMEPLUG_NETWORK_IDS[currentSelectedProviderDetails.network]
+        : null;
+      const rawNetworkId = canonicalNetworkId || currentSelectedProviderDetails.apiCode;
       const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
 
       if (!normalizedNetworkId) {
@@ -369,7 +397,6 @@ export default function AirtimePurchaseScreen() {
         
         if (isNetworkError) {
           // Suppress this error from global error handler
-          const { suppressHandledNetworkError } = require('@/utils/error-handler');
           suppressHandledNetworkError(error);
           
           Alert.alert(
@@ -384,16 +411,21 @@ export default function AirtimePurchaseScreen() {
       }
 
       if (!data?.success) {
+        const validationErrors = Array.isArray(data?.details?.errors)
+          ? data.details.errors.map((entry: unknown) => String(entry)).filter(Boolean).join('. ')
+          : null;
         const detailMessage =
+          validationErrors ||
           data?.details?.message ||
           data?.details?.error ||
           data?.details?.response_description ||
           data?.details?.data?.message ||
-          data?.details?.data?.error;
-        const message = detailMessage || data?.error || 'Unable to complete airtime purchase.';
-        const detailString = data?.details ? JSON.stringify(data.details, null, 2) : null;
+          data?.details?.data?.error ||
+          data?.details?.body?.message ||
+          data?.details?.body?.error;
+        const message = data?.error || detailMessage || data?.details?.msg || 'Unable to complete airtime purchase.';
         console.error('Airtime purchase response (failure):', JSON.stringify(data, null, 2));
-        throw new Error(detailString ? `${message}\n\nDetails: ${detailString}` : message);
+        throw new Error(message);
       }
 
       setShowConfirmModal(false);
@@ -471,10 +503,10 @@ export default function AirtimePurchaseScreen() {
         try {
           const body = typeof context.body === 'string' ? JSON.parse(context.body) : context.body;
           const bodyMessage = body?.error || body?.message || body?.details?.error || body?.details?.message;
-          if (bodyMessage) {
+          if (bodyMessage && !purchaseError?.message) {
             message = bodyMessage;
           }
-        } catch (_parseError) {
+        } catch {
           // ignore json parse failures
         }
       }
@@ -647,7 +679,7 @@ export default function AirtimePurchaseScreen() {
                 placeholder={selectedProviderPlaceholder}
                 placeholderTextColor="#999"
                 value={phoneNumber}
-                onChangeText={setPhoneNumber}
+                onChangeText={handlePhoneChange}
                 keyboardType="phone-pad"
               />
             </View>

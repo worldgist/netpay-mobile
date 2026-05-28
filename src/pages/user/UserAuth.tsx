@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { Loader2, Phone, Lock, Eye, EyeOff, User, Mail, ArrowLeft, Fingerprint } from "lucide-react";
 import { z } from "zod";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { assertNetworkAccessAllowed } from "@/utils/network-access";
+import { authRedirectUrls } from "@/config/site";
 
 const signUpSchema = z.object({
   firstName: z.string().trim().min(2, "First name must be at least 2 characters"),
@@ -103,6 +105,8 @@ export default function UserAuth() {
     setLoading(true);
 
     try {
+      await assertNetworkAccessAllowed(supabase);
+
       const normalizedEmail = loginEmail.trim().toLowerCase();
 
       const validation = signInSchema.safeParse({ email: normalizedEmail, password });
@@ -171,6 +175,8 @@ export default function UserAuth() {
     setLoading(true);
 
     try {
+      await assertNetworkAccessAllowed(supabase);
+
       const validation = signUpSchema.safeParse({
         firstName,
         lastName,
@@ -217,7 +223,7 @@ export default function UserAuth() {
         email: normalizedEmail,
         password: signUpPassword,
         options: {
-          emailRedirectTo: `${window.location.origin}/user/verify-email?email=${encodeURIComponent(normalizedEmail)}`,
+          emailRedirectTo: authRedirectUrls.emailVerification(normalizedEmail),
           data: {
             first_name: firstName,
             last_name: lastName,
@@ -297,6 +303,8 @@ export default function UserAuth() {
     setLoading(true);
 
     try {
+      await assertNetworkAccessAllowed(supabase);
+
       const pinValue = pinDigits.join("");
       const validation = pinSchema.safeParse({ email: loginEmail, pin: pinValue });
       if (!validation.success) {

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { authRedirectUrls, NETPAY_SITE_URL } from "../_shared/site-url.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -29,7 +30,7 @@ const escapeHtml = (value: string) =>
 
 const buildEmailTemplate = (subject: string, htmlContent: string) => {
   // Logo URL - update this to your actual hosted logo URL
-  const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netpayy.ng/logo.png";
+  const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || `${NETPAY_SITE_URL}/logo.png`;
   
   return `
     <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f2933; background-color: #fef2e8; padding: 20px;">
@@ -56,7 +57,8 @@ const buildEmailTemplate = (subject: string, htmlContent: string) => {
           </div>
 
           <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,127,0,0.12); border-radius: 16px; padding: 16px; margin-top: 28px;">
-            <p style="margin: 0; font-size: 13px; color: rgba(50,30,8,0.85);">Need help? Reply to this email or contact NetPay support.</p>
+            <p style="margin: 0; font-size: 13px; color: rgba(50,30,8,0.85);">Need help? Reply to this email or visit <a href="${NETPAY_SITE_URL}" style="color:#ff7f00;text-decoration:none;">${NETPAY_SITE_URL.replace(/^https?:\/\//, "")}</a>.</p>
+            <p style="margin: 8px 0 0; font-size: 13px;"><a href="${authRedirectUrls.openApp()}" style="color:#ff7f00;font-weight:600;text-decoration:none;">Open NetPay app</a></p>
             <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #ffb347, #ff7f00); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;">NP</div>
           </div>
         </div>

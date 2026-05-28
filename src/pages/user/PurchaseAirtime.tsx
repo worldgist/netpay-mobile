@@ -340,9 +340,8 @@ const PurchaseAirtime = () => {
       const network = providers.find(n => n.id === selectedNetwork);
       if (!network) throw new Error("Invalid network");
 
-      const rawNetworkId =
-        network.apiCode ||
-        (network.network ? SMEPLUG_NETWORK_IDS[network.network] : null);
+      const canonicalNetworkId = network.network ? SMEPLUG_NETWORK_IDS[network.network] : null;
+      const rawNetworkId = canonicalNetworkId || network.apiCode;
       const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
 
       if (!normalizedNetworkId) {

@@ -91,7 +91,7 @@ export default function HomeScreen() {
   const [notificationProcessing, setNotificationProcessing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const isMounted = useRef(true);
-  const notificationChannelRef = useRef<RealtimeChannel | null>(null);
+  const balanceChannelRef = useRef<RealtimeChannel | null>(null);
   const hasShownPushSetupAlertRef = useRef(false);
 
   const fetchNotificationPreview = useCallback(
@@ -374,6 +374,42 @@ export default function HomeScreen() {
       fetchDashboardData();
     }, [fetchDashboardData])
   );
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    if (balanceChannelRef.current) {
+      supabase.removeChannel(balanceChannelRef.current);
+      balanceChannelRef.current = null;
+    }
+
+    const channel = supabase
+      .channel(`wallet-balance-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${userId}`,
+        },
+        () => {
+          fetchDashboardData({ refresh: true });
+        }
+      )
+      .subscribe();
+
+    balanceChannelRef.current = channel;
+
+    return () => {
+      if (balanceChannelRef.current) {
+        supabase.removeChannel(balanceChannelRef.current);
+        balanceChannelRef.current = null;
+      }
+    };
+  }, [fetchDashboardData, userId]);
 
   const onRefresh = useCallback(() => {
     fetchDashboardData({ refresh: true });

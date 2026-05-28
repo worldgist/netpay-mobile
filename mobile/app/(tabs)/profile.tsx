@@ -358,7 +358,7 @@ export default function ProfileScreen() {
         }
       }
     },
-    [userId, biometricEnabled, biometricUpdating, router]
+    [userId, biometricEnabled, biometricUpdating]
   );
 
   const handleLogout = useCallback(() => {
@@ -383,18 +383,6 @@ export default function ProfileScreen() {
         },
       ]
     );
-  }, [router]);
-
-  const handlePINCode = useCallback(() => {
-    if (pinEnabled) {
-      router.push('/change-pin');
-    } else {
-      router.push('/setup-pin');
-    }
-  }, [pinEnabled, router]);
-
-  const handleChangePassword = useCallback(() => {
-    router.push('/change-password');
   }, [router]);
 
   const handleEditProfile = useCallback(() => {

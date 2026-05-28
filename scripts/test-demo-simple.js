@@ -140,7 +140,7 @@ async function testDemoUser() {
     const autoCreditData = await autoCreditResponse.json();
     if (autoCreditData.success) {
       console.log('✅ Auto-credit function works!');
-      console.log(`   New Balance: ₦${Number(autoCreditData.newBalance || 0).toLocaleString()}`);
+      console.log(`   New Balance: ₦${Number(autoCreditData.balanceAfter ?? autoCreditData.newBalance ?? 0).toLocaleString()}`);
     } else {
       console.log('⚠️  Auto-credit response:', autoCreditData);
     }

@@ -10,7 +10,6 @@ import Analytics from "./pages/Analytics";
 import Notifications from "./pages/Notifications";
 import EmailNotifications from "./pages/EmailNotifications";
 import Settings from "./pages/Settings";
-import Flutterwave from "./pages/Flutterwave";
 import Smeplug from "./pages/Smeplug";
 import EBills from "./pages/EBills";
 import ElectricityPlans from "./pages/ElectricityPlans";
@@ -64,19 +63,27 @@ import UserTerms from "./pages/user/UserTerms";
 import UserPrivacy from "./pages/user/UserPrivacy";
 import DeleteAccount from "./pages/user/DeleteAccount";
 import StatementOfAccount from "./pages/user/StatementOfAccount";
+import { NetworkAccessGuard } from "@/components/NetworkAccessGuard";
+import { WebHostAccessGuard } from "@/components/WebHostAccessGuard";
+import AppLinkRedirect from "@/pages/AppLinkRedirect";
 
 const App = () => (
   <>
     <Toaster />
     <Sonner />
+    <NetworkAccessGuard>
     <BrowserRouter
       future={{
         v7_startTransition: true,
         v7_relativeSplatPath: true,
       }}
     >
+      <WebHostAccessGuard>
       <Routes>
         <Route path="/" element={<Index />} />
+        <Route path="/reset-password" element={<AppLinkRedirect />} />
+        <Route path="/pay" element={<AppLinkRedirect />} />
+        <Route path="/open/*" element={<AppLinkRedirect />} />
         <Route path="/auth" element={<Auth />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/smeplug" element={<Smeplug />} />
@@ -90,7 +97,6 @@ const App = () => (
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/email-notifications" element={<EmailNotifications />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/flutterwave" element={<Flutterwave />} />
         <Route path="/hr" element={<HrManager />} />
         <Route path="/electricity" element={<ElectricityPlans />} />
         <Route path="/cable-tv" element={<CableTvPlans />} />
@@ -143,7 +149,9 @@ const App = () => (
         
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </WebHostAccessGuard>
     </BrowserRouter>
+    </NetworkAccessGuard>
   </>
 );
 

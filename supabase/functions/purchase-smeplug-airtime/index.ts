@@ -2,10 +2,156 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { fetchSmeplugWalletBalance } from "../_shared/smeplug-balance.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const normalizeStatusText = (value: unknown): string => {
+  if (value === true) return 'success';
+  if (value === false) return 'failed';
+  return String(value ?? '').trim().toLowerCase();
+};
+
+const isSuccessfulStatusText = (value: string): boolean =>
+  value === 'success' || value === 'successful' || value === 'completed' || value === 'delivered';
+
+const isFailedStatusText = (value: string): boolean =>
+  value === 'failed' || value === 'failure' || value === 'error' || value === 'false';
+
+const getNestedPayload = (payload: Record<string, unknown>): Record<string, unknown> | undefined => {
+  const nested = payload.data ?? payload.body;
+  if (nested && typeof nested === 'object' && nested !== null) {
+    return nested as Record<string, unknown>;
+  }
+  return undefined;
+};
+
+const isSuccessfulSmeplugAirtimeResponse = (
+  apiResponse: Record<string, unknown> | string | null,
+  httpStatusOk: boolean,
+): boolean => {
+  if (!httpStatusOk) return false;
+  if (!apiResponse || typeof apiResponse !== 'object') return false;
+
+  const payload = apiResponse as Record<string, unknown>;
+  const topStatus = normalizeStatusText(payload.status);
+  const topCode = payload.code;
+
+  if (payload.status === true || payload.success === true) return true;
+  if (topCode === 200 || topCode === '200') return true;
+  if (isSuccessfulStatusText(topStatus)) return true;
+  if (isFailedStatusText(topStatus) || payload.success === false) return false;
+
+  const nested = getNestedPayload(payload);
+  if (nested) {
+    const nestedStatus = normalizeStatusText(nested.status ?? nested.Status);
+    if (nested.success === true || isSuccessfulStatusText(nestedStatus)) return true;
+    if (isFailedStatusText(nestedStatus) || nested.success === false || nested.error) return false;
+    if (nested.id) return true;
+  }
+
+  return false;
+};
+
+const extractSmeplugErrorMessage = (apiResponse: Record<string, unknown> | string | null): string | null => {
+  if (!apiResponse) return null;
+  if (typeof apiResponse === 'string') return apiResponse.trim() || null;
+
+  const payload = apiResponse as Record<string, unknown>;
+  const nested = getNestedPayload(payload);
+
+  const errorList = payload.errors ?? nested?.errors;
+  if (Array.isArray(errorList) && errorList.length > 0) {
+    const messages = errorList
+      .map((entry) => String(entry ?? '').trim())
+      .filter((entry) => entry.length > 0);
+    if (messages.length > 0) {
+      return messages.join('. ');
+    }
+  }
+
+  const candidates = [
+    payload.message,
+    payload.error,
+    payload.msg,
+    payload.response_description,
+    payload.status_message,
+    nested?.message,
+    nested?.error,
+    nested?.msg,
+    nested?.response_description,
+    nested?.status_message,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+};
+
+const normalizePhoneForSmeplug = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+
+  let normalized = value.trim().replace(/\s+/g, '');
+
+  if (normalized.startsWith('+234')) {
+    normalized = `0${normalized.slice(4)}`;
+  } else if (normalized.startsWith('234') && normalized.length === 13) {
+    normalized = `0${normalized.slice(3)}`;
+  }
+
+  normalized = normalized.replace(/[^0-9]/g, '');
+
+  // 10-digit numbers like 8012345678 → 08012345678
+  if (/^[789]\d{9}$/.test(normalized)) {
+    normalized = `0${normalized}`;
+  }
+
+  return normalized;
+};
+
+const isValidSmeplugPhone = (value: string) => /^0\d{10}$/.test(value);
+
+const mapAirtimePurchaseError = (
+  rawMessage: string,
+  providerBalance: number | null,
+  purchaseAmount: number,
+): string => {
+  const text = rawMessage.toLowerCase();
+
+  if (
+    providerBalance !== null &&
+    providerBalance < purchaseAmount &&
+    (text.includes('unable to purchase') || text.includes('insufficient'))
+  ) {
+    return 'Airtime service is temporarily unavailable (provider wallet is low). Please try again later or contact support.';
+  }
+
+  if (text.includes('unable to purchase airtime')) {
+    if (providerBalance !== null && providerBalance < purchaseAmount) {
+      return 'Airtime service is temporarily unavailable (provider wallet is low). Please try again later or contact support.';
+    }
+    if (providerBalance !== null && providerBalance >= purchaseAmount) {
+      return 'Airtime is temporarily unavailable from our service provider (not your phone number). Please contact NetPay support — SMEPlug airtime may need to be enabled on the merchant account.';
+    }
+    return 'Airtime could not be delivered to this number. Use a valid active Nigerian line that matches the selected network (MTN number for MTN, etc.).';
+  }
+
+  if (text.includes('invalid phone') || text.includes('phone number')) {
+    return 'Invalid phone number for the selected network. Use an 11-digit Nigerian number (e.g. 08012345678).';
+  }
+
+  if (text.includes('insufficient') && text.includes('balance')) {
+    return 'Insufficient balance with the airtime provider. Please try again later or contact support.';
+  }
+
+  return rawMessage;
 };
 
 serve(async (req) => {
@@ -74,6 +220,7 @@ serve(async (req) => {
           '9MOBILE': 3,
           '9 MOBILE': 3,
           ETISALAT: 3,
+          T2: 3,
           GLO: 4,
           GLOBACOM: 4,
         };
@@ -103,27 +250,14 @@ serve(async (req) => {
       };
       return NAME_MAP[id] || null;
     };
-    // Normalize phone number (remove spaces, handle +234 format)
-    let sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim().replace(/\s+/g, '') : '';
-    
-    // Handle +234 format (convert to 0xxx format)
-    if (sanitizedPhone.startsWith('+234')) {
-      sanitizedPhone = '0' + sanitizedPhone.slice(4);
-    } else if (sanitizedPhone.startsWith('234') && sanitizedPhone.length === 13) {
-      sanitizedPhone = '0' + sanitizedPhone.slice(3);
-    }
-    
-    // Remove any remaining non-digit characters except leading 0
-    sanitizedPhone = sanitizedPhone.replace(/[^0-9]/g, '');
-    
+    const sanitizedPhone = normalizePhoneForSmeplug(phone_number);
     const normalizedAmount = Number(amount);
 
-    // Basic validation - let API handle network-specific validation
-    if (!sanitizedPhone || sanitizedPhone.length < 10 || sanitizedPhone.length > 11) {
+    if (!isValidSmeplugPhone(sanitizedPhone)) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Please enter a valid phone number (10-11 digits)',
+          error: 'Please enter a valid 11-digit Nigerian phone number (e.g. 08012345678).',
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
@@ -173,7 +307,10 @@ serve(async (req) => {
       );
     }
 
-    const reference = `AIRTIME-${Date.now()}-${user.id.slice(0, 8)}`;
+    const reference = `AIRTIME-${Date.now()}-${user.id.slice(0, 8)}-${crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+
+    const buildVendorReference = () =>
+      `AT${Date.now().toString(36).toUpperCase()}${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
     const normalizedNetworkName = resolveNetworkName(smeplugNetworkId, providedNetworkName);
     const normalizedServiceId = smeplugNetworkId !== null ? String(smeplugNetworkId) : String(network_id ?? '');
@@ -191,6 +328,31 @@ serve(async (req) => {
         ? `Network ${fallbackNetworkId}`
         : 'the selected network');
     const formattedAmount = `₦${normalizedAmount.toFixed(2)}`;
+    const purchaseAmount = Math.round(normalizedAmount);
+
+    if (!isDemoUser && SECRET_KEY) {
+      const { balance: providerBalance } = await fetchSmeplugWalletBalance(SECRET_KEY);
+      if (providerBalance !== null && providerBalance < purchaseAmount) {
+        console.error('SMEPLUG wallet balance too low for airtime purchase', {
+          providerBalance,
+          purchaseAmount,
+          userId: user.id,
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error:
+              'Airtime service is temporarily unavailable (provider wallet is low). Please try again later or contact support.',
+            details: {
+              reason: 'provider_wallet_low',
+              provider_balance: providerBalance,
+              required: purchaseAmount,
+            },
+          }),
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
 
     // Debit wallet BEFORE calling SMEPlug so we never get "vendor success + user not debited"
     // (e.g. client timeout / Edge failure after SMEPlug already processed the purchase).
@@ -257,6 +419,7 @@ serve(async (req) => {
 
     let apiResponse: Record<string, unknown> | string | null = null;
     let response: Response | { ok: boolean; status?: number };
+    let providerBalanceAtCall: number | null = null;
 
     if (isDemoUser) {
       console.log('Demo user detected - using mock API response');
@@ -276,44 +439,108 @@ serve(async (req) => {
       response = { ok: true };
     } else {
       try {
-        const requestBody = {
+        if (SECRET_KEY) {
+          const providerWallet = await fetchSmeplugWalletBalance(SECRET_KEY);
+          providerBalanceAtCall = providerWallet.balance;
+          console.log('SMEPLUG provider wallet balance:', providerBalanceAtCall, providerWallet.raw);
+        }
+
+        // Official SMEPlug body: { network_id: number, phone: string, amount: number }
+        const buildCanonicalSmeplugBody = () => ({
           network_id: smeplugNetworkId,
           phone: sanitizedPhone,
-          amount: normalizedAmount,
-          customer_reference: reference,
-        };
-
-        console.log('Calling SMEPLUG API with:', JSON.stringify(requestBody, null, 2));
-        console.log('SMEPLUG_SECRET_KEY present:', !!SECRET_KEY);
-
-        response = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${SECRET_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
+          amount: purchaseAmount,
         });
 
-        console.log('SMEPLUG API response status:', response.status, response.statusText);
+        const callSmeplugAirtime = async (requestBody: Record<string, unknown>) => {
+          console.log('Calling SMEPLUG API with:', JSON.stringify(requestBody, null, 2));
 
-        const responseText = await response.text();
-        console.log('SMEPLUG API raw response:', responseText.substring(0, 500));
+          const vendorResponse = await fetch('https://smeplug.ng/api/v1/airtime/purchase', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${SECRET_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
 
-        try {
-          apiResponse = JSON.parse(responseText) as Record<string, unknown>;
-        } catch (parseError) {
-          console.error('Failed to parse SMEPLUG response:', responseText);
-          console.error('Parse error:', parseError);
-          await refundWallet('invalid response from provider', 'REVK-PARSE');
-          await recordAirtimeFailure({ raw: responseText.substring(0, 2000) }, 'parse_error');
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'Service currently unavailable. Please try again later or contact support.',
-            }),
-            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
-          );
+          console.log('SMEPLUG API response status:', vendorResponse.status, vendorResponse.statusText);
+
+          const responseText = await vendorResponse.text();
+          console.log('SMEPLUG API raw response:', responseText.substring(0, 500));
+
+          let parsedResponse: Record<string, unknown> | string;
+          try {
+            parsedResponse = JSON.parse(responseText) as Record<string, unknown>;
+          } catch {
+            parsedResponse = responseText;
+          }
+
+          return { vendorResponse, parsedResponse, requestBody };
+        };
+
+        const isDuplicateReferenceError = (payload: Record<string, unknown> | string | null) => {
+          const message = extractSmeplugErrorMessage(
+            typeof payload === 'object' && payload !== null ? payload : null,
+          )?.toLowerCase() ?? '';
+          return message.includes('duplicate customer reference') || message.includes('duplicate reference');
+        };
+
+        let lastAttempt: Awaited<ReturnType<typeof callSmeplugAirtime>> | null = null;
+        let vendorSucceeded = false;
+
+        const primaryAttempt = await callSmeplugAirtime(buildCanonicalSmeplugBody());
+        lastAttempt = primaryAttempt;
+
+        const parseAttempt = (attempt: typeof primaryAttempt) => {
+          const parsed =
+            typeof attempt.parsedResponse === 'object' && attempt.parsedResponse !== null
+              ? attempt.parsedResponse
+              : null;
+          const httpOk =
+            attempt.vendorResponse.ok &&
+            attempt.vendorResponse.status >= 200 &&
+            attempt.vendorResponse.status < 300;
+          return { parsed, httpOk };
+        };
+
+        let { parsed, httpOk } = parseAttempt(primaryAttempt);
+        if (isSuccessfulSmeplugAirtimeResponse(parsed, httpOk)) {
+          vendorSucceeded = true;
+          response = primaryAttempt.vendorResponse;
+          apiResponse = primaryAttempt.parsedResponse;
+        } else if (isDuplicateReferenceError(parsed)) {
+          const retryAttempt = await callSmeplugAirtime({
+            ...buildCanonicalSmeplugBody(),
+            customer_reference: buildVendorReference(),
+          });
+          lastAttempt = retryAttempt;
+          ({ parsed, httpOk } = parseAttempt(retryAttempt));
+          if (isSuccessfulSmeplugAirtimeResponse(parsed, httpOk)) {
+            vendorSucceeded = true;
+            response = retryAttempt.vendorResponse;
+            apiResponse = retryAttempt.parsedResponse;
+          }
+        }
+
+        if (!vendorSucceeded && lastAttempt) {
+          response = lastAttempt.vendorResponse;
+          apiResponse = lastAttempt.parsedResponse;
+        }
+
+        if (typeof apiResponse === 'string') {
+          const trimmed = apiResponse.trim();
+          if (trimmed.length === 0 || trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+            await refundWallet('invalid response from provider', 'REVK-PARSE');
+            await recordAirtimeFailure({ raw: trimmed.slice(0, 2000) }, 'parse_error');
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'Service currently unavailable. Please try again later or contact support.',
+              }),
+              { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+            );
+          }
         }
 
         console.log('SMEPLUG airtime purchase response:', JSON.stringify(apiResponse, null, 2));
@@ -343,39 +570,27 @@ serve(async (req) => {
 
     // Check HTTP status first (for real API responses)
     const httpStatusOk = response.ok && ('status' in response ? (response.status >= 200 && response.status < 300) : true);
-    
-    // Check API response status indicators
-    const apiStatus =
-      apiResponse?.success === true ||
-      apiResponse?.status === true ||
-      apiResponse?.data?.status === true ||
-      apiResponse?.data?.success === true;
 
-    const dataObj = apiResponse && typeof apiResponse === 'object' && apiResponse !== null && 'data' in apiResponse
-      ? (apiResponse as { data?: Record<string, unknown> }).data
-      : undefined;
-    const dataHasError = Boolean(dataObj && 'error' in dataObj && dataObj.error);
+    const parsedApiResponse =
+      apiResponse && typeof apiResponse === 'object' && apiResponse !== null
+        ? (apiResponse as Record<string, unknown>)
+        : null;
 
-    const normalizedStatus =
-      apiStatus ||
-      (apiResponse?.status === 'success') ||
-      (dataObj && typeof dataObj === 'object' && !dataHasError);
+    const purchaseSucceeded = isSuccessfulSmeplugAirtimeResponse(parsedApiResponse, httpStatusOk);
 
     // If HTTP status is not OK or API indicates failure
-    if (!httpStatusOk || !normalizedStatus) {
-      // Extract error message from various possible API response formats
-      let errorMessage =
-        apiResponse?.message ||
-        apiResponse?.error ||
-        apiResponse?.data?.message ||
-        apiResponse?.data?.error ||
-        apiResponse?.response_description ||
-        apiResponse?.data?.response_description ||
-        apiResponse?.status_message ||
-        apiResponse?.data?.status_message ||
-        apiResponse?.msg ||
-        apiResponse?.data?.msg;
-      
+    if (!purchaseSucceeded) {
+      let errorMessage = extractSmeplugErrorMessage(parsedApiResponse);
+
+      let providerBalanceForError: number | null = providerBalanceAtCall ?? null;
+      if (errorMessage && !isDemoUser && SECRET_KEY) {
+        if (providerBalanceForError === null) {
+          const refreshed = await fetchSmeplugWalletBalance(SECRET_KEY);
+          providerBalanceForError = refreshed.balance;
+        }
+        errorMessage = mapAirtimePurchaseError(errorMessage, providerBalanceForError, purchaseAmount);
+      }
+
       // If no error message found, check HTTP status
       if (!errorMessage) {
         if (!httpStatusOk && 'status' in response) {
@@ -384,8 +599,8 @@ serve(async (req) => {
             errorMessage = 'Authentication failed. Please contact support.';
           } else if (statusCode === 403) {
             errorMessage = 'Access denied. Please contact support.';
-          } else if (statusCode === 400) {
-            errorMessage = 'Invalid request. Please check your input and try again.';
+          } else if (statusCode === 400 || statusCode === 406) {
+            errorMessage = 'Invalid request. Please check the phone number and amount, then try again.';
           } else if (statusCode >= 500) {
             errorMessage = 'Service temporarily unavailable. Please try again later.';
           } else {
@@ -424,6 +639,7 @@ serve(async (req) => {
           error: errorMessage,
           details: apiResponse,
           httpStatus: 'status' in response ? response.status : undefined,
+          provider_balance: providerBalanceForError,
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
       );

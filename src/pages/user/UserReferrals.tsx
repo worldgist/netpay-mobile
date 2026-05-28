@@ -9,6 +9,7 @@ import { ArrowLeft, Copy, Users, Gift, CheckCircle, Share2, Wallet, Link2, Messa
 import { toast } from "sonner";
 import BottomNav from "@/components/BottomNav";
 import { formatNaira } from "@/lib/currency";
+import { authRedirectUrls } from "@/config/site";
 
 interface Referral {
   id: string;
@@ -74,7 +75,7 @@ export default function UserReferrals() {
         const code = profile.referral_code || `REF-${userId.slice(0, 8).toUpperCase()}`;
         setReferralCode(code);
         // Set referral link
-        const link = `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(code)}`;
+        const link = authRedirectUrls.signupWithReferral(code);
         setReferralLink(link);
       }
 
@@ -122,14 +123,14 @@ export default function UserReferrals() {
       navigator.clipboard.writeText(referralLink);
       toast.success("Referral link copied to clipboard!");
     } else {
-      const link = `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+      const link = authRedirectUrls.signupWithReferral(referralCode);
       navigator.clipboard.writeText(link);
       toast.success("Referral link copied to clipboard!");
     }
   };
 
   const shareReferral = async () => {
-    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const link = referralLink || authRedirectUrls.signupWithReferral(referralCode);
     const shareData = {
       title: 'Join NetPay',
       text: `Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${link}`,
@@ -154,24 +155,24 @@ export default function UserReferrals() {
   };
 
   const shareViaWhatsApp = () => {
-    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const link = referralLink || authRedirectUrls.signupWithReferral(referralCode);
     const message = encodeURIComponent(`Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${link}`);
     window.open(`https://wa.me/?text=${message}`, '_blank');
   };
 
   const shareViaTwitter = () => {
-    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const link = referralLink || authRedirectUrls.signupWithReferral(referralCode);
     const text = encodeURIComponent(`Join NetPay using my referral code ${referralCode} and earn rewards!`);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(link)}`, '_blank');
   };
 
   const shareViaFacebook = () => {
-    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const link = referralLink || authRedirectUrls.signupWithReferral(referralCode);
     window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`, '_blank');
   };
 
   const shareViaEmail = () => {
-    const link = referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`;
+    const link = referralLink || authRedirectUrls.signupWithReferral(referralCode);
     const subject = encodeURIComponent('Join NetPay with my referral code');
     const body = encodeURIComponent(`Hi!\n\nJoin NetPay using my referral code ${referralCode} and earn rewards!\n\nSign up here: ${link}\n\nThanks!`);
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
@@ -277,7 +278,7 @@ export default function UserReferrals() {
                 <label className="text-sm text-white/80 mb-1 block">Referral Link</label>
                 <div className="flex gap-2">
                   <Input
-                    value={referralLink || `${window.location.origin}/user/auth?mode=signup&ref=${encodeURIComponent(referralCode)}`}
+                    value={referralLink || authRedirectUrls.signupWithReferral(referralCode)}
                     readOnly
                     className="bg-white/20 border-white/30 text-white placeholder:text-white/60 text-sm"
                   />

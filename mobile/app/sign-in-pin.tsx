@@ -19,6 +19,7 @@ import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
+import { assertNetworkAccessAllowed } from '@/utils/network-access';
 
 const PIN_LENGTH = 4;
 const PIN_STORAGE_KEY = 'supabase_pin_hash';
@@ -110,6 +111,7 @@ export default function SignInPinScreen() {
 
     try {
       setLoading(true);
+      await assertNetworkAccessAllowed(supabase);
       const enteredHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, enteredPin);
 
       const { data, error } = await supabase.functions.invoke('sign-in-with-pin', {

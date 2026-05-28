@@ -22,6 +22,7 @@ import {
   getPasswordResetEmailUserMessage,
   isPasswordResetNetworkError,
 } from '@/utils/auth-password-reset-errors';
+import { authRedirectUrls } from '@/constants/site';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -155,7 +156,7 @@ export default function ResetPasswordScreen() {
 
     try {
       setResending(true);
-      const redirectTo = 'netpay://reset-password';
+      const redirectTo = authRedirectUrls.passwordReset();
       let { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
 
       if (error && isPasswordResetNetworkError(error)) {

@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { authRedirectUrls } from "@/config/site";
 import { Loader2, Mail, ArrowLeft } from "lucide-react";
 import { z } from "zod";
 
@@ -29,7 +30,7 @@ export default function ForgotPassword() {
       }
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/user/auth`,
+        redirectTo: authRedirectUrls.passwordReset(),
       });
 
       if (error) throw error;

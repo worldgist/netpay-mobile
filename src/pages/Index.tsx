@@ -136,7 +136,7 @@ const Index = () => {
           </div>
           <div className="flex items-center gap-3">
             <Button
-              onClick={() => navigate("/user/auth?mode=signup")}
+              onClick={() => navigate("/open/signup")}
               size="lg"
               className="bg-white text-orange-600 hover:bg-white/90 shadow-elegant px-6"
             >
@@ -166,7 +166,7 @@ const Index = () => {
 
             <div className="flex flex-wrap gap-4">
               <Button
-                onClick={() => navigate("/user/auth?mode=signup")}
+                onClick={() => navigate("/open/signup")}
                 size="lg"
                 className="bg-brand hover:bg-brand/90 text-white h-12 px-8 text-base"
               >
@@ -322,7 +322,7 @@ const Index = () => {
           </p>
           <div className="flex flex-wrap justify-center gap-4">
               <Button
-                onClick={() => navigate("/user/auth?mode=signup")}
+                onClick={() => navigate("/open/signup")}
                 size="lg"
                 className="bg-white text-brand hover:bg-white/90 h-12 px-8 shadow-elegant"
               >

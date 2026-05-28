@@ -29,7 +29,7 @@ export default function TermsAndConditionsScreen() {
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>1. Acceptance of Terms</ThemedText>
             <ThemedText style={styles.sectionText}>
-              By downloading, installing, accessing, or using the NetPay mobile application ("App") or website ("Service"), you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions ("Terms"). If you do not agree with any part of these Terms, you must not use our Service. These Terms constitute a legally binding agreement between you and NetPay.
+              By downloading, installing, accessing, or using the NetPay mobile application and website service, you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions. If you do not agree with any part of these Terms, you must not use our Service. These Terms constitute a legally binding agreement between you and NetPay.
             </ThemedText>
             <ThemedText style={styles.noteText}>
               You must be at least 18 years old to use our Service. By using the Service, you represent and warrant that you are of legal age to enter into this agreement.
@@ -141,7 +141,7 @@ export default function TermsAndConditionsScreen() {
             <ThemedText style={styles.sectionText}>
               Important limitations:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• We provide the Service "as is" and "as available" without warranties of any kind, express or implied</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• We provide the Service as is and as available without warranties of any kind, express or implied</ThemedText>
             <ThemedText style={styles.bulletPoint}>• We do not guarantee uninterrupted, secure, or error-free operation of the Service</ThemedText>
             <ThemedText style={styles.bulletPoint}>• We are not liable for indirect, incidental, special, consequential, or punitive damages</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Our total liability shall not exceed the amount you paid for the specific transaction in question</ThemedText>
@@ -188,7 +188,7 @@ export default function TermsAndConditionsScreen() {
             <ThemedText style={styles.bulletPoint}>• Your continued use after changes constitutes acceptance of updated Terms</ThemedText>
             <ThemedText style={styles.bulletPoint}>• If you disagree with changes, you may close your account and stop using the Service</ThemedText>
             <ThemedText style={styles.noteText}>
-              We recommend reviewing these Terms periodically. The "Last updated" date at the top indicates when Terms were last modified.
+              We recommend reviewing these Terms periodically. The Last updated date at the top indicates when Terms were last modified.
             </ThemedText>
           </View>
 
@@ -218,7 +218,7 @@ export default function TermsAndConditionsScreen() {
             </ThemedText>
             <ThemedText style={styles.bulletPoint}>• Email: support@netpayy.ng (include transaction reference if applicable)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Phone: +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• In-App: Use the "Contact Us" feature</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• In-App: Use the Contact Us feature</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Address: Lagos, Nigeria (specific address available upon request)</ThemedText>
             <ThemedText style={styles.sectionText}>
               Response times:

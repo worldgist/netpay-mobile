@@ -1,6 +1,8 @@
 // Single Expo config source (no app.json) — satisfies expo-doctor and keeps EAS google-services override.
 
 const googleServicesFromEnv = process.env.GOOGLE_SERVICES_JSON;
+const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://netpayy.ng').replace(/\/$/, '');
+const siteHost = siteUrl.replace(/^https?:\/\//, '');
 
 module.exports = {
   name: 'Netpay',
@@ -19,6 +21,7 @@ module.exports = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.netpay.mobile',
+    associatedDomains: [`applinks:${siteHost}`, 'applinks:www.netpayy.ng'],
     infoPlist: {
       CFBundleURLTypes: [
         {
@@ -53,13 +56,24 @@ module.exports = {
         autoVerify: true,
         category: ['BROWSABLE', 'DEFAULT'],
         data: [
-          {
-            scheme: 'netpay',
-            host: 'reset-password',
-          },
+          { scheme: 'https', host: siteHost, pathPrefix: '/reset-password' },
+          { scheme: 'https', host: 'www.netpayy.ng', pathPrefix: '/reset-password' },
+          { scheme: 'https', host: siteHost, pathPrefix: '/pay' },
+          { scheme: 'https', host: 'www.netpayy.ng', pathPrefix: '/pay' },
+          { scheme: 'https', host: siteHost, pathPrefix: '/open' },
+          { scheme: 'https', host: 'www.netpayy.ng', pathPrefix: '/open' },
         ],
       },
+      {
+        action: 'VIEW',
+        category: ['BROWSABLE', 'DEFAULT'],
+        data: [{ scheme: 'netpay' }],
+      },
     ],
+  },
+  notification: {
+    icon: './assets/images/logo.png',
+    color: '#FF7F00',
   },
   web: {
     output: 'static',
@@ -90,12 +104,12 @@ module.exports = {
     [
       'expo-notifications',
       {
-        icon: './assets/images/logo-icon-1024.png',
-        color: '#ffffff',
+        icon: './assets/images/logo.png',
+        color: '#FF7F00',
         mode: 'production',
         android: {
-          icon: './assets/images/logo-icon-1024.png',
-          color: '#ffffff',
+          icon: './assets/images/logo.png',
+          color: '#FF7F00',
           enableVibration: true,
         },
       },
@@ -107,6 +121,7 @@ module.exports = {
     typedRoutes: true,
   },
   extra: {
+    siteUrl,
     router: {},
     eas: {
       projectId: 'a962982c-3160-42f2-9e64-3ab04ced7bf5',

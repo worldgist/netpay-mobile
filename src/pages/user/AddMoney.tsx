@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureProfileExists } from "@/utils/profile";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Copy, Loader2, Building2, User, Info, CheckCircle2, Landmark, CreditCard } from "lucide-react";
+import { ArrowLeft, Copy, Loader2, Building2, User, Info, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 const PAYVESSEL_BUSINESS_ID = "5EE89DA992424C6DA0234577E7E4ECAA";
@@ -11,12 +11,6 @@ const DEFAULT_BANK_CODE = "999991";
 const DEFAULT_BANK_NAME = "PalmPay";
 const ALTERNATE_BANK_CODE = "120001";
 const ALTERNATE_BANK_NAME = "9 Payment Service Bank";
-const FLUTTERWAVE_BANK_CODE = "FLW";
-const FLUTTERWAVE_BANK_NAME = "Flutterwave";
-
-type FundingProvider = "payvessel" | "flutterwave";
-type FlutterwaveIdType = "bvn" | "nin";
-
 interface VirtualAccount {
   account_number: string;
   bank_name: string;
@@ -27,21 +21,16 @@ interface VirtualAccount {
 
 export default function AddMoney() {
   const navigate = useNavigate();
-  const [selectedFundingProvider, setSelectedFundingProvider] = useState<FundingProvider | null>(null);
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
   const [selectedBank, setSelectedBank] = useState<typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE>(DEFAULT_BANK_CODE);
   const [nin, setNin] = useState("");
-  const [flutterwaveIdentityNumber, setFlutterwaveIdentityNumber] = useState("");
-  const [flutterwaveIdType, setFlutterwaveIdType] = useState<FlutterwaveIdType>("bvn");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCheckingBalance, setIsCheckingBalance] = useState(false);
 
-  const resolveDefaultFundingProvider = useCallback(async () => {
-    if (selectedFundingProvider) return;
-
+  const resolveDefaultBank = useCallback(async () => {
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
@@ -56,6 +45,7 @@ export default function AddMoney() {
         .from("virtual_accounts")
         .select("bank_code")
         .eq("user_id", session.user.id)
+        .in("bank_code", [DEFAULT_BANK_CODE, ALTERNATE_BANK_CODE])
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -64,31 +54,18 @@ export default function AddMoney() {
         throw defaultAccountError;
       }
 
-      if (!defaultAccount) {
-        setSelectedFundingProvider("payvessel");
-        return;
+      if (
+        defaultAccount?.bank_code === DEFAULT_BANK_CODE ||
+        defaultAccount?.bank_code === ALTERNATE_BANK_CODE
+      ) {
+        setSelectedBank(defaultAccount.bank_code as typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE);
       }
-
-      const defaultBankCode = defaultAccount.bank_code;
-      const provider: FundingProvider = defaultBankCode === FLUTTERWAVE_BANK_CODE ? "flutterwave" : "payvessel";
-
-      if (provider === "payvessel" && (defaultBankCode === DEFAULT_BANK_CODE || defaultBankCode === ALTERNATE_BANK_CODE)) {
-        setSelectedBank(defaultBankCode as typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE);
-      }
-
-      setSelectedFundingProvider(provider);
     } catch (err) {
-      console.error("Failed to resolve default funding provider:", err);
-      setSelectedFundingProvider("payvessel");
+      console.error("Failed to resolve default bank:", err);
     }
-  }, [navigate, selectedFundingProvider]);
+  }, [navigate]);
 
   const fetchVirtualAccount = useCallback(async () => {
-    if (!selectedFundingProvider) {
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     try {
       setError(null);
@@ -104,7 +81,7 @@ export default function AddMoney() {
 
       await ensureProfileExists(session.user);
 
-      const activeBankCode = selectedFundingProvider === "flutterwave" ? FLUTTERWAVE_BANK_CODE : selectedBank;
+      const activeBankCode = selectedBank;
 
       const { data: existingAccount, error: accountError } = await supabase
         .from("virtual_accounts")
@@ -135,39 +112,21 @@ export default function AddMoney() {
     } finally {
       setLoading(false);
     }
-  }, [navigate, selectedBank, selectedFundingProvider]);
+  }, [navigate, selectedBank]);
 
   useEffect(() => {
-    resolveDefaultFundingProvider();
-  }, [resolveDefaultFundingProvider]);
+    resolveDefaultBank();
+  }, [resolveDefaultBank]);
 
   useEffect(() => {
     fetchVirtualAccount();
   }, [fetchVirtualAccount]);
 
   const handleCreateVirtualAccount = async () => {
-    if (!selectedFundingProvider) {
-      toast({
-        title: "Provider Required",
-        description: "Please select a funding provider first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (selectedFundingProvider === "payvessel" && nin.trim().length !== 11) {
+    if (nin.trim().length !== 11) {
       toast({
         title: "NIN Required",
         description: "Please enter your 11-digit NIN to create a virtual account.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (selectedFundingProvider === "flutterwave" && flutterwaveIdentityNumber.trim().length !== 11) {
-      toast({
-        title: `${flutterwaveIdType.toUpperCase()} Required`,
-        description: `Please enter your 11-digit ${flutterwaveIdType.toUpperCase()} to create a Flutterwave virtual account.`,
         variant: "destructive",
       });
       return;
@@ -192,28 +151,15 @@ export default function AddMoney() {
       const phoneNumber = profile?.phone || "07067398399";
       const emailAddress = profile?.email || session.user.email || "";
 
-      const functionName = selectedFundingProvider === "payvessel" ? "get-virtual-account" : "get-flutterwave-virtual-account";
-      const requestBody =
-        selectedFundingProvider === "payvessel"
-          ? {
-              email: emailAddress,
-              name: fullName,
-              phoneNumber,
-              bankcode: [selectedBank],
-              account_type: "STATIC",
-              nin: nin.trim(),
-            }
-          : {
-              email: emailAddress,
-              name: fullName,
-              phoneNumber,
-              bvn: flutterwaveIdType === "bvn" ? flutterwaveIdentityNumber.trim() : undefined,
-              nin: flutterwaveIdType === "nin" ? flutterwaveIdentityNumber.trim() : undefined,
-              idType: flutterwaveIdType,
-            };
-
-      const { data, error: invokeError } = await supabase.functions.invoke(functionName, {
-        body: requestBody,
+      const { data, error: invokeError } = await supabase.functions.invoke("get-virtual-account", {
+        body: {
+          email: emailAddress,
+          name: fullName,
+          phoneNumber,
+          bankcode: [selectedBank],
+          account_type: "STATIC",
+          nin: nin.trim(),
+        },
       });
 
       if (invokeError) throw invokeError;
@@ -225,13 +171,9 @@ export default function AddMoney() {
       const account = data.data;
       const bankName =
         account.bank_name ||
-        (selectedFundingProvider === "payvessel"
-          ? selectedBank === DEFAULT_BANK_CODE
-            ? DEFAULT_BANK_NAME
-            : ALTERNATE_BANK_NAME
-          : FLUTTERWAVE_BANK_NAME);
-      const bankCode = selectedFundingProvider === "payvessel" ? selectedBank : FLUTTERWAVE_BANK_CODE;
-      const businessId = selectedFundingProvider === "payvessel" ? PAYVESSEL_BUSINESS_ID : "FLUTTERWAVE";
+        (selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME);
+      const bankCode = selectedBank;
+      const businessId = PAYVESSEL_BUSINESS_ID;
 
       const { error: upsertError } = await supabase.from("virtual_accounts").upsert(
         {
@@ -242,16 +184,8 @@ export default function AddMoney() {
           account_number: account.account_number,
           account_name: account.account_name,
           tracking_reference: account.trackingReference || account.tracking_reference || null,
-          nin:
-            selectedFundingProvider === "payvessel"
-              ? nin.trim()
-              : flutterwaveIdType === "nin"
-                ? flutterwaveIdentityNumber.trim()
-                : null,
-          bvn:
-            selectedFundingProvider === "flutterwave" && flutterwaveIdType === "bvn"
-              ? flutterwaveIdentityNumber.trim()
-              : null,
+          nin: nin.trim(),
+          bvn: null,
           updated_at: new Date().toISOString(),
         } as never,
         { onConflict: "user_id,bank_code" }
@@ -268,11 +202,10 @@ export default function AddMoney() {
       });
       setShowCreateForm(false);
       setNin("");
-      setFlutterwaveIdentityNumber("");
 
       toast({
         title: "Success!",
-        description: `${selectedFundingProvider === "payvessel" ? "PayVessel" : "Flutterwave"} virtual account created successfully`,
+        description: "PayVessel virtual account created successfully",
       });
     } catch (err) {
       console.error("Error creating virtual account:", err);
@@ -366,12 +299,7 @@ export default function AddMoney() {
     );
   }
 
-  const activeBankLabel =
-    selectedFundingProvider === "flutterwave"
-      ? FLUTTERWAVE_BANK_NAME
-      : selectedBank === DEFAULT_BANK_CODE
-        ? DEFAULT_BANK_NAME
-        : ALTERNATE_BANK_NAME;
+  const activeBankLabel = selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME;
 
   return (
     <div className="min-h-screen bg-background">
@@ -391,108 +319,47 @@ export default function AddMoney() {
         <div className="bg-primary/10 rounded-xl p-4 flex items-start gap-3">
           <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
           <div className="text-sm text-foreground">
-            <p className="font-semibold mb-1">Choose a funding provider</p>
-            <p>Create a dedicated virtual account and transfer into it to fund your wallet.</p>
+            <p className="font-semibold mb-1">Fund your wallet</p>
+            <p>Create a dedicated PayVessel virtual account and transfer into it to fund your wallet.</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex items-center gap-3">
           <Button
-            variant={selectedFundingProvider === "payvessel" ? "default" : "outline"}
-            className="h-14"
-            onClick={() => setSelectedFundingProvider("payvessel")}
+            variant={selectedBank === DEFAULT_BANK_CODE ? "default" : "outline"}
+            onClick={() => setSelectedBank(DEFAULT_BANK_CODE)}
+            size="sm"
           >
-            <Landmark className="w-4 h-4 mr-2" />
-            PayVessel
+            PalmPay
           </Button>
           <Button
-            variant={selectedFundingProvider === "flutterwave" ? "default" : "outline"}
-            className="h-14"
-            onClick={() => setSelectedFundingProvider("flutterwave")}
+            variant={selectedBank === ALTERNATE_BANK_CODE ? "default" : "outline"}
+            onClick={() => setSelectedBank(ALTERNATE_BANK_CODE)}
+            size="sm"
           >
-            <CreditCard className="w-4 h-4 mr-2" />
-            Flutterwave
+            9PSB
           </Button>
         </div>
-
-        {selectedFundingProvider === "payvessel" && (
-          <div className="flex items-center gap-3">
-            <Button
-              variant={selectedBank === DEFAULT_BANK_CODE ? "default" : "outline"}
-              onClick={() => setSelectedBank(DEFAULT_BANK_CODE)}
-              size="sm"
-            >
-              PalmPay
-            </Button>
-            <Button
-              variant={selectedBank === ALTERNATE_BANK_CODE ? "default" : "outline"}
-              onClick={() => setSelectedBank(ALTERNATE_BANK_CODE)}
-              size="sm"
-            >
-              9PSB
-            </Button>
-          </div>
-        )}
-
-        {selectedFundingProvider === "flutterwave" && (
-          <div className="flex items-center gap-3">
-            <Button
-              variant={flutterwaveIdType === "bvn" ? "default" : "outline"}
-              onClick={() => {
-                setFlutterwaveIdType("bvn");
-                setFlutterwaveIdentityNumber("");
-              }}
-              size="sm"
-            >
-              BVN
-            </Button>
-            <Button
-              variant={flutterwaveIdType === "nin" ? "default" : "outline"}
-              onClick={() => {
-                setFlutterwaveIdType("nin");
-                setFlutterwaveIdentityNumber("");
-              }}
-              size="sm"
-            >
-              NIN
-            </Button>
-          </div>
-        )}
 
         {showCreateForm ? (
           <div className="space-y-6">
             <div className="bg-card rounded-2xl border shadow-sm p-6 space-y-4">
-              {selectedFundingProvider === "payvessel" ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">NIN (National Identity Number)</label>
-                  <input
-                    type="text"
-                    value={nin}
-                    onChange={(e) => setNin(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                    placeholder="Enter your 11-digit NIN"
-                    className="w-full px-4 py-3 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    maxLength={11}
-                  />
-                  <p className="text-xs text-muted-foreground">Required for PayVessel account verification</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">{flutterwaveIdType.toUpperCase()}</label>
-                  <input
-                    type="text"
-                    value={flutterwaveIdentityNumber}
-                    onChange={(e) => setFlutterwaveIdentityNumber(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                    placeholder={`Enter your 11-digit ${flutterwaveIdType.toUpperCase()}`}
-                    className="w-full px-4 py-3 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    maxLength={11}
-                  />
-                  <p className="text-xs text-muted-foreground">Required for Flutterwave account verification</p>
-                </div>
-              )}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">NIN (National Identity Number)</label>
+                <input
+                  type="text"
+                  value={nin}
+                  onChange={(e) => setNin(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                  placeholder="Enter your 11-digit NIN"
+                  className="w-full px-4 py-3 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  maxLength={11}
+                />
+                <p className="text-xs text-muted-foreground">Required for PayVessel account verification</p>
+              </div>
 
               <Button
                 onClick={handleCreateVirtualAccount}
-                disabled={creating}
+                disabled={creating || nin.trim().length !== 11}
                 className="w-full h-12"
               >
                 {creating ? (
@@ -501,7 +368,7 @@ export default function AddMoney() {
                     Creating Account...
                   </>
                 ) : (
-                  `Create ${selectedFundingProvider === "payvessel" ? "PayVessel" : "Flutterwave"} Account`
+                  "Create PayVessel Account"
                 )}
               </Button>
             </div>

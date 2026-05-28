@@ -8,15 +8,13 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '@/lib/supabase';
-import { Dropdown } from '@/components/dropdown';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 const PAYVESSEL_BUSINESS_ID = '5EE89DA992424C6DA0234577E7E4ECAA';
 const DEFAULT_BANK_CODE = '999991';
 const DEFAULT_BANK_NAME = 'PalmPay';
 const ALTERNATE_BANK_CODE = '120001';
 const ALTERNATE_BANK_NAME = '9 Payment Service Bank';
-const FLUTTERWAVE_BANK_CODE = 'FLW';
-const FLUTTERWAVE_BANK_NAME = 'Flutterwave';
 
 interface VirtualAccount {
   account_number: string;
@@ -26,24 +24,22 @@ interface VirtualAccount {
   tracking_reference?: string | null;
 }
 
-type FundingProvider = 'payvessel' | 'flutterwave';
-type FlutterwaveIdType = 'bvn' | 'nin';
-
 export default function AddMoneyScreen() {
   const router = useRouter();
-  const [selectedFundingProvider, setSelectedFundingProvider] = useState<FundingProvider | null>(null);
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
   const [selectedBank, setSelectedBank] = useState<typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE>(DEFAULT_BANK_CODE);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [nin, setNin] = useState('');
-  const [flutterwaveIdentityNumber, setFlutterwaveIdentityNumber] = useState('');
-  const [flutterwaveIdType, setFlutterwaveIdType] = useState<FlutterwaveIdType>('bvn');
   const [loading, setLoading] = useState(true);
+  const [balanceLoading, setBalanceLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isCheckingBalance, setIsCheckingBalance] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const isMounted = useRef(true);
+  const balanceChannelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
@@ -52,29 +48,19 @@ export default function AddMoneyScreen() {
     };
   }, []);
 
-  const resolveDefaultFundingProvider = useCallback(async () => {
-    if (selectedFundingProvider) return;
-
+  const resolveDefaultBank = useCallback(async () => {
     try {
-      if (isMounted.current) {
-        setLoading(true);
-      }
-
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
 
       const session = sessionData.session;
-      if (!session) {
-        if (isMounted.current) {
-          setLoading(false);
-        }
-        return;
-      }
+      if (!session) return;
 
       const { data: defaultAccount, error: defaultAccountError } = await supabase
         .from('virtual_accounts')
         .select('bank_code')
         .eq('user_id', session.user.id)
+        .in('bank_code', [DEFAULT_BANK_CODE, ALTERNATE_BANK_CODE])
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -83,48 +69,104 @@ export default function AddMoneyScreen() {
         throw defaultAccountError;
       }
 
-      if (!defaultAccount) {
+      if (
+        defaultAccount?.bank_code === DEFAULT_BANK_CODE ||
+        defaultAccount?.bank_code === ALTERNATE_BANK_CODE
+      ) {
         if (isMounted.current) {
-          setLoading(false);
+          setSelectedBank(defaultAccount.bank_code as typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE);
         }
+      }
+    } catch (err) {
+      console.error('Failed to resolve default bank:', err);
+    }
+  }, []);
+  const fetchWalletBalance = useCallback(async () => {
+    try {
+      if (isMounted.current) {
+        setBalanceLoading(true);
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
         return;
       }
 
-      const defaultBankCode = defaultAccount.bank_code;
-      const defaultProvider: FundingProvider = defaultBankCode === FLUTTERWAVE_BANK_CODE ? 'flutterwave' : 'payvessel';
+      if (isMounted.current) {
+        setUserId(session.user.id);
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileError) throw profileError;
 
       if (isMounted.current) {
-        if (defaultProvider === 'payvessel' && (defaultBankCode === DEFAULT_BANK_CODE || defaultBankCode === ALTERNATE_BANK_CODE)) {
-          setSelectedBank(defaultBankCode as typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE);
-        }
-        setSelectedFundingProvider(defaultProvider);
+        setWalletBalance(Number(profile?.balance) || 0);
       }
     } catch (err) {
-      console.error('Failed to resolve default funding provider:', err);
+      console.error('Failed to load wallet balance:', err);
       if (isMounted.current) {
-        setLoading(false);
+        setWalletBalance(null);
+      }
+    } finally {
+      if (isMounted.current) {
+        setBalanceLoading(false);
       }
     }
-  }, [selectedFundingProvider]);
+  }, [router]);
 
   useEffect(() => {
-    if (!selectedFundingProvider) {
-      resolveDefaultFundingProvider();
-    }
-  }, [selectedFundingProvider, resolveDefaultFundingProvider]);
+    resolveDefaultBank();
+  }, [resolveDefaultBank]);
 
-  const fetchVirtualAccount = useCallback(async (isRefresh = false) => {
-    if (!selectedFundingProvider) {
-      if (isMounted.current) {
-        setLoading(false);
-        setRefreshing(false);
-        setError(null);
-        setVirtualAccount(null);
-        setShowCreateForm(false);
-      }
+  useEffect(() => {
+    fetchWalletBalance();
+  }, [fetchWalletBalance]);
+  useEffect(() => {
+    if (!userId) {
       return;
     }
 
+    if (balanceChannelRef.current) {
+      supabase.removeChannel(balanceChannelRef.current);
+      balanceChannelRef.current = null;
+    }
+
+    const channel = supabase
+      .channel(`add-money-balance-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${userId}`,
+        },
+        () => {
+          fetchWalletBalance();
+        }
+      )
+      .subscribe();
+
+    balanceChannelRef.current = channel;
+
+    return () => {
+      if (balanceChannelRef.current) {
+        supabase.removeChannel(balanceChannelRef.current);
+        balanceChannelRef.current = null;
+      }
+    };
+  }, [fetchWalletBalance, userId]);
+
+  const fetchVirtualAccount = useCallback(async (isRefresh = false) => {
     try {
       if (isMounted.current) {
         setError(null);
@@ -144,7 +186,7 @@ export default function AddMoneyScreen() {
         return;
       }
 
-      const activeBankCode = selectedFundingProvider === 'flutterwave' ? FLUTTERWAVE_BANK_CODE : selectedBank;
+      const activeBankCode = selectedBank;
 
       const { data: accountData, error: accountError } = await supabase
         .from('virtual_accounts')
@@ -196,17 +238,19 @@ export default function AddMoneyScreen() {
         setRefreshing(false);
       }
     }
-  }, [router, selectedBank, selectedFundingProvider]);
+  }, [router, selectedBank]);
 
   useFocusEffect(
     useCallback(() => {
       fetchVirtualAccount();
-    }, [fetchVirtualAccount])
+      fetchWalletBalance();
+    }, [fetchVirtualAccount, fetchWalletBalance])
   );
 
   useEffect(() => {
     fetchVirtualAccount();
-  }, [fetchVirtualAccount]);
+    fetchWalletBalance();
+  }, [fetchVirtualAccount, fetchWalletBalance]);
 
   const handleRefresh = useCallback(() => {
     fetchVirtualAccount(true);
@@ -215,20 +259,6 @@ export default function AddMoneyScreen() {
   const handleSelectBank = (bankCode: typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE) => {
     if (bankCode === selectedBank) return;
     setSelectedBank(bankCode);
-  };
-
-  const handleSelectFundingProvider = (provider: FundingProvider) => {
-    if (provider === selectedFundingProvider) return;
-    setSelectedFundingProvider(provider);
-    setError(null);
-    setNin('');
-    setFlutterwaveIdentityNumber('');
-  };
-
-  const handleSelectFlutterwaveIdType = (idType: FlutterwaveIdType) => {
-    if (idType === flutterwaveIdType) return;
-    setFlutterwaveIdType(idType);
-    setFlutterwaveIdentityNumber('');
   };
 
   const handleCopy = async (text: string, label: string) => {
@@ -250,21 +280,8 @@ export default function AddMoneyScreen() {
   };
 
   const handleCreateVirtualAccount = async () => {
-    if (!selectedFundingProvider) {
-      Alert.alert('Provider Required', 'Please select a funding provider first.');
-      return;
-    }
-
-    const requiresNin = selectedFundingProvider === 'payvessel';
-    const requiresFlutterwaveIdentity = selectedFundingProvider === 'flutterwave';
-
-    if (requiresNin && nin.trim().length !== 11) {
+    if (nin.trim().length !== 11) {
       Alert.alert('NIN Required', 'Please enter your 11-digit NIN to create a virtual account.');
-      return;
-    }
-
-    if (requiresFlutterwaveIdentity && flutterwaveIdentityNumber.trim().length !== 11) {
-      Alert.alert('BVN or NIN Required', `Please enter your 11-digit ${flutterwaveIdType.toUpperCase()} to create a Flutterwave virtual account.`);
       return;
     }
 
@@ -293,28 +310,15 @@ export default function AddMoneyScreen() {
       const phoneNumber = profileData?.phone || '07067398399';
       const emailAddress = profileData?.email || session.user.email || '';
 
-      const functionName = selectedFundingProvider === 'payvessel' ? 'get-virtual-account' : 'get-flutterwave-virtual-account';
-      const requestBody =
-        selectedFundingProvider === 'payvessel'
-          ? {
-              email: emailAddress,
-              name: fullName,
-              phoneNumber,
-              bankcode: [selectedBank],
-              account_type: 'STATIC',
-              nin: nin.trim(),
-            }
-          : {
-              email: emailAddress,
-              name: fullName,
-              phoneNumber,
-              bvn: flutterwaveIdType === 'bvn' ? flutterwaveIdentityNumber.trim() : undefined,
-              nin: flutterwaveIdType === 'nin' ? flutterwaveIdentityNumber.trim() : undefined,
-              idType: flutterwaveIdType,
-            };
-
-      const { data, error: invokeError } = await supabase.functions.invoke(functionName, {
-        body: requestBody,
+      const { data, error: invokeError } = await supabase.functions.invoke('get-virtual-account', {
+        body: {
+          email: emailAddress,
+          name: fullName,
+          phoneNumber,
+          bankcode: [selectedBank],
+          account_type: 'STATIC',
+          nin: nin.trim(),
+        },
       });
 
       if (invokeError) throw invokeError;
@@ -323,13 +327,9 @@ export default function AddMoneyScreen() {
         const account = data.data;
         const bankName =
           account.bank_name ||
-          (selectedFundingProvider === 'payvessel'
-            ? selectedBank === DEFAULT_BANK_CODE
-              ? DEFAULT_BANK_NAME
-              : ALTERNATE_BANK_NAME
-            : FLUTTERWAVE_BANK_NAME);
-        const bankCode = selectedFundingProvider === 'payvessel' ? selectedBank : FLUTTERWAVE_BANK_CODE;
-        const businessId = selectedFundingProvider === 'payvessel' ? PAYVESSEL_BUSINESS_ID : 'FLUTTERWAVE';
+          (selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME);
+        const bankCode = selectedBank;
+        const businessId = PAYVESSEL_BUSINESS_ID;
 
         const { error: upsertError } = await supabase
           .from('virtual_accounts')
@@ -342,16 +342,8 @@ export default function AddMoneyScreen() {
               account_number: account.account_number,
               account_name: account.account_name,
               tracking_reference: account.trackingReference || account.tracking_reference || null,
-              nin:
-                selectedFundingProvider === 'payvessel'
-                  ? nin.trim()
-                  : flutterwaveIdType === 'nin'
-                  ? flutterwaveIdentityNumber.trim()
-                  : null,
-              bvn:
-                selectedFundingProvider === 'flutterwave' && flutterwaveIdType === 'bvn'
-                  ? flutterwaveIdentityNumber.trim()
-                  : null,
+              nin: nin.trim(),
+              bvn: null,
               updated_at: new Date().toISOString(),
             },
             { onConflict: 'user_id,bank_code' }
@@ -371,10 +363,9 @@ export default function AddMoneyScreen() {
           });
           setShowCreateForm(false);
           setNin('');
-          setFlutterwaveIdentityNumber('');
         }
 
-        Alert.alert('Success', `${selectedFundingProvider === 'payvessel' ? 'PayVessel' : 'Flutterwave'} virtual account created successfully.`);
+        Alert.alert('Success', 'PayVessel virtual account created successfully.');
       } else {
         const message = data?.error || 'Failed to create virtual account. Please try again later.';
         if (isMounted.current) {
@@ -396,12 +387,7 @@ export default function AddMoneyScreen() {
     }
   };
 
-  const bankDisplayName =
-    selectedFundingProvider === 'flutterwave'
-      ? FLUTTERWAVE_BANK_NAME
-      : selectedBank === DEFAULT_BANK_CODE
-      ? DEFAULT_BANK_NAME
-      : ALTERNATE_BANK_NAME;
+  const bankDisplayName = selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME;
 
   const handleCheckBalance = async () => {
     setIsCheckingBalance(true);
@@ -418,11 +404,6 @@ export default function AddMoneyScreen() {
         router.replace('/auth/login');
         return;
       }
-
-      let reconciliationResult: {
-        creditedCount?: number;
-        totalNetCredited?: number;
-      } | null = null;
 
       // Check if user is demo user
       const isDemoUser = session.user.email === 'demo@netpayy.ng';
@@ -450,28 +431,6 @@ export default function AddMoneyScreen() {
         } catch (demoError) {
           console.warn('Demo auto-credit error:', demoError);
           // Continue to check balance anyway
-        }
-      }
-
-      // Reconcile pending Flutterwave credits in case webhook delivery/signature failed.
-      if (!isDemoUser) {
-        try {
-          const { data: reconcileData, error: reconcileError } = await supabase.functions.invoke('reconcile-flutterwave-funding', {
-            body: {
-              maxLookbackMinutes: 180,
-            },
-          });
-
-          if (reconcileError) {
-            console.warn('Flutterwave reconciliation failed:', reconcileError);
-          } else if (reconcileData?.success) {
-            reconciliationResult = {
-              creditedCount: Number(reconcileData.creditedCount || 0),
-              totalNetCredited: Number(reconcileData.totalNetCredited || 0),
-            };
-          }
-        } catch (reconcileInvokeError) {
-          console.warn('Error invoking Flutterwave reconciliation (non-critical):', reconcileInvokeError);
         }
       }
 
@@ -519,17 +478,6 @@ export default function AddMoneyScreen() {
       // Navigate to home page immediately
       router.push('/(tabs)');
 
-      const creditedCount = Number(reconciliationResult?.creditedCount || 0);
-      const reconciledAmount = Number(reconciliationResult?.totalNetCredited || 0);
-
-      if (creditedCount > 0) {
-        Alert.alert(
-          'Payment Received!',
-          `We found and credited ${creditedCount} pending Flutterwave payment${creditedCount > 1 ? 's' : ''}. Net credited: ₦${reconciledAmount.toLocaleString()}. Current balance: ₦${newBalance.toLocaleString()}`
-        );
-        return;
-      }
-      
       if (recentTransactions && recentTransactions.length > 0) {
         Alert.alert(
           'Payment Received!',
@@ -592,34 +540,6 @@ export default function AddMoneyScreen() {
           />
         }
       >
-        <View style={styles.providerSelectSection}>
-          <ThemedText style={styles.inputLabel}>Select Funding Provider</ThemedText>
-          <Dropdown
-            options={[
-              { id: 'payvessel', name: 'PayVessel Transfer' },
-              { id: 'flutterwave', name: 'Flutterwave Virtual Account' },
-            ]}
-            selectedId={selectedFundingProvider}
-            onSelect={(id) => {
-              if (id === 'payvessel' || id === 'flutterwave') {
-                handleSelectFundingProvider(id);
-              }
-            }}
-            placeholder="Choose payment provider"
-            disabled={creating || loading}
-          />
-        </View>
-
-        {!selectedFundingProvider ? (
-          <View style={styles.awaitingSelectionCard}>
-            <MaterialIcons name="payments" size={24} color="#FF7F00" style={styles.awaitingSelectionIcon} />
-            <ThemedText style={styles.awaitingSelectionTitle}>Choose a funding provider</ThemedText>
-            <ThemedText style={styles.awaitingSelectionText}>
-              Select PayVessel or Flutterwave from the dropdown above to continue.
-            </ThemedText>
-          </View>
-        ) : selectedFundingProvider === 'payvessel' ? (
-          <>
         <View style={styles.bankToggleRow}>
           <TouchableOpacity
             style={[styles.bankToggleButton, selectedBank === DEFAULT_BANK_CODE && styles.bankToggleButtonActive]}
@@ -814,165 +734,13 @@ export default function AddMoneyScreen() {
             </View>
           </View>
         )}
-          </>
-        ) : (
-          <>
-            <View style={styles.infoBanner}>
-              <View style={styles.infoIconContainer}>
-                <ThemedText style={styles.infoIcon}>i</ThemedText>
-              </View>
-              <ThemedText style={styles.infoText}>
-                {virtualAccount
-                  ? 'Transfer to your Flutterwave virtual account below to fund your wallet.'
-                  : 'Create your Flutterwave static virtual account to receive wallet credits.'}
-              </ThemedText>
-            </View>
-
-            {virtualAccount && (
-              <>
-                <View style={styles.feeNoticeBanner}>
-                  <MaterialIcons name="info" size={20} color="#FF9800" style={styles.feeNoticeIcon} />
-                  <View style={styles.feeNoticeContent}>
-                    <ThemedText style={styles.feeNoticeTitle}>Funding Fee Notice</ThemedText>
-                    <ThemedText style={styles.feeNoticeText}>
-                      A 5% processing fee (minimum ₦10) will be deducted from your transfer amount.
-                      For example, if you transfer ₦1,000, ₦50 will be charged as fee and ₦950 will be credited to your wallet.
-                    </ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.accountCard}>
-                  <View style={styles.accountIconContainer}>
-                    <MaterialIcons name="list-alt" size={24} color="#FF7F00" />
-                  </View>
-                  <View style={styles.accountInfo}>
-                    <ThemedText style={styles.accountLabel}>Flutterwave Account Number</ThemedText>
-                    <ThemedText style={styles.accountValue}>{virtualAccount.account_number}</ThemedText>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.copyButton}
-                    onPress={() => handleCopy(virtualAccount.account_number, 'Account number')}
-                  >
-                    <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
-                    <ThemedText style={styles.copyButtonText}>Copy</ThemedText>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.accountCard}>
-                  <View style={styles.accountIconContainer}>
-                    <MaterialIcons name="account-balance" size={24} color="#FF7F00" />
-                  </View>
-                  <View style={styles.accountInfo}>
-                    <ThemedText style={styles.accountLabel}>Bank Name</ThemedText>
-                    <ThemedText style={styles.accountValue}>{virtualAccount.bank_name || FLUTTERWAVE_BANK_NAME}</ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.accountCard}>
-                  <View style={styles.accountIconContainer}>
-                    <MaterialIcons name="person" size={24} color="#FF7F00" />
-                  </View>
-                  <View style={styles.accountInfo}>
-                    <ThemedText style={styles.accountLabel}>Account Name</ThemedText>
-                    <ThemedText style={styles.accountValue}>{virtualAccount.account_name}</ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.instructionsCard}>
-                  <ThemedText style={styles.instructionsTitle}>How to add money:</ThemedText>
-                  <View style={styles.instructionItem}>
-                    <ThemedText style={styles.instructionNumber}>1.</ThemedText>
-                    <ThemedText style={styles.instructionText}>Copy the Flutterwave account number above</ThemedText>
-                  </View>
-                  <View style={styles.instructionItem}>
-                    <ThemedText style={styles.instructionNumber}>2.</ThemedText>
-                    <ThemedText style={styles.instructionText}>Transfer from any bank app to that account</ThemedText>
-                  </View>
-                  <View style={styles.instructionItem}>
-                    <ThemedText style={styles.instructionNumber}>3.</ThemedText>
-                    <ThemedText style={styles.instructionText}>Your wallet will be credited automatically</ThemedText>
-                  </View>
-                </View>
-              </>
-            )}
-
-            {showCreateForm && (
-              <View style={styles.createCard}>
-                <ThemedText style={styles.createTitle}>Create Flutterwave Virtual Account</ThemedText>
-                <ThemedText style={styles.createDescription}>
-                  Flutterwave requires either your BVN or NIN to generate a permanent static account.
-                </ThemedText>
-
-                <View style={styles.bankToggleRow}>
-                  <TouchableOpacity
-                    style={[styles.bankToggleButton, flutterwaveIdType === 'bvn' && styles.bankToggleButtonActive]}
-                    onPress={() => handleSelectFlutterwaveIdType('bvn')}
-                    activeOpacity={0.8}
-                    disabled={creating}
-                  >
-                    <ThemedText style={[styles.bankToggleText, flutterwaveIdType === 'bvn' && styles.bankToggleTextActive]}>
-                      BVN
-                    </ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.bankToggleButton, flutterwaveIdType === 'nin' && styles.bankToggleButtonActive]}
-                    onPress={() => handleSelectFlutterwaveIdType('nin')}
-                    activeOpacity={0.8}
-                    disabled={creating}
-                  >
-                    <ThemedText style={[styles.bankToggleText, flutterwaveIdType === 'nin' && styles.bankToggleTextActive]}>
-                      NIN
-                    </ThemedText>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <ThemedText style={styles.inputLabel}>{flutterwaveIdType.toUpperCase()} (11 digits)</ThemedText>
-                  <View style={styles.inputRow}>
-                    <MaterialIcons name="badge" size={20} color="#666" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder={`Enter 11-digit ${flutterwaveIdType.toUpperCase()}`}
-                      placeholderTextColor="#999"
-                      value={flutterwaveIdentityNumber}
-                      onChangeText={(value) => setFlutterwaveIdentityNumber(value.replace(/\D/g, '').slice(0, 11))}
-                      keyboardType="numeric"
-                      maxLength={11}
-                    />
-                  </View>
-                  <ThemedText style={styles.helperText}>Required for Flutterwave account verification</ThemedText>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.createButton, (creating || flutterwaveIdentityNumber.length !== 11) && styles.createButtonDisabled]}
-                  onPress={handleCreateVirtualAccount}
-                  disabled={creating || flutterwaveIdentityNumber.length !== 11}
-                  activeOpacity={0.8}
-                >
-                  {creating ? (
-                    <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
-                  ) : (
-                    <ThemedText style={styles.createButtonText}>Create Virtual Account</ThemedText>
-                  )}
-                </TouchableOpacity>
-
-                <View style={styles.securityNote}>
-                  <MaterialIcons name="shield" size={20} color="#4CAF50" style={styles.securityIcon} />
-                  <ThemedText style={styles.securityText}>
-                    Your {flutterwaveIdType.toUpperCase()} is encrypted and used only for account verification.
-                  </ThemedText>
-                </View>
-              </View>
-            )}
-          </>
-        )}
       </ScrollView>
 
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
           style={[styles.dashboardButton, isCheckingBalance && styles.dashboardButtonDisabled]} 
           onPress={handleCheckBalance}
-          disabled={isCheckingBalance || !selectedFundingProvider}
+          disabled={isCheckingBalance}
         >
           {isCheckingBalance ? (
             <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
@@ -1019,10 +787,6 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-  },
-  providerSelectSection: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
   },
   bankToggleRow: {
     flexDirection: 'row',
@@ -1124,6 +888,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  balanceCard: {
+    backgroundColor: '#fff7ef',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#ffd8b0',
   },
   accountIconContainer: {
     width: 48,
@@ -1254,56 +1034,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
-  },
-  flutterwaveCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  flutterwaveTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
-  },
-  flutterwaveDescription: {
-    fontSize: 12,
-    color: '#555',
-    marginBottom: 16,
-  },
-  awaitingSelectionCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    alignItems: 'center',
-  },
-  awaitingSelectionIcon: {
-    marginBottom: 10,
-  },
-  awaitingSelectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111',
-    marginBottom: 6,
-  },
-  awaitingSelectionText: {
-    fontSize: 12,
-    color: '#555',
-    textAlign: 'center',
-    lineHeight: 18,
   },
   createTitle: {
     fontSize: 16,

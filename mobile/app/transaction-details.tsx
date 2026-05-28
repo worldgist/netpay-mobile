@@ -1214,7 +1214,7 @@ function TransactionDetailsScreen() {
                   textAlign: 'center', 
                   fontStyle: 'italic' 
                 }}>
-                  Keep this token safe. You'll need it to recharge your meter.
+                  Keep this token safe. You will need it to recharge your meter.
                 </ThemedText>
               </View>
             )}
@@ -1258,7 +1258,7 @@ function TransactionDetailsScreen() {
                   ))}
                 </View>
                 <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>
-                  Keep this PIN safe. You'll need it for your exam registration.
+                  Keep this PIN safe. You will need it for your exam registration.
                 </ThemedText>
               </View>
             )}

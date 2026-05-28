@@ -1,5 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack, router } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 import * as Linking from 'expo-linking';
@@ -8,7 +8,9 @@ import { AuthApiError } from '@supabase/supabase-js';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { NetworkAccessGuard } from '@/components/network-access-guard';
 import { supabase } from '@/lib/supabase';
+import { handleAppLink } from '@/utils/handle-app-link';
 import { registerForPushNotifications, setupNotificationListeners } from '@/utils/push-notifications';
 import '@/utils/error-handler'; // Initialize error handler
 import { Alert, LogBox } from 'react-native';
@@ -31,103 +33,7 @@ const handleDeepLink = (url: string) => {
   try {
     if (!url) return;
     console.log('Handling deep link:', url);
-    
-    const parsed = Linking.parse(url);
-    const path = parsed.path || parsed.hostname;
-
-    if (!path) {
-      console.log('No path found in URL');
-      return;
-    }
-
-    const query = parsed.queryParams ?? {};
-    let accessToken: string | undefined;
-    let refreshToken: string | undefined;
-    let type: string | undefined;
-
-    // Extract from query params
-    if (typeof query.access_token === 'string') {
-      accessToken = query.access_token;
-    }
-    if (typeof query.refresh_token === 'string') {
-      refreshToken = query.refresh_token;
-    }
-    if (typeof query.type === 'string') {
-      type = query.type;
-    }
-
-    // Also check hash fragment (Supabase often sends tokens here)
-    if (url.includes('#')) {
-      try {
-        const hashPart = url.split('#')[1];
-        if (hashPart) {
-          // Try URLSearchParams first
-          try {
-            const hashParams = new URLSearchParams(hashPart);
-            accessToken = accessToken || hashParams.get('access_token') || undefined;
-            refreshToken = refreshToken || hashParams.get('refresh_token') || undefined;
-            type = type || hashParams.get('type') || undefined;
-          } catch (e) {
-            // If URLSearchParams fails, try manual parsing
-            const hashPairs = hashPart.split('&');
-            for (const pair of hashPairs) {
-              const [key, value] = pair.split('=');
-              if (key === 'access_token' && value) {
-                accessToken = decodeURIComponent(value);
-              }
-              if (key === 'refresh_token' && value) {
-                refreshToken = decodeURIComponent(value);
-              }
-              if (key === 'type' && value) {
-                type = decodeURIComponent(value);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error parsing hash fragment:', err);
-      }
-    }
-
-    console.log('Extracted tokens:', { hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken, type });
-
-    // NetPay AI app: netpay://pay?screen=data_purchase
-    const normalizedPath = String(path).replace(/\/+$/, '');
-    if (normalizedPath === 'pay') {
-      const screen = typeof query.screen === 'string' ? query.screen.trim() : '';
-      const payRoutes: Record<string, string> = {
-        data_purchase: '/data-purchase',
-        airtime: '/airtime-purchase',
-        electricity: '/electricity',
-        cable_tv: '/cable-tv',
-        education: '/education',
-        betting: '/betting',
-        flight_booking: '/flight-booking',
-        pay_bills: '/(tabs)/pay-bills',
-        support_chat: '/support-chat',
-        support_admin: '/support-admin',
-        add_money: '/add-money',
-        transfer: '/transfer',
-      };
-      const target = payRoutes[screen];
-      if (target) {
-        router.push(target as import('expo-router').Href);
-        return;
-      }
-    }
-
-    if (path === 'reset-password' || path === 'reset-password/' || path.includes('reset-password')) {
-      const params: Record<string, string> = {};
-      if (accessToken) params.access_token = accessToken;
-      if (refreshToken) params.refresh_token = refreshToken;
-      if (type) params.type = type;
-
-      console.log('Navigating to reset-password with params:', Object.keys(params));
-      router.push({
-        pathname: '/reset-password',
-        params,
-      });
-    }
+    handleAppLink(url);
   } catch (error) {
     console.error('Error handling deep link:', error);
   }
@@ -260,6 +166,7 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
+      <NetworkAccessGuard>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack initialRouteName="index">
           <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -303,6 +210,7 @@ export default function RootLayout() {
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>
+      </NetworkAccessGuard>
     </ErrorBoundary>
   );
 }

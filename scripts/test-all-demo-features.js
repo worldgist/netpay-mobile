@@ -204,7 +204,7 @@ async function testAutoCredit() {
   
   if (data.success) {
     log(`Auto-credit function works!`, 'success');
-    const newBalance = Number(data.newBalance || 0);
+    const newBalance = Number(data.balanceAfter ?? data.newBalance ?? 0);
     console.log(`   Balance after: ₦${newBalance.toLocaleString()}`);
     console.log(`   Amount credited: ₦${(newBalance - balanceBefore).toLocaleString()}`);
     

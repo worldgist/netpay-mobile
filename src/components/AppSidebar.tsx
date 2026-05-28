@@ -42,7 +42,6 @@ const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "SMEPLUG API", url: "/smeplug", icon: Globe },
   { title: "eBills API", url: "/ebills", icon: Globe },
-  { title: "Flutterwave", url: "/flutterwave", icon: CreditCard },
   { title: "Transactions", url: "/transactions", icon: CreditCard },
   { title: "Airtime", url: "/airtime", icon: Smartphone },
   { title: "Data Plans", url: "/data-plans", icon: Wifi },

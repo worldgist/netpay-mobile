@@ -1,0 +1,17 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["TEAM_ID.com.netpay.mobile"],
+        "components": [
+          { "/": "/reset-password" },
+          { "/": "/reset-password/*" },
+          { "/": "/pay" },
+          { "/": "/pay/*" },
+          { "/": "/open/*" }
+        ]
+      }
+    ]
+  }
+}
