@@ -57,7 +57,7 @@ export const diagnoseAndroidPushNotifications = async (): Promise<AndroidPushDia
         diagnostics.permissionsStatus = `error: ${error instanceof Error ? error.message : 'unknown'}`;
       }
     }
-  } catch (error) {
+  } catch {
     diagnostics.hasNotificationsModule = false;
     diagnostics.recommendations.push('expo-notifications module is not available');
   }

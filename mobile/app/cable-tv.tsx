@@ -9,8 +9,15 @@ import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
+import { WrongSmartCardModal } from '@/components/wrong-smart-card-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
+import {
+  isInvalidSmartCardError,
+  WRONG_SMART_CARD_DEFAULT_MESSAGE,
+} from '@/utils/cable-smart-card-errors';
 import { supabase } from '@/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
+import { useVendingSettings } from '@/contexts/vending-settings-context';
 import * as Clipboard from 'expo-clipboard';
 
 const PROVIDER_LOGOS: Record<string, any> = {
@@ -42,6 +49,8 @@ type CablePlan = {
 export default function CableTVScreen() {
   const router = useRouter();
   const isMounted = useRef(true);
+  const { providers: vendingSettings } = useVendingSettings();
+  const cableVendingProvider = vendingSettings.cable;
   const [providers, setProviders] = useState<CableProvider[]>([]);
   const [plansByProvider, setPlansByProvider] = useState<Record<string, CablePlan[]>>({});
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -85,16 +94,9 @@ export default function CableTVScreen() {
         throw new Error('Supabase URL is not configured');
       }
 
-      // Get the active cable vending provider setting
-      const { data: providerSetting } = await supabase
-        .from('app_settings')
-        .select('setting_value')
-        .eq('setting_key', 'cable_provider')
-        .maybeSingle();
-
-      const rawProvider = providerSetting?.setting_value?.provider || 'mobilenig';
-      const vendingProvider = rawProvider;
-      console.log('Cable TV vending provider (fetchPackagesForAllProviders):', vendingProvider, '(raw:', rawProvider, ')');
+      // Use live vending provider from admin settings (updates instantly via realtime)
+      const vendingProvider = cableVendingProvider || 'mobilenig';
+      console.log('Cable TV vending provider (fetchPackagesForAllProviders):', vendingProvider);
 
       // Fetch packages for each static provider from API
       const grouped: Record<string, CablePlan[]> = {};
@@ -110,6 +112,9 @@ export default function CableTVScreen() {
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'mobilenig') {
             functionName = 'fetch-mobilenig-cable-packages';
+            requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+            functionName = 'fetch-ebills-cable-packages';
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'anyone') {
             // ANYONE provider - use VTpass as fallback
@@ -363,6 +368,15 @@ export default function CableTVScreen() {
     };
   }, [loadData]);
 
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    fetchPackagesForAllProviders().catch((error) => {
+      console.error('Cable packages refresh after provider change failed:', error);
+    });
+  }, [cableVendingProvider]);
+
   const fetchPackagesFromAPI = async () => {
     try {
       setRefreshingPlans(true);
@@ -383,16 +397,9 @@ export default function CableTVScreen() {
         throw new Error('Supabase URL is not configured');
       }
 
-      // Get the active cable vending provider setting
-      const { data: providerSetting } = await supabase
-        .from('app_settings')
-        .select('setting_value')
-        .eq('setting_key', 'cable_provider')
-        .maybeSingle();
-
-      const rawProvider = providerSetting?.setting_value?.provider || 'mobilenig';
-      const vendingProvider = rawProvider;
-      console.log('Cable TV vending provider (fetchPackagesFromAPI):', vendingProvider, '(raw:', rawProvider, ')');
+      // Use live vending provider from admin settings (updates instantly via realtime)
+      const vendingProvider = cableVendingProvider || 'mobilenig';
+      console.log('Cable TV vending provider (fetchPackagesFromAPI):', vendingProvider);
 
       // Fetch packages for each static provider
       const fetchPromises = STATIC_PROVIDERS.map(async (provider) => {
@@ -406,6 +413,9 @@ export default function CableTVScreen() {
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'mobilenig') {
             functionName = 'fetch-mobilenig-cable-packages';
+            requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+            functionName = 'fetch-ebills-cable-packages';
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'anyone') {
             // ANYONE provider - use VTpass as fallback
@@ -501,6 +511,15 @@ export default function CableTVScreen() {
       Alert.alert('Error', 'Please enter a valid smart card number');
       return;
     }
+
+    const digitsOnly = smartCardNumber.replace(/\D/g, '');
+    if (digitsOnly.length === 0) {
+      setInvalidCardMessage('Enter numbers only — no letters or special characters.');
+      setShowInvalidCardModal(true);
+      setVerifiedName(null);
+      return;
+    }
+
     if (verifying) return;
 
     try {
@@ -561,18 +580,10 @@ export default function CableTVScreen() {
         console.log('Verification failed:', errorMessage, 'ErrorType:', errorType);
         setVerifiedName(null);
         
-        // Check if it's an invalid card number error
-        const isInvalidCard = errorType === 'invalid_card' ||
-                             errorMessage.toLowerCase().includes('invalid') || 
-                             errorMessage.toLowerCase().includes('card number') ||
-                             errorMessage.toLowerCase().includes('smart card') ||
-                             errorMessage.toLowerCase().includes('customer not found') ||
-                             errorMessage.toLowerCase().includes('not found') ||
-                             errorMessage.toLowerCase().includes('wrong');
-        
-        if (isInvalidCard) {
-          // Set a user-friendly message
-          setInvalidCardMessage('Wrong card number. Please check the card number and try again.');
+        if (isInvalidSmartCardError(errorMessage, errorType)) {
+          setInvalidCardMessage(
+            errorMessage || 'Wrong card number. Please check the card number and try again.',
+          );
           setShowInvalidCardModal(true);
         } else {
           setShowServiceUnavailableModal(true);
@@ -600,6 +611,9 @@ export default function CableTVScreen() {
           'Network connection failed. Please check your internet connection and try again.',
           [{ text: 'OK' }]
         );
+      } else if (isInvalidSmartCardError(errorMessage)) {
+        setInvalidCardMessage(errorMessage || WRONG_SMART_CARD_DEFAULT_MESSAGE);
+        setShowInvalidCardModal(true);
       } else {
         setShowServiceUnavailableModal(true);
       }
@@ -754,15 +768,17 @@ export default function CableTVScreen() {
                                        (fullErrorText.includes('transaction not approved') && fullErrorText.includes('insufficient')) ||
                                        (errorMessage.toLowerCase().includes('status: unknown') && fullErrorText.includes('insufficient'));
         
-        // Check if it's an invalid card error from the response
-        const isInvalidCardError = errorMessage.toLowerCase().includes('invalid') || 
-                                  errorMessage.toLowerCase().includes('card number') ||
-                                  errorMessage.toLowerCase().includes('smart card') ||
-                                  errorMessage.toLowerCase().includes('customer not found') ||
-                                  errorMessage.toLowerCase().includes('not found') ||
-                                  responseData?.details?.message?.toLowerCase().includes('invalid') ||
-                                  responseData?.details?.message?.toLowerCase().includes('card');
-        
+        const detailsMessage =
+          typeof responseData?.details === 'object'
+            ? responseData.details?.message
+            : typeof responseData?.details === 'string'
+              ? responseData.details
+              : '';
+        const isInvalidCardError = isInvalidSmartCardError(
+          `${errorMessage} ${detailsMessage}`,
+          responseData?.errorType,
+        );
+
         if (isMobileNigServiceError) {
           setShowTryAgainLaterModal(true);
           setIsProcessing(false);
@@ -770,7 +786,7 @@ export default function CableTVScreen() {
         }
         
         if (isInvalidCardError) {
-          setInvalidCardMessage('The smart card number you entered is incorrect. Please check the number and try again.');
+          setInvalidCardMessage(errorMessage || WRONG_SMART_CARD_DEFAULT_MESSAGE);
           setShowInvalidCardModal(true);
           setIsProcessing(false);
           return;
@@ -803,15 +819,17 @@ export default function CableTVScreen() {
                                              (fullErrorText.includes('transaction not approved') && fullErrorText.includes('insufficient')) ||
                                              (errorMessage.toLowerCase().includes('status: unknown') && fullErrorText.includes('insufficient'));
         
-        // Check if it's an invalid card error
-        const isInvalidCardError = errorMessage.toLowerCase().includes('invalid') || 
-                                  errorMessage.toLowerCase().includes('card number') ||
-                                  errorMessage.toLowerCase().includes('smart card') ||
-                                  errorMessage.toLowerCase().includes('customer not found') ||
-                                  errorMessage.toLowerCase().includes('not found') ||
-                                  responseData?.details?.message?.toLowerCase().includes('invalid') ||
-                                  responseData?.details?.message?.toLowerCase().includes('card');
-        
+        const detailsMessage =
+          typeof responseData?.details === 'object'
+            ? responseData.details?.message
+            : typeof responseData?.details === 'string'
+              ? responseData.details
+              : '';
+        const isInvalidCardError = isInvalidSmartCardError(
+          `${errorMessage} ${detailsMessage}`,
+          responseData?.errorType,
+        );
+
         if (isMobileNigInsufficientBalance) {
           setShowTryAgainLaterModal(true);
           setIsProcessing(false);
@@ -819,7 +837,7 @@ export default function CableTVScreen() {
         }
         
         if (isInvalidCardError) {
-          setInvalidCardMessage('The smart card number you entered is incorrect. Please check the number and try again.');
+          setInvalidCardMessage(errorMessage || WRONG_SMART_CARD_DEFAULT_MESSAGE);
           setShowInvalidCardModal(true);
           setIsProcessing(false);
           return;
@@ -911,8 +929,7 @@ export default function CableTVScreen() {
         // Show try again later modal for MobileNig insufficient balance
         setShowTryAgainLaterModal(true);
       } else if (isInvalidCard) {
-        // Show invalid card modal
-        setInvalidCardMessage('The smart card number you entered is incorrect. Please check the number and try again.');
+        setInvalidCardMessage(message || WRONG_SMART_CARD_DEFAULT_MESSAGE);
         setShowInvalidCardModal(true);
       } else {
         Alert.alert('Purchase Failed', message, [{ text: 'OK' }]);
@@ -1203,41 +1220,17 @@ export default function CableTVScreen() {
         </View>
       </Modal>
 
-      {/* Invalid Card Number Modal */}
-      <Modal
+      <WrongSmartCardModal
         visible={showInvalidCardModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
+        onClose={() => setShowInvalidCardModal(false)}
+        onTryAgain={() => {
           setShowInvalidCardModal(false);
           setSmartCardNumber('');
+          setVerifiedName(null);
         }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalIconContainer}>
-              <MaterialIcons name="error-outline" size={64} color="#FF5252" />
-            </View>
-            <ThemedText style={styles.modalTitle}>Wrong Smart Card Number</ThemedText>
-            <ThemedText style={styles.modalMessage}>
-              {invalidCardMessage || 'The smart card number you entered is incorrect. Please check the number and try again.'}
-            </ThemedText>
-            <View style={styles.modalButtonContainer}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={() => {
-                  setShowInvalidCardModal(false);
-                  setSmartCardNumber('');
-                  setVerifiedName(null);
-                }}
-                activeOpacity={0.8}
-              >
-                <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        providerName={selectedProvider || undefined}
+        message={invalidCardMessage}
+      />
 
       {/* Try Again Later Modal - MobileNig Insufficient Balance */}
       <Modal

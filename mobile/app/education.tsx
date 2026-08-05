@@ -71,7 +71,7 @@ export default function EducationScreen() {
   const [fetchedPrices, setFetchedPrices] = useState<Record<string, number>>({});
   const [fetchedChargeFees, setFetchedChargeFees] = useState<Record<string, number>>({});
   const [fetchedTotalAmounts, setFetchedTotalAmounts] = useState<Record<string, number>>({}); // Store exact total_amount from API
-  const [serviceAvailability, setServiceAvailability] = useState<{
+  const [, setServiceAvailability] = useState<{
     WAEC: boolean;
     NECO: boolean;
     JAMB: boolean;
@@ -102,6 +102,107 @@ export default function EducationScreen() {
       setReferenceNumber('DEMO123456');
     }
   }, [isDemoUser, selectedServiceId, services, referenceNumber]);
+
+  // Function to fetch real-time price from MobileNig
+  const fetchServicePrice = useCallback(async (examType: string) => {
+    try {
+      setFetchingPrice(true);
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        console.warn('No session available for price fetch');
+        return;
+      }
+
+      console.log('Fetching education price for:', examType);
+      const { data, error } = await supabase.functions.invoke('fetch-education-prices', {
+        body: { exam_type: examType },
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (error) {
+        console.error('Error fetching price:', error);
+        console.error('Error details:', {
+          message: error.message,
+          status: error.status,
+          name: error.name,
+        });
+        return;
+      }
+
+      console.log('Price fetch response:', {
+        success: data?.success,
+        exam_type: data?.exam_type,
+        pricesCount: data?.prices?.length,
+        prices: data?.prices,
+      });
+
+      if (data?.success && data?.prices && data.prices.length > 0) {
+        // Use the first price (or find the matching service)
+        const priceData = data.prices[0];
+        // price is the base purchase amount (without fee)
+        // total_amount is price + charge_fee (exact amount from API)
+        const basePrice = priceData?.price || 0;
+        const chargeFee = priceData?.charge_fee || 0;
+        const totalAmount = priceData?.total_amount || 0; // Exact total amount from API
+        
+        console.log('Fetched price data:', {
+          examType,
+          basePrice,
+          chargeFee,
+          totalAmount,
+          fullData: priceData,
+        });
+        
+        if (basePrice > 0) {
+          // Store base price (purchase amount without fee)
+          setFetchedPrices((prev) => ({
+            ...prev,
+            [examType]: basePrice,
+          }));
+          
+          // Store charge fee
+          if (chargeFee > 0) {
+            setFetchedChargeFees((prev) => ({
+              ...prev,
+              [examType]: chargeFee,
+            }));
+          } else {
+            // Calculate charge fee if not provided by API
+            const calculatedFee = Math.round(basePrice * EDUCATION_CHARGE_FEE_RATE * 100) / 100;
+            setFetchedChargeFees((prev) => ({
+              ...prev,
+              [examType]: calculatedFee,
+            }));
+          }
+          
+          // Store exact total amount from API (this is what user should see)
+          if (totalAmount > 0) {
+            setFetchedTotalAmounts((prev) => ({
+              ...prev,
+              [examType]: totalAmount,
+            }));
+          } else {
+            // Fallback: calculate if API didn't provide total_amount
+            const calculatedTotal = basePrice + (chargeFee > 0 ? chargeFee : Math.round(basePrice * EDUCATION_CHARGE_FEE_RATE * 100) / 100);
+            setFetchedTotalAmounts((prev) => ({
+              ...prev,
+              [examType]: calculatedTotal,
+            }));
+          }
+        } else {
+          console.warn('Invalid price data received:', priceData);
+        }
+      } else {
+        console.warn('No price data in response:', data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch service price:', err);
+    } finally {
+      setFetchingPrice(false);
+    }
+  }, []);
 
   const fetchEducationServices = useCallback(async () => {
     try {
@@ -149,7 +250,7 @@ export default function EducationScreen() {
 
       let mappedServices: EducationService[] = [];
 
-      const collectPriceCandidates = (source: unknown, depth = 0): Array<number | string> => {
+      const collectPriceCandidates = (source: unknown, depth = 0): (number | string)[] => {
         if (!source || depth > 3) return [];
         if (typeof source === 'number' && Number.isFinite(source)) {
           return [source];
@@ -366,13 +467,6 @@ export default function EducationScreen() {
         setServices(finalServices);
         setBalance(balanceValue);
         setSelectedServiceId(validSelection ? selectedServiceId : finalServices[0]?.id ?? null);
-        
-        // Fetch prices for all services on initial load
-        finalServices.forEach((service) => {
-          if (service.examType) {
-            fetchServicePrice(service.examType);
-          }
-        });
       }
     } catch (err) {
       console.error('Failed to load education services:', err);
@@ -404,108 +498,7 @@ export default function EducationScreen() {
         }
       });
     }
-  }, [services, fetchedPrices]);
-
-  // Function to fetch real-time price from MobileNig
-  const fetchServicePrice = useCallback(async (examType: string) => {
-    try {
-      setFetchingPrice(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        console.warn('No session available for price fetch');
-        return;
-      }
-
-      console.log('Fetching education price for:', examType);
-      const { data, error } = await supabase.functions.invoke('fetch-education-prices', {
-        body: { exam_type: examType },
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
-
-      if (error) {
-        console.error('Error fetching price:', error);
-        console.error('Error details:', {
-          message: error.message,
-          status: error.status,
-          name: error.name,
-        });
-        return;
-      }
-
-      console.log('Price fetch response:', {
-        success: data?.success,
-        exam_type: data?.exam_type,
-        pricesCount: data?.prices?.length,
-        prices: data?.prices,
-      });
-
-      if (data?.success && data?.prices && data.prices.length > 0) {
-        // Use the first price (or find the matching service)
-        const priceData = data.prices[0];
-        // price is the base purchase amount (without fee)
-        // total_amount is price + charge_fee (exact amount from API)
-        const basePrice = priceData?.price || 0;
-        const chargeFee = priceData?.charge_fee || 0;
-        const totalAmount = priceData?.total_amount || 0; // Exact total amount from API
-        
-        console.log('Fetched price data:', {
-          examType,
-          basePrice,
-          chargeFee,
-          totalAmount,
-          fullData: priceData,
-        });
-        
-        if (basePrice > 0) {
-          // Store base price (purchase amount without fee)
-          setFetchedPrices((prev) => ({
-            ...prev,
-            [examType]: basePrice,
-          }));
-          
-          // Store charge fee
-          if (chargeFee > 0) {
-            setFetchedChargeFees((prev) => ({
-              ...prev,
-              [examType]: chargeFee,
-            }));
-          } else {
-            // Calculate charge fee if not provided by API
-            const calculatedFee = Math.round(basePrice * EDUCATION_CHARGE_FEE_RATE * 100) / 100;
-            setFetchedChargeFees((prev) => ({
-              ...prev,
-              [examType]: calculatedFee,
-            }));
-          }
-          
-          // Store exact total amount from API (this is what user should see)
-          if (totalAmount > 0) {
-            setFetchedTotalAmounts((prev) => ({
-              ...prev,
-              [examType]: totalAmount,
-            }));
-          } else {
-            // Fallback: calculate if API didn't provide total_amount
-            const calculatedTotal = basePrice + (chargeFee > 0 ? chargeFee : Math.round(basePrice * EDUCATION_CHARGE_FEE_RATE * 100) / 100);
-            setFetchedTotalAmounts((prev) => ({
-              ...prev,
-              [examType]: calculatedTotal,
-            }));
-          }
-        } else {
-          console.warn('Invalid price data received:', priceData);
-        }
-      } else {
-        console.warn('No price data in response:', data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch service price:', err);
-    } finally {
-      setFetchingPrice(false);
-    }
-  }, []);
+  }, [services, fetchedPrices, fetchServicePrice]);
 
   // Fetch price when service is selected - always fetch to get latest price
   useEffect(() => {
@@ -554,7 +547,6 @@ export default function EducationScreen() {
     return (purchaseAmount + chargeFee) * qty;
   }, [selectedService, purchaseAmount, chargeFee, fetchedTotalAmounts, quantity]);
   
-  const amountDisplay = totalAmount ? formatCurrency(totalAmount) : 'N/A';
   const selectedServiceName = selectedService 
     ? (selectedService.examType === "WAEC" 
         ? "WAEC Result Checker PIN" 
@@ -786,7 +778,7 @@ export default function EducationScreen() {
         // Fallback to direct fetch to get the actual error message from response body
         const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
                            (supabase as any).supabaseUrl ||
-                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
         try {
           const response = await fetch(`${supabaseUrl}/functions/v1/purchase-education`, {

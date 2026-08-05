@@ -11,8 +11,6 @@ const PAY_ROUTES: Record<string, string> = {
   betting: '/betting',
   flight_booking: '/flight-booking',
   pay_bills: '/(tabs)/pay-bills',
-  support_chat: '/support-chat',
-  support_admin: '/support-admin',
   add_money: '/add-money',
   transfer: '/transfer',
 };
@@ -66,6 +64,16 @@ export function handleAppLink(url: string): void {
     } catch {
       // ignore hash parse errors
     }
+  }
+
+  if (path === 'add-money-callback' || path.startsWith('add-money-callback')) {
+    const txRef = typeof query.tx_ref === 'string' ? query.tx_ref : '';
+    const status = typeof query.status === 'string' ? query.status : '';
+    router.replace({
+      pathname: '/add-money-callback',
+      params: txRef ? { tx_ref: txRef, status } : { status },
+    });
+    return;
   }
 
   if (path === 'pay') {

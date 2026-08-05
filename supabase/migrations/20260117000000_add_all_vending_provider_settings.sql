@@ -5,9 +5,9 @@
 INSERT INTO public.app_settings (setting_key, setting_value, setting_category, description)
 VALUES (
   'airtime_provider',
-  '{"provider": "vtpass"}'::jsonb,
+  '{"provider": "smeplug"}'::jsonb,
   'system',
-  'Airtime vending provider: vtpass, mobilenig, smeplug, or ebills'
+  'Airtime vending provider: SMEPLUG only (uses SMEPLUG_SECRET_KEY)'
 )
 ON CONFLICT (setting_key) DO NOTHING;
 
@@ -57,6 +57,6 @@ VALUES (
   'betting_provider',
   '{"provider": "ebills"}'::jsonb,
   'system',
-  'Betting services provider: vtpass, ebills, or mobilenig'
+  'Betting services provider: eBills Africa only'
 )
 ON CONFLICT (setting_key) DO NOTHING;

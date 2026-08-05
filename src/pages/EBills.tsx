@@ -409,7 +409,16 @@ export default function EBills() {
                   <p className="text-lg font-semibold text-green-600">Active</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">API Endpoint</p>
+                  <p className="text-sm text-gray-600 mb-1">Authentication</p>
+                  <p className="text-sm font-mono text-gray-700 break-all">
+                    POST https://ebills.africa/wp-json/jwt-auth/v1/token
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    JWT via EBILLS_USERNAME + EBILLS_PASSWORD (Supabase secrets). Token expires after 7 days; a fresh token is fetched for each API call.
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">API Base URL</p>
                   <p className="text-sm font-mono text-gray-700 break-all">
                     https://ebills.africa/wp-json
                   </p>

@@ -1,14 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseSmeplugBalance } from "../_shared/smeplug-balance.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
@@ -71,7 +73,6 @@ serve(async (req) => {
 
     console.log('Fetching SMEPLUG account balance...');
 
-    // Fetch balance from SMEPLUG API
     const balanceResponse = await fetch('https://smeplug.ng/api/v1/account/balance', {
       method: 'GET',
       headers: {
@@ -83,10 +84,12 @@ serve(async (req) => {
     const balanceData = await balanceResponse.json();
     console.log('SMEPLUG balance response:', balanceData);
 
+    const balanceAmount = parseSmeplugBalance(balanceData) ?? 0;
+
     const responseData = {
       success: true,
       balance: {
-        amount: parseFloat(balanceData.balance || '0'),
+        amount: balanceAmount,
         currency: 'NGN',
       },
       account: {
@@ -96,22 +99,22 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify(responseData),
-      { 
+      {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
 
   } catch (error) {
     console.error('Error in fetch-smeplug-balance function:', error);
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         error: 'Internal server error',
         details: error instanceof Error ? error.message : 'Unknown error'
       }),
-      { 
+      {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
   }

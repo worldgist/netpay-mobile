@@ -35,7 +35,7 @@ interface CableTvTransaction {
   } | null;
 }
 
-type CableVendingProvider = 'vtpass' | 'anyone' | 'mobilenig';
+type CableVendingProvider = 'vtpass' | 'anyone' | 'mobilenig' | 'ebills';
 
 export default function CableTvPlans() {
   const [vendingProvider, setVendingProvider] = useState<CableVendingProvider>('mobilenig');
@@ -135,7 +135,7 @@ export default function CableTvPlans() {
             setting_key: 'cable_provider',
             setting_value: { provider: newProvider },
             setting_category: 'system',
-            description: 'Cable TV vending provider: vtpass, mobilenig, or anyone'
+            description: 'Cable TV vending provider: vtpass, mobilenig, ebills, or anyone'
           })
           .select();
       }
@@ -220,6 +220,8 @@ export default function CableTvPlans() {
         return 'MobileNig';
       case 'anyone':
         return 'ANYONE';
+      case 'ebills':
+        return 'eBills Africa';
       default:
         return provider.toUpperCase();
     }
@@ -233,6 +235,8 @@ export default function CableTvPlans() {
         return 'MobileNig API - Enterprise cable TV service provider';
       case 'anyone':
         return 'ANYONE API';
+      case 'ebills':
+        return 'eBills Africa API — cable packages, verification, and purchases via JWT auth';
       default:
         return '';
     }
@@ -315,6 +319,12 @@ export default function CableTvPlans() {
                         <div className="flex flex-col">
                           <span>VTpass</span>
                           <span className="text-xs text-muted-foreground">Reliable service</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="ebills">
+                        <div className="flex flex-col">
+                          <span>eBills Africa</span>
+                          <span className="text-xs text-muted-foreground">DSTV, GOTV, Startimes via eBills API</span>
                         </div>
                       </SelectItem>
                       <SelectItem value="anyone">

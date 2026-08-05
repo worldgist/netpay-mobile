@@ -17,6 +17,7 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
 import { IncorrectMeterNumberModal } from "@/components/IncorrectMeterNumberModal";
 import { electricityService } from "@/services/electricityService";
+import { useVendingSettings } from "@/contexts/VendingSettingsContext";
 
 const electricitySchema = z.object({
   meter_number: z.string().min(10, "Meter number must be at least 10 digits"),
@@ -73,11 +74,12 @@ const providers: ElectricityProvider[] = [
 const PurchaseElectricity = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { providers: vendingSettings } = useVendingSettings();
+  const vendingProvider = vendingSettings.electricity as "vtpass" | "mobilenig" | "ebills" | "smeplug";
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedProviderOption, setSelectedProviderOption] = useState("");
-  const [vendingProvider, setVendingProvider] = useState<"vtpass" | "mobilenig" | "smeplug">("vtpass");
   const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid");
   const [meterNumber, setMeterNumber] = useState("");
   const [amount, setAmount] = useState("");
@@ -111,20 +113,6 @@ const PurchaseElectricity = () => {
         if (profile) {
           setBalance(profile.balance || 0);
           setPhone(profile.phone || '');
-        }
-
-        // Fetch admin-selected vending provider
-        const { data: providerSetting } = await supabase
-          .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'electricity_provider')
-          .maybeSingle();
-
-        if (providerSetting?.setting_value) {
-          const provider = (providerSetting.setting_value as any)?.provider || 'vtpass';
-          const validProviders = ['vtpass', 'mobilenig', 'smeplug'];
-          const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'smeplug' : 'vtpass';
-          setVendingProvider(selectedProvider);
         }
 
         setLoading(false);

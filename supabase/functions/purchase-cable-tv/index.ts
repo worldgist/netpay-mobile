@@ -155,6 +155,49 @@ serve(async (req) => {
     const vendingProvider = providerSetting?.setting_value?.provider || plan.vending_provider || 'mobilenig';
     console.log('Cable vending provider:', vendingProvider, 'for plan:', plan_id);
 
+    // If using eBills, route to eBills handler
+    if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+      const functionUrl = `${supabaseUrl}/functions/v1/purchase-ebills-cable`;
+
+      try {
+        const ebillsResponse = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            card_number,
+            provider,
+            customer_number,
+            customer_name,
+            package_name,
+            price: plan.custom_price || plan.original_price || plan.price,
+            api_code: plan.api_code || api_code,
+            plan_id,
+          }),
+        });
+
+        const ebillsResult = await ebillsResponse.json();
+        return new Response(
+          JSON.stringify(ebillsResult),
+          {
+            status: ebillsResponse.status,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          }
+        );
+      } catch (ebillsError) {
+        console.error('Error forwarding to eBills cable function:', ebillsError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Failed to process eBills cable purchase. Please try again.',
+          }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // If using VTpass, route to VTpass handler
     if (vendingProvider === 'vtpass') {
       // Get the VTpass purchase function URL and forward the request

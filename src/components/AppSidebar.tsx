@@ -21,6 +21,8 @@ import {
   Mail,
   Dices,
   Headset,
+  Banknote,
+  BookOpen,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -42,6 +44,7 @@ const menuItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "SMEPLUG API", url: "/smeplug", icon: Globe },
   { title: "eBills API", url: "/ebills", icon: Globe },
+  { title: "Flutterwave", url: "/flutterwave", icon: CreditCard },
   { title: "Transactions", url: "/transactions", icon: CreditCard },
   { title: "Airtime", url: "/airtime", icon: Smartphone },
   { title: "Data Plans", url: "/data-plans", icon: Wifi },
@@ -50,6 +53,8 @@ const menuItems = [
   { title: "Education", url: "/education", icon: GraduationCap },
   { title: "Betting", url: "/betting", icon: Dices },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
+  { title: "Treasury", url: "/treasury", icon: Banknote },
+  { title: "Ledger", url: "/ledger", icon: BookOpen },
   { title: "Platform Revenue", url: "/platform-revenue", icon: DollarSign },
   { title: "Referrals", url: "/referrals", icon: Gift },
   { title: "Users", url: "/users", icon: Users },

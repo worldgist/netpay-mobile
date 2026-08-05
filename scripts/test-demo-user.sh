@@ -5,7 +5,7 @@
 
 set -e
 
-SUPABASE_URL="${SUPABASE_URL:-https://rekkdwpkzkhgnejgzhac.supabase.co}"
+SUPABASE_URL="${SUPABASE_URL:-https://xrpuvnhmdmpgelfxpdcx.supabase.co}"
 DEMO_EMAIL="demo@netpayy.ng"
 DEMO_PASSWORD="Demo@1234"
 

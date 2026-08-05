@@ -7,7 +7,6 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -22,12 +21,11 @@ export default function ContactUsScreen() {
   const [supportPhone, setSupportPhone] = useState('07067398399');
   const [supportPhoneDisplay, setSupportPhoneDisplay] = useState('+234 706 739 8399');
   const [supportAddress, setSupportAddress] = useState('');
-  const [businessHours, setBusinessHours] = useState<Array<{ day: string; time: string }>>([
+  const [businessHours, setBusinessHours] = useState<{ day: string; time: string }[]>([
     { day: 'Monday - Friday', time: '9:00 AM - 6:00 PM' },
     { day: 'Saturday', time: '10:00 AM - 4:00 PM' },
     { day: 'Sunday', time: 'Closed' },
   ]);
-  const [loading, setLoading] = useState(true);
   const isMounted = useRef(true);
 
   // Load contact settings when screen loads
@@ -96,8 +94,6 @@ export default function ContactUsScreen() {
         }
       } catch (error) {
         console.error('Failed to load contact data:', error);
-      } finally {
-        if (isMounted.current) setLoading(false);
       }
     };
 
@@ -121,7 +117,7 @@ export default function ContactUsScreen() {
         await Clipboard.setStringAsync(supportEmail);
         Alert.alert('Copied', 'Email address copied to clipboard');
       }
-    } catch (error) {
+    } catch {
       // Fallback: Copy to clipboard
       await Clipboard.setStringAsync(supportEmail);
       Alert.alert('Copied', 'Email address copied to clipboard');
@@ -140,20 +136,12 @@ export default function ContactUsScreen() {
         await Clipboard.setStringAsync(supportPhoneDisplay);
         Alert.alert('Copied', 'Phone number copied to clipboard');
       }
-    } catch (error) {
+    } catch {
       // Fallback: Copy to clipboard
       await Clipboard.setStringAsync(supportPhoneDisplay);
       Alert.alert('Copied', 'Phone number copied to clipboard');
     }
   };
-
-  if (loading) {
-    return (
-      <ThemedView style={styles.loadingContainer}>
-        <NetpayLoadingAnimation message="Loading…" />
-      </ThemedView>
-    );
-  }
 
   return (
     <ThemedView style={styles.container}>
@@ -256,12 +244,6 @@ export default function ContactUsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#F5F5F5',
   },
   header: {

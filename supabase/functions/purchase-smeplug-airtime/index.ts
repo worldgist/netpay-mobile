@@ -445,11 +445,12 @@ serve(async (req) => {
           console.log('SMEPLUG provider wallet balance:', providerBalanceAtCall, providerWallet.raw);
         }
 
-        // Official SMEPlug body: { network_id: number, phone: string, amount: number }
+        // Official SMEPlug body: { network_id, phone, amount, customer_reference }
         const buildCanonicalSmeplugBody = () => ({
           network_id: smeplugNetworkId,
           phone: sanitizedPhone,
           amount: purchaseAmount,
+          customer_reference: reference,
         });
 
         const callSmeplugAirtime = async (requestBody: Record<string, unknown>) => {

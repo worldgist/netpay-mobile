@@ -1,0 +1,11 @@
+[
+  {
+    "email": "user@example.com",
+    "password": "TheirPassword123!",
+    "full_name": "Full Name",
+    "phone": "08012345678",
+    "balance": 0,
+    "pin": null,
+    "role": "user"
+  }
+]

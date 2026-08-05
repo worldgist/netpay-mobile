@@ -5,13 +5,13 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { Dropdown } from '@/components/dropdown';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { useVendingSettings } from '@/contexts/vending-settings-context';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
 import * as Clipboard from 'expo-clipboard';
 
@@ -127,10 +127,11 @@ const FALLBACK_PLANS: ElectricityPlan[] = FALLBACK_PROVIDERS.flatMap((provider) 
 export default function ElectricityScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { providers: vendingSettings } = useVendingSettings();
+  const vendingProvider = vendingSettings.electricity as 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills';
   const [providers] = useState<ElectricityProvider[]>(FALLBACK_PROVIDERS);
   const [plans] = useState<ElectricityPlan[]>(FALLBACK_PLANS);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(FALLBACK_PROVIDERS[0]?.id || null);
-  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'smeplug'>('vtpass');
   const [meterType, setMeterType] = useState<'prepaid' | 'postpaid' | ''>('');
   const [meterNumber, setMeterNumber] = useState('');
   const [amount, setAmount] = useState('');
@@ -140,10 +141,9 @@ export default function ElectricityScreen() {
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [verifiedAddress, setVerifiedAddress] = useState<string | null>(null);
   const [meterInfo, setMeterInfo] = useState<any>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [, setToken] = useState<string | null>(null);
   const [transactionReference, setTransactionReference] = useState<string | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<string | null>(null);
-  const [providerFilter, setProviderFilter] = useState('all');
   const [balance, setBalance] = useState<number>(0);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
@@ -216,39 +216,8 @@ export default function ElectricityScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchBalance();
-      // fetchElectricityProvider is defined later, so we call it directly
-      const fetchProvider = async () => {
-        // Provider fetching logic will be called here
-      };
-      fetchProvider();
     }, [fetchBalance])
   );
-
-  const fetchElectricityProvider = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('setting_value')
-        .eq('setting_key', 'electricity_provider')
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error fetching electricity provider setting:', error);
-        setVendingProvider('vtpass');
-        return;
-      }
-
-      if (data?.setting_value) {
-        const provider = (data.setting_value as any)?.provider || 'vtpass';
-        const validProviders = ['vtpass', 'mobilenig', 'smeplug'];
-        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'smeplug' : 'vtpass';
-        setVendingProvider(selectedProvider);
-      }
-    } catch (error) {
-      console.error('Error fetching electricity provider setting:', error);
-      setVendingProvider('vtpass');
-    }
-  }, []);
 
   useEffect(() => {
     if (providers.length) {
@@ -267,7 +236,7 @@ export default function ElectricityScreen() {
         : provider.meterTypes[0];
       setMeterType(validMeterType);
     }
-  }, [selectedProvider]);
+  }, [selectedProvider, meterType, providers]);
 
   const setPackageConstraints = () => {
     setToken(null);
@@ -276,7 +245,7 @@ export default function ElectricityScreen() {
     setMeterInfo(null);
   };
 
-  const handleVerifyMeter = async () => {
+  const handleVerifyMeter = useCallback(async () => {
     if (!selectedProvider) {
       Alert.alert('Error', 'Please select an electricity provider first');
       return;
@@ -316,9 +285,6 @@ export default function ElectricityScreen() {
 
       let responseData: any = null;
       
-      // Use refreshed session if available, otherwise use original
-      const activeSession = refreshedSession || session;
-
       // Try supabase.functions.invoke first
       try {
         const { data, error } = await supabase.functions.invoke('validate-meter-number', {
@@ -363,7 +329,7 @@ export default function ElectricityScreen() {
         }
         
         // Try to refresh the session to get a fresh token
-        const { data: { session: refreshedFallbackSession }, error: refreshFallbackError } = await supabase.auth.refreshSession();
+        const { data: { session: refreshedFallbackSession } } = await supabase.auth.refreshSession();
         const activeFallbackSession = refreshedFallbackSession || fallbackSession;
         
         if (!activeFallbackSession) {
@@ -373,7 +339,7 @@ export default function ElectricityScreen() {
         // Fallback to direct fetch
         const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
                            (supabase as any).supabaseUrl ||
-                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
         const response = await fetch(`${supabaseUrl}/functions/v1/validate-meter-number`, {
           method: 'POST',
@@ -564,7 +530,7 @@ export default function ElectricityScreen() {
     } finally {
       setVerificationLoading(false);
     }
-  };
+  }, [meterNumber, meterType, router, selectedProvider, vendingProvider]);
 
   const handleContinue = async () => {
     if (!selectedProvider) {
@@ -687,10 +653,6 @@ export default function ElectricityScreen() {
     }
 
     const sanitizedMeter = meterNumber.trim();
-    // For demo users, use meter number as phone number (single number for testing)
-    const sanitizedPhone = isDemoUser 
-      ? sanitizedMeter 
-      : phoneNumber.replace(/\s+/g, '').trim();
     const providerEntry = providers.find((p) => p.id === selectedProvider);
     const providerName = providerEntry?.name || selectedProvider;
 
@@ -809,7 +771,7 @@ export default function ElectricityScreen() {
         // Fallback to direct fetch
         const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
                            (supabase as any).supabaseUrl ||
-                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
         try {
         const response = await fetch(`${supabaseUrl}/functions/v1/purchase-electricity`, {
@@ -1006,12 +968,11 @@ export default function ElectricityScreen() {
         // Extract error message from multiple possible locations
         // Handle case where responseData might be a stringified JSON
         let errorDetails = responseData;
-        const responseDataString = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
         
         if (typeof responseData === 'string') {
           try {
             errorDetails = JSON.parse(responseData);
-          } catch (e) {
+          } catch {
             // If it's a string but not JSON, try to extract error from string
             // Don't hardcode LOW WALLET BALANCE - let the replacement logic handle it
             const errorMatch = responseData.match(/"error"\s*:\s*"([^"]+)"/);
@@ -1206,7 +1167,7 @@ export default function ElectricityScreen() {
             ? JSON.parse(purchaseError.context.body) 
             : purchaseError.context.body;
           message = contextBody?.error || contextBody?.message || message;
-        } catch (e) {
+        } catch {
           // Ignore parse errors
         }
       }
@@ -1343,7 +1304,7 @@ export default function ElectricityScreen() {
       
       setTransactionStatus('Failed');
     }
-  }, [amount, fetchBalance, meterNumber, meterType, phoneNumber, providers, router, selectedProvider, verifiedName, verifiedAddress]);
+  }, [amount, balance, fetchBalance, handleVerifyMeter, isDemoUser, meterInfo, meterNumber, meterType, providers, router, selectedProvider, verifiedName, verifiedAddress]);
 
   const getProviderLogo = (providerId: string | null) => {
     if (!providerId) return null;
@@ -1381,7 +1342,7 @@ export default function ElectricityScreen() {
       verifiedAddress ? verifiedAddress : null,
     ].filter(Boolean);
     return parts.join(' • ');
-  }, [meterType, phoneNumber, selectedProviderEntry, verifiedName, verifiedAddress]);
+  }, [meterType, phoneNumber, verifiedName, verifiedAddress]);
 
   return (
     <ThemedView style={styles.container}>

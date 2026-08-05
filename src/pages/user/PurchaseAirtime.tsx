@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
 import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
+import { useVendingSettings } from "@/contexts/VendingSettingsContext";
 
 const NETWORK_KEY_MAP: Record<string, string> = {
   MTN: "MTN",
@@ -35,6 +36,43 @@ const SMEPLUG_NETWORK_IDS: Record<string, string> = {
   AIRTEL: "2",
   "9MOBILE": "3",
   GLO: "4",
+};
+
+const EBILLS_SERVICE_IDS: Record<string, string> = {
+  MTN: "mtn",
+  AIRTEL: "airtel",
+  GLO: "glo",
+  "9MOBILE": "9mobile",
+};
+
+type ProviderDetails = {
+  id: string;
+  network: string;
+  displayName: string;
+  minAmount: number;
+  maxAmount: number;
+  apiCode: string;
+  identifierLabel: string;
+  placeholder?: string;
+};
+
+const resolveAirtimeNetworkId = (
+  provider: ProviderDetails,
+  vendingProvider: "smeplug" | "ebills",
+): string | null => {
+  if (vendingProvider === "ebills") {
+    const fromApiCode = provider.apiCode?.trim().toLowerCase();
+    if (fromApiCode && !/^\d+$/.test(fromApiCode)) {
+      return fromApiCode;
+    }
+    if (provider.network && EBILLS_SERVICE_IDS[provider.network]) {
+      return EBILLS_SERVICE_IDS[provider.network];
+    }
+    return null;
+  }
+
+  const smeplugId = provider.network ? SMEPLUG_NETWORK_IDS[provider.network] : null;
+  return (smeplugId || provider.apiCode)?.trim() || null;
 };
 
 const normalizePhoneNumber = (value: string) => {
@@ -63,17 +101,6 @@ interface Network {
   item_code?: string | null;
 }
 
-type ProviderDetails = {
-  id: string;
-  network: string;
-  displayName: string;
-  minAmount: number;
-  maxAmount: number;
-  apiCode: string;
-  identifierLabel: string;
-  placeholder?: string;
-};
-
 const normalizeNetwork = (value?: string | null) => {
   if (!value) return null;
   const upper = value.toUpperCase().trim();
@@ -100,6 +127,8 @@ const PurchaseAirtime = () => {
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
   const [showInvalidPhoneModal, setShowInvalidPhoneModal] = useState(false);
   const [invalidPhoneMessage, setInvalidPhoneMessage] = useState("Please enter a valid 11-digit phone number.");
+  const { providers: vendingSettings } = useVendingSettings();
+  const airtimeVendingProvider = vendingSettings.airtime === 'ebills' ? 'ebills' : 'smeplug';
   const providerRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -340,9 +369,7 @@ const PurchaseAirtime = () => {
       const network = providers.find(n => n.id === selectedNetwork);
       if (!network) throw new Error("Invalid network");
 
-      const canonicalNetworkId = network.network ? SMEPLUG_NETWORK_IDS[network.network] : null;
-      const rawNetworkId = canonicalNetworkId || network.apiCode;
-      const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
+      const normalizedNetworkId = resolveAirtimeNetworkId(network, airtimeVendingProvider);
 
       if (!normalizedNetworkId) {
         throw new Error('Unable to determine network code for this provider. Please try again.');
@@ -356,13 +383,26 @@ const PurchaseAirtime = () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      const { data, error } = await supabase.functions.invoke('purchase-smeplug-airtime', {
-        body: {
-          phone_number: normalizePhoneNumber(phoneNumber),
-          amount: submissionAmount,
-          network_id: normalizedNetworkId,
-          network_name: network.network,
-        },
+      const purchaseFunction =
+        airtimeVendingProvider === 'ebills' ? 'purchase-ebills-airtime' : 'purchase-smeplug-airtime';
+
+      const purchaseBody =
+        airtimeVendingProvider === 'ebills'
+          ? {
+              phone_number: normalizePhoneNumber(phoneNumber),
+              amount: submissionAmount,
+              network_name: network.network,
+              service_id: normalizedNetworkId,
+            }
+          : {
+              phone_number: normalizePhoneNumber(phoneNumber),
+              amount: submissionAmount,
+              network_id: normalizedNetworkId,
+              network_name: network.network,
+            };
+
+      const { data, error } = await supabase.functions.invoke(purchaseFunction, {
+        body: purchaseBody,
         headers: accessToken
           ? {
               Authorization: `Bearer ${accessToken}`,

@@ -232,6 +232,17 @@ export default function ChangePasswordScreen() {
               </ThemedText>
             )}
           </TouchableOpacity>
+
+          {step === 'current' ? (
+            <TouchableOpacity
+              style={styles.forgotLink}
+              onPress={() => router.push('/forget-password')}
+              activeOpacity={0.7}
+              disabled={updating}
+            >
+              <ThemedText style={styles.forgotLinkText}>Forgot Password?</ThemedText>
+            </TouchableOpacity>
+          ) : null}
         </ThemedView>
       </ScrollView>
 
@@ -247,6 +258,15 @@ export default function ChangePasswordScreen() {
             </ThemedText>
             <TouchableOpacity style={styles.modalButton} onPress={() => setShowIncorrectPasswordModal(false)}>
               <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalSecondaryButton}
+              onPress={() => {
+                setShowIncorrectPasswordModal(false);
+                router.push('/forget-password');
+              }}
+            >
+              <ThemedText style={styles.modalSecondaryButtonText}>Forgot Password?</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -428,5 +448,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  forgotLink: {
+    alignItems: 'center',
+    marginTop: 16,
+    paddingVertical: 8,
+  },
+  forgotLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FF7F00',
+    textDecorationLine: 'underline',
+  },
+  modalSecondaryButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  modalSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FF7F00',
   },
 });

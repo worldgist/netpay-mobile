@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -12,8 +12,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
-import { Plus, Trash2, RefreshCw, Pencil, X, RotateCcw, DollarSign } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Pencil, X, RotateCcw, DollarSign, Search, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface DataPlan {
   id: string;
@@ -42,6 +55,40 @@ interface Network {
   name: string;
   network_id: string;
 }
+
+const NETWORK_TABS = ['Airtel', 'MTN', 'Glo', '9Mobile'] as const;
+
+const normalizeNetworkTab = (network: string) => {
+  const upper = network.toUpperCase().trim();
+  if (upper.includes('MTN')) return 'MTN';
+  if (upper.includes('AIRTEL')) return 'Airtel';
+  if (upper.includes('GLO')) return 'Glo';
+  if (upper.includes('9MOBILE') || upper.includes('ETISALAT') || upper.includes('9 MOBILE')) return '9Mobile';
+  return network;
+};
+
+const formatVendorLabel = (provider?: string | null) => {
+  if (!provider) return 'N/A';
+  const normalized = provider.toLowerCase();
+  if (normalized === 'ebills' || normalized === 'ebills.africa') return 'eBills Africa';
+  if (normalized === 'smeplug') return 'SMEPlug';
+  if (normalized === 'mobilenig') return 'MobileNig';
+  if (normalized === 'vtpass') return 'VTPass';
+  if (normalized === 'anyone') return 'ANYONE';
+  return provider;
+};
+
+const formatRelativeSyncTime = (date: Date | null) => {
+  if (!date) return 'Never';
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins === 1) return '1 min ago';
+  if (diffMins < 60) return `${diffMins} mins ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours === 1) return '1 hour ago';
+  return `${diffHours} hours ago`;
+};
 
 const inferPlanType = (planName: string, explicitType?: string | null) => {
   if (explicitType && explicitType.trim()) {
@@ -84,9 +131,15 @@ const DataPlans = () => {
     mobilenig_code: "",
     is_active: true
   });
-  const [dataProvider, setDataProvider] = useState<'anyone' | 'vtpass' | 'ebills.africa'>('vtpass');
+  const [dataProvider, setDataProvider] = useState<'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills'>('smeplug');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [filterNetwork, setFilterNetwork] = useState<string | null>(null);
+  const [activeNetworkTab, setActiveNetworkTab] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [planFilter, setPlanFilter] = useState<'all' | 'active' | 'custom_price'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   // Define fetchDataPlansForProvider first (before it's used)
   const fetchDataPlansForProvider = useCallback(async (provider: string) => {
@@ -134,6 +187,7 @@ const DataPlans = () => {
           
           console.log('Fetched data plans (fallback):', sortedData.length, 'plans');
           setDataPlans(sortedData);
+          setLastSyncedAt(new Date());
           return;
         }
         throw error;
@@ -149,6 +203,7 @@ const DataPlans = () => {
       
       console.log('Fetched data plans:', sortedData.length, 'plans');
       setDataPlans(sortedData);
+      setLastSyncedAt(new Date());
     } catch (error: any) {
       console.error('Error fetching data plans:', error);
       // Don't show toast for empty results, only for actual errors
@@ -194,6 +249,7 @@ const DataPlans = () => {
 
       console.log('Fetched all data plans:', sortedData.length, 'plans');
       setDataPlans(sortedData);
+      setLastSyncedAt(new Date());
     } catch (error: any) {
       console.error('Error fetching all data plans:', error);
       toast({
@@ -246,8 +302,11 @@ const DataPlans = () => {
           provider = 'smeplug'; // Default fallback
         }
         
-        const validProviders = ['smeplug', 'anyone', 'vtpass', 'mobilenig', 'ebills.africa'];
-        const selectedProvider = validProviders.includes(provider) ? provider as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa' : 'smeplug';
+        const normalizedProvider = provider === 'ebills.africa' ? 'ebills' : provider;
+        const validProviders = ['smeplug', 'anyone', 'vtpass', 'mobilenig', 'ebills'];
+        const selectedProvider = validProviders.includes(normalizedProvider)
+          ? normalizedProvider as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills'
+          : 'smeplug';
         console.log('Setting data provider to:', selectedProvider);
         setDataProvider(selectedProvider);
       } else {
@@ -366,8 +425,7 @@ const DataPlans = () => {
     checkAdminAndFetch();
   }, [checkAdminAndFetch]);
 
-  const updateDataProvider = async (newProvider: 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa') => {
-    // Don't update if it's already set to the same provider
+  const updateDataProvider = async (newProvider: 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills') => {
     if (dataProvider === newProvider) {
       return;
     }
@@ -378,25 +436,24 @@ const DataPlans = () => {
         .from('app_settings')
         .upsert({
           setting_key: 'data_provider',
-          setting_value: newProvider, // Store as string, not object
+          setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Data vending provider: smeplug, vtpass, mobilenig, anyone, or ebills.africa'
+          description: 'Data vending provider: smeplug, vtpass, mobilenig, anyone, or ebills (eBills Africa)'
         }, {
           onConflict: 'setting_key'
         });
 
       if (error) throw error;
 
-      // State is already updated in onValueChange, but ensure it's set
-      // Fetch plans for the new provider
+      setDataProvider(newProvider);
       await fetchDataPlansForProvider(newProvider);
-      
-      // Clear network filter when switching providers
       setFilterNetwork(null);
+      setActiveNetworkTab('all');
+      setCurrentPage(1);
       
       toast({
         title: "Success",
-        description: `Data provider switched to ${newProvider === 'ebills.africa' ? 'eBills.Africa' : newProvider.toUpperCase()}. Showing plans from ${newProvider === 'ebills.africa' ? 'eBills.Africa' : newProvider.toUpperCase()}.`,
+        description: `Data provider switched to ${newProvider === 'ebills' ? 'eBills Africa' : newProvider.toUpperCase()}.`,
       });
     } catch (error: any) {
       console.error('Error updating data provider:', error);
@@ -492,8 +549,24 @@ const DataPlans = () => {
 
           const processedPlans = plansArray.map((plan: any) => {
             // Handle different vendor response formats
-            const apiCode = plan.variation_code || plan.code || plan.productCode || plan.id || plan.plan_id || '';
-            const planName = plan.plan || plan.name || plan.variation_name || plan.fixedPriceDescription || plan.planName || 'Unknown Plan';
+            const apiCode =
+              plan.api_code ||
+              plan.variation_id ||
+              plan.variation_code ||
+              plan.code ||
+              plan.productCode ||
+              plan.id ||
+              plan.plan_id ||
+              '';
+            const planName =
+              plan.data_plan ||
+              plan.plan ||
+              plan.plan_name ||
+              plan.name ||
+              plan.variation_name ||
+              plan.fixedPriceDescription ||
+              plan.planName ||
+              'Unknown Plan';
             const price = parseFloat(plan.variation_amount || plan.amount || plan.fixedPrice || plan.price || 0);
             const validity = plan.validity || plan.duration || 'N/A';
 
@@ -515,6 +588,8 @@ const DataPlans = () => {
               planObj.smeplug_code = apiCode;
             } else if (vendor === 'mobilenig') {
               planObj.mobilenig_code = apiCode;
+            } else if (vendor === 'ebills') {
+              planObj.api_code = String(apiCode);
             }
 
             // Extract size
@@ -609,6 +684,7 @@ const DataPlans = () => {
       
       setIsDialogOpen(false);
       setFilterNetwork(network.name);
+      setActiveNetworkTab(network.name);
       setIsFetching(false);
       
       toast({
@@ -678,12 +754,12 @@ const DataPlans = () => {
           requestBody = { network: normalizedNetworkName };
           break;
         case 'ebills.africa':
-          // TODO: Create fetch-ebills-data-plans function
-          functionName = 'fetch-smeplug-data-plans';
-          if (!network.network_id) {
-            throw new Error('Network ID is required for SMEPLUG. Please ensure the network has a valid network_id.');
+        case 'ebills':
+          functionName = 'fetch-ebills-data-plans';
+          if (!network.name || !network.name.trim()) {
+            throw new Error('Network name is required for eBills Africa.');
           }
-          requestBody = { network_id: network.network_id };
+          requestBody = { network: network.name.trim().toUpperCase() };
           break;
         case 'anyone':
           // TODO: Create fetch-anyone-data-plans function
@@ -1005,20 +1081,34 @@ const DataPlans = () => {
         // Map plans based on provider format and sanitize inputs
         const plansToInsert = plansArray
           .map((plan: any) => {
-            const apiCodeCandidate = plan.variation_code || plan.id || plan.code || plan.plan_id;
+            const apiCodeCandidate =
+              plan.api_code ||
+              plan.variation_id ||
+              plan.variation_code ||
+              plan.id ||
+              plan.code ||
+              plan.plan_id;
             const normalizedApiCode = typeof apiCodeCandidate === 'string'
               ? apiCodeCandidate.trim()
               : String(apiCodeCandidate ?? '');
 
             const planName =
+              plan.data_plan ||
               plan.plan ||
               plan.name ||
+              plan.plan_name ||
               plan.variation_name ||
               plan.fixedPriceDescription ||
               plan.title ||
               'Unknown Plan';
 
-            const validityValue = plan.validity || plan.duration || plan.validity_period || 'N/A';
+            const validityValue =
+              plan.validity ||
+              plan.duration ||
+              plan.validity_period ||
+              (typeof planName === 'string' && planName.includes('-')
+                ? planName.split('-').slice(1).join('-').trim()
+                : 'N/A');
             const priceValue = normalizePrice(
               plan.price ??
                 plan.amount ??
@@ -1048,6 +1138,8 @@ const DataPlans = () => {
               planObj.smeplug_code = normalizedApiCode;
             } else if (dataProvider === 'mobilenig') {
               planObj.mobilenig_code = normalizedApiCode;
+            } else if (dataProvider === 'ebills') {
+              planObj.api_code = normalizedApiCode;
             }
 
             // Extract plan type and size if available
@@ -1279,6 +1371,8 @@ const DataPlans = () => {
         setIsDialogOpen(false);
         // Filter to show only the fetched network
         setFilterNetwork(network.name);
+        setActiveNetworkTab(network.name);
+        setActiveNetworkTab(network.name);
         
         const newCount = plansToUpsert.length;
         const updatedCount = plansToUpdate.length;
@@ -1628,6 +1722,72 @@ const DataPlans = () => {
     return colors[network] || 'bg-gray-500';
   };
 
+  const networkCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const plan of dataPlans) {
+      const tab = normalizeNetworkTab(plan.network);
+      counts[tab] = (counts[tab] || 0) + 1;
+    }
+    return counts;
+  }, [dataPlans]);
+
+  const filteredPlans = useMemo(() => {
+    let plans = [...dataPlans];
+
+    if (activeNetworkTab !== 'all') {
+      plans = plans.filter((plan) => normalizeNetworkTab(plan.network) === activeNetworkTab);
+    } else if (filterNetwork) {
+      plans = plans.filter((plan) => normalizeNetworkTab(plan.network) === normalizeNetworkTab(filterNetwork));
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      plans = plans.filter((plan) =>
+        plan.plan_name.toLowerCase().includes(query) ||
+        plan.api_code?.toLowerCase().includes(query) ||
+        plan.network.toLowerCase().includes(query) ||
+        plan.size?.toLowerCase().includes(query)
+      );
+    }
+
+    if (planFilter === 'active') {
+      plans = plans.filter((plan) => plan.is_active !== false);
+    } else if (planFilter === 'custom_price') {
+      plans = plans.filter((plan) => !!plan.custom_price);
+    }
+
+    return plans.sort((a, b) => {
+      if (a.network !== b.network) return a.network.localeCompare(b.network);
+      return (a.price || 0) - (b.price || 0);
+    });
+  }, [dataPlans, activeNetworkTab, filterNetwork, searchQuery, planFilter]);
+
+  const totalPlansCount = dataPlans.length;
+  const totalFilteredCount = filteredPlans.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedPlans = filteredPlans.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
+
+  const getVendorBadgeClass = (provider?: string | null) => {
+    const normalized = (provider || '').toLowerCase();
+    if (normalized === 'smeplug') return 'bg-green-50 text-green-700 border-green-200';
+    if (normalized === 'vtpass') return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (normalized === 'mobilenig') return 'bg-purple-50 text-purple-700 border-purple-200';
+    if (normalized === 'ebills' || normalized === 'ebills.africa') return 'bg-orange-50 text-orange-700 border-orange-200';
+    return 'bg-gray-50 text-gray-700 border-gray-200';
+  };
+
+  const handleNetworkTabChange = (tab: string) => {
+    setActiveNetworkTab(tab);
+    setFilterNetwork(tab === 'all' ? null : tab);
+    setCurrentPage(1);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -1635,22 +1795,6 @@ const DataPlans = () => {
       </div>
     );
   }
-
-  // Group plans by network, showing all plans regardless of provider filter
-  const groupedPlans = dataPlans.reduce((acc, plan) => {
-    // Filter by network if filterNetwork is set
-    if (filterNetwork && plan.network !== filterNetwork) {
-      return acc;
-    }
-    if (!acc[plan.network]) {
-      acc[plan.network] = [];
-    }
-    acc[plan.network].push(plan);
-    return acc;
-  }, {} as Record<string, DataPlan[]>);
-
-  // Calculate total plans count
-  const totalPlansCount = Object.values(groupedPlans).reduce((sum, plans) => sum + plans.length, 0);
 
   return (
     <SidebarProvider>
@@ -1664,20 +1808,17 @@ const DataPlans = () => {
                 <div>
                   <h1 className="text-3xl font-bold">Data Plans Management</h1>
                   <p className="text-muted-foreground">
-                    {totalPlansCount > 0 
-                      ? `Showing ${totalPlansCount} data plan${totalPlansCount !== 1 ? 's' : ''} from all providers`
-                      : `Manage data plans from ${dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}`
-                    }
-                    {filterNetwork && ` - ${filterNetwork} network`}
+                    Manage and sync data plans from providers
+                    {totalPlansCount > 0 ? ` · ${totalPlansCount} plan${totalPlansCount !== 1 ? 's' : ''}` : ''}
                   </p>
-                  <div className="mt-2 flex items-center gap-2 text-sm bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
-                    <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <div className="mt-2 flex items-center gap-2 text-sm bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 max-w-3xl">
+                    <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
                     <span className="text-blue-700 dark:text-blue-300">
-                      <strong>Pricing:</strong> Set custom prices to charge users a different amount than the provider's price. Users will be charged the custom price (or original if not set).
+                      <strong>Pricing:</strong> Set custom prices to charge users a different amount than the provider&apos;s price. Users will be charged the custom price (or original if not set).
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 flex-wrap justify-end">
                   <Button
                     variant="outline"
                     onClick={resetAllCustomPricesForProvider}
@@ -1688,14 +1829,12 @@ const DataPlans = () => {
                     Reset All Prices
                   </Button>
                   <div className="flex items-center gap-3 bg-card border rounded-lg px-4 py-2">
-                    <Label htmlFor="data-provider" className="text-sm font-medium">Data Provider:</Label>
+                    <Label htmlFor="data-provider" className="text-sm font-medium whitespace-nowrap">Data Provider:</Label>
                     <Select
                       value={dataProvider}
                       onValueChange={async (value) => {
-                        const provider = value as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills.africa';
-                        // Update state immediately to prevent UI flicker
+                        const provider = value as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills';
                         setDataProvider(provider);
-                        // Then save to database
                         await updateDataProvider(provider);
                       }}
                       disabled={isUpdatingProvider}
@@ -1708,22 +1847,22 @@ const DataPlans = () => {
                         <SelectItem value="anyone">ANYONE</SelectItem>
                         <SelectItem value="vtpass">VTPASS</SelectItem>
                         <SelectItem value="mobilenig">MobileNig</SelectItem>
-                        <SelectItem value="ebills.africa">eBills.Africa</SelectItem>
+                        <SelectItem value="ebills">eBills Africa</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button className="bg-orange-500 hover:bg-orange-600 text-white">
                       <Plus className="mr-2 h-4 w-4" />
                       Import from API
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Import Data Plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}</DialogTitle>
+                      <DialogTitle>Import Data Plans from {dataProvider === 'ebills' ? 'eBills Africa' : dataProvider.toUpperCase()}</DialogTitle>
                       <DialogDescription>
-                        Select a network to fetch and import their data plans from {dataProvider === 'ebills.africa' ? 'eBills.Africa' : dataProvider.toUpperCase()}
+                        Select a network to fetch and import their data plans from {dataProvider === 'ebills' ? 'eBills Africa' : dataProvider.toUpperCase()}
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -1763,159 +1902,166 @@ const DataPlans = () => {
               </div>
             </div>
 
-            {/* Filter Badge */}
-            {filterNetwork && (
-              <div className="mb-4 flex items-center gap-2">
-                <Badge className="bg-brand text-white px-3 py-1.5 text-sm">
-                  Showing: {filterNetwork}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setFilterNetwork(null);
-                    toast({
-                      title: "Filter Cleared",
-                      description: "Showing all networks",
-                    });
-                  }}
-                  className="h-7 px-2"
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Clear Filter
-                </Button>
-              </div>
-            )}
-
-            <div className="space-y-6">
-              {Object.entries(groupedPlans).length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-16">
-                    <p className="text-muted-foreground mb-4">
-                      {filterNetwork 
-                        ? `No data plans found for ${filterNetwork}` 
-                        : "No data plans found"}
-                    </p>
-                    {filterNetwork && (
-                      <Button 
-                        variant="outline"
-                        onClick={() => setFilterNetwork(null)}
-                        className="mt-2"
+            <Card className="mt-6">
+              <CardContent className="pt-6 space-y-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    {NETWORK_TABS.map((network) => (
+                      <Button
+                        key={network}
+                        variant={activeNetworkTab === network ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => handleNetworkTabChange(network)}
+                        className={activeNetworkTab === network ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}
                       >
-                        <X className="h-4 w-4 mr-2" />
-                        Clear Filter
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              ) : (
-                Object.entries(groupedPlans).map(([network, plans]) => (
-                <Card key={network}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Badge className={getNetworkColor(network)}>
                         {network}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        ({plans.length} plans)
-                      </span>
-                    </CardTitle>
-                    <CardDescription>Available data plans for {network}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Plan Name</TableHead>
-                            <TableHead>Provider</TableHead>
-                            <TableHead className="text-right">Original Price</TableHead>
-                            <TableHead className="text-right">Custom Price</TableHead>
-                            <TableHead className="font-semibold text-right">User Pays</TableHead>
-                            <TableHead>Validity</TableHead>
-                            <TableHead>Size</TableHead>
-                            <TableHead>API Code</TableHead>
-                            <TableHead>Vendor Codes</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {plans.map((plan) => {
-                            const effectivePrice = plan.custom_price ?? plan.original_price ?? plan.price;
-                            const originalPrice = plan.original_price ?? plan.price;
-                            const hasCustomPrice = !!plan.custom_price;
-                            return (
-                              <TableRow key={plan.id}>
-                                <TableCell className="font-medium">{plan.plan_name}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className={
-                                    plan.provider === 'vtpass' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                    plan.provider === 'mobilenig' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                                    plan.provider === 'smeplug' ? 'bg-green-50 text-green-700 border-green-200' :
-                                    'bg-gray-50 text-gray-700 border-gray-200'
-                                  }>
-                                    {plan.provider ? plan.provider.toUpperCase() : 'N/A'}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <span className="font-medium">₦{originalPrice.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {hasCustomPrice ? (
-                                    <span className="text-primary font-medium">₦{plan.custom_price!.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                  ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                  )}
-                                </TableCell>
-                                <TableCell className="font-semibold text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <span className={hasCustomPrice ? "text-primary" : ""}>
-                                      ₦{effectivePrice.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </span>
-                                    {hasCustomPrice && (
-                                      <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary">
-                                        Custom
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </TableCell>
-                                <TableCell>{plan.validity || 'N/A'}</TableCell>
-                                <TableCell>
-                                  {plan.size ? (
-                                    <Badge variant="outline" className="text-xs">
-                                      {plan.size}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">-</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                                    {plan.api_code || 'N/A'}
-                                  </code>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex flex-wrap gap-1">
-                                    {plan.vtpass_code && (
-                                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                        VTpass
-                                      </Badge>
-                                    )}
-                                    {plan.smeplug_code && (
-                                      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                                        SMEPlug
-                                      </Badge>
-                                    )}
-                                    {plan.mobilenig_code && (
-                                      <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-                                        Mobilenig
-                                      </Badge>
-                                    )}
-                                    {!plan.vtpass_code && !plan.smeplug_code && !plan.mobilenig_code && (
-                                      <span className="text-xs text-muted-foreground">None</span>
-                                    )}
-                                  </div>
-                                </TableCell>
+                        <span className="ml-2 text-xs opacity-80">({networkCounts[network] || 0} plans)</span>
+                      </Button>
+                    ))}
+                    <Button
+                      variant={activeNetworkTab === 'all' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleNetworkTabChange('all')}
+                      className={activeNetworkTab === 'all' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}
+                    >
+                      All Providers
+                      <span className="ml-2 text-xs opacity-80">({totalPlansCount} plans)</span>
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        placeholder="Search plans..."
+                        className="pl-9 w-[220px]"
+                      />
+                    </div>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="gap-2">
+                          <Filter className="h-4 w-4" />
+                          Filter
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-48 p-2">
+                        <div className="space-y-1">
+                          <Button
+                            variant={planFilter === 'all' ? 'secondary' : 'ghost'}
+                            size="sm"
+                            className="w-full justify-start"
+                            onClick={() => { setPlanFilter('all'); setCurrentPage(1); }}
+                          >
+                            All plans
+                          </Button>
+                          <Button
+                            variant={planFilter === 'active' ? 'secondary' : 'ghost'}
+                            size="sm"
+                            className="w-full justify-start"
+                            onClick={() => { setPlanFilter('active'); setCurrentPage(1); }}
+                          >
+                            Active only
+                          </Button>
+                          <Button
+                            variant={planFilter === 'custom_price' ? 'secondary' : 'ghost'}
+                            size="sm"
+                            className="w-full justify-start"
+                            onClick={() => { setPlanFilter('custom_price'); setCurrentPage(1); }}
+                          >
+                            Custom price only
+                          </Button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <span className="text-sm text-green-600 whitespace-nowrap">
+                      Last synced: {formatRelativeSyncTime(lastSyncedAt)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Plan Name</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead className="text-right">Original Price</TableHead>
+                        <TableHead className="text-right">Custom Price</TableHead>
+                        <TableHead className="text-right font-semibold">User Pays</TableHead>
+                        <TableHead>Validity</TableHead>
+                        <TableHead>Size</TableHead>
+                        <TableHead>API Code</TableHead>
+                        <TableHead>Vendor Code</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedPlans.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={11} className="text-center py-12 text-muted-foreground">
+                            {searchQuery || planFilter !== 'all'
+                              ? 'No plans match your search or filter.'
+                              : 'No data plans found. Import plans from the API to get started.'}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        paginatedPlans.map((plan) => {
+                          const effectivePrice = plan.custom_price ?? plan.original_price ?? plan.price;
+                          const originalPrice = plan.original_price ?? plan.price;
+                          const hasCustomPrice = !!plan.custom_price;
+                          const isActive = plan.is_active !== false;
+
+                          return (
+                            <TableRow key={plan.id}>
+                              <TableCell className="font-medium max-w-[280px]">{plan.plan_name}</TableCell>
+                              <TableCell>
+                                <Badge className={`${getNetworkColor(normalizeNetworkTab(plan.network))} text-white border-0`}>
+                                  {normalizeNetworkTab(plan.network)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {formatNaira(originalPrice)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {hasCustomPrice ? (
+                                  <span className="text-green-600 font-medium">{formatNaira(plan.custom_price!)}</span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-semibold">
+                                <span className={hasCustomPrice ? 'text-primary' : ''}>
+                                  {formatNaira(effectivePrice)}
+                                </span>
+                              </TableCell>
+                              <TableCell>{plan.validity || 'N/A'}</TableCell>
+                              <TableCell>{plan.size || '-'}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 font-mono">
+                                  {plan.api_code || 'N/A'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={getVendorBadgeClass(plan.provider)}>
+                                  {formatVendorLabel(plan.provider)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="outline"
+                                  className={isActive
+                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                    : 'bg-gray-50 text-gray-600 border-gray-200'}
+                                >
+                                  {isActive ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button
@@ -1946,29 +2092,90 @@ const DataPlans = () => {
                                   </Button>
                                 </div>
                               </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-                ))
-              )}
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
 
-              {dataPlans.length === 0 && !filterNetwork && (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-16">
-                    <p className="text-muted-foreground mb-4">No data plans found</p>
-                    <Button onClick={() => setIsDialogOpen(true)}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Import from API
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-2">
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <span>
+                      Showing {pageStart} to {pageEnd} of {totalFilteredCount} plan{totalFilteredCount !== 1 ? 's' : ''}
+                    </span>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(value) => {
+                        setPageSize(Number(value));
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="w-[110px] h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10 / page</SelectItem>
+                        <SelectItem value="25">25 / page</SelectItem>
+                        <SelectItem value="50">50 / page</SelectItem>
+                        <SelectItem value="100">100 / page</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {totalPages > 1 && (
+                    <Pagination>
+                      <PaginationContent>
+                        <PaginationItem>
+                          <PaginationPrevious
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setCurrentPage((page) => Math.max(1, page - 1));
+                            }}
+                            className={safeCurrentPage <= 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                          />
+                        </PaginationItem>
+                        {Array.from({ length: Math.min(totalPages, 7) }, (_, index) => {
+                          let pageNumber = index + 1;
+                          if (totalPages > 7) {
+                            if (safeCurrentPage <= 4) pageNumber = index + 1;
+                            else if (safeCurrentPage >= totalPages - 3) pageNumber = totalPages - 6 + index;
+                            else pageNumber = safeCurrentPage - 3 + index;
+                          }
+                          return (
+                            <PaginationItem key={pageNumber}>
+                              <PaginationLink
+                                href="#"
+                                isActive={pageNumber === safeCurrentPage}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setCurrentPage(pageNumber);
+                                }}
+                                className="cursor-pointer"
+                              >
+                                {pageNumber}
+                              </PaginationLink>
+                            </PaginationItem>
+                          );
+                        })}
+                        <PaginationItem>
+                          <PaginationNext
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setCurrentPage((page) => Math.min(totalPages, page + 1));
+                            }}
+                            className={safeCurrentPage >= totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                          />
+                        </PaginationItem>
+                      </PaginationContent>
+                    </Pagination>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Edit Plan Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

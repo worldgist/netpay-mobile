@@ -476,6 +476,14 @@ export default function ChangePinScreen() {
             <ThemedText style={styles.verifyingText}>Verifying...</ThemedText>
           </View>
         )}
+        <TouchableOpacity
+          style={styles.forgotPinLink}
+          onPress={() => router.push('/forgot-pin')}
+          activeOpacity={0.7}
+          disabled={verifying || updating}
+        >
+          <ThemedText style={styles.forgotPinLinkText}>Forgot PIN?</ThemedText>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -697,6 +705,15 @@ export default function ChangePinScreen() {
             </ThemedText>
             <TouchableOpacity style={styles.modalButton} onPress={handleCloseWrongPinModal}>
               <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalSecondaryButton}
+              onPress={() => {
+                setShowWrongPinModal(false);
+                router.push('/forgot-pin');
+              }}
+            >
+              <ThemedText style={styles.modalSecondaryButtonText}>Forgot PIN?</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -1062,6 +1079,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#E65100',
     fontWeight: '500',
+  },
+  forgotPinLink: {
+    marginTop: 24,
+    paddingVertical: 8,
+  },
+  forgotPinLinkText: {
+    fontSize: 15,
+    color: '#FF7F00',
+    fontWeight: '600',
+  },
+  modalSecondaryButton: {
+    marginTop: 12,
+    paddingVertical: 8,
+  },
+  modalSecondaryButtonText: {
+    fontSize: 15,
+    color: '#FF7F00',
+    fontWeight: '600',
   },
 });
 

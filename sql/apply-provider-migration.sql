@@ -1,5 +1,5 @@
 -- Add provider column to data_plans table
--- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/rekkdwpkzkhgnejgzhac/sql
+-- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/xrpuvnhmdmpgelfxpdcx/sql
 
 ALTER TABLE public.data_plans 
   ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'smeplug';

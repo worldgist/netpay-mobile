@@ -365,7 +365,7 @@ export default function ElectricityScreen() {
         // Fallback to direct fetch
         const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
                            (supabase as any).supabaseUrl ||
-                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
         const response = await fetch(`${supabaseUrl}/functions/v1/validate-meter-number`, {
           method: 'POST',
@@ -743,7 +743,7 @@ export default function ElectricityScreen() {
         // Fallback to direct fetch
         const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
                            (supabase as any).supabaseUrl ||
-                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
         try {
         const response = await fetch(`${supabaseUrl}/functions/v1/purchase-mobilenig-electricity`, {

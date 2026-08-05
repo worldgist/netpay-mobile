@@ -1,12 +1,33 @@
-project_id = "rekkdwpkzkhgnejgzhac"
+project_id = "xrpuvnhmdmpgelfxpdcx"
 
 [functions.payvessel-webhook]
 verify_jwt = false
+
+[functions.flutterwave-webhook]
+verify_jwt = false
+
+[functions.get-flutterwave-virtual-account]
+verify_jwt = true
+
+[functions.initialize-flutterwave-checkout]
+verify_jwt = true
+
+[functions.verify-flutterwave-payment]
+verify_jwt = true
 
 [functions.fetch-payvessel-balance]
 verify_jwt = true
 
 [functions.fetch-payvessel-transactions]
+verify_jwt = true
+
+[functions.fetch-flutterwave-balance]
+verify_jwt = true
+
+[functions.get-ledger-summary]
+verify_jwt = true
+
+[functions.reconcile-ledger-balances]
 verify_jwt = true
 
 [functions.fetch-cable-packages]
@@ -24,9 +45,6 @@ verify_jwt = true
 [functions.fetch-electricity-packages]
 verify_jwt = true
 
-[functions.fetch-mobilenig-balance]
-verify_jwt = true
-
 [functions.fetch-smeplug-networks]
 verify_jwt = true
 
@@ -34,6 +52,12 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.fetch-smeplug-data-plans]
+verify_jwt = true
+
+[functions.fetch-smeplug-balance]
+verify_jwt = true
+
+[functions.fetch-smeplug-wallet-history]
 verify_jwt = true
 
 [functions.purchase-smeplug-airtime]
@@ -49,9 +73,6 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.check-signup-availability]
-verify_jwt = false
-
-[functions.check-network-access]
 verify_jwt = false
 
 [functions.send-support-email]
@@ -70,9 +91,6 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.apply-referral-code]
-verify_jwt = false
-
-[functions.mobilenig-webhook]
 verify_jwt = false
 
 [functions.fetch-vtpass-data-plans]
@@ -99,7 +117,7 @@ verify_jwt = true
 [functions.statement-of-account]
 verify_jwt = true
 
-[functions.netpay-ai-chat]
+[functions.ai-chat]
 verify_jwt = true
 
 [functions.fetch-ai-audit-logs]

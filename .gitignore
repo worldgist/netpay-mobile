@@ -19,6 +19,8 @@ dist-ssr
 *.local
 .env
 supabase/.temp
+data/users-export.json
+data/users-seed.json
 
 # Editor directories and files
 .vscode/*

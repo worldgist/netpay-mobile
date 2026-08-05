@@ -13,12 +13,12 @@ const DEMO_NUMBERS = {
   airtime: {
     title: 'Demo Phone Number for Airtime',
     number: '08012345678',
-    description: 'Use this number for all networks (MTN, AIRTEL, GLO, 9MOBILE)',
+    description: 'Use this number for all networks (MTN, AIRTEL, GLO, T2)',
   },
   data: {
     title: 'Demo Phone Number for Data',
     number: '08012345678',
-    description: 'Use this number for all networks (MTN, AIRTEL, GLO, 9MOBILE)',
+    description: 'Use this number for all networks (MTN, AIRTEL, GLO, T2)',
   },
   cable: {
     title: 'Demo Smartcard Numbers',
@@ -60,7 +60,7 @@ export function DemoNumbersBanner({ type }: DemoNumbersBannerProps) {
     try {
       await Clipboard.setStringAsync(number);
       Alert.alert('Copied!', `"${number}" has been copied to clipboard`);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to copy to clipboard');
     }
   };

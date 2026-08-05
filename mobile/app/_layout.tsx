@@ -8,7 +8,9 @@ import { AuthApiError } from '@supabase/supabase-js';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { NetworkAccessGuard } from '@/components/network-access-guard';
+import { ProfileProvider } from '@/contexts/profile-context';
+import { TransactionsProvider } from '@/contexts/transactions-context';
+import { VendingSettingsProvider } from '@/contexts/vending-settings-context';
 import { supabase } from '@/lib/supabase';
 import { handleAppLink } from '@/utils/handle-app-link';
 import { registerForPushNotifications, setupNotificationListeners } from '@/utils/push-notifications';
@@ -166,8 +168,10 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <NetworkAccessGuard>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <ProfileProvider>
+        <VendingSettingsProvider>
+        <TransactionsProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack initialRouteName="index">
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -178,7 +182,13 @@ export default function RootLayout() {
           <Stack.Screen name="education" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="electricity" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="betting" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="flight-results" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="flight-details" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="flight-fare-rules" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="flight-traveller-info" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="flight-booking-success" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="add-money" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="add-money-callback" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="transfer" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="transfer-success" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="payment-success" options={{ headerShown: false, presentation: 'card' }} />
@@ -192,13 +202,11 @@ export default function RootLayout() {
           <Stack.Screen name="statement-of-account" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="referral" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="contact-us" options={{ headerShown: false, presentation: 'card' }} />
-          <Stack.Screen name="support-chat" options={{ headerShown: false, presentation: 'card' }} />
-          <Stack.Screen name="support-inbox" options={{ headerShown: false, presentation: 'card' }} />
-          <Stack.Screen name="support-admin" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="security" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="change-password" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="change-pin" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="forgot-pin" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="terms-and-conditions" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="email-verification" options={{ headerShown: false, presentation: 'card' }} />
@@ -209,8 +217,10 @@ export default function RootLayout() {
           <Stack.Screen name="sign-in-pin" options={{ headerShown: false, presentation: 'card' }} />
         </Stack>
         <StatusBar style="auto" />
-      </ThemeProvider>
-      </NetworkAccessGuard>
+        </ThemeProvider>
+        </TransactionsProvider>
+        </VendingSettingsProvider>
+      </ProfileProvider>
     </ErrorBoundary>
   );
 }

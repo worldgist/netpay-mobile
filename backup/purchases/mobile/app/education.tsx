@@ -758,7 +758,7 @@ export default function EducationScreen() {
         // Fallback to direct fetch to get the actual error message from response body
         const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
                            (supabase as any).supabaseUrl ||
-                           'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
         try {
           const response = await fetch(`${supabaseUrl}/functions/v1/purchase-education`, {

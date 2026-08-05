@@ -1,17 +1,16 @@
-import { StyleSheet, View, TouchableOpacity, ScrollView, Platform, Alert } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useEffect, useMemo, useRef } from 'react';
 import { sendTransactionNotification } from '@/utils/push-notifications';
 import { TransactionStorage, generateTransactionId, generateReference } from '@/utils/transactionStorage';
+import { useTransactions } from '@/contexts/transactions-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Clipboard from 'expo-clipboard';
-
 export default function PaymentSuccessScreen() {
   const router = useRouter();
+  const { refresh: refreshTransactions } = useTransactions();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const amount = (params.amount as string) || '0';
@@ -23,17 +22,16 @@ export default function PaymentSuccessScreen() {
   const customerName = (params.customerName as string) || '';
   const referenceParam = (params.reference as string) || '';
   const pinsParam = (params.pins as string) || '';
-  const [tokenCopied, setTokenCopied] = useState(false);
-  
-  // Parse PINs if provided (from education purchases)
-  let pins: Array<{ Serial?: string; Pin?: string }> = [];
-  try {
-    if (pinsParam) {
-      pins = JSON.parse(pinsParam);
+
+  const pins = useMemo(() => {
+    if (!pinsParam) return [] as { Serial?: string; Pin?: string }[];
+    try {
+      return JSON.parse(pinsParam) as { Serial?: string; Pin?: string }[];
+    } catch (e) {
+      console.error('Failed to parse pins:', e);
+      return [];
     }
-  } catch (e) {
-    console.error('Failed to parse pins:', e);
-  }
+  }, [pinsParam]);
   
   const isEducationPurchase = serviceType.toLowerCase().includes('education');
 
@@ -75,7 +73,8 @@ export default function PaymentSuccessScreen() {
     };
 
     saveTransaction();
-  }, [amount, network, recipient, serviceType, token, meterType, customerName, transactionReference, transactionDate, transactionTime]);
+    void refreshTransactions();
+  }, [amount, network, recipient, serviceType, token, meterType, customerName, transactionReference, transactionDate, transactionTime, refreshTransactions]);
 
   const pushSentRef = useRef(false);
 
@@ -115,18 +114,6 @@ export default function PaymentSuccessScreen() {
   const handleViewTransaction = () => {
     // Navigate to transactions screen
     router.push('/(tabs)/transactions');
-  };
-
-  const handleCopyToken = async () => {
-    if (!token) return;
-    try {
-      await Clipboard.setStringAsync(token);
-      setTokenCopied(true);
-      setTimeout(() => setTokenCopied(false), 2000);
-      Alert.alert('Copied!', 'Electricity token copied to clipboard');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to copy token to clipboard');
-    }
   };
 
   return (

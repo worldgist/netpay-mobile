@@ -21,14 +21,12 @@ type BettingProvider = {
   providerCode: string;
 };
 
-const BETTING_PROVIDERS: BettingProvider[] = [
+const ALL_BETTING_PROVIDERS: BettingProvider[] = [
   { id: 'bet9ja', name: 'Bet9ja', logo: require('@/assets/images/bet9ja.png'), providerCode: 'BET9JA' },
-  { id: 'sportybet', name: 'SportyBet', logo: require('@/assets/images/sportybet.png'), providerCode: 'SPORTYBET' },
   { id: 'nairabet', name: 'Nairabet', logo: require('@/assets/images/nairabet.png'), providerCode: 'NAIRABET' },
   { id: '1xbet', name: '1xBet', logo: require('@/assets/images/1xbet.png'), providerCode: '1XBET' },
   { id: 'betking', name: 'BetKing', logo: require('@/assets/images/betking.png'), providerCode: 'BETKING' },
   { id: 'betway', name: 'Betway', logo: require('@/assets/images/betway.png'), providerCode: 'BETWAY' },
-  { id: 'accessbet', name: 'AccessBet', logo: require('@/assets/images/accessbet.png'), providerCode: 'ACCESSBET' },
   { id: 'merrybet', name: 'MerryBet', logo: require('@/assets/images/merrybet.png'), providerCode: 'MERRYBET' },
   { id: 'bangbet', name: 'BangBet', logo: require('@/assets/images/bangbet.png.jpeg'), providerCode: 'BANGBET' },
   { id: 'betland', name: 'BetLand', logo: require('@/assets/images/betland.png.jpeg'), providerCode: 'BETLAND' },
@@ -56,6 +54,10 @@ const EBILLS_SUPPORTED_PROVIDERS = [
   'SUPABET',
 ];
 
+const BETTING_PROVIDERS = ALL_BETTING_PROVIDERS.filter((provider) =>
+  EBILLS_SUPPORTED_PROVIDERS.includes(provider.providerCode),
+);
+
 export default function BettingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -66,7 +68,6 @@ export default function BettingScreen() {
   const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
-  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'smeplug' | 'ebills'>('ebills');
   const [customerName, setCustomerName] = useState<string>('');
   const [verifyingCustomer, setVerifyingCustomer] = useState(false);
   const [showInvalidAccountModal, setShowInvalidAccountModal] = useState(false);
@@ -130,42 +131,10 @@ export default function BettingScreen() {
     }
   }, [router]);
 
-  const fetchBettingProvider = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('setting_value')
-        .eq('setting_key', 'betting_provider')
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error fetching betting provider setting:', error);
-        setVendingProvider('ebills');
-        return;
-      }
-
-      if (data?.setting_value) {
-        const provider = (data.setting_value as any)?.provider || 'ebills';
-        const validProviders = ['vtpass', 'mobilenig', 'smeplug', 'ebills'];
-        const selectedProvider = validProviders.includes(provider) 
-          ? provider as 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills'
-          : 'ebills';
-        setVendingProvider(selectedProvider);
-      } else {
-        // If no setting exists, default to ebills
-        setVendingProvider('ebills');
-      }
-    } catch (error) {
-      console.error('Error fetching betting provider setting:', error);
-      setVendingProvider('ebills');
-    }
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       fetchBalance();
-      fetchBettingProvider();
-    }, [fetchBalance, fetchBettingProvider])
+    }, [fetchBalance])
   );
 
   const handleContinue = async () => {
@@ -188,21 +157,7 @@ export default function BettingScreen() {
       Alert.alert('Balance Loading', 'Please wait while we retrieve your wallet balance.');
       return;
     }
-    
-    // Check if provider is supported by eBills when using eBills
-    if (vendingProvider === 'ebills') {
-      const provider = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
-      const providerCode = provider?.providerCode || selectedProvider.toUpperCase();
-      
-      if (!EBILLS_SUPPORTED_PROVIDERS.includes(providerCode)) {
-        const providerName = provider?.name || selectedProvider;
-        setInvalidAccountError(`${providerName} is not available on eBills. Supported providers: Bet9ja, BetKing, BetWay, 1xBet, NairaBet, MerryBet, and others. Please try another provider or contact support.`);
-        setShowInvalidAccountModal(true);
-        return;
-      }
-    }
-    
-    // Calculate charge fee (10% for betting)
+
     const CHARGE_FEE_RATE = 0.1;
     const chargeFee = Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100;
     const totalAmount = purchaseAmount + chargeFee;
@@ -211,10 +166,9 @@ export default function BettingScreen() {
       Alert.alert('Insufficient Balance', `Your wallet balance is ₦${balance.toFixed(2)}. Please fund your wallet to continue.`);
       return;
     }
-
-    // Verify customer if using eBills
-    if (vendingProvider === 'ebills') {
-      try {
+    
+    // Verify customer via eBills
+    try {
         setVerifyingCustomer(true);
         const provider = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
         const providerCode = provider?.providerCode || selectedProvider.toUpperCase();
@@ -372,12 +326,6 @@ export default function BettingScreen() {
       } finally {
         setVerifyingCustomer(false);
       }
-    } else {
-      // For other providers, show modal without customer name
-      setCustomerName('');
-      Keyboard.dismiss();
-      setShowConfirmModal(true);
-    }
   };
 
   const handleConfirmPayment = useCallback(async () => {
@@ -407,273 +355,170 @@ export default function BettingScreen() {
 
       let responseData: any = null;
 
-      // If using eBills, call the eBills betting purchase function
-      if (vendingProvider === 'ebills') {
-        try {
-          // Generate unique request ID
-          const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
+      try {
+        const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
 
-          console.log('Calling purchase-ebills-betting with:', {
-            customer_id: sanitizedAccountId,
-            betting_provider: providerCode,
-            amount: purchaseAmount,
-            request_id: requestId,
-          });
-
-          const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
-            body: {
-              customer_id: sanitizedAccountId,
-              betting_provider: providerCode,
-              amount: Number(purchaseAmount), // Ensure it's a number
-              request_id: requestId,
-            },
-          });
-
-          console.log('Supabase invoke response:', { data, error });
-
-          if (error) {
-            console.error('Supabase invoke error:', error);
-            const errorMsg = error?.message || String(error);
-            const errorStack = error?.stack || '';
-            const isNetworkErr = errorMsg.includes('Network request failed') ||
-                                errorMsg.includes('Failed to fetch') ||
-                                errorStack.includes('fetch.umd.js') ||
-                                errorStack.includes('Network request failed');
-            if (isNetworkErr) {
-              throw new Error('Network connection failed. Please check your internet connection and try again.');
-            }
-            // If error has a message, use it
-            if (error.message) {
-              throw new Error(error.message);
-            }
-            throw error;
-          }
-
-          if (data) {
-            // Check if data contains an error response
-            if (data.success === false || data.error) {
-              const errorMsg = data.error || data.message || 'Betting purchase failed';
-              console.error('Error in response data:', { errorMsg, data });
-              throw new Error(errorMsg);
-            }
-            responseData = data;
-            console.log('Response data received:', responseData);
-          } else {
-            throw new Error('No response data from server');
-          }
-        } catch (invokeError: any) {
-          console.log('Supabase invoke failed, trying direct fetch:', invokeError);
-          
-          // Refresh session before direct fetch
-          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
-          
-          if (refreshError || !refreshedSession) {
-            throw new Error('Please sign in to continue');
-          }
-
-          // Fallback to direct fetch
-          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
-                             (supabase as any).supabaseUrl ||
-                             'https://rekkdwpkzkhgnejgzhac.supabase.co';
-
-          const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}_${Math.random().toString(36).substring(7)}`;
-
-          console.log('Direct fetch to:', `${supabaseUrl}/functions/v1/purchase-ebills-betting`);
-
-          const response = await fetch(`${supabaseUrl}/functions/v1/purchase-ebills-betting`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${refreshedSession.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              customer_id: sanitizedAccountId,
-              betting_provider: providerCode,
-              amount: Number(purchaseAmount), // Ensure it's a number
-              request_id: requestId,
-            }),
-          });
-
-          const responseText = await response.text();
-          
-          console.log('Direct fetch response:', {
-            status: response.status,
-            statusText: response.statusText,
-            responseText: responseText.substring(0, 500),
-          });
-          
-          if (!responseText || responseText.trim().length === 0) {
-            throw new Error('No response from server. Please try again.');
-          }
-          
-          try {
-            responseData = JSON.parse(responseText);
-            console.log('Parsed response data:', responseData);
-          } catch (parseError) {
-            console.error('Failed to parse betting purchase response:', parseError, 'Response:', responseText);
-            if (response.status >= 500) {
-              throw new Error('Server error. Please try again later.');
-            }
-            throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
-          }
-
-          // Check HTTP status first
-          if (!response.ok) {
-            if (response.status === 401) {
-              throw new Error('Session expired. Please sign in again.');
-            }
-            // Extract error message from response
-            const errorMsg = responseData?.error || responseData?.message || responseData?.details?.error || `HTTP ${response.status}: ${response.statusText}`;
-            console.error('HTTP error response:', { status: response.status, errorMsg, responseData });
-            throw new Error(errorMsg);
-          }
-
-          // Also check if response indicates failure even if HTTP status is OK
-          if (responseData?.success === false || responseData?.error) {
-            const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
-            console.error('Purchase failed in response:', { errorMsg, responseData });
-            throw new Error(errorMsg);
-          }
-        }
-
-        if (!responseData) {
-          console.error('No responseData after invoke/fetch');
-          throw new Error('No data received from server');
-        }
-
-        console.log('Final responseData check:', {
-          success: responseData?.success,
-          hasError: !!responseData?.error,
-          hasData: !!responseData?.data,
-          message: responseData?.message,
+        console.log('Calling purchase-ebills-betting with:', {
+          customer_id: sanitizedAccountId,
+          betting_provider: providerCode,
+          amount: purchaseAmount,
+          request_id: requestId,
         });
 
-        // Check if response indicates success
-        if (responseData?.success === false || responseData?.error) {
-          const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
-          console.error('Purchase failed:', { errorMsg, responseData });
+        const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
+          body: {
+            customer_id: sanitizedAccountId,
+            betting_provider: providerCode,
+            amount: Number(purchaseAmount),
+            request_id: requestId,
+          },
+        });
+
+        console.log('Supabase invoke response:', { data, error });
+
+        if (error) {
+          console.error('Supabase invoke error:', error);
+          const errorMsg = error?.message || String(error);
+          const errorStack = error?.stack || '';
+          const isNetworkErr = errorMsg.includes('Network request failed') ||
+                              errorMsg.includes('Failed to fetch') ||
+                              errorStack.includes('fetch.umd.js') ||
+                              errorStack.includes('Network request failed');
+          if (isNetworkErr) {
+            throw new Error('Network connection failed. Please check your internet connection and try again.');
+          }
+          if (error.message) {
+            throw new Error(error.message);
+          }
+          throw error;
+        }
+
+        if (data) {
+          if (data.success === false || data.error) {
+            const errorMsg = data.error || data.message || 'Betting purchase failed';
+            console.error('Error in response data:', { errorMsg, data });
+            throw new Error(errorMsg);
+          }
+          responseData = data;
+          console.log('Response data received:', responseData);
+        } else {
+          throw new Error('No response data from server');
+        }
+      } catch (invokeError: any) {
+        console.log('Supabase invoke failed, trying direct fetch:', invokeError);
+
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
+
+        if (refreshError || !refreshedSession) {
+          throw new Error('Please sign in to continue');
+        }
+
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ||
+                           (supabase as any).supabaseUrl ||
+                           'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
+
+        const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}_${Math.random().toString(36).substring(7)}`;
+
+        console.log('Direct fetch to:', `${supabaseUrl}/functions/v1/purchase-ebills-betting`);
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-ebills-betting`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${refreshedSession.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customer_id: sanitizedAccountId,
+            betting_provider: providerCode,
+            amount: Number(purchaseAmount),
+            request_id: requestId,
+          }),
+        });
+
+        const responseText = await response.text();
+
+        console.log('Direct fetch response:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: responseText.substring(0, 500),
+        });
+
+        if (!responseText || responseText.trim().length === 0) {
+          throw new Error('No response from server. Please try again.');
+        }
+
+        try {
+          responseData = JSON.parse(responseText);
+          console.log('Parsed response data:', responseData);
+        } catch (parseError) {
+          console.error('Failed to parse betting purchase response:', parseError, 'Response:', responseText);
+          if (response.status >= 500) {
+            throw new Error('Server error. Please try again later.');
+          }
+          throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
+        }
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error('Session expired. Please sign in again.');
+          }
+          const errorMsg = responseData?.error || responseData?.message || responseData?.details?.error || `HTTP ${response.status}: ${response.statusText}`;
+          console.error('HTTP error response:', { status: response.status, errorMsg, responseData });
           throw new Error(errorMsg);
         }
 
-        // Extract data from response
-        const purchaseData = responseData.data || responseData;
-        const reference = purchaseData.reference || purchaseData.request_id || `BET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-        const customerName = purchaseData.customer_name || '';
-        const amountCharged = parseFloat(purchaseData.amount_charged || purchaseData.amount || purchaseAmount.toString());
-
-        console.log('Purchase successful, navigating to success screen:', {
-          reference,
-          customerName,
-          amountCharged,
-        });
-
-        // Refresh balance
-        await fetchBalance();
-
-        // Close modal before navigating to success screen
-        setShowConfirmModal(false);
-        setPurchasing(false);
-
-        // Navigate to success screen
-        router.push({
-          pathname: '/payment-success',
-          params: {
-            amount: amountCharged.toString(),
-            network: providerName,
-            recipient: sanitizedAccountId,
-            reference: reference,
-            serviceType: `Betting • ${providerName}`,
-            customerName: customerName,
-          },
-        });
-      } else {
-        // For other vending providers (vtpass, mobilenig, smeplug), use direct database insert
-        // This is a fallback for providers that don't have dedicated functions yet
-        // Calculate charge fee (10% for betting)
-        const CHARGE_FEE_RATE = 0.1;
-        const chargeFee = Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100;
-        const totalAmount = purchaseAmount + chargeFee;
-
-        // Get current balance
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (profileError) throw profileError;
-
-        const balanceBefore = Number(profile?.balance) || 0;
-        const balanceAfter = balanceBefore - totalAmount;
-
-        if (balanceAfter < 0) {
-          throw new Error('Insufficient balance');
+        if (responseData?.success === false || responseData?.error) {
+          const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
+          console.error('Purchase failed in response:', { errorMsg, responseData });
+          throw new Error(errorMsg);
         }
-
-        // Generate reference
-        const reference = `BET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-
-        // Insert transaction
-        const { error: transactionError } = await supabase
-          .from('betting_transactions')
-          .insert({
-            user_id: session.user.id,
-            amount: totalAmount,
-            purchase_amount: purchaseAmount,
-            charge_fee: chargeFee,
-            balance_before: balanceBefore,
-            balance_after: balanceAfter,
-            betting_provider: providerCode,
-            account_number: sanitizedAccountId,
-            vending_provider: vendingProvider,
-            status: 'completed',
-            reference: reference,
-            performed_by: session.user.id,
-          });
-
-        if (transactionError) throw transactionError;
-
-        // Update user balance
-        const { error: balanceError } = await supabase
-          .from('profiles')
-          .update({ balance: balanceAfter })
-          .eq('id', session.user.id);
-
-        if (balanceError) throw balanceError;
-
-        // Create user transaction record
-        await supabase
-          .from('user_transactions')
-          .insert({
-            user_id: session.user.id,
-            transaction_type: 'purchase',
-            amount: totalAmount,
-            balance_before: balanceBefore,
-            balance_after: balanceAfter,
-            description: `Betting purchase - ${providerName}`,
-            reference: reference,
-            performed_by: session.user.id,
-          });
-
-        // Refresh balance
-        await fetchBalance();
-
-        // Close modal before navigating to success screen
-        setShowConfirmModal(false);
-        setPurchasing(false);
-
-        // Navigate to success screen
-        router.push({
-          pathname: '/payment-success',
-          params: {
-            amount: totalAmount.toString(),
-            network: providerName,
-            recipient: sanitizedAccountId,
-            reference: reference,
-            serviceType: `Betting • ${providerName}`,
-          },
-        });
       }
+
+      if (!responseData) {
+        console.error('No responseData after invoke/fetch');
+        throw new Error('No data received from server');
+      }
+
+      console.log('Final responseData check:', {
+        success: responseData?.success,
+        hasError: !!responseData?.error,
+        hasData: !!responseData?.data,
+        message: responseData?.message,
+      });
+
+      if (responseData?.success === false || responseData?.error) {
+        const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
+        console.error('Purchase failed:', { errorMsg, responseData });
+        throw new Error(errorMsg);
+      }
+
+      const purchaseData = responseData.data || responseData;
+      const reference = purchaseData.reference || purchaseData.request_id || `BET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      const purchaseCustomerName = purchaseData.customer_name || customerName || '';
+      const amountCharged = parseFloat(purchaseData.amount_charged || purchaseData.amount || purchaseAmount.toString());
+
+      console.log('Purchase successful, navigating to success screen:', {
+        reference,
+        customerName: purchaseCustomerName,
+        amountCharged,
+      });
+
+      await fetchBalance();
+
+      setShowConfirmModal(false);
+      setPurchasing(false);
+
+      router.push({
+        pathname: '/payment-success',
+        params: {
+          amount: amountCharged.toString(),
+          network: providerName,
+          recipient: sanitizedAccountId,
+          reference: reference,
+          serviceType: `Betting • ${providerName}`,
+          customerName: purchaseCustomerName,
+        },
+      });
     } catch (purchaseError: any) {
       console.error('Betting purchase failed:', purchaseError);
       console.error('Error details:', {
@@ -774,7 +619,7 @@ export default function BettingScreen() {
       // Ensure purchasing state is reset even if there's an unexpected error
       setPurchasing(false);
     }
-  }, [amount, accountId, selectedProvider, vendingProvider, router, fetchBalance]);
+  }, [amount, accountId, customerName, isProduction, selectedProvider, router, fetchBalance]);
 
   return (
     <ThemedView style={styles.container}>

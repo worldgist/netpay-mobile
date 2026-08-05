@@ -32,7 +32,7 @@ export default function ResetPasswordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string; mode?: string }>();
   const isAuthenticatedPasswordUpdate = params.mode === 'authenticated';
-  const [email, setEmail] = useState(typeof params.email === 'string' ? params.email : '');
+  const [email] = useState(typeof params.email === 'string' ? params.email : '');
   const [token, setToken] = useState(Array(CODE_LENGTH).fill(''));
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,7 +46,7 @@ export default function ResetPasswordScreen() {
   const [resending, setResending] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [codeVerified, setCodeVerified] = useState(isAuthenticatedPasswordUpdate);
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
     if (!codeVerified) {

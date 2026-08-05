@@ -1,92 +1,67 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, Platform, TextInput, RefreshControl } from 'react-native';
+import { useState, useCallback, useEffect } from 'react';
+import {
+  StyleSheet,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 
-const PAYVESSEL_BUSINESS_ID = '5EE89DA992424C6DA0234577E7E4ECAA';
-const DEFAULT_BANK_CODE = '999991';
-const DEFAULT_BANK_NAME = 'PalmPay';
-const ALTERNATE_BANK_CODE = '120001';
-const ALTERNATE_BANK_NAME = '9 Payment Service Bank';
+WebBrowser.maybeCompleteAuthSession();
 
-interface VirtualAccount {
-  account_number: string;
-  bank_name: string;
-  account_name: string;
-  bank_code: string;
-  tracking_reference?: string | null;
+const MIN_AMOUNT = 100;
+const MAX_AMOUNT = 500_000;
+const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000];
+const FUNDING_FEE_PERCENTAGE = 0.05;
+const MIN_FUNDING_FEE = 10;
+
+function parseAmount(value: string) {
+  const digits = value.replace(/\D/g, '');
+  return digits ? Number(digits) : 0;
+}
+
+function formatCurrency(value: number) {
+  return `₦${value.toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function calculateFundingFee(amount: number) {
+  const percentageFee = amount * FUNDING_FEE_PERCENTAGE;
+  return Math.max(MIN_FUNDING_FEE, Math.round(percentageFee * 100) / 100);
 }
 
 export default function AddMoneyScreen() {
   const router = useRouter();
-  const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
-  const [selectedBank, setSelectedBank] = useState<typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE>(DEFAULT_BANK_CODE);
+  const insets = useSafeAreaInsets();
+  const [amountInput, setAmountInput] = useState('');
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
-  const [nin, setNin] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [balanceLoading, setBalanceLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [balanceVisible, setBalanceVisible] = useState(true);
+  const [loadingBalance, setLoadingBalance] = useState(true);
+  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const isMounted = useRef(true);
-  const balanceChannelRef = useRef<RealtimeChannel | null>(null);
 
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
+  const amount = parseAmount(amountInput);
+  const fundingFee = amount >= MIN_AMOUNT ? calculateFundingFee(amount) : 0;
+  const netCredit = amount >= MIN_AMOUNT ? amount - fundingFee : 0;
+  const canPay = amount >= MIN_AMOUNT && amount <= MAX_AMOUNT && !paying;
 
-  const resolveDefaultBank = useCallback(async () => {
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-
-      const session = sessionData.session;
-      if (!session) return;
-
-      const { data: defaultAccount, error: defaultAccountError } = await supabase
-        .from('virtual_accounts')
-        .select('bank_code')
-        .eq('user_id', session.user.id)
-        .in('bank_code', [DEFAULT_BANK_CODE, ALTERNATE_BANK_CODE])
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (defaultAccountError && defaultAccountError.code !== 'PGRST116') {
-        throw defaultAccountError;
-      }
-
-      if (
-        defaultAccount?.bank_code === DEFAULT_BANK_CODE ||
-        defaultAccount?.bank_code === ALTERNATE_BANK_CODE
-      ) {
-        if (isMounted.current) {
-          setSelectedBank(defaultAccount.bank_code as typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to resolve default bank:', err);
-    }
-  }, []);
   const fetchWalletBalance = useCallback(async () => {
     try {
-      if (isMounted.current) {
-        setBalanceLoading(true);
-      }
-
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
 
@@ -94,10 +69,6 @@ export default function AddMoneyScreen() {
       if (!session) {
         router.replace('/auth/login');
         return;
-      }
-
-      if (isMounted.current) {
-        setUserId(session.user.id);
       }
 
       const { data: profile, error: profileError } = await supabase
@@ -107,404 +78,81 @@ export default function AddMoneyScreen() {
         .single();
 
       if (profileError) throw profileError;
-
-      if (isMounted.current) {
-        setWalletBalance(Number(profile?.balance) || 0);
-      }
+      setWalletBalance(Number(profile?.balance) || 0);
     } catch (err) {
       console.error('Failed to load wallet balance:', err);
-      if (isMounted.current) {
-        setWalletBalance(null);
-      }
+      setWalletBalance(null);
     } finally {
-      if (isMounted.current) {
-        setBalanceLoading(false);
-      }
+      setLoadingBalance(false);
     }
   }, [router]);
 
-  useEffect(() => {
-    resolveDefaultBank();
-  }, [resolveDefaultBank]);
-
-  useEffect(() => {
-    fetchWalletBalance();
-  }, [fetchWalletBalance]);
-  useEffect(() => {
-    if (!userId) {
-      return;
-    }
-
-    if (balanceChannelRef.current) {
-      supabase.removeChannel(balanceChannelRef.current);
-      balanceChannelRef.current = null;
-    }
-
-    const channel = supabase
-      .channel(`add-money-balance-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${userId}`,
-        },
-        () => {
-          fetchWalletBalance();
-        }
-      )
-      .subscribe();
-
-    balanceChannelRef.current = channel;
-
-    return () => {
-      if (balanceChannelRef.current) {
-        supabase.removeChannel(balanceChannelRef.current);
-        balanceChannelRef.current = null;
-      }
-    };
-  }, [fetchWalletBalance, userId]);
-
-  const fetchVirtualAccount = useCallback(async (isRefresh = false) => {
-    try {
-      if (isMounted.current) {
-        setError(null);
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
-      }
-
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-
-      const session = sessionData.session;
-      if (!session) {
-        router.replace('/auth/login');
-        return;
-      }
-
-      const activeBankCode = selectedBank;
-
-      const { data: accountData, error: accountError } = await supabase
-        .from('virtual_accounts')
-        .select('account_number, bank_name, account_name, bank_code, tracking_reference')
-        .eq('user_id', session.user.id)
-        .eq('bank_code', activeBankCode)
-        .maybeSingle();
-
-      if (accountError && accountError.code !== 'PGRST116') {
-        throw accountError;
-      }
-
-      if (isMounted.current) {
-        if (accountData) {
-          setVirtualAccount(accountData as VirtualAccount);
-          setShowCreateForm(false);
-        } else {
-          setVirtualAccount(null);
-          setShowCreateForm(true);
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to load virtual account:', err);
-      if (isMounted.current) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        
-        // Check for network errors
-        const errorName = err?.name || err?.constructor?.name || '';
-        const isNetworkError = errorMessage.includes('Network request failed') ||
-                              errorMessage.includes('Failed to send a request to the Edge Function') ||
-                              errorMessage.includes('Failed to fetch') ||
-                              errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
-                              errorMessage.includes('ERR_NETWORK_CHANGED') ||
-                              errorMessage.includes('TypeError') ||
-                              errorName === 'FunctionsFetchError' ||
-                              errorName === 'TypeError' ||
-                              err?.code === 'NETWORK_ERROR';
-        
-        setError(isNetworkError 
-          ? 'Network connection failed. Please check your internet connection and try again.'
-          : errorMessage || 'Failed to load account information.'
-        );
-        setVirtualAccount(null);
-        setShowCreateForm(true);
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [router, selectedBank]);
-
   useFocusEffect(
     useCallback(() => {
-      fetchVirtualAccount();
-      fetchWalletBalance();
-    }, [fetchVirtualAccount, fetchWalletBalance])
+      void fetchWalletBalance();
+    }, [fetchWalletBalance])
   );
 
   useEffect(() => {
-    fetchVirtualAccount();
-    fetchWalletBalance();
-  }, [fetchVirtualAccount, fetchWalletBalance]);
+    void fetchWalletBalance();
+  }, [fetchWalletBalance]);
 
-  const handleRefresh = useCallback(() => {
-    fetchVirtualAccount(true);
-  }, [fetchVirtualAccount]);
+  const projectedBalance =
+    walletBalance !== null && amount >= MIN_AMOUNT ? walletBalance + netCredit : null;
 
-  const handleSelectBank = (bankCode: typeof DEFAULT_BANK_CODE | typeof ALTERNATE_BANK_CODE) => {
-    if (bankCode === selectedBank) return;
-    setSelectedBank(bankCode);
-  };
-
-  const handleCopy = async (text: string, label: string) => {
-    try {
-      if (!text) {
-        Alert.alert('Unavailable', `No ${label.toLowerCase()} to copy yet.`);
-        return;
-      }
-      if (Platform.OS === 'web') {
-        await navigator.clipboard.writeText(text);
-      } else {
-        await Clipboard.setStringAsync(text);
-      }
-      Alert.alert('Copied', `${label} copied to clipboard`);
-    } catch (err) {
-      console.error('Copy error:', err);
-      Alert.alert('Error', 'Failed to copy to clipboard');
-    }
-  };
-
-  const handleCreateVirtualAccount = async () => {
-    if (nin.trim().length !== 11) {
-      Alert.alert('NIN Required', 'Please enter your 11-digit NIN to create a virtual account.');
+  const handlePay = async () => {
+    if (!canPay) {
+      Alert.alert(
+        'Invalid Amount',
+        `Enter an amount between ${formatCurrency(MIN_AMOUNT)} and ${formatCurrency(MAX_AMOUNT)}.`
+      );
       return;
     }
 
     try {
-      setCreating(true);
+      setPaying(true);
       setError(null);
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
+      const redirectUrl = Linking.createURL('add-money-callback');
 
-      const session = sessionData.session;
-      if (!session) {
-        router.replace('/auth/login');
-        return;
-      }
-
-      const userId = session.user.id;
-
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('full_name, phone, email')
-        .eq('id', userId)
-        .maybeSingle();
-
-      const fullName = profileData?.full_name || session.user.email?.split('@')[0] || 'User';
-      const phoneNumber = profileData?.phone || '07067398399';
-      const emailAddress = profileData?.email || session.user.email || '';
-
-      const { data, error: invokeError } = await supabase.functions.invoke('get-virtual-account', {
+      const { data, error: initError } = await supabase.functions.invoke('initialize-flutterwave-checkout', {
         body: {
-          email: emailAddress,
-          name: fullName,
-          phoneNumber,
-          bankcode: [selectedBank],
-          account_type: 'STATIC',
-          nin: nin.trim(),
+          amount,
+          redirectUrl,
         },
       });
 
-      if (invokeError) throw invokeError;
-
-      if (data?.success && data.data) {
-        const account = data.data;
-        const bankName =
-          account.bank_name ||
-          (selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME);
-        const bankCode = selectedBank;
-        const businessId = PAYVESSEL_BUSINESS_ID;
-
-        const { error: upsertError } = await supabase
-          .from('virtual_accounts')
-          .upsert(
-            {
-              user_id: userId,
-              business_id: businessId,
-              bank_code: bankCode,
-              bank_name: bankName,
-              account_number: account.account_number,
-              account_name: account.account_name,
-              tracking_reference: account.trackingReference || account.tracking_reference || null,
-              nin: nin.trim(),
-              bvn: null,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id,bank_code' }
-          );
-
-        if (upsertError) {
-          throw upsertError;
-        }
-
-        if (isMounted.current) {
-          setVirtualAccount({
-            account_number: account.account_number,
-            account_name: account.account_name,
-            bank_name: bankName,
-            bank_code: bankCode,
-            tracking_reference: account.trackingReference || account.tracking_reference || null,
-          });
-          setShowCreateForm(false);
-          setNin('');
-        }
-
-        Alert.alert('Success', 'PayVessel virtual account created successfully.');
-      } else {
-        const message = data?.error || 'Failed to create virtual account. Please try again later.';
-        if (isMounted.current) {
-          setError(message);
-        }
-        Alert.alert('Creation Failed', message);
-      }
-    } catch (err) {
-      console.error('Create virtual account error:', err);
-      const message = err instanceof Error ? err.message : 'Failed to create virtual account. Please try again later.';
-      if (isMounted.current) {
-        setError(message);
-      }
-      Alert.alert('Error', message);
-    } finally {
-      if (isMounted.current) {
-        setCreating(false);
-      }
-    }
-  };
-
-  const bankDisplayName = selectedBank === DEFAULT_BANK_CODE ? DEFAULT_BANK_NAME : ALTERNATE_BANK_NAME;
-
-  const handleCheckBalance = async () => {
-    setIsCheckingBalance(true);
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.error('Session error:', sessionError);
-        throw new Error(`Authentication error: ${sessionError.message || 'Unable to verify session'}`);
+      if (initError) throw initError;
+      if (!data?.success || !data.data?.paymentLink) {
+        throw new Error(data?.error || 'Failed to start checkout');
       }
 
-      const session = sessionData.session;
-      if (!session || !session.user) {
-        console.error('No session found');
-        router.replace('/auth/login');
+      const paymentLink = data.data.paymentLink as string;
+
+      const result = await WebBrowser.openAuthSessionAsync(paymentLink, redirectUrl);
+
+      if (result.type === 'success' && result.url) {
+        const parsed = Linking.parse(result.url);
+        router.replace({
+          pathname: '/add-money-callback',
+          params: {
+            tx_ref: typeof parsed.queryParams?.tx_ref === 'string' ? parsed.queryParams.tx_ref : '',
+            status: typeof parsed.queryParams?.status === 'string' ? parsed.queryParams.status : 'successful',
+          },
+        });
         return;
       }
 
-      // Check if user is demo user
-      const isDemoUser = session.user.email === 'demo@netpayy.ng';
-      
-      // If demo user, auto-credit wallet
-      if (isDemoUser) {
-        try {
-          const { data, error: creditError } = await supabase.functions.invoke('demo-auto-credit', {
-            body: {},
-          });
-
-          if (creditError) {
-            console.warn('Demo auto-credit failed:', creditError);
-            // Continue to check balance anyway
-          } else if (data?.success) {
-            // Demo credit successful
-            router.push('/(tabs)');
-            Alert.alert(
-              'Demo Wallet Credited!',
-              `₦50,000 has been credited to your demo wallet. Current balance: ₦${data.balanceAfter?.toLocaleString() || '50,000'}`
-            );
-            setIsCheckingBalance(false);
-            return;
-          }
-        } catch (demoError) {
-          console.warn('Demo auto-credit error:', demoError);
-          // Continue to check balance anyway
-        }
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        Alert.alert('Payment Cancelled', 'You closed the checkout before completing payment.');
       }
-
-      // Refresh balance
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('balance')
-        .eq('id', session.user.id)
-        .single();
-
-      if (profileError) {
-        console.error('Profile error:', profileError);
-        throw new Error(`Failed to fetch balance: ${profileError.message || 'Unable to load profile'}`);
-      }
-
-      if (!profile) {
-        throw new Error('Profile not found');
-      }
-
-      const newBalance = Number(profile?.balance || 0);
-
-      // Check for recent funding transactions (last 5 minutes)
-      // Don't fail if this query fails - it's just for informational purposes
-      let recentTransactions = null;
-      try {
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-        const { data: transactions, error: transactionsError } = await supabase
-          .from('funding_transactions')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .gte('created_at', fiveMinutesAgo)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        
-        if (!transactionsError) {
-          recentTransactions = transactions;
-        } else {
-          console.warn('Could not check recent transactions:', transactionsError);
-        }
-      } catch (txError) {
-        console.warn('Error checking recent transactions (non-critical):', txError);
-        // Continue anyway - this is just for showing a message
-      }
-
-      // Navigate to home page immediately
-      router.push('/(tabs)');
-
-      if (recentTransactions && recentTransactions.length > 0) {
-        Alert.alert(
-          'Payment Received!',
-          `Your wallet has been credited. Current balance: ₦${newBalance.toLocaleString()}`
-        );
-      } else {
-        Alert.alert(
-          'Checking Balance',
-          `Your current balance is ₦${newBalance.toLocaleString()}. If you just transferred, it may take a few moments to reflect.`
-        );
-      }
-    } catch (error) {
-      console.error('Error checking balance:', error);
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : typeof error === 'string' 
-        ? error 
-        : 'Failed to check balance. Please try again.';
-      
-      // Navigate to home page even on error
-      router.push('/(tabs)');
-      Alert.alert(
-        'Error',
-        errorMessage
-      );
+    } catch (err) {
+      console.error('Checkout error:', err);
+      const message = err instanceof Error ? err.message : 'Failed to start payment';
+      setError(message);
+      Alert.alert('Payment Error', message);
     } finally {
-      setIsCheckingBalance(false);
+      setPaying(false);
     }
   };
 
@@ -514,53 +162,63 @@ export default function AddMoneyScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <ThemedText style={styles.headerTitle}>Account Details</ThemedText>
-        <TouchableOpacity
-          onPress={handleRefresh}
-          style={styles.headerAction}
-          disabled={loading || refreshing || creating}
-        >
-          <MaterialIcons
-            name={loading || refreshing ? 'refresh' : 'refresh'}
-            size={24}
-            color={loading || refreshing || creating ? '#999' : '#000'}
-          />
-        </TouchableOpacity>
+        <ThemedText style={styles.headerTitle}>Fund Wallet</ThemedText>
+        <View style={styles.headerAction} />
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#FF7F00"
-            colors={["#FF7F00"]}
-          />
-        }
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <View style={styles.bankToggleRow}>
-          <TouchableOpacity
-            style={[styles.bankToggleButton, selectedBank === DEFAULT_BANK_CODE && styles.bankToggleButtonActive]}
-            onPress={() => handleSelectBank(DEFAULT_BANK_CODE)}
-            activeOpacity={0.8}
-            disabled={creating || loading}
-          >
-            <ThemedText style={[styles.bankToggleText, selectedBank === DEFAULT_BANK_CODE && styles.bankToggleTextActive]}>
-              PalmPay
-            </ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.bankToggleButton, selectedBank === ALTERNATE_BANK_CODE && styles.bankToggleButtonActive]}
-            onPress={() => handleSelectBank(ALTERNATE_BANK_CODE)}
-            activeOpacity={0.8}
-            disabled={creating || loading}
-          >
-            <ThemedText style={[styles.bankToggleText, selectedBank === ALTERNATE_BANK_CODE && styles.bankToggleTextActive]}>
-              9PSB
-            </ThemedText>
-          </TouchableOpacity>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
+        <View style={styles.balanceCard}>
+          <View style={styles.balanceCardPattern} />
+          <View style={styles.balanceHeader}>
+            <View style={styles.balanceHeaderLeft}>
+              <View style={styles.balanceIconWrap}>
+                <MaterialIcons name="account-balance-wallet" size={20} color="#FF7F00" />
+              </View>
+              <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
+            </View>
+            <TouchableOpacity
+              onPress={() => setBalanceVisible((visible) => !visible)}
+              style={styles.eyeButton}
+              activeOpacity={0.8}
+            >
+              <MaterialIcons
+                name={balanceVisible ? 'visibility' : 'visibility-off'}
+                size={22}
+                color="#fff"
+              />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.balanceAmountContainer}>
+            {loadingBalance ? (
+              <NetpayLoadingAnimation size={36} variant="onBrand" strokeWidth={2.5} />
+            ) : (
+              <ThemedText style={styles.balanceValue}>
+                {balanceVisible ? formatCurrency(walletBalance || 0) : '₦ ••••••'}
+              </ThemedText>
+            )}
+          </View>
+
+          {balanceVisible && projectedBalance !== null ? (
+            <View style={styles.projectedBalanceRow}>
+              <MaterialIcons name="trending-up" size={16} color="#fff" />
+              <ThemedText style={styles.projectedBalanceText}>
+                After funding: {formatCurrency(projectedBalance)}
+              </ThemedText>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.infoBanner}>
@@ -568,189 +226,96 @@ export default function AddMoneyScreen() {
             <ThemedText style={styles.infoIcon}>i</ThemedText>
           </View>
           <ThemedText style={styles.infoText}>
-            {virtualAccount
-              ? 'Transfer to the virtual account number below to fund your wallet.'
-              : 'Create your dedicated virtual account to receive instant wallet credits.'}
+            Fund your wallet securely with card, bank transfer, or USSD via Flutterwave. Your balance updates
+            instantly after successful payment.
           </ThemedText>
         </View>
 
-        {/* Funding Fee Notice */}
-        {virtualAccount && (
-          <View style={styles.feeNoticeBanner}>
-            <MaterialIcons name="info" size={20} color="#FF9800" style={styles.feeNoticeIcon} />
-            <View style={styles.feeNoticeContent}>
-              <ThemedText style={styles.feeNoticeTitle}>Funding Fee Notice</ThemedText>
-              <ThemedText style={styles.feeNoticeText}>
-                A 5% processing fee (minimum ₦10) will be deducted from your transfer amount. 
-                For example, if you transfer ₦1,000, ₦50 will be charged as fee and ₦950 will be credited to your wallet.
+        <View style={styles.section}>
+          <ThemedText style={styles.sectionLabel}>Enter Amount</ThemedText>
+          <View style={styles.amountRow}>
+            <ThemedText style={styles.currencyPrefix}>₦</ThemedText>
+            <TextInput
+              style={styles.amountInput}
+              placeholder="0"
+              placeholderTextColor="#999"
+              value={amountInput}
+              onChangeText={(value) => setAmountInput(value.replace(/\D/g, ''))}
+              keyboardType="numeric"
+              maxLength={7}
+            />
+          </View>
+          <ThemedText style={styles.helperText}>
+            Min {formatCurrency(MIN_AMOUNT)} · Max {formatCurrency(MAX_AMOUNT)}
+          </ThemedText>
+        </View>
+
+        <View style={styles.quickAmountRow}>
+          {QUICK_AMOUNTS.map((quickAmount) => (
+            <TouchableOpacity
+              key={quickAmount}
+              style={[styles.quickAmountButton, amount === quickAmount && styles.quickAmountButtonActive]}
+              onPress={() => setAmountInput(String(quickAmount))}
+              activeOpacity={0.85}
+              disabled={paying}
+            >
+              <ThemedText
+                style={[styles.quickAmountText, amount === quickAmount && styles.quickAmountTextActive]}
+              >
+                {formatCurrency(quickAmount)}
               </ThemedText>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {amount >= MIN_AMOUNT ? (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryRow}>
+              <ThemedText style={styles.summaryLabel}>You pay</ThemedText>
+              <ThemedText style={styles.summaryValue}>{formatCurrency(amount)}</ThemedText>
+            </View>
+            <View style={styles.summaryRow}>
+              <ThemedText style={styles.summaryLabel}>Processing fee (5%, min ₦10)</ThemedText>
+              <ThemedText style={styles.summaryValue}>-{formatCurrency(fundingFee)}</ThemedText>
+            </View>
+            <View style={[styles.summaryRow, styles.summaryRowTotal]}>
+              <ThemedText style={styles.summaryTotalLabel}>Wallet funding</ThemedText>
+              <ThemedText style={styles.summaryTotalValue}>{formatCurrency(netCredit)}</ThemedText>
             </View>
           </View>
-        )}
+        ) : null}
 
-        {error && !loading && (
+        {error ? (
           <View style={styles.errorBanner}>
             <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
             <ThemedText style={styles.errorText}>{error}</ThemedText>
           </View>
-        )}
-
-        {loading && !refreshing && !virtualAccount && !showCreateForm ? (
-          <View style={styles.loadingContainer}>
-            <NetpayLoadingAnimation message="Loading…" />
-          </View>
         ) : null}
 
-        {virtualAccount && (
-          <>
-            <View style={styles.accountCard}>
-              <View style={styles.accountIconContainer}>
-                <MaterialIcons name="list-alt" size={24} color="#FF7F00" />
-              </View>
-              <View style={styles.accountInfo}>
-                <ThemedText style={styles.accountLabel}>{bankDisplayName} Account Number</ThemedText>
-                <ThemedText style={styles.accountValue}>{virtualAccount.account_number}</ThemedText>
-              </View>
-              <TouchableOpacity
-                style={styles.copyButton}
-                onPress={() => handleCopy(virtualAccount.account_number, 'Account number')}
-              >
-                <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
-                <ThemedText style={styles.copyButtonText}>Copy</ThemedText>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.accountCard}>
-              <View style={styles.accountIconContainer}>
-                <MaterialIcons name="account-balance" size={24} color="#FF7F00" />
-              </View>
-              <View style={styles.accountInfo}>
-                <ThemedText style={styles.accountLabel}>Bank Name</ThemedText>
-                <ThemedText style={styles.accountValue}>{virtualAccount.bank_name || bankDisplayName}</ThemedText>
-              </View>
-              <View style={styles.recommendedTag}>
-                <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
-                <ThemedText style={styles.recommendedText}>Recommended</ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.accountCard}>
-              <View style={styles.accountIconContainer}>
-                <MaterialIcons name="person" size={24} color="#FF7F00" />
-              </View>
-              <View style={styles.accountInfo}>
-                <ThemedText style={styles.accountLabel}>Account Name</ThemedText>
-                <ThemedText style={styles.accountValue}>{virtualAccount.account_name}</ThemedText>
-              </View>
-            </View>
-
-            {virtualAccount.tracking_reference && (
-              <View style={styles.accountCard}>
-                <View style={styles.accountIconContainer}>
-                  <MaterialIcons name="tag" size={24} color="#FF7F00" />
-                </View>
-                <View style={styles.accountInfo}>
-                  <ThemedText style={styles.accountLabel}>Tracking Reference</ThemedText>
-                  <ThemedText style={styles.accountValue} numberOfLines={1}>
-                    {virtualAccount.tracking_reference}
-                  </ThemedText>
-                </View>
-                <TouchableOpacity
-                  style={styles.copyButton}
-                  onPress={() => handleCopy(virtualAccount.tracking_reference || '', 'Tracking reference')}
-                >
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
-                  <ThemedText style={styles.copyButtonText}>Copy</ThemedText>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            <View style={styles.instructionsCard}>
-              <ThemedText style={styles.instructionsTitle}>How to add money:</ThemedText>
-              <View style={styles.instructionItem}>
-                <ThemedText style={styles.instructionNumber}>1.</ThemedText>
-                <ThemedText style={styles.instructionText}>Copy the account number above</ThemedText>
-              </View>
-              <View style={styles.instructionItem}>
-                <ThemedText style={styles.instructionNumber}>2.</ThemedText>
-                <ThemedText style={styles.instructionText}>Open your bank app and make a transfer</ThemedText>
-              </View>
-              <View style={styles.instructionItem}>
-                <ThemedText style={styles.instructionNumber}>3.</ThemedText>
-                <ThemedText style={styles.instructionText}>Your wallet will be credited automatically</ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.noteBanner}>
-              <ThemedText style={styles.noteText}>
-                Note: This is your dedicated virtual account. All transfers to this account will be automatically credited to your wallet.
-              </ThemedText>
-            </View>
-          </>
-        )}
-
-        {showCreateForm && (
-          <View style={styles.createCard}>
-            <ThemedText style={styles.createTitle}>Create Virtual Account</ThemedText>
-            <ThemedText style={styles.createDescription}>
-              Enter your 11-digit NIN to generate a permanent virtual account with {bankDisplayName}.
-            </ThemedText>
-
-            <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>NIN (National Identity Number)</ThemedText>
-              <View style={styles.inputRow}>
-                <MaterialIcons name="badge" size={20} color="#666" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter 11-digit NIN"
-                  placeholderTextColor="#999"
-                  value={nin}
-                  onChangeText={(value) => setNin(value.replace(/\D/g, '').slice(0, 11))}
-                  keyboardType="numeric"
-                  maxLength={11}
-                />
-              </View>
-              <ThemedText style={styles.helperText}>Required for account verification</ThemedText>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.createButton, (creating || nin.length !== 11) && styles.createButtonDisabled]}
-              onPress={handleCreateVirtualAccount}
-              disabled={creating || nin.length !== 11}
-              activeOpacity={0.8}
-            >
-              {creating ? (
-                <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
-              ) : (
-                <ThemedText style={styles.createButtonText}>Create Virtual Account</ThemedText>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.securityNote}>
-              <MaterialIcons name="shield" size={20} color="#4CAF50" style={styles.securityIcon} />
-              <ThemedText style={styles.securityText}>
-                Your NIN is encrypted and only used once for account verification.
-              </ThemedText>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity 
-          style={[styles.dashboardButton, isCheckingBalance && styles.dashboardButtonDisabled]} 
-          onPress={handleCheckBalance}
-          disabled={isCheckingBalance}
+        <TouchableOpacity
+          style={[styles.payButton, !canPay && styles.payButtonDisabled]}
+          onPress={handlePay}
+          disabled={!canPay}
+          activeOpacity={0.85}
         >
-          {isCheckingBalance ? (
+          {paying ? (
             <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
           ) : (
-            <ThemedText style={styles.dashboardButtonText}>
-              I have added the money
-            </ThemedText>
+            <>
+              <MaterialIcons name="account-balance-wallet" size={18} color="#fff" style={styles.payButtonIcon} />
+              <ThemedText style={styles.payButtonText}>Fund Wallet</ThemedText>
+            </>
           )}
         </TouchableOpacity>
-      </View>
+
+        <View style={styles.securityNote}>
+          <MaterialIcons name="shield" size={20} color="#4CAF50" style={styles.securityIcon} />
+          <ThemedText style={styles.securityText}>
+            Payments are processed securely by Flutterwave. You will be redirected to complete checkout.
+          </ThemedText>
+        </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </ThemedView>
   );
 }
@@ -782,37 +347,87 @@ const styles = StyleSheet.create({
   headerAction: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'flex-end',
+  },
+  keyboardView: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
   },
-  bankToggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  scrollContent: {
     paddingHorizontal: 20,
-    marginBottom: 16,
+    flexGrow: 1,
   },
-  bankToggleButton: {
-    flex: 0.48,
-    borderWidth: 1,
-    borderColor: '#FF7F00',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  bankToggleButtonActive: {
+  balanceCard: {
     backgroundColor: '#FF7F00',
+    borderRadius: 20,
+    padding: 22,
+    marginBottom: 20,
+    overflow: 'hidden',
   },
-  bankToggleText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FF7F00',
+  balanceCardPattern: {
+    position: 'absolute',
+    right: -30,
+    top: -20,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
-  bankToggleTextActive: {
+  balanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  balanceHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  balanceIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  balanceLabel: {
+    fontSize: 14,
     color: '#fff',
+    fontWeight: '600',
+    opacity: 0.95,
+  },
+  eyeButton: {
+    padding: 4,
+  },
+  balanceAmountContainer: {
+    minHeight: 48,
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  balanceValue: {
+    fontSize: 34,
+    fontWeight: '700',
+    color: '#fff',
+    lineHeight: 42,
+    letterSpacing: 0.3,
+  },
+  projectedBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  projectedBalanceText: {
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '600',
+    opacity: 0.95,
   },
   infoBanner: {
     flexDirection: 'row',
@@ -820,7 +435,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5E6D3',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    marginHorizontal: 20,
     marginBottom: 20,
     borderRadius: 8,
   },
@@ -842,166 +456,116 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     color: '#333',
-  },
-  feeNoticeBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#FFF3E0',
-    borderWidth: 1,
-    borderColor: '#FFB74D',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 8,
-  },
-  feeNoticeIcon: {
-    marginRight: 12,
-    marginTop: 2,
-  },
-  feeNoticeContent: {
-    flex: 1,
-  },
-  feeNoticeTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#E65100',
-    marginBottom: 4,
-  },
-  feeNoticeText: {
-    fontSize: 12,
-    color: '#BF360C',
     lineHeight: 18,
   },
-  accountCard: {
+  section: {
+    marginBottom: 16,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  amountRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#F5F5F5',
     borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    paddingHorizontal: 16,
+    minHeight: 58,
   },
-  balanceCard: {
-    backgroundColor: '#fff7ef',
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#ffd8b0',
+  currencyPrefix: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FF7F00',
+    marginRight: 8,
   },
-  accountIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFF3E0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  accountInfo: {
+  amountInput: {
     flex: 1,
-  },
-  accountLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  accountValue: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  copyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 12,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#111827',
     paddingVertical: 8,
-    borderRadius: 8,
   },
-  copyButtonText: {
-    marginLeft: 6,
+  helperText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#777',
+  },
+  quickAmountRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  quickAmountButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FF7F00',
+    backgroundColor: '#fff',
+  },
+  quickAmountButtonActive: {
+    backgroundColor: '#FF7F00',
+  },
+  quickAmountText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#FF7F00',
   },
-  recommendedTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  quickAmountTextActive: {
+    color: '#fff',
+  },
+  summaryCard: {
+    backgroundColor: '#fff',
     borderRadius: 12,
-  },
-  recommendedText: {
-    marginLeft: 4,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#4CAF50',
-  },
-  instructionsCard: {
-    backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    padding: 20,
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  instructionsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 16,
-  },
-  instructionItem: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  instructionNumber: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginRight: 12,
-    width: 20,
-  },
-  instructionText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#fff',
-    lineHeight: 24,
-  },
-  noteBanner: {
-    backgroundColor: '#F5E6D3',
-    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
     padding: 16,
-    marginHorizontal: 20,
     marginBottom: 20,
   },
-  noteText: {
-    fontSize: 12,
-    color: '#333',
-    lineHeight: 20,
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  summaryRowTotal: {
+    marginTop: 4,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E0E0E0',
+    marginBottom: 0,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    color: '#666',
+    flex: 1,
+    paddingRight: 12,
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  summaryTotalLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  summaryTotalValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FF7F00',
   },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fdecea',
-    marginHorizontal: 20,
     marginBottom: 16,
     borderRadius: 8,
     paddingHorizontal: 14,
@@ -1015,81 +579,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#d32f2f',
   },
-  loadingContainer: {
-    marginHorizontal: 20,
-    marginVertical: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  createCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  createTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
-  },
-  createDescription: {
-    fontSize: 12,
-    color: '#555',
-    marginBottom: 16,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    minHeight: 50,
-  },
-  inputIcon: {
-    marginRight: 8,
-  },
-  input: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-    paddingVertical: 12,
-  },
-  helperText: {
-    fontSize: 11,
-    color: '#777',
-  },
-  createButton: {
+  payButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginBottom: 16,
   },
-  createButtonDisabled: {
+  payButtonDisabled: {
     opacity: 0.6,
   },
-  createButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+  payButtonIcon: {
+    marginRight: 8,
+  },
+  payButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#fff',
   },
   securityNote: {
@@ -1098,7 +605,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5E9',
     borderRadius: 8,
     padding: 12,
-    marginTop: 16,
+    marginBottom: 32,
   },
   securityIcon: {
     marginRight: 8,
@@ -1109,24 +616,4 @@ const styles = StyleSheet.create({
     color: '#2E7D32',
     lineHeight: 18,
   },
-  buttonContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-    paddingTop: 10,
-  },
-  dashboardButton: {
-    backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  dashboardButtonDisabled: {
-    opacity: 0.6,
-  },
-  dashboardButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
 });
-

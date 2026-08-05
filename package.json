@@ -9,7 +9,15 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "supabase": "supabase"
+    "supabase": "supabase",
+    "db:verify": "node scripts/migrate-db.js --verify-only",
+    "db:migrate": "node scripts/migrate-db.js",
+    "db:export-users": "node scripts/export-users.js",
+    "db:import-users": "node scripts/import-users.js",
+    "db:setup-users": "node scripts/setup-initial-users.js",
+    "supabase:sync-secrets": "node scripts/sync-supabase-secrets.js",
+    "supabase:sync-secrets:dry-run": "node scripts/sync-supabase-secrets.js --dry-run",
+    "supabase:deploy-functions": "supabase functions deploy"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -53,6 +61,7 @@
     "next-themes": "^0.3.0",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.17.2",
+    "pg": "^8.12.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

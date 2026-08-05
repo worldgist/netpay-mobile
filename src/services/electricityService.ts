@@ -18,7 +18,7 @@ export interface ValidateMeterParams {
   meter_number: string;
   provider: string;
   meter_type: 'prepaid' | 'postpaid';
-  vending_provider?: 'vtpass' | 'mobilenig' | 'smeplug';
+  vending_provider?: 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills';
 }
 
 export interface ValidateMeterResponse {
@@ -33,7 +33,7 @@ export interface PurchaseElectricityParams {
   meter_type: 'prepaid' | 'postpaid';
   amount: number;
   phone: string;
-  vending_provider?: 'vtpass' | 'mobilenig' | 'smeplug';
+  vending_provider?: 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills';
   customer_name?: string;
   customer_address?: string;
   tariff?: string;

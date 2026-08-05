@@ -8,7 +8,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { checkSignupAvailability } from '@/utils/signup-availability';
-import { assertNetworkAccessAllowed } from '@/utils/network-access';
 import { authRedirectUrls } from '@/constants/site';
 
 export default function SignupScreen() {
@@ -173,7 +172,6 @@ export default function SignupScreen() {
 
     try {
       setLoading(true);
-      await assertNetworkAccessAllowed(supabase);
 
       const availability = await checkSignupAvailability({
         email: trimmedEmail,

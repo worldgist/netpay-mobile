@@ -7,7 +7,7 @@ echo "Setting up demo user..."
 echo ""
 
 # Get Supabase project URL and anon key from environment or config
-SUPABASE_URL="${SUPABASE_URL:-https://rekkdwpkzkhgnejgzhac.supabase.co}"
+SUPABASE_URL="${SUPABASE_URL:-https://xrpuvnhmdmpgelfxpdcx.supabase.co}"
 SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY}"
 
 if [ -z "$SUPABASE_ANON_KEY" ]; then

@@ -3,12 +3,10 @@ import {
   View,
   TouchableOpacity,
   ScrollView,
-  Platform,
   RefreshControl,
   Share,
   Alert,
 } from 'react-native';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -26,7 +24,6 @@ export default function ReferralScreen() {
   const [referralCode, setReferralCode] = useState('');
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
   const [stats, setStats] = useState({
@@ -38,14 +35,14 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
     pendingEarnings: 0,
   });
   const [recentReferrals, setRecentReferrals] = useState<
-    Array<{
+    {
       id: string;
       referred_email: string | null;
       status: string;
       reward_amount: number | null;
       created_at: string;
       referrer_reward_paid: boolean;
-    }>
+    }[]
   >([]);
   const [referrerReward, setReferrerReward] = useState<number | null>(null);
   const [referredReward, setReferredReward] = useState<number | null>(null);
@@ -61,10 +58,8 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
 
   const fetchReferralData = useCallback(
     async ({ isRefresh = false }: { isRefresh?: boolean } = {}) => {
-      if (isRefresh) {
-        if (isMounted.current) setRefreshing(true);
-      } else {
-        if (isMounted.current) setLoading(true);
+      if (isRefresh && isMounted.current) {
+        setRefreshing(true);
       }
 
       try {
@@ -161,12 +156,8 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
           Alert.alert('Referral Program', message);
         }
       } finally {
-        if (isMounted.current) {
-          if (isRefresh) {
-            setRefreshing(false);
-          } else {
-            setLoading(false);
-          }
+        if (isMounted.current && isRefresh) {
+          setRefreshing(false);
         }
       }
     },
@@ -208,7 +199,7 @@ useEffect(() => {
       if (isActive) {
         setIsReferralLinkReachable(response.ok);
       }
-    } catch (error) {
+    } catch {
       if (isActive) {
         setIsReferralLinkReachable(false);
       }
@@ -270,14 +261,6 @@ const handleShareLink = () => {
 
     return '';
   }, [formatCurrency, referrerReward, referredReward]);
-
-  if (loading) {
-    return (
-      <ThemedView style={styles.loadingContainer}>
-        <NetpayLoadingAnimation message="Loading…" />
-      </ThemedView>
-    );
-  }
 
   return (
     <ThemedView style={styles.container}>
@@ -464,12 +447,6 @@ const handleShareLink = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#F5F5F5',
   },
   header: {

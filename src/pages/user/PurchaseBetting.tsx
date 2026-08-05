@@ -27,14 +27,12 @@ interface BettingProvider {
   providerCode: string;
 }
 
-const providers: BettingProvider[] = [
+const ALL_PROVIDERS: BettingProvider[] = [
   { id: 'bet9ja', name: 'Bet9ja', logo: '/bet9ja.png', providerCode: 'BET9JA' },
-  { id: 'sportybet', name: 'SportyBet', logo: '/sportybet.png', providerCode: 'SPORTYBET' },
   { id: 'nairabet', name: 'Nairabet', logo: '/nairabet.png', providerCode: 'NAIRABET' },
   { id: '1xbet', name: '1xBet', logo: '/1xbet.png', providerCode: '1XBET' },
   { id: 'betking', name: 'BetKing', logo: '/betking.png', providerCode: 'BETKING' },
   { id: 'betway', name: 'Betway', logo: '/betway.png', providerCode: 'BETWAY' },
-  { id: 'accessbet', name: 'AccessBet', logo: '/accessbet.png', providerCode: 'ACCESSBET' },
   { id: 'merrybet', name: 'MerryBet', logo: '/merrybet.png', providerCode: 'MERRYBET' },
   { id: 'bangbet', name: 'BangBet', logo: '/bangbet.png', providerCode: 'BANGBET' },
   { id: 'betland', name: 'BetLand', logo: '/betland.png', providerCode: 'BETLAND' },
@@ -44,6 +42,26 @@ const providers: BettingProvider[] = [
   { id: 'naijabet', name: 'NaijaBet', logo: '/naijabet.png', providerCode: 'NAIJABET' },
   { id: 'supabet', name: 'SupaBet', logo: '/supabet.png', providerCode: 'SUPABET' },
 ];
+
+const EBILLS_SUPPORTED_PROVIDERS = [
+  '1XBET',
+  'BANGBET',
+  'BET9JA',
+  'BETKING',
+  'BETLAND',
+  'BETLION',
+  'BETWAY',
+  'CLOUDBET',
+  'LIVESCOREBET',
+  'MERRYBET',
+  'NAIJABET',
+  'NAIRABET',
+  'SUPABET',
+];
+
+const providers = ALL_PROVIDERS.filter((provider) =>
+  EBILLS_SUPPORTED_PROVIDERS.includes(provider.providerCode),
+);
 
 const normalizePhoneNumber = (value: string) => {
   let normalized = value.trim().replace(/\s+/g, "");
@@ -69,7 +87,6 @@ const PurchaseBetting = () => {
   const [accountNumber, setAccountNumber] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [amount, setAmount] = useState("");
-  const [vendingProvider, setVendingProvider] = useState<"vtpass" | "mobilenig" | "smeplug" | "ebills">("vtpass");
   const [showSummary, setShowSummary] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
@@ -106,22 +123,6 @@ const PurchaseBetting = () => {
         if (profile) {
           setBalance(profile.balance || 0);
           setPhoneNumber(profile.phone || '');
-        }
-
-        // Fetch betting vending provider setting
-        const { data: providerSetting } = await supabase
-          .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'betting_provider')
-          .maybeSingle();
-
-        if (providerSetting?.setting_value) {
-          const provider = (providerSetting.setting_value as any)?.provider || 'vtpass';
-          const validProviders = ['vtpass', 'mobilenig', 'smeplug', 'ebills'];
-          const selectedProvider = validProviders.includes(provider) 
-            ? provider as 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills' 
-            : 'vtpass';
-          setVendingProvider(selectedProvider);
         }
 
         setLoading(false);
@@ -201,37 +202,35 @@ const PurchaseBetting = () => {
       return;
     }
 
-    if (vendingProvider === 'ebills') {
-      try {
-        const provider = providers.find((p) => p.id === selectedProvider);
-        if (!provider) {
-          throw new Error('Invalid provider selected');
-        }
-
-        const { data, error } = await supabase.functions.invoke('verify-ebills-betting-customer', {
-          body: {
-            customer_id: accountNumber.trim(),
-            betting_provider: provider.providerCode,
-          },
-        });
-
-        if (error) {
-          throw new Error(error.message || 'Unable to verify betting account');
-        }
-
-        if (data?.success === false || data?.error) {
-          throw new Error(data?.error || data?.message || 'Unable to verify betting account');
-        }
-
-        setVerifiedCustomerName(data?.data?.customer_name || '');
-      } catch (verifyError: any) {
-        toast({
-          title: 'Verification Failed',
-          description: verifyError?.message || 'Unable to verify account. Please check your account and try again.',
-          variant: 'destructive',
-        });
-        return;
+    try {
+      const provider = providers.find((p) => p.id === selectedProvider);
+      if (!provider) {
+        throw new Error('Invalid provider selected');
       }
+
+      const { data, error } = await supabase.functions.invoke('verify-ebills-betting-customer', {
+        body: {
+          customer_id: accountNumber.trim(),
+          betting_provider: provider.providerCode,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Unable to verify betting account');
+      }
+
+      if (data?.success === false || data?.error) {
+        throw new Error(data?.error || data?.message || 'Unable to verify betting account');
+      }
+
+      setVerifiedCustomerName(data?.data?.customer_name || '');
+    } catch (verifyError: any) {
+      toast({
+        title: 'Verification Failed',
+        description: verifyError?.message || 'Unable to verify account. Please check your account and try again.',
+        variant: 'destructive',
+      });
+      return;
     }
 
     setShowSummary(true);
@@ -258,64 +257,39 @@ const PurchaseBetting = () => {
         return;
       }
 
-      // Insert betting transaction
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Session expired");
 
-      if (vendingProvider === 'ebills') {
-        const provider = providers.find((p) => p.id === selectedProvider);
-        if (!provider) throw new Error('Invalid provider');
+      const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
+      const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
+        body: {
+          customer_id: accountNumber.trim(),
+          betting_provider: provider.providerCode,
+          amount: Number(purchaseAmount),
+          request_id: requestId,
+        },
+      });
 
-        const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
-        const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
-          body: {
-            customer_id: accountNumber.trim(),
-            betting_provider: provider.providerCode,
-            amount: Number(purchaseAmount),
-            request_id: requestId,
-          },
-        });
-
-        if (error) {
-          throw new Error(error.message || 'Unable to process betting purchase');
-        }
-
-        if (!data?.success) {
-          throw new Error(data?.error || data?.message || 'Betting purchase failed');
-        }
-
-        const purchaseData = data.data || {};
-
-        setTransactionDetails({
-          provider_name: provider.name,
-          account_number: purchaseData.account_number || accountNumber,
-          reference: purchaseData.reference || purchaseData.request_id,
-          purchase_amount: purchaseData.purchase_amount ?? purchaseAmount,
-          charge_fee: purchaseData.charge_fee ?? chargeFee,
-          amount: purchaseData.amount ?? totalAmount,
-          balance_after: purchaseData.balance_after,
-          customer_name: verifiedCustomerName,
-        });
-
-        // Refresh wallet balance
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profile) {
-          setBalance(profile.balance || 0);
-        }
-
-        setShowSuccess(true);
-
-        toast({
-          title: 'Success',
-          description: 'Betting purchase completed successfully',
-        });
-        return;
+      if (error) {
+        throw new Error(error.message || 'Unable to process betting purchase');
       }
+
+      if (!data?.success) {
+        throw new Error(data?.error || data?.message || 'Betting purchase failed');
+      }
+
+      const purchaseData = data.data || {};
+
+      setTransactionDetails({
+        provider_name: provider.name,
+        account_number: purchaseData.account_number || accountNumber,
+        reference: purchaseData.reference || purchaseData.request_id,
+        purchase_amount: purchaseData.purchase_amount ?? purchaseAmount,
+        charge_fee: purchaseData.charge_fee ?? chargeFee,
+        amount: purchaseData.amount ?? totalAmount,
+        balance_after: purchaseData.balance_after,
+        customer_name: verifiedCustomerName,
+      });
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -323,74 +297,15 @@ const PurchaseBetting = () => {
         .eq('id', session.user.id)
         .single();
 
-      if (!profile) throw new Error("Profile not found");
+      if (profile) {
+        setBalance(profile.balance || 0);
+      }
 
-      const balanceBefore = Number(profile.balance) || 0;
-      const balanceAfter = balanceBefore - totalAmount;
-
-      // Generate reference
-      const reference = `BET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-
-      // Insert transaction
-      const { data: transaction, error: transactionError } = await supabase
-        .from('betting_transactions')
-        .insert({
-          user_id: session.user.id,
-          amount: totalAmount,
-          purchase_amount: purchaseAmount,
-          charge_fee: chargeFee,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter,
-          betting_provider: provider.providerCode,
-          account_number: accountNumber,
-          phone_number: phoneNumber || null,
-          vending_provider: vendingProvider,
-          status: 'completed',
-          reference: reference,
-          performed_by: session.user.id,
-        })
-        .select()
-        .single();
-
-      if (transactionError) throw transactionError;
-
-      // Update user balance
-      const { error: balanceError } = await supabase
-        .from('profiles')
-        .update({ balance: balanceAfter })
-        .eq('id', session.user.id);
-
-      if (balanceError) throw balanceError;
-
-      // Create user transaction record
-      await supabase
-        .from('user_transactions')
-        .insert({
-          user_id: session.user.id,
-          transaction_type: 'purchase',
-          amount: totalAmount,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter,
-          description: `Betting purchase - ${provider.name}`,
-          reference: reference,
-          performed_by: session.user.id,
-        });
-
-      setTransactionDetails({
-        ...transaction,
-        provider_name: provider.name,
-        amount: totalAmount,
-        purchase_amount: purchaseAmount,
-        charge_fee: chargeFee,
-        balance_after: balanceAfter,
-      });
-
-      setBalance(balanceAfter);
       setShowSuccess(true);
 
       toast({
-        title: "Success",
-        description: "Betting purchase completed successfully",
+        title: 'Success',
+        description: 'Betting purchase completed successfully',
       });
     } catch (error: any) {
       console.error('Error purchasing betting:', error);

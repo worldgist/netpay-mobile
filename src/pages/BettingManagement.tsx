@@ -38,11 +38,7 @@ interface BettingTransaction {
   } | null;
 }
 
-type BettingVendingProvider = 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills';
-
 export default function BettingManagement() {
-  const [vendingProvider, setVendingProvider] = useState<BettingVendingProvider>('ebills');
-  const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [transactions, setTransactions] = useState<BettingTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [transactionSearchQuery, setTransactionSearchQuery] = useState("");
@@ -51,11 +47,11 @@ export default function BettingManagement() {
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchBettingProvider();
+    ensureEbillsProvider();
     fetchTransactions();
   }, [statusFilter, providerFilter]);
 
-  const fetchBettingProvider = async () => {
+  const ensureEbillsProvider = async () => {
     try {
       const { data, error } = await supabase
         .from('app_settings')
@@ -65,61 +61,30 @@ export default function BettingManagement() {
 
       if (error) {
         console.error('Error fetching betting provider setting:', error);
-        setVendingProvider('ebills');
         return;
       }
 
-      if (data?.setting_value) {
-        const settingValue = data.setting_value as { provider?: string } | null;
-        const provider = settingValue?.provider || 'ebills';
-        const validProviders: BettingVendingProvider[] = ['vtpass', 'mobilenig', 'smeplug', 'ebills'];
-        const selectedProvider = validProviders.includes(provider as BettingVendingProvider) 
-          ? (provider as BettingVendingProvider)
-          : 'ebills';
-        console.log('Setting betting vending provider to:', selectedProvider);
-        setVendingProvider(selectedProvider);
-      } else {
-        console.log('No betting provider setting found, defaulting to ebills');
-        setVendingProvider('ebills');
+      const settingValue = data?.setting_value as { provider?: string } | null;
+      const provider = settingValue?.provider;
+
+      if (provider !== 'ebills') {
+        const { error: upsertError } = await supabase
+          .from('app_settings')
+          .upsert({
+            setting_key: 'betting_provider',
+            setting_value: { provider: 'ebills' },
+            setting_category: 'system',
+            description: 'Betting vending provider: eBills Africa only',
+          }, {
+            onConflict: 'setting_key',
+          });
+
+        if (upsertError) {
+          console.error('Error updating betting provider setting:', upsertError);
+        }
       }
     } catch (error) {
-      console.error('Error fetching betting provider setting:', error);
-      setVendingProvider('ebills');
-    }
-  };
-
-  const updateBettingProvider = async (newProvider: BettingVendingProvider) => {
-    setIsUpdatingProvider(true);
-    try {
-      const { error } = await supabase
-        .from('app_settings')
-        .upsert({
-          setting_key: 'betting_provider',
-          setting_value: { provider: newProvider },
-          setting_category: 'system',
-          description: 'Betting vending provider: vtpass, mobilenig, smeplug, or ebills'
-        }, {
-          onConflict: 'setting_key'
-        });
-
-      if (error) throw error;
-
-      console.log('Updating betting provider to:', newProvider);
-      setVendingProvider(newProvider);
-      
-      toast({
-        title: "Success",
-        description: `Betting vending provider switched to ${newProvider.toUpperCase()}. This will be used as the default for all betting purchases.`,
-      });
-    } catch (error) {
-      console.error('Error updating betting provider:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update betting provider",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingProvider(false);
+      console.error('Error ensuring betting provider setting:', error);
     }
   };
 
@@ -243,30 +208,13 @@ export default function BettingManagement() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4">
-                  <Label htmlFor="vending-provider" className="min-w-[150px]">
-                    Vending Provider:
-                  </Label>
-                  <Select
-                    value={vendingProvider}
-                    onValueChange={(value) => updateBettingProvider(value as BettingVendingProvider)}
-                    disabled={isUpdatingProvider}
-                  >
-                    <SelectTrigger id="vending-provider" className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="vtpass">VTpass</SelectItem>
-                      <SelectItem value="mobilenig">MobileNig</SelectItem>
-                      <SelectItem value="smeplug">SMEPLUG</SelectItem>
-                      <SelectItem value="ebills">eBills Africa</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {isUpdatingProvider && (
-                    <span className="text-sm text-muted-foreground">Updating...</span>
-                  )}
+                  <Label className="min-w-[150px]">Vending Provider:</Label>
+                  <Badge variant="default" className="text-sm px-3 py-1">
+                    eBills Africa
+                  </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mt-2">
-                  This setting determines which vendor API will be used for betting purchases when no specific provider is selected by the user.
+                  All betting purchases are processed through eBills Africa. Customer verification and wallet debits use the eBills betting API.
                 </p>
               </CardContent>
             </Card>

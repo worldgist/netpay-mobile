@@ -1,6 +1,6 @@
 -- Add vending_provider column to electricity_transactions table
 -- This allows tracking which payment provider (vtpass or ebills) was used for the transaction
--- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/rekkdwpkzkhgnejgzhac/sql
+-- Run this in your Supabase SQL Editor: https://supabase.com/dashboard/project/xrpuvnhmdmpgelfxpdcx/sql
 
 -- Add the column if it doesn't exist
 ALTER TABLE public.electricity_transactions 

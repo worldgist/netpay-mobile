@@ -3,7 +3,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Wallet, History, Search } from "lucide-react";
+import { RefreshCw, Wallet, History, Search, Copy, Link2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,6 +46,23 @@ export default function PayVessel() {
   const [page, setPage] = useState(1);
   const [searchTransId, setSearchTransId] = useState("");
   const { toast } = useToast();
+  const payvesselWebhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/payvessel-webhook`;
+
+  const copyWebhookUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(payvesselWebhookUrl);
+      toast({
+        title: "Copied",
+        description: "PayVessel webhook URL copied to clipboard",
+      });
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Could not copy webhook URL",
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     fetchPayVesselData();
@@ -460,6 +477,35 @@ export default function PayVessel() {
                     )}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Webhook URL for PayVessel Dashboard */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Link2 className="h-5 w-5 text-primary" />
+                  <CardTitle>Webhook URL</CardTitle>
+                </div>
+                <CardDescription>
+                  Register this URL in your PayVessel Dashboard so wallet funding credits users automatically
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <code className="flex-1 break-all rounded-md border bg-muted px-3 py-2 text-sm">
+                    {payvesselWebhookUrl}
+                  </code>
+                  <Button onClick={copyWebhookUrl} variant="outline" className="gap-2 shrink-0">
+                    <Copy className="h-4 w-4" />
+                    Copy URL
+                  </Button>
+                </div>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  <p>• PayVessel Dashboard → Webhooks → paste this URL</p>
+                  <p>• Events: <code className="text-xs">reserved_account.credit</code>, <code className="text-xs">transaction.success</code></p>
+                  <p>• Uses <code className="text-xs">PAYVESSEL_SECRET_KEY</code> from Supabase secrets for signature verification</p>
+                </div>
               </CardContent>
             </Card>
 

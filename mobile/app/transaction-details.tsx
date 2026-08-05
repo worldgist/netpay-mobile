@@ -1,10 +1,9 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import * as Print from 'expo-print';
@@ -12,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
+import { NGN_LOGO, FUND_WALLET_LABEL, isFundWalletTransaction } from '@/utils/transaction-display';
 
 type DetailTransaction = {
   id: string;
@@ -42,11 +42,12 @@ type DetailTransaction = {
     educationSerial?: string;
     educationInstructions?: string;
     examType?: string;
-    pins?: Array<{ Serial?: string; Pin?: string }>;
+    pins?: { Serial?: string; Pin?: string }[];
   };
 };
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
+  NGN: NGN_LOGO,
   MTN: require('@/assets/images/mtn.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
   GLO: require('@/assets/images/glo.png'),
@@ -75,8 +76,6 @@ const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   ACCESSBET: require('@/assets/images/accessbet.png'),
   MERRYBET: require('@/assets/images/merrybet.png'),
 };
-
-const DEFAULT_LOGO = require('@/assets/images/logo.png');
 
 const formatCurrency = (amount: number) =>
   `₦${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -155,6 +154,9 @@ const getLedgerTypeLabel = (
   ledgerType: 'credit' | 'debit'
 ) => {
   if (walletCategory === 'wallet' && (serviceType || '').toLowerCase() === 'refund') return 'Refund';
+  if (walletCategory === 'wallet' && ((serviceType || '').toLowerCase() === 'fund wallet' || (serviceType || '').toLowerCase() === 'add money')) {
+    return FUND_WALLET_LABEL;
+  }
   return ledgerType.charAt(0).toUpperCase() + ledgerType.slice(1);
 };
 
@@ -177,6 +179,14 @@ const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
 };
 
 const getTransactionLogo = (serviceType?: string | null, provider?: string | null): ImageSourcePropType | null => {
+  if (
+    (serviceType || '').toLowerCase() === 'fund wallet' ||
+    (serviceType || '').toLowerCase() === 'add money' ||
+    (provider || '').toUpperCase() === 'NGN' ||
+    (provider || '').toUpperCase() === 'FLUTTERWAVE'
+  ) {
+    return NGN_LOGO;
+  }
   const key = (provider || serviceType || '').toUpperCase();
   if (key.includes('ELECTRICITY')) {
     if (provider) {
@@ -256,7 +266,7 @@ function TransactionDetailsScreen() {
         await Clipboard.setStringAsync(text);
       }
       Alert.alert('Copied', `${label} copied to clipboard`);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to copy to clipboard');
     }
   };
@@ -279,6 +289,46 @@ function TransactionDetailsScreen() {
       let detail: DetailTransaction | null = null;
 
       if (category === 'wallet') {
+        const sourceTable = (params.sourceTable as string) || '';
+
+        if (sourceTable === 'funding_transactions') {
+          const { data, error } = await supabase
+            .from('funding_transactions')
+            .select('id, amount, status, reference, bank_name, account_name, created_at, user_id')
+            .eq('id', initialTransaction.id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (error) throw error;
+          if (data) {
+            const grossAmount = Number(data.amount) || 0;
+            const fundingFee = Math.max(10, Math.round(grossAmount * 0.05 * 100) / 100);
+            const netAmount = grossAmount - fundingFee;
+            detail = {
+              id: data.id,
+              type: 'credit',
+              amount: netAmount,
+              status: data.status || 'Completed',
+              reference: data.reference,
+              description: `Wallet funding via ${data.bank_name || 'Flutterwave'}`,
+              serviceType: FUND_WALLET_LABEL,
+              provider: 'Flutterwave',
+              recipient: data.account_name || '',
+              sender: data.bank_name || 'Flutterwave',
+              createdAt: data.created_at,
+              formattedDate: formatDate(data.created_at),
+              formattedTime: formatTime(data.created_at),
+              phoneNumber: '',
+              planName: '',
+              planValidity: '',
+              balanceBefore: null,
+              balanceAfter: null,
+              metadata: { grossAmount, fundingFee },
+            };
+          }
+        }
+
+        if (!detail) {
         const { data, error } = await supabase
           .from('user_transactions')
           .select('id, amount, transaction_type, description, reference, created_at, balance_before, balance_after, user_id')
@@ -288,18 +338,19 @@ function TransactionDetailsScreen() {
 
         if (error) throw error;
         if (data) {
-          const createdDate = new Date(data.created_at);
           const tt = (data.transaction_type || '').toLowerCase();
           const isRefund = tt === 'refund';
+          const description = data.description || '';
+          const isFlutterwaveFunding = description.toLowerCase().includes('flutterwave');
           detail = {
             id: data.id,
-            type: tt === 'credit' || isRefund ? 'credit' : 'debit',
+            type: tt === 'credit' || isRefund ? ('credit' as const) : ('debit' as const),
             amount: Number(data.amount) || 0,
             status: 'Completed',
             reference: data.reference,
-            description: data.description,
-            serviceType: isRefund ? 'Refund' : 'Wallet Transaction',
-            provider: '',
+            description,
+            serviceType: isRefund ? 'Refund' : tt === 'credit' ? FUND_WALLET_LABEL : 'Wallet Transaction',
+            provider: isRefund ? '' : tt === 'credit' ? (isFlutterwaveFunding ? 'Flutterwave' : 'NGN') : '',
             recipient: '',
             sender: '',
             createdAt: data.created_at,
@@ -312,6 +363,44 @@ function TransactionDetailsScreen() {
             balanceAfter: data.balance_after,
             metadata: (data as any)?.metadata || {},
           };
+        }
+        }
+
+        if (!detail) {
+          const { data, error } = await supabase
+            .from('funding_transactions')
+            .select('id, amount, status, reference, bank_name, account_name, created_at, user_id')
+            .eq('id', initialTransaction.id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (error) throw error;
+          if (data) {
+            const grossAmount = Number(data.amount) || 0;
+            const fundingFee = Math.max(10, Math.round(grossAmount * 0.05 * 100) / 100);
+            const netAmount = grossAmount - fundingFee;
+            detail = {
+              id: data.id,
+              type: 'credit',
+              amount: netAmount,
+              status: data.status || 'Completed',
+              reference: data.reference,
+              description: `Wallet funding via ${data.bank_name || 'Flutterwave'}`,
+              serviceType: FUND_WALLET_LABEL,
+              provider: 'Flutterwave',
+              recipient: data.account_name || '',
+              sender: data.bank_name || 'Flutterwave',
+              createdAt: data.created_at,
+              formattedDate: formatDate(data.created_at),
+              formattedTime: formatTime(data.created_at),
+              phoneNumber: '',
+              planName: '',
+              planValidity: '',
+              balanceBefore: null,
+              balanceAfter: null,
+              metadata: { grossAmount, fundingFee },
+            };
+          }
         }
       } else if (category === 'airtime') {
         const { data, error } = await supabase
@@ -488,7 +577,7 @@ function TransactionDetailsScreen() {
           // 2. metadata.pins - for backward compatibility
           // 3. Parse from api_response - fallback
           
-          let finalPins: Array<{ Pin: string; Serial?: string }> = [];
+          let finalPins: { Pin: string; Serial?: string }[] = [];
           let finalPin: string | undefined;
           let finalSerial: string | undefined;
           
@@ -655,13 +744,30 @@ function TransactionDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [category, initialTransaction.id, router]);
+  }, [category, initialTransaction.id, params.sourceTable, router]);
 
   useEffect(() => {
     fetchTransactionDetails();
   }, [fetchTransactionDetails]);
 
-  const transactionLogo = useMemo(() => getTransactionLogo(transaction.serviceType, transaction.provider), [transaction.serviceType, transaction.provider]);
+  const showFundWalletLogo = useMemo(
+    () =>
+      isFundWalletTransaction({
+        category,
+        serviceType: transaction.serviceType,
+        description: transaction.description,
+        provider: transaction.provider,
+        type: transaction.type,
+      }),
+    [category, transaction.description, transaction.provider, transaction.serviceType, transaction.type]
+  );
+
+  const transactionLogo = useMemo(() => {
+    if (showFundWalletLogo) {
+      return NGN_LOGO;
+    }
+    return getTransactionLogo(transaction.serviceType, transaction.provider);
+  }, [showFundWalletLogo, transaction.serviceType, transaction.provider]);
 
   const generateReceiptHTML = () => {
     const currentDate = new Date();
@@ -990,8 +1096,6 @@ function TransactionDetailsScreen() {
     }
   };
 
-  const statusColor = getStatusColor(transaction.status || 'Completed');
-
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
@@ -1014,10 +1118,10 @@ function TransactionDetailsScreen() {
       ) : (
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.amountCard}>
-            <View style={[styles.iconContainer, { backgroundColor: transaction.type === 'credit' ? '#E8F5E9' : '#FFEBEE' }]}>
-              {transactionLogo ? (
+            <View style={[styles.iconContainer, { backgroundColor: showFundWalletLogo ? '#ECFDF3' : transaction.type === 'credit' ? '#E8F5E9' : '#FFEBEE' }]}>
+              {showFundWalletLogo || transactionLogo ? (
                 <Image
-                  source={transactionLogo}
+                  source={showFundWalletLogo ? NGN_LOGO : transactionLogo!}
                   style={styles.transactionLogo}
                   contentFit="contain"
                 />
@@ -1030,7 +1134,11 @@ function TransactionDetailsScreen() {
               )}
             </View>
             <ThemedText style={styles.amountLabel}>
-              {transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}
+              {showFundWalletLogo
+                ? 'Amount Added'
+                : transaction.type === 'credit'
+                  ? 'Amount Received'
+                  : 'Amount Sent'}
             </ThemedText>
             <View style={styles.amountValueContainer}>
               <ThemedText style={[styles.amountValue, { color: getTypeColor(transaction.type) }]}>

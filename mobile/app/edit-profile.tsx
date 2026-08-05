@@ -6,76 +6,42 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useProfile } from '@/contexts/profile-context';
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  const [userId, setUserId] = useState<string | null>(null);
-  const [sessionEmail, setSessionEmail] = useState('');
+  const { profile, loading: profileLoading, patchProfile } = useProfile();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [loadingProfile, setLoadingProfile] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const isMounted = useRef(true);
+  const hasHydratedRef = useRef(false);
 
-  // Load user data when screen loads
   useEffect(() => {
-    const loadUserData = async () => {
-      try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-
-        const session = sessionData.session;
-        if (!session) {
-          router.replace('/auth/login');
-          return;
-        }
-
-        if (!isMounted.current) return;
-
-        setUserId(session.user.id);
-        const emailValue = session.user.email || '';
-        setSessionEmail(emailValue);
-        setEmail(emailValue);
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('full_name, phone')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (profileError) throw profileError;
-
-        if (!isMounted.current) return;
-
-        setFullName(profile?.full_name || (emailValue ? emailValue.split('@')[0] : ''));
-        setPhoneNumber(profile?.phone || '');
-      } catch (error) {
-        console.error('Failed to load profile for editing:', error);
-        if (!isMounted.current) return;
-        const message = error instanceof Error ? error.message : 'Unable to load your profile information. Please try again later.';
-        Alert.alert('Edit Profile', message, [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]);
-      } finally {
-        if (isMounted.current) setLoadingProfile(false);
-      }
-    };
-
     isMounted.current = true;
-    loadUserData();
-
     return () => {
       isMounted.current = false;
     };
-  }, [router]);
+  }, []);
+
+  useEffect(() => {
+    if (!profile || hasHydratedRef.current) return;
+    setFullName(profile.full_name);
+    setEmail(profile.email);
+    setPhoneNumber(profile.phone || '');
+    hasHydratedRef.current = true;
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profileLoading && !profile) {
+      router.replace('/auth/login');
+    }
+  }, [profileLoading, profile, router]);
 
   const handleSaveChanges = async () => {
-    if (!userId) return;
+    if (!profile) return;
 
     const trimmedName = fullName.trim();
     const trimmedPhone = phoneNumber.trim();
@@ -90,25 +56,34 @@ export default function EditProfileScreen() {
       return;
     }
 
+    const previousProfile = profile;
+    const nextPhone = trimmedPhone || null;
+
+    patchProfile({
+      full_name: trimmedName,
+      phone: nextPhone,
+    });
+
     try {
       setSaving(true);
 
       const payload = {
-        id: userId,
+        id: profile.id,
         full_name: trimmedName,
-        phone: trimmedPhone || null,
-        email: sessionEmail,
+        phone: nextPhone,
+        email: profile.email,
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
-        .from('profiles')
-        .upsert(payload, { onConflict: 'id' });
-
+      const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
       if (error) throw error;
 
       setShowSuccessModal(true);
     } catch (error) {
+      patchProfile({
+        full_name: previousProfile.full_name,
+        phone: previousProfile.phone,
+      });
       console.error('Failed to save profile changes:', error);
       const message = error instanceof Error ? error.message : 'Unable to save your profile changes. Please try again.';
       Alert.alert('Edit Profile', message);
@@ -122,6 +97,8 @@ export default function EditProfileScreen() {
     router.back();
   };
 
+  const showInitialPlaceholder = profileLoading && !profile;
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
@@ -132,21 +109,17 @@ export default function EditProfileScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
-        
-        {/* Profile Picture Section */}
         <View style={styles.profilePictureContainer}>
           <View style={styles.profilePictureCircle}>
             <MaterialIcons name="person" size={64} color="#fff" />
           </View>
         </View>
 
-        {/* Profile Information Card */}
         <View style={styles.infoCard}>
-          {/* Full Name Field */}
           <View style={styles.fieldContainer}>
             <ThemedText style={styles.fieldLabel}>Full Name</ThemedText>
             <View style={styles.inputContainer}>
@@ -157,12 +130,11 @@ export default function EditProfileScreen() {
                 onChangeText={setFullName}
                 placeholder="Enter your full name"
                 placeholderTextColor="#999"
-                editable={!loadingProfile && !saving}
+                editable={!showInitialPlaceholder && !saving}
               />
             </View>
           </View>
 
-          {/* Email Address Field */}
           <View style={styles.fieldContainer}>
             <ThemedText style={styles.fieldLabel}>Email Address</ThemedText>
             <View style={[styles.inputContainer, styles.disabledInput]}>
@@ -178,7 +150,6 @@ export default function EditProfileScreen() {
             <ThemedText style={styles.hintText}>Email cannot be changed</ThemedText>
           </View>
 
-          {/* Phone Number Field */}
           <View style={styles.fieldContainer}>
             <ThemedText style={styles.fieldLabel}>Phone Number</ThemedText>
             <View style={styles.inputContainer}>
@@ -191,18 +162,17 @@ export default function EditProfileScreen() {
                 placeholderTextColor="#999"
                 keyboardType="phone-pad"
                 maxLength={11}
-                editable={!loadingProfile && !saving}
+                editable={!showInitialPlaceholder && !saving}
               />
             </View>
             <ThemedText style={styles.hintText}>Enter 11-digit phone number</ThemedText>
           </View>
         </View>
 
-        {/* Save Changes Button */}
         <TouchableOpacity
-          style={[styles.saveButton, (loadingProfile || saving) && styles.saveButtonDisabled]}
+          style={[styles.saveButton, (showInitialPlaceholder || saving) && styles.saveButtonDisabled]}
           onPress={handleSaveChanges}
-          disabled={loadingProfile || saving}>
+          disabled={showInitialPlaceholder || saving}>
           {saving ? (
             <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
           ) : (
@@ -211,7 +181,6 @@ export default function EditProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Success Modal */}
       <Modal
         visible={showSuccessModal}
         transparent={true}
@@ -225,9 +194,7 @@ export default function EditProfileScreen() {
               </View>
             </View>
             <ThemedText style={styles.modalTitle}>Changes Saved!</ThemedText>
-            <ThemedText style={styles.modalMessage}>
-              Your profile has been updated successfully
-            </ThemedText>
+            <ThemedText style={styles.modalMessage}>Your profile has been updated successfully</ThemedText>
             <TouchableOpacity style={styles.modalButton} onPress={handleCloseModal}>
               <ThemedText style={styles.modalButtonText}>OK</ThemedText>
             </TouchableOpacity>

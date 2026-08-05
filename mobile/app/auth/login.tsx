@@ -25,7 +25,6 @@ import {
   isPendingBiometricReenrollment,
 } from '@/utils/pending-biometric-reenrollment';
 import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
-import { assertNetworkAccessAllowed } from '@/utils/network-access';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
@@ -104,7 +103,6 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      await assertNetworkAccessAllowed(supabase);
       const { data, error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
         password,
@@ -236,8 +234,6 @@ export default function LoginScreen() {
         setBiometricLoading(false);
         return;
       }
-
-      await assertNetworkAccessAllowed(supabase);
 
       // Try using supabase.functions.invoke with better error handling
       let pinData: any = null;

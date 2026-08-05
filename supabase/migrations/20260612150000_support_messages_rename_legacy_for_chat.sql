@@ -34,7 +34,12 @@ BEGIN
 END
 $rename_legacy_support_messages$;
 
-COMMENT ON TABLE public.support_contact_submissions IS 'Contact form / landing submissions (legacy table renamed from support_messages).';
+DO $$
+BEGIN
+  IF to_regclass('public.support_contact_submissions') IS NOT NULL THEN
+    EXECUTE 'COMMENT ON TABLE public.support_contact_submissions IS ''Contact form / landing submissions (legacy table renamed from support_messages).''';
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.support_messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

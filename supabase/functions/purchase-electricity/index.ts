@@ -235,7 +235,7 @@ serve(async (req) => {
     if (vendingProvider === 'ebills') {
       try {
         // Import eBills functions
-        const { getEBillsToken, getEBillsElectricityServiceId, purchaseEBillsElectricity } = await import('../_shared/ebills-api.ts');
+        const { getEBillsToken, getEBillsElectricityServiceId, purchaseEBillsElectricity, EBILLS_ELECTRICITY_MAX_AMOUNT, normalizeEBillsElectricityVariationId, generateEBillsRequestId } = await import('../_shared/ebills-api.ts');
 
         // Get user balance
         const { data: profile, error: profileError } = await supabase
@@ -253,6 +253,37 @@ serve(async (req) => {
 
         const isDemoUser = profile.email === 'demo@netpayy.ng';
         const basePrice = Number(amount);
+        const minPurchaseAmount = Number(minimum_vend) || 100;
+
+        if (basePrice < minPurchaseAmount) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `Amount below minimum purchase (₦${minPurchaseAmount.toLocaleString()})`,
+            }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
+
+        if (basePrice > EBILLS_ELECTRICITY_MAX_AMOUNT) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `Amount above maximum (₦${EBILLS_ELECTRICITY_MAX_AMOUNT.toLocaleString()})`,
+            }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
+
+        let normalizedMeterType: 'prepaid' | 'postpaid';
+        try {
+          normalizedMeterType = normalizeEBillsElectricityVariationId(String(meter_type));
+        } catch {
+          return new Response(
+            JSON.stringify({ success: false, error: 'Invalid meter type. Use prepaid or postpaid.' }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
         
         // Calculate 2% charge fee
         const CHARGE_FEE_RATE = 0.02; // 2%
@@ -336,19 +367,18 @@ serve(async (req) => {
         const ebillsToken = await getEBillsToken();
         
         // Generate unique request ID
-        const requestId = `req_${Date.now()}_${user.id.substring(0, 8)}`;
+        const requestId = generateEBillsRequestId(user.id);
         
         console.log('Purchasing electricity via eBills:', {
           requestId,
           customerId: meter_number,
           serviceId,
-          variationId: meter_type,
+          variationId: normalizedMeterType,
           amount: purchaseAmount,
           provider
         });
 
         // Make purchase via eBills API
-        // Pass meter_type as variation_id (eBills requires it for electricity purchases)
         let purchaseResult;
         try {
           purchaseResult = await purchaseEBillsElectricity(
@@ -357,7 +387,7 @@ serve(async (req) => {
             meter_number,
             serviceId,
             purchaseAmount,
-            meter_type // Pass meter_type as variation_id
+            normalizedMeterType,
           );
         } catch (purchaseError: any) {
           console.error('Error purchasing electricity via eBills API:', purchaseError);

@@ -1,6 +1,6 @@
-import { Alert } from 'react-native';
+import { Alert , Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+
 import Constants from 'expo-constants';
 import { registerForPushNotifications } from '@/utils/push-notifications';
 

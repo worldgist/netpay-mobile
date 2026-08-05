@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Complete Data Plans Table Setup
--- Run this in Supabase SQL Editor: https://supabase.com/dashboard/project/rekkdwpkzkhgnejgzhac/sql
+-- Run this in Supabase SQL Editor: https://supabase.com/dashboard/project/xrpuvnhmdmpgelfxpdcx/sql
 -- ============================================================================
 
 -- Step 1: Create the data_plans table if it doesn't exist

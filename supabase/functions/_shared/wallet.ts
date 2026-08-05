@@ -127,6 +127,37 @@ const insertUserTransactionWithFallback = async (
   return { error: lastError, payloadUsed: null };
 };
 
+/** Latest balance_after from user_transactions; falls back to profiles.balance. */
+export async function getUserLedgerBalance(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<number> {
+  const { data: latestEntry, error: ledgerError } = await supabase
+    .from("user_transactions")
+    .select("balance_after")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!ledgerError && latestEntry?.balance_after != null) {
+    return Number(latestEntry.balance_after) || 0;
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("balance")
+    .eq("id", userId)
+    .single();
+
+  if (profileError || profile?.balance === undefined || profile?.balance === null) {
+    throw new Error("User profile not found");
+  }
+
+  return Number(profile.balance) || 0;
+}
+
 export const debitUserWallet = async ({
   supabase,
   userId,
@@ -150,17 +181,7 @@ export const debitUserWallet = async ({
   let startingBalance = balanceBefore ?? null;
 
   if (startingBalance === null || startingBalance === undefined) {
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("balance")
-      .eq("id", userId)
-      .single();
-
-    if (profileError || profile?.balance === undefined || profile?.balance === null) {
-      throw new Error("User profile not found");
-    }
-
-    startingBalance = Number(profile.balance) || 0;
+    startingBalance = await getUserLedgerBalance(supabase, userId);
   }
 
   if (startingBalance < debitAmount) {
@@ -324,17 +345,7 @@ export const creditUserWallet = async ({
   let startingBalance = balanceBefore ?? null;
 
   if (startingBalance === null || startingBalance === undefined) {
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("balance")
-      .eq("id", userId)
-      .single();
-
-    if (profileError || profile?.balance === undefined || profile?.balance === null) {
-      throw new Error("User profile not found");
-    }
-
-    startingBalance = Number(profile.balance) || 0;
+    startingBalance = await getUserLedgerBalance(supabase, userId);
   }
 
   const { data: updatedProfile, error: updateError } = await supabase

@@ -47,15 +47,6 @@ export default function Smeplug() {
   const [searchTransId, setSearchTransId] = useState("");
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchSmeplugData();
-    fetchWalletHistory();
-  }, []);
-
-  useEffect(() => {
-    fetchWalletHistory();
-  }, [page]);
-
   const fetchSmeplugData = async () => {
     setLoading(true);
     try {
@@ -81,10 +72,19 @@ export default function Smeplug() {
     }
   };
 
+  useEffect(() => {
+    fetchSmeplugData();
+    fetchWalletHistory();
+  }, []);
+
+  useEffect(() => {
+    fetchWalletHistory();
+  }, [page]);
+
   const fetchWalletHistory = async (transId?: string) => {
     setLoadingTransactions(true);
     try {
-      const payload = transId 
+      const payload = transId
         ? { trans_id: transId }
         : { page, per_page: 10 };
 
@@ -158,7 +158,6 @@ export default function Smeplug() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-              {/* Balance Card */}
               <Card>
                 <CardHeader>
                   <div className="flex items-center gap-2">
@@ -190,7 +189,6 @@ export default function Smeplug() {
                 </CardContent>
               </Card>
 
-              {/* Account Info Card */}
               <Card>
                 <CardHeader>
                   <CardTitle>Account Information</CardTitle>
@@ -218,7 +216,6 @@ export default function Smeplug() {
               </Card>
             </div>
 
-            {/* Wallet History */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -272,8 +269,8 @@ export default function Smeplug() {
                             const isDebit = transType === 'DR' || transType === 'debit';
                             const amount = parseFloat(transaction.amount || '0');
                             const date = transaction.date || transaction.created_at || new Date().toISOString();
-                            const balance = transaction.final_balance || transaction.balance || transaction.initial_balance || '0';
-                            
+                            const balanceAfter = transaction.final_balance || transaction.balance || transaction.initial_balance || '0';
+
                             return (
                               <TableRow key={transId}>
                                 <TableCell className="text-sm">
@@ -297,7 +294,7 @@ export default function Smeplug() {
                                   })}
                                 </TableCell>
                                 <TableCell className="text-right font-medium">
-                                  ₦{parseFloat(balance).toLocaleString('en-NG', {
+                                  ₦{parseFloat(balanceAfter).toLocaleString('en-NG', {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
                                   })}
@@ -354,7 +351,6 @@ export default function Smeplug() {
               </CardContent>
             </Card>
 
-            {/* API Information */}
             <Card>
               <CardHeader>
                 <CardTitle>API Integration</CardTitle>

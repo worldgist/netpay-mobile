@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { balancesMatch, fetchUserLedgerBalance } from "@/lib/ledger-balance";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ interface Transaction {
 export default function Users() {
   const [searchQuery, setSearchQuery] = useState("");
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [ledgerBalances, setLedgerBalances] = useState<Record<string, number>>({});
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [userTransactions, setUserTransactions] = useState<Transaction[]>([]);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -57,6 +59,24 @@ export default function Users() {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const getLedgerBalance = (user: UserProfile) => ledgerBalances[user.id] ?? user.balance;
+
+  const loadLedgerBalances = async (userList: UserProfile[]) => {
+    const entries = await Promise.all(
+      userList.map(async (user) => {
+        const balance = await fetchUserLedgerBalance(supabase, user.id, user.balance);
+        return [user.id, balance] as const;
+      }),
+    );
+    setLedgerBalances(Object.fromEntries(entries));
+  };
+
+  const refreshUserLedgerBalance = async (userId: string, fallback = 0) => {
+    const balance = await fetchUserLedgerBalance(supabase, userId, fallback);
+    setLedgerBalances((prev) => ({ ...prev, [userId]: balance }));
+    return balance;
+  };
 
   const fetchUsers = async () => {
     const { data, error } = await supabase
@@ -74,6 +94,7 @@ export default function Users() {
     }
 
     setUsers(data || []);
+    void loadLedgerBalances(data || []);
   };
 
   const fetchUserTransactions = async (userId: string) => {
@@ -135,6 +156,7 @@ export default function Users() {
 
     const joinedAt = new Date(selectedUser.created_at).toLocaleString();
     const printedAt = new Date().toLocaleString();
+    const ledgerBalance = getLedgerBalance(selectedUser);
 
     printWindow.document.write(`
       <!doctype html>
@@ -158,7 +180,7 @@ export default function Users() {
             <strong>Email:</strong> ${selectedUser.email || "N/A"}<br/>
             <strong>User ID:</strong> ${selectedUser.id}<br/>
             <strong>Joined:</strong> ${joinedAt}<br/>
-            <strong>Current Balance:</strong> ₦${Number(selectedUser.balance || 0).toFixed(2)}<br/>
+            <strong>Current Balance (Ledger):</strong> ₦${ledgerBalance.toFixed(2)}<br/>
             <strong>Total Transactions Listed:</strong> ${userTransactions.length}
           </div>
           <table>
@@ -230,7 +252,10 @@ export default function Users() {
 
   const handleViewUser = async (user: UserProfile) => {
     setSelectedUser(user);
-    await fetchUserTransactions(user.id);
+    await Promise.all([
+      fetchUserTransactions(user.id),
+      refreshUserLedgerBalance(user.id, user.balance),
+    ]);
     setIsViewDialogOpen(true);
   };
 
@@ -243,6 +268,7 @@ export default function Users() {
     setSelectedUser(user);
     setAmount("");
     setDescription("");
+    void refreshUserLedgerBalance(user.id, user.balance);
     setIsCreditDialogOpen(true);
   };
 
@@ -250,6 +276,7 @@ export default function Users() {
     setSelectedUser(user);
     setAmount("");
     setDescription("");
+    void refreshUserLedgerBalance(user.id, user.balance);
     setIsDebitDialogOpen(true);
   };
 
@@ -304,7 +331,13 @@ export default function Users() {
       setIsDebitDialogOpen(false);
       setAmount("");
       setDescription("");
-      fetchUsers();
+      await fetchUsers();
+      if (selectedUser && data?.data?.balanceAfter != null) {
+        setLedgerBalances((prev) => ({
+          ...prev,
+          [selectedUser.id]: Number(data.data.balanceAfter),
+        }));
+      }
     } catch (error) {
       console.error(`${type} error:`, error);
       toast({
@@ -403,6 +436,10 @@ export default function Users() {
     };
   }, [userTransactions]);
 
+  const selectedUserLedgerBalance = selectedUser ? getLedgerBalance(selectedUser) : 0;
+  const selectedUserHasBalanceDrift =
+    selectedUser != null && !balancesMatch(selectedUserLedgerBalance, selectedUser.balance);
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -486,7 +523,7 @@ export default function Users() {
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Phone</TableHead>
-                      <TableHead>Balance</TableHead>
+                      <TableHead>Ledger Balance</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -507,7 +544,12 @@ export default function Users() {
                           <TableCell>{user.email || "N/A"}</TableCell>
                           <TableCell>{user.phone || "N/A"}</TableCell>
                           <TableCell className="font-semibold">
-                            ₦{user.balance.toFixed(2)}
+                            <div>₦{getLedgerBalance(user).toFixed(2)}</div>
+                            {!balancesMatch(getLedgerBalance(user), user.balance) && (
+                              <p className="text-xs text-amber-600 font-normal">
+                                Cache: ₦{user.balance.toFixed(2)}
+                              </p>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Badge 
@@ -573,8 +615,13 @@ export default function Users() {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Balance</Label>
-                  <p className="font-semibold text-lg">₦{selectedUser.balance.toFixed(2)}</p>
+                  <Label className="text-muted-foreground">Ledger Balance</Label>
+                  <p className="font-semibold text-lg">₦{selectedUserLedgerBalance.toFixed(2)}</p>
+                  {selectedUserHasBalanceDrift && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Profile cache: ₦{selectedUser.balance.toFixed(2)}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Joined</Label>
@@ -783,8 +830,13 @@ export default function Users() {
                   <p className="font-medium">{selectedUser.email || "N/A"}</p>
                 </div>
                 <div>
-                  <Label className="text-muted-foreground">Current Balance</Label>
-                  <p className="font-semibold">₦{Number(selectedUser.balance || 0).toFixed(2)}</p>
+                  <Label className="text-muted-foreground">Ledger Balance</Label>
+                  <p className="font-semibold">₦{selectedUserLedgerBalance.toFixed(2)}</p>
+                  {selectedUserHasBalanceDrift && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Profile cache: ₦{Number(selectedUser.balance || 0).toFixed(2)}
+                    </p>
+                  )}
                 </div>
                 <div className="sm:col-span-2 lg:col-span-3">
                   <Label className="text-muted-foreground">User ID</Label>
@@ -874,8 +926,13 @@ export default function Users() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label className="text-muted-foreground">Current Balance</Label>
-              <p className="font-semibold text-lg">₦{selectedUser?.balance.toFixed(2)}</p>
+              <Label className="text-muted-foreground">Ledger Balance</Label>
+              <p className="font-semibold text-lg">₦{selectedUserLedgerBalance.toFixed(2)}</p>
+              {selectedUserHasBalanceDrift && selectedUser && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Profile cache: ₦{selectedUser.balance.toFixed(2)}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="credit-amount">Amount (₦)</Label>
@@ -924,8 +981,13 @@ export default function Users() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label className="text-muted-foreground">Current Balance</Label>
-              <p className="font-semibold text-lg">₦{selectedUser?.balance.toFixed(2)}</p>
+              <Label className="text-muted-foreground">Ledger Balance</Label>
+              <p className="font-semibold text-lg">₦{selectedUserLedgerBalance.toFixed(2)}</p>
+              {selectedUserHasBalanceDrift && selectedUser && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Profile cache: ₦{selectedUser.balance.toFixed(2)}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="debit-amount">Amount (₦)</Label>
@@ -934,7 +996,7 @@ export default function Users() {
                 type="number"
                 step="0.01"
                 min="0.01"
-                max={selectedUser?.balance}
+                max={selectedUserLedgerBalance}
                 placeholder="Enter amount"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}

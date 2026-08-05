@@ -19,11 +19,9 @@ import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
-import { assertNetworkAccessAllowed } from '@/utils/network-access';
 
 const PIN_LENGTH = 4;
 const PIN_STORAGE_KEY = 'supabase_pin_hash';
-const SESSION_KEY = 'supabase_session';
 const EMAIL_KEY = 'supabase_email';
 
 export default function SignInPinScreen() {
@@ -32,7 +30,7 @@ export default function SignInPinScreen() {
   const [pin, setPin] = useState(Array(PIN_LENGTH).fill(''));
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
   const emailInputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
@@ -111,7 +109,6 @@ export default function SignInPinScreen() {
 
     try {
       setLoading(true);
-      await assertNetworkAccessAllowed(supabase);
       const enteredHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, enteredPin);
 
       const { data, error } = await supabase.functions.invoke('sign-in-with-pin', {

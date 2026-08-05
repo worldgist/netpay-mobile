@@ -34,7 +34,14 @@ END $$;
 -- Only add if it doesn't already exist with the correct ON DELETE behavior
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'deleted_accounts'
+      AND column_name = 'deleted_by'
+  )
+  AND NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints tc
     JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
     WHERE tc.table_schema = 'public' 
@@ -51,7 +58,18 @@ BEGIN
 END $$;
 
 -- Add comment explaining the change
-COMMENT ON COLUMN public.deleted_accounts.deleted_by IS 'User who performed the deletion. NULL if the user has been deleted.';
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'deleted_accounts'
+      AND column_name = 'deleted_by'
+  ) THEN
+    EXECUTE 'COMMENT ON COLUMN public.deleted_accounts.deleted_by IS ''User who performed the deletion. NULL if the user has been deleted.''';
+  END IF;
+END $$;
 
 
 

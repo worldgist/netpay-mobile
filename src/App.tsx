@@ -1,6 +1,6 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
@@ -12,11 +12,16 @@ import EmailNotifications from "./pages/EmailNotifications";
 import Settings from "./pages/Settings";
 import Smeplug from "./pages/Smeplug";
 import EBills from "./pages/EBills";
+import PayVessel from "./pages/PayVessel";
+import MobileNig from "./pages/MobileNig";
+import Flutterwave from "./pages/Flutterwave";
 import ElectricityPlans from "./pages/ElectricityPlans";
 import CableTvPlans from "./pages/CableTvPlans";
 import EducationServices from "./pages/EducationServices";
 import BettingManagement from "./pages/BettingManagement";
 import PlatformRevenue from "./pages/PlatformRevenue";
+import Treasury from "./pages/Treasury";
+import Ledger from "./pages/Ledger";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
 import ImportCableTransactions from "./pages/ImportCableTransactions";
@@ -63,15 +68,15 @@ import UserTerms from "./pages/user/UserTerms";
 import UserPrivacy from "./pages/user/UserPrivacy";
 import DeleteAccount from "./pages/user/DeleteAccount";
 import StatementOfAccount from "./pages/user/StatementOfAccount";
-import { NetworkAccessGuard } from "@/components/NetworkAccessGuard";
 import { WebHostAccessGuard } from "@/components/WebHostAccessGuard";
 import AppLinkRedirect from "@/pages/AppLinkRedirect";
+import { VendingSettingsProvider } from "@/contexts/VendingSettingsContext";
 
 const App = () => (
   <>
     <Toaster />
     <Sonner />
-    <NetworkAccessGuard>
+    <VendingSettingsProvider>
     <BrowserRouter
       future={{
         v7_startTransition: true,
@@ -88,6 +93,9 @@ const App = () => (
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/smeplug" element={<Smeplug />} />
         <Route path="/ebills" element={<EBills />} />
+        <Route path="/payvessel" element={<PayVessel />} />
+        <Route path="/mobilenig" element={<MobileNig />} />
+        <Route path="/flutterwave" element={<Flutterwave />} />
         <Route path="/users" element={<Users />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/analytics" element={<Analytics />} />
@@ -104,6 +112,11 @@ const App = () => (
         <Route path="/education" element={<EducationServices />} />
         <Route path="/betting" element={<BettingManagement />} />
         <Route path="/platform-revenue" element={<PlatformRevenue />} />
+        <Route path="/treasury" element={<Treasury />} />
+        <Route path="/ledger" element={<Ledger />} />
+        <Route path="/ledger/" element={<Ledger />} />
+        <Route path="/admin/ledger" element={<Ledger />} />
+        <Route path="/admin/ledger/" element={<Navigate to="/ledger" replace />} />
         <Route path="/data-plans" element={<DataPlans />} />
         <Route path="/airtime" element={<AirtimeProviders />} />
         <Route path="/about" element={<About />} />
@@ -151,7 +164,7 @@ const App = () => (
       </Routes>
       </WebHostAccessGuard>
     </BrowserRouter>
-    </NetworkAccessGuard>
+    </VendingSettingsProvider>
   </>
 );
 

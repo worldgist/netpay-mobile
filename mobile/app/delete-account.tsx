@@ -83,7 +83,7 @@ export default function DeleteAccountScreen() {
         // Fallback to direct fetch to get better error messages
         try {
           const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 
-                             'https://rekkdwpkzkhgnejgzhac.supabase.co';
+                             'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
           
           const response = await fetch(`${supabaseUrl}/functions/v1/delete-user-account`, {
             method: 'POST',
@@ -103,7 +103,7 @@ export default function DeleteAccountScreen() {
             let errorBody: any = {};
             try {
               errorBody = JSON.parse(responseText);
-            } catch (e) {
+            } catch {
               errorBody = { message: responseText || `HTTP ${response.status}: ${response.statusText}` };
             }
             
@@ -115,7 +115,7 @@ export default function DeleteAccountScreen() {
           // Parse success response
           try {
             data = JSON.parse(responseText);
-          } catch (e) {
+          } catch {
             throw new Error('Invalid response from server');
           }
         } catch (fetchError: any) {

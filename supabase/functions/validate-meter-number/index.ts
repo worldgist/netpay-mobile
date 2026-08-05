@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  getEBillsToken,
+  getEBillsElectricityServiceId,
+  verifyEBillsElectricityCustomer,
+  normalizeEBillsElectricityVariationId,
+} from "../_shared/ebills-api.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -426,6 +432,111 @@ async function verifyWithVTpass(
   }
 }
 
+async function verifyWithEBills(
+  meterNumber: string,
+  provider: string,
+  meterType: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const sanitizedMeter = normalizeMeter(meterNumber);
+
+  if (!sanitizedMeter) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Meter number is required',
+      }),
+      { status: 200, headers: corsHeaders },
+    );
+  }
+
+  let variationId: 'prepaid' | 'postpaid';
+  try {
+    variationId = normalizeEBillsElectricityVariationId(meterType);
+  } catch {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Invalid meter type. Use prepaid or postpaid.',
+      }),
+      { status: 200, headers: corsHeaders },
+    );
+  }
+
+  const serviceId = getEBillsElectricityServiceId(provider);
+
+  console.log('Verifying electricity meter with eBills:', {
+    provider,
+    service_id: serviceId,
+    variation_id: variationId,
+    meter_number: sanitizedMeter.substring(0, 4) + '***',
+  });
+
+  try {
+    const token = await getEBillsToken();
+    const verification = await verifyEBillsElectricityCustomer(
+      token,
+      sanitizedMeter,
+      serviceId,
+      variationId,
+    );
+
+    const details = verification.data;
+    const responseData = {
+      customer_name: details.customer_name || `Meter ${sanitizedMeter}`,
+      address: details.customer_address || '',
+      meter_number: details.meter_number || sanitizedMeter,
+      meter_type: variationId,
+      minimum_vend: Number(details.min_purchase_amount ?? 0),
+      max_purchase_amount: Number(details.max_purchase_amount ?? 100000),
+      outstanding_amount: Number(details.outstanding ?? 0),
+      customer_arrears: Number(details.customer_arrears ?? 0),
+      account_number: details.account_number || null,
+      service_name: details.service_name || provider,
+      service_band: details.service_band || null,
+      business_unit: details.business_unit || null,
+      district: details.district || null,
+      customer_account_type: details.customer_account_type || null,
+      customer_details_available: !!(details.customer_name && details.customer_address),
+    };
+
+    console.log('eBills meter verification successful:', {
+      meter_number: responseData.meter_number,
+      customer_name: responseData.customer_name,
+      minimum_vend: responseData.minimum_vend,
+      customer_arrears: responseData.customer_arrears,
+    });
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: responseData,
+      }),
+      { status: 200, headers: corsHeaders },
+    );
+  } catch (error) {
+    console.error('eBills meter verification error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Meter verification failed';
+    const lowerMessage = errorMessage.toLowerCase();
+
+    const isInvalidMeter =
+      lowerMessage.includes('verification failed') ||
+      lowerMessage.includes('invalid customer') ||
+      lowerMessage.includes('invalid meter') ||
+      lowerMessage.includes('not found') ||
+      lowerMessage.includes('failure');
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: errorMessage,
+        errorType: isInvalidMeter ? 'invalid_meter' : 'verification_error',
+      }),
+      { status: 200, headers: corsHeaders },
+    );
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -556,6 +667,15 @@ serve(async (req) => {
         String(provider), 
         String(meter_type), 
         corsHeaders
+      );
+    }
+
+    if (vendingProvider === 'ebills') {
+      return await verifyWithEBills(
+        String(meter_number),
+        String(provider),
+        String(meter_type),
+        corsHeaders,
       );
     }
 

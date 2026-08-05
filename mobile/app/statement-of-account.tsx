@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, RefreshControl, Platform } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Alert, RefreshControl } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -44,7 +43,6 @@ export default function StatementOfAccountScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('');
   const [transactions, setTransactions] = useState<StatementTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
@@ -65,8 +63,6 @@ export default function StatementOfAccountScreen() {
     try {
       if (isRefresh) {
         setRefreshing(true);
-      } else {
-        setLoading(true);
       }
 
       const session = await getSessionOrRedirect();
@@ -246,7 +242,6 @@ export default function StatementOfAccountScreen() {
       }
     } finally {
       if (isMounted.current) {
-        setLoading(false);
         setRefreshing(false);
       }
     }
@@ -305,14 +300,6 @@ export default function StatementOfAccountScreen() {
       transactionCount: transactions.length,
     };
   }, [transactions]);
-
-  if (loading && !refreshing) {
-    return (
-      <ThemedView style={[styles.container, styles.centerContent]}>
-        <NetpayLoadingAnimation message="Loading statement…" />
-      </ThemedView>
-    );
-  }
 
   return (
     <ThemedView style={styles.container}>
@@ -517,15 +504,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-  },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
   },
   header: {
     flexDirection: 'row',

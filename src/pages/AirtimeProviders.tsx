@@ -9,10 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
 import { Plus, Trash2, Pencil, RefreshCw } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { toast as sonnerToast } from "sonner";
@@ -29,6 +29,8 @@ interface AirtimeProvider {
   created_at: string;
 }
 
+type AirtimeVendingProvider = 'smeplug' | 'ebills';
+
 const AirtimeProviders = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -40,7 +42,7 @@ const AirtimeProviders = () => {
   const [isFetching, setIsFetching] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<AirtimeProvider | null>(null);
-  const [airtimeProvider, setAirtimeProvider] = useState<'smeplug' | 'vtpass'>('smeplug');
+  const [airtimeProvider, setAirtimeProvider] = useState<AirtimeVendingProvider>('smeplug');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
@@ -64,24 +66,27 @@ const AirtimeProviders = () => {
         .eq('setting_key', 'airtime_provider')
         .maybeSingle();
 
-      if (data?.setting_value) {
-        const val = typeof data.setting_value === 'string'
-          ? data.setting_value
-          : (data.setting_value as any)?.provider;
-        const normalized = String(val || '').trim().toLowerCase();
-        if (normalized === 'smeplug' || normalized === 'vtpass') {
-          setAirtimeProvider(normalized as 'smeplug' | 'vtpass');
-          return;
-        }
+      const settingValue = data?.setting_value;
+      let currentProvider: string | null = null;
+
+      if (typeof settingValue === 'string') {
+        currentProvider = settingValue.trim().toLowerCase();
+      } else if (settingValue && typeof settingValue === 'object' && 'provider' in settingValue) {
+        currentProvider = String((settingValue as { provider?: string }).provider || '').trim().toLowerCase();
       }
 
-      setAirtimeProvider('smeplug');
+      const normalized = currentProvider === 'ebills.africa' ? 'ebills' : currentProvider;
+      if (normalized === 'ebills' || normalized === 'smeplug') {
+        setAirtimeProvider(normalized);
+      } else {
+        setAirtimeProvider('smeplug');
+      }
     } catch (error) {
       console.error('Error fetching airtime provider:', error);
     }
   };
 
-  const updateAirtimeProvider = async (newProvider: 'smeplug' | 'vtpass') => {
+  const updateAirtimeProvider = async (newProvider: AirtimeVendingProvider) => {
     if (airtimeProvider === newProvider) return;
 
     setIsUpdatingProvider(true);
@@ -90,9 +95,9 @@ const AirtimeProviders = () => {
         .from('app_settings')
         .upsert({
           setting_key: 'airtime_provider',
-          setting_value: newProvider,
+          setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Airtime vending provider: smeplug or vtpass',
+          description: 'Airtime vending provider: smeplug or ebills (eBills Africa)',
         }, { onConflict: 'setting_key' });
 
       if (error) throw error;
@@ -100,7 +105,7 @@ const AirtimeProviders = () => {
       setAirtimeProvider(newProvider);
       toast({
         title: 'Success',
-        description: `Airtime provider switched to ${newProvider.toUpperCase()}`,
+        description: `Airtime provider switched to ${newProvider === 'ebills' ? 'eBills Africa' : 'SMEPLUG'}`,
       });
     } catch (error: any) {
       console.error('Error updating airtime provider:', error);
@@ -350,42 +355,31 @@ const AirtimeProviders = () => {
     }
   };
 
-  const fetchProvidersFromAPI = async (source: 'smeplug' | 'vtpass' = 'smeplug') => {
+  const fetchProvidersFromAPI = async () => {
     setIsFetching(true);
     try {
-      let providersToInsert: any[];
+      const { data, error } = await supabase.functions.invoke('fetch-smeplug-airtime-providers');
+      if (error) throw error;
 
-      if (source === 'vtpass') {
-        providersToInsert = [
-          { network_name: 'MTN', api_code: '1', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
-          { network_name: 'Airtel', api_code: '2', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
-          { network_name: '9Mobile', api_code: '3', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
-          { network_name: 'Glo', api_code: '4', min_amount: 50, max_amount: 50000, commission: 0, is_active: true },
-        ];
-      } else {
-        const { data, error } = await supabase.functions.invoke('fetch-smeplug-airtime-providers');
-        if (error) throw error;
-
-        if (!data?.success || !data?.data) {
-          toast({ title: 'No Providers Found', description: 'The API returned no airtime providers.' });
-          return;
-        }
-
-        const providersArray = Array.isArray(data.data) ? data.data : [];
-        if (!providersArray.length) {
-          toast({ title: 'No Providers Found', description: 'The API returned no airtime providers.' });
-          return;
-        }
-
-        providersToInsert = providersArray.map((provider: any) => ({
-          network_name: provider.network || provider.name || 'Unknown',
-          api_code: String(provider.network_id ?? provider.code ?? provider.api_code ?? provider.id ?? ''),
-          min_amount: parseFloat(provider.min_amount) || 50,
-          max_amount: parseFloat(provider.max_amount) || 50000,
-          commission: parseFloat(provider.commission) || 0,
-          is_active: provider.is_active !== undefined ? provider.is_active : true,
-        }));
+      if (!data?.success || !data?.data) {
+        toast({ title: 'No Providers Found', description: 'The API returned no airtime providers.' });
+        return;
       }
+
+      const providersArray = Array.isArray(data.data) ? data.data : [];
+      if (!providersArray.length) {
+        toast({ title: 'No Providers Found', description: 'The API returned no airtime providers.' });
+        return;
+      }
+
+      const providersToInsert = providersArray.map((provider: any) => ({
+        network_name: provider.network || provider.name || 'Unknown',
+        api_code: String(provider.network_id ?? provider.code ?? provider.api_code ?? provider.id ?? ''),
+        min_amount: parseFloat(provider.min_amount) || 50,
+        max_amount: parseFloat(provider.max_amount) || 50000,
+        commission: parseFloat(provider.commission) || 0,
+        is_active: provider.is_active !== undefined ? provider.is_active : true,
+      }));
 
       const { error: insertError } = await supabase
         .from('airtime_providers')
@@ -398,7 +392,7 @@ const AirtimeProviders = () => {
 
       toast({
         title: "Success",
-        description: `Imported ${providersToInsert.length} airtime providers from ${source === 'vtpass' ? 'VTPASS' : 'SMEPLUG'}`,
+        description: `Imported ${providersToInsert.length} airtime providers from SMEPLUG`,
       });
     } catch (error: any) {
       console.error('Error fetching providers from API:', error);
@@ -406,6 +400,47 @@ const AirtimeProviders = () => {
         title: "Error",
         description: error.message || "Failed to fetch providers from API",
         variant: "destructive",
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const fetchEbillsProvidersFromAPI = async () => {
+    setIsFetching(true);
+    try {
+      const ebillsNetworks = [
+        { network_name: 'MTN', api_code: 'mtn', min_amount: 10, max_amount: 50000 },
+        { network_name: 'Airtel', api_code: 'airtel', min_amount: 50, max_amount: 50000 },
+        { network_name: 'Glo', api_code: 'glo', min_amount: 50, max_amount: 50000 },
+        { network_name: '9Mobile', api_code: '9mobile', min_amount: 50, max_amount: 50000 },
+      ];
+
+      const providersToInsert = ebillsNetworks.map((provider) => ({
+        ...provider,
+        commission: 0,
+        is_active: true,
+      }));
+
+      const { error: insertError } = await supabase
+        .from('airtime_providers')
+        .upsert(providersToInsert, { onConflict: 'api_code', ignoreDuplicates: false });
+
+      if (insertError) throw insertError;
+
+      await fetchProviders();
+      setIsImportDialogOpen(false);
+
+      toast({
+        title: 'Success',
+        description: `Imported ${providersToInsert.length} airtime providers for eBills Africa`,
+      });
+    } catch (error: any) {
+      console.error('Error importing eBills airtime providers:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to import eBills airtime providers',
+        variant: 'destructive',
       });
     } finally {
       setIsFetching(false);
@@ -462,17 +497,20 @@ const AirtimeProviders = () => {
                     <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Vending Provider:</span>
                     <Select
                       value={airtimeProvider}
-                      onValueChange={(v) => updateAirtimeProvider(v as 'smeplug' | 'vtpass')}
+                      onValueChange={(value) => updateAirtimeProvider(value as AirtimeVendingProvider)}
                       disabled={isUpdatingProvider}
                     >
-                      <SelectTrigger className="w-[160px]">
-                        <SelectValue placeholder="Select provider" />
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="smeplug">SMEPLUG</SelectItem>
-                        <SelectItem value="vtpass">VTPASS</SelectItem>
+                        <SelectItem value="ebills">eBills Africa</SelectItem>
                       </SelectContent>
                     </Select>
+                    {isUpdatingProvider && (
+                      <span className="text-sm text-muted-foreground">Updating...</span>
+                    )}
                   </div>
                 <div className="flex gap-2">
                   <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
@@ -491,10 +529,29 @@ const AirtimeProviders = () => {
                       </DialogHeader>
                       <div className="space-y-4 py-4">
                         <p className="text-sm text-muted-foreground">
-                          Choose the provider source to import network codes from. This will update your database.
+                          {airtimeProvider === 'ebills'
+                            ? 'Import network providers for eBills Africa (MTN, Airtel, Glo, 9Mobile).'
+                            : 'Import network providers from SMEPLUG using SMEPLUG_SECRET_KEY.'}
                         </p>
+                        {airtimeProvider === 'ebills' ? (
+                          <Button
+                            onClick={() => fetchEbillsProvidersFromAPI()}
+                            disabled={isFetching}
+                            className="w-full"
+                            variant="outline"
+                          >
+                            {isFetching ? (
+                              <>
+                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                Fetching...
+                              </>
+                            ) : (
+                              'Import from eBills Africa'
+                            )}
+                          </Button>
+                        ) : (
                         <Button
-                          onClick={() => fetchProvidersFromAPI('smeplug')}
+                          onClick={() => fetchProvidersFromAPI()}
                           disabled={isFetching}
                           className="w-full"
                           variant="outline"
@@ -508,21 +565,7 @@ const AirtimeProviders = () => {
                             'Import from SMEPLUG'
                           )}
                         </Button>
-                        <Button
-                          onClick={() => fetchProvidersFromAPI('vtpass')}
-                          disabled={isFetching}
-                          className="w-full"
-                          variant="outline"
-                        >
-                          {isFetching ? (
-                            <>
-                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                              Fetching...
-                            </>
-                          ) : (
-                            'Import from VTPASS'
-                          )}
-                        </Button>
+                        )}
                       </div>
                     </DialogContent>
                   </Dialog>

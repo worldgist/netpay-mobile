@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -21,7 +20,7 @@ const SERVICE_CONFIG = [
   { id: 'data', name: 'Data', icon: 'wifi' as const, route: '/data-purchase' },
   { id: 'education', name: 'Education', icon: 'school' as const, route: '/education' },
   { id: 'electricity', name: 'Electricity', icon: 'flash-on' as const, route: '/electricity' },
-  { id: 'flight', name: 'Flights', icon: 'flight' as const, route: '/flight-booking' },
+  { id: 'flight', name: 'Book Flights', icon: 'flight' as const, route: '/flight-booking' },
   { id: 'betting', name: 'Betting', icon: 'casino' as const, route: '/betting' },
 ] as const;
 
@@ -46,11 +45,15 @@ type ServiceStat = {
   comingSoon?: boolean;
 };
 
+const DEFAULT_SERVICES: ServiceStat[] = SERVICE_CONFIG.map((service) => ({
+  ...service,
+  availableLabel: 'Service available',
+}));
+
 export default function PayBillsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [services, setServices] = useState<ServiceStat[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [services, setServices] = useState<ServiceStat[]>(DEFAULT_SERVICES);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isMounted = useRef(true);
@@ -177,8 +180,8 @@ export default function PayBillsScreen() {
       if (service.id === 'flight') {
         return {
           ...service,
-          availableLabel: 'Coming soon',
-          comingSoon: true,
+          name: 'Book Flights',
+          availableLabel: 'Search and book flights',
         };
       }
 
@@ -197,8 +200,6 @@ export default function PayBillsScreen() {
       try {
         if (refresh) {
           setRefreshing(true);
-        } else {
-          setLoading(true);
         }
         setErrorMessage(null);
 
@@ -208,7 +209,6 @@ export default function PayBillsScreen() {
         const session = sessionData.session;
         if (!session) {
           if (isMounted.current) {
-            setLoading(false);
             setRefreshing(false);
           }
           router.replace('/auth/login');
@@ -314,7 +314,6 @@ export default function PayBillsScreen() {
         }
       } finally {
         if (isMounted.current) {
-          setLoading(false);
           setRefreshing(false);
         }
       }
@@ -338,12 +337,6 @@ export default function PayBillsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {loading && !refreshing ? (
-        <View style={styles.loadingOverlay}>
-          <NetpayLoadingAnimation message="Loading…" />
-        </View>
-      ) : null}
-
       <ScrollView
         contentInsetAdjustmentBehavior="never"
         style={styles.scrollView}
@@ -364,7 +357,7 @@ export default function PayBillsScreen() {
 
         <View style={styles.servicesContainer}>
           <View style={styles.servicesGrid}>
-            {(services.length ? services : SERVICE_CONFIG.map(s => ({ ...s, availableLabel: 'Service available' } as ServiceStat))).map((service: ServiceStat) => (
+            {services.map((service: ServiceStat) => (
               <TouchableOpacity
                 key={service.id}
                 style={styles.serviceCard}
@@ -579,13 +572,6 @@ const styles = StyleSheet.create({
     color: '#d32f2f',
     fontSize: 13,
     flex: 1,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
   },
 });
 

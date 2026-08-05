@@ -6,6 +6,9 @@ import {
   RefreshControl,
   Pressable,
   Alert,
+  Dimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -20,8 +23,31 @@ import { registerForPushNotifications } from '@/utils/push-notifications';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { useProfile } from '@/contexts/profile-context';
+import { useTransactions, type MobileTransaction } from '@/contexts/transactions-context';
+import { getWalletTransactionLabel, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const HORIZONTAL_PADDING = 20;
+const SERVICE_CARD_WIDTH = SCREEN_WIDTH - HORIZONTAL_PADDING * 2;
+
+const SERVICE_PAGES = [
+  [
+    { id: 'airtime', label: 'Airtime', icon: 'smartphone' as const, route: '/airtime-purchase' },
+    { id: 'data', label: 'Data', icon: 'wifi' as const, route: '/data-purchase' },
+    { id: 'electricity', label: 'Electricity', icon: 'flash-on' as const, route: '/electricity' },
+    { id: 'cable', label: 'Cable TV', icon: 'tv' as const, route: '/cable-tv' },
+  ],
+  [
+    { id: 'education', label: 'Education', icon: 'school' as const, route: '/education' },
+    { id: 'betting', label: 'Betting', icon: 'casino' as const, route: '/betting' },
+    { id: 'flight', label: 'Flights', icon: 'flight' as const, route: '/flight-booking' },
+    { id: 'pay-bills', label: 'Pay Bills', icon: 'credit-card' as const, route: '/(tabs)/pay-bills' },
+  ],
+] as const;
 
 const NETWORK_LOGOS: Record<string, any> = {
+  NGN: NGN_LOGO,
   MTN: require('@/assets/images/mtn.png'),
   GLO: require('@/assets/images/glo.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
@@ -35,18 +61,6 @@ const formatCurrency = (value?: number | null) => {
   }
   return `₦${Number(value).toLocaleString()}`;
 };
-
-interface CombinedTransaction {
-  id: string | number;
-  type: string;
-  amount: number;
-  created_at: string;
-  description?: string | null;
-  transaction_type?: string | null;
-  network?: string | null;
-  recipient?: { full_name?: string | null } | null;
-  sender?: { full_name?: string | null } | null;
-}
 
 type NotificationPreviewItem = {
   recipientId: string;
@@ -76,12 +90,14 @@ const SHOW_NOTIFICATION_PANEL = false;
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { profile } = useProfile();
+  const { transactions: cachedTransactions, refresh: refreshTransactions } = useTransactions();
   const headerIconColor = useThemeColor({}, 'icon');
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [balance, setBalance] = useState<number | null>(null);
   const [userName, setUserName] = useState('User');
-  const [transactions, setTransactions] = useState<CombinedTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [servicePage, setServicePage] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -144,6 +160,12 @@ export default function HomeScreen() {
     },
     []
   );
+
+  useEffect(() => {
+    if (profile?.full_name) {
+      setUserName(profile.full_name.split(' ')[0] || 'User');
+    }
+  }, [profile?.full_name]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -224,117 +246,6 @@ export default function HomeScreen() {
           setUserName(firstName);
         }
 
-        console.log('Fetching transactions for user:', userId);
-        
-        const [userTxns, airtimeTxns, dataTxns, transfersSent, transfersReceived] = await Promise.all([
-          supabase
-            .from('user_transactions')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(3),
-          supabase
-            .from('airtime_transactions')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(2),
-          supabase
-            .from('data_transactions')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(2),
-          supabase
-            .from('transfer_transactions')
-            .select('*, recipient:profiles!transfer_transactions_recipient_id_fkey(full_name)')
-            .eq('sender_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(2),
-          supabase
-            .from('transfer_transactions')
-            .select('*, sender:profiles!transfer_transactions_sender_id_fkey(full_name)')
-            .eq('recipient_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(2),
-        ]);
-
-        // Log transaction counts and errors for debugging
-        console.log('Transaction fetch results:', {
-          userId,
-          user: userTxns.data?.length || 0,
-          airtime: airtimeTxns.data?.length || 0,
-          data: dataTxns.data?.length || 0,
-          transfersSent: transfersSent.data?.length || 0,
-          transfersReceived: transfersReceived.data?.length || 0,
-          errors: {
-            user: userTxns.error?.message || userTxns.error?.code,
-            airtime: airtimeTxns.error?.message || airtimeTxns.error?.code,
-            data: dataTxns.error?.message || dataTxns.error?.code,
-            transfersSent: transfersSent.error?.message || transfersSent.error?.code,
-            transfersReceived: transfersReceived.error?.message || transfersReceived.error?.code,
-          },
-          errorDetails: {
-            user: userTxns.error,
-            airtime: airtimeTxns.error,
-            data: dataTxns.error,
-            transfersSent: transfersSent.error,
-            transfersReceived: transfersReceived.error,
-          }
-        });
-
-        // Check for RLS errors
-        const hasRLSErrors = [
-          userTxns.error,
-          airtimeTxns.error,
-          dataTxns.error,
-          transfersSent.error,
-          transfersReceived.error,
-        ].some(err => err && (err.code === '42501' || err.message?.includes('permission') || err.message?.includes('policy')));
-
-        if (hasRLSErrors) {
-          console.error('RLS Policy errors detected. User may not have permission to view transactions.');
-          console.error('User ID:', userId);
-          console.error('Errors:', {
-            user: userTxns.error,
-            airtime: airtimeTxns.error,
-            data: dataTxns.error,
-            transfersSent: transfersSent.error,
-            transfersReceived: transfersReceived.error,
-          });
-        }
-
-        const combined: CombinedTransaction[] = [
-          ...((userTxns.data || []).map((txn) => ({ ...txn, type: 'user' })) as CombinedTransaction[]),
-          ...((airtimeTxns.data || []).map((txn) => ({ ...txn, type: 'airtime' })) as CombinedTransaction[]),
-          ...((dataTxns.data || []).map((txn) => ({ ...txn, type: 'data' })) as CombinedTransaction[]),
-          ...((transfersSent.data || []).map((txn) => ({ ...txn, type: 'transfer_sent' })) as CombinedTransaction[]),
-          ...((transfersReceived.data || []).map((txn) => ({ ...txn, type: 'transfer_received' })) as CombinedTransaction[]),
-        ]
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-          .slice(0, 5);
-
-        console.log('Combined transactions count:', combined.length);
-        console.log('User email from session:', session.user.email);
-        console.log('Is demo user:', session.user.email === 'demo@netpayy.ng');
-        console.log('Sample transaction IDs:', combined.slice(0, 3).map(t => ({ id: t.id, type: t.type, created_at: t.created_at })));
-        
-        // If no transactions found, check if user has any transactions at all (for debugging)
-        if (combined.length === 0) {
-          console.log('No transactions found. Checking if user has any transactions in database...');
-          const { data: checkTxns, error: checkError } = await supabase
-            .from('user_transactions')
-            .select('id, created_at')
-            .eq('user_id', userId)
-            .limit(1);
-          console.log('Direct transaction check:', { count: checkTxns?.length || 0, error: checkError });
-        }
-
-        if (isMounted.current) {
-          setTransactions(combined);
-          console.log('Transactions state updated. Count:', combined.length);
-        }
-
         const { count: unreadCountResult, error: unreadError } = await supabase
           .from('notification_recipients')
           .select('*', { count: 'exact', head: true })
@@ -347,14 +258,12 @@ export default function HomeScreen() {
 
         await fetchNotificationPreview(userId);
 
-        const errors = [userTxns.error, airtimeTxns.error, dataTxns.error, transfersSent.error, transfersReceived.error, unreadError].filter(Boolean);
-        if (errors.length && isMounted.current) {
-          setError('Some transactions could not be loaded.');
+        if (unreadError && isMounted.current) {
+          setError('Some dashboard data could not be loaded.');
         }
       } catch (err) {
         if (isMounted.current) {
           setError(err instanceof Error ? err.message : 'Unable to load dashboard data.');
-          setTransactions([]);
         }
       } finally {
         if (isMounted.current) {
@@ -413,7 +322,8 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(() => {
     fetchDashboardData({ refresh: true });
-  }, [fetchDashboardData]);
+    void refreshTransactions();
+  }, [fetchDashboardData, refreshTransactions]);
 
   const closeNotificationPanel = useCallback(() => {
     setNotificationPanelVisible(false);
@@ -520,55 +430,65 @@ export default function HomeScreen() {
     router.push('/notifications');
   }, [closeNotificationPanel, router]);
 
-  const renderTransactionIcon = (txn: CombinedTransaction) => {
-    const networkLogo = txn.network ? NETWORK_LOGOS[(txn.network || '').toUpperCase()] : null;
+  const renderTransactionIcon = (txn: MobileTransaction) => {
+    if (isFundWalletTransaction(txn)) {
+      return <Image source={NGN_LOGO} style={styles.transactionLogo} contentFit="contain" />;
+    }
+
+    const networkLogo = txn.provider ? NETWORK_LOGOS[(txn.provider || '').toUpperCase()] : null;
 
     if (networkLogo) {
       return <Image source={networkLogo} style={styles.transactionLogo} />;
     }
 
-    if (txn.type === 'transfer_sent') {
+    if (txn.category === 'transfer_sent') {
       return (
-        <View style={[styles.transactionIconCircle, { backgroundColor: '#fdecea' }]}> 
+        <View style={[styles.transactionIconCircle, { backgroundColor: '#fdecea' }]}>
           <MaterialIcons name="north-east" size={20} color="#d32f2f" />
         </View>
       );
     }
 
-    if (txn.type === 'transfer_received') {
+    if (txn.category === 'transfer_received') {
       return (
-        <View style={[styles.transactionIconCircle, { backgroundColor: '#e8f5e9' }]}> 
+        <View style={[styles.transactionIconCircle, { backgroundColor: '#e8f5e9' }]}>
           <MaterialIcons name="south-west" size={20} color="#2e7d32" />
         </View>
       );
     }
 
     return (
-      <View style={styles.transactionIconCircle}> 
+      <View style={styles.transactionIconCircle}>
         <MaterialIcons name="receipt" size={20} color="#555" />
       </View>
     );
   };
 
-  const renderTransactionTitle = (txn: CombinedTransaction) => {
-    switch (txn.type) {
+  const renderTransactionTitle = (txn: MobileTransaction) => {
+    switch (txn.category) {
       case 'transfer_sent':
-        return `Transfer to ${txn.recipient?.full_name || 'User'}`;
+        return 'Transfer Sent';
       case 'transfer_received':
-        return `Transfer from ${txn.sender?.full_name || 'User'}`;
+        return 'Transfer Received';
       case 'airtime':
-        return `${txn.network || 'Airtime'} Purchase`;
+        return `${txn.provider || 'Airtime'} Purchase`;
       case 'data':
-        return `${txn.network || 'Data'} Bundle`;
+        return `${txn.provider || 'Data'} Bundle`;
+      case 'wallet':
+        return getWalletTransactionLabel(txn);
+      case 'electricity':
+        return `${txn.provider || 'Electricity'} Purchase`;
+      case 'education':
+        return `${txn.provider || 'Education'} Purchase`;
+      case 'betting':
+        return `${txn.provider || 'Betting'} Purchase`;
       default:
-        if (txn.type === 'user' && (txn.transaction_type || '').toLowerCase() === 'refund') {
-          return 'Refund';
-        }
-        return txn.description || txn.transaction_type || 'Transaction';
+        return txn.description || 'Transaction';
     }
   };
 
-  const renderTransactionAmount = (txn: CombinedTransaction, isCredit: boolean) => {
+  const renderTransactionAmount = (txn: MobileTransaction) => {
+    const isCredit = txn.type === 'credit';
     const prefix = isCredit ? '+' : '-';
     const color = isCredit ? '#2e7d32' : '#000';
     return (
@@ -578,76 +498,41 @@ export default function HomeScreen() {
     );
   };
 
-  const handleTransactionPress = (txn: CombinedTransaction) => {
-    const baseCategory =
-      txn.type === 'user'
-        ? 'wallet'
-        : txn.type === 'transfer_sent' || txn.type === 'transfer_received'
-        ? txn.type
-        : txn.type;
-
-    const isWalletRefund =
-      txn.type === 'user' && (txn.transaction_type || '').toLowerCase() === 'refund';
-    const isCredit =
-      txn.type === 'transfer_received' ||
-      isWalletRefund ||
-      (typeof txn.transaction_type === 'string' && txn.transaction_type.toLowerCase().includes('credit'));
-
-    const status = (txn as any)?.status || (isCredit ? 'Completed' : 'Completed');
-    const createdAt = txn.created_at;
-    const description = renderTransactionTitle(txn);
-    const params: Record<string, string> = {
-      id: String(txn.id),
-      category: baseCategory,
-      type: isCredit ? 'credit' : 'debit',
-      amount: String(txn.amount ?? 0),
-      status: status || 'Completed',
-      reference: String((txn as any)?.reference || ''),
-      description: description || '',
-      serviceType:
-        baseCategory === 'airtime'
-          ? 'Airtime VTU'
-          : baseCategory === 'data'
-          ? 'Data Bundle'
-          : baseCategory === 'transfer_sent' || baseCategory === 'transfer_received'
-          ? 'Transfer'
-          : isWalletRefund
-          ? 'Refund'
-          : 'Wallet Transaction',
-      network: String((txn as any)?.network || ''),
-      date: createdAt,
-      time: createdAt,
-      meterType: String((txn as any)?.meter_type || ''),
-      token: String((txn as any)?.token || ''),
-      meterNumber: String((txn as any)?.meter_number || ''),
-      customerName: String((txn as any)?.customer_name || ''),
-      planName: String((txn as any)?.plan_name || ''),
-      planValidity: String((txn as any)?.plan_validity || ''),
-      phoneNumber: String((txn as any)?.phone_number || ''),
-      recipient:
-        baseCategory === 'transfer_sent'
-          ? String(txn.recipient?.full_name || (txn as any)?.recipient || '')
-          : baseCategory === 'airtime' || baseCategory === 'data'
-          ? String((txn as any)?.phone_number || '')
-          : '',
-      sender:
-        baseCategory === 'transfer_received'
-          ? String(txn.sender?.full_name || (txn as any)?.sender || '')
-          : '',
-    };
-
+  const handleTransactionPress = (txn: MobileTransaction) => {
     router.push({
       pathname: '/transaction-details',
-      params,
+      params: {
+        id: txn.id,
+        category: txn.category,
+        type: txn.type,
+        amount: txn.amount.toString(),
+        status: txn.status || '',
+        reference: txn.reference || '',
+        description: txn.description || '',
+        serviceType: txn.serviceType || '',
+        network: txn.provider || '',
+        date: txn.formattedDate,
+        time: txn.formattedTime,
+        meterType: txn.extra?.meterType || '',
+        token: txn.extra?.token || '',
+        meterNumber: txn.extra?.meter_number || '',
+        customerName: txn.extra?.customerName || '',
+        phoneNumber: txn.extra?.phone_number || '',
+        educationPin: txn.extra?.educationPin || '',
+        educationSerial: txn.extra?.educationSerial || '',
+        examType: txn.extra?.examType || '',
+        accountNumber: txn.extra?.account_number || '',
+        sourceTable: txn.extra?.sourceTable || '',
+      },
     });
   };
 
-  const displayedTransactions = transactions.slice(0, 3);
-  
-  // Debug log for rendering
-  if (displayedTransactions.length > 0) {
-    console.log('Rendering transactions. Count:', displayedTransactions.length, 'IDs:', displayedTransactions.map(t => t.id));
-  }
+  const handleServiceScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const page = Math.round(event.nativeEvent.contentOffset.x / SERVICE_CARD_WIDTH);
+    setServicePage(page);
+  };
+
+  const displayedTransactions = cachedTransactions.slice(0, 3);
 
   return (
     <ThemedView style={styles.container}>
@@ -753,31 +638,33 @@ export default function HomeScreen() {
           accessibilityRole="button"
           accessibilityLabel="Notifications"
         >
-          <MaterialIcons name="notifications" size={28} color={headerIconColor} />
-          {unreadCount > 0 && (
-            <View style={styles.notificationBadge}>
-              <ThemedText style={styles.notificationBadgeText}>
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </ThemedText>
-            </View>
-          )}
+          <MaterialIcons name="notifications-none" size={26} color={headerIconColor} />
+          {unreadCount > 0 && <View style={styles.notificationDot} />}
         </TouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 96 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF7F00" />}>
         <View style={styles.welcomeSection}>
-          <View style={styles.welcomeTextGroup}>
-            <ThemedText style={styles.welcomeGreeting}>Hello,</ThemedText>
-            <ThemedText style={styles.welcomeName}>{userName}</ThemedText>
+          <View style={styles.welcomeLeft}>
+            <ThemedText style={styles.welcomeGreetingLine}>
+              Hello, <ThemedText style={styles.welcomeName}>{userName}</ThemedText>
+            </ThemedText>
+            <ThemedText style={styles.welcomeBack}>Welcome back!</ThemedText>
           </View>
-          <ThemedText style={styles.welcomeBack}>Welcome back!</ThemedText>
+          <TouchableOpacity
+            style={styles.welcomeAvatar}
+            onPress={() => router.push('/(tabs)/profile')}
+            activeOpacity={0.8}>
+            <MaterialIcons name="person" size={26} color="#FF7F00" />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.balanceCard}>
+          <View style={styles.balanceCardPattern} />
           <View style={styles.balanceHeader}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <TouchableOpacity onPress={() => setBalanceVisible(!balanceVisible)} style={styles.eyeButton}>
@@ -795,11 +682,46 @@ export default function HomeScreen() {
           </View>
           <View style={styles.balanceButtons}>
             <TouchableOpacity style={styles.addMoneyButton} onPress={() => router.push('/add-money')} activeOpacity={0.8}>
-              <ThemedText style={styles.addMoneyText}>Add Money</ThemedText>
+              <MaterialIcons name="add" size={18} color="#fff" />
+              <ThemedText style={styles.addMoneyText}>Fund Wallet</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity style={styles.transferButton} onPress={() => router.push('/transfer')} activeOpacity={0.8}>
+              <MaterialIcons name="send" size={18} color="#FF7F00" />
               <ThemedText style={styles.transferText}>Transfer</ThemedText>
             </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.servicesSection}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handleServiceScroll}
+            decelerationRate="fast"
+            snapToInterval={SERVICE_CARD_WIDTH}
+            contentContainerStyle={styles.servicesScrollContent}>
+            {SERVICE_PAGES.map((page, pageIndex) => (
+              <View key={`service-page-${pageIndex}`} style={[styles.servicesPage, { width: SERVICE_CARD_WIDTH }]}>
+                {page.map((service) => (
+                  <TouchableOpacity
+                    key={service.id}
+                    style={styles.serviceItem}
+                    onPress={() => router.push(service.route as any)}
+                    activeOpacity={0.8}>
+                    <View style={styles.serviceIconWrap}>
+                      <MaterialIcons name={service.icon} size={24} color="#FF7F00" />
+                    </View>
+                    <ThemedText style={styles.serviceLabel}>{service.label}</ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
+          <View style={styles.serviceDots}>
+            {SERVICE_PAGES.map((_, index) => (
+              <View key={`dot-${index}`} style={[styles.serviceDot, index === servicePage && styles.serviceDotActive]} />
+            ))}
           </View>
         </View>
 
@@ -820,37 +742,33 @@ export default function HomeScreen() {
             </View>
           ) : null}
 
-          {!loading && transactions.length === 0 ? (
-            <View style={styles.emptyState}>
-              <MaterialIcons name="receipt-long" size={40} color="#bbb" />
+          {!loading && displayedTransactions.length === 0 ? (
+            <View style={styles.emptyStateCard}>
+              <View style={styles.emptyStateIconCircle}>
+                <MaterialIcons name="receipt-long" size={36} color="#C4C4C4" />
+              </View>
               <ThemedText style={styles.emptyStateText}>No transactions yet</ThemedText>
+              <ThemedText style={styles.emptyStateSubtext}>Your transactions will appear here</ThemedText>
             </View>
           ) : (
             displayedTransactions.map((txn) => {
-              const isWalletRefund =
-                txn.type === 'user' && (txn.transaction_type || '').toLowerCase() === 'refund';
-              const isCredit =
-                txn.type === 'transfer_received' ||
-                isWalletRefund ||
-                (typeof txn.transaction_type === 'string' && txn.transaction_type.toLowerCase().includes('credit'));
+              const isCredit = txn.type === 'credit';
 
               return (
                 <TouchableOpacity
-                  key={`${txn.type}-${txn.id}`}
+                  key={`${txn.category}-${txn.id}`}
                   style={styles.transactionItem}
                   activeOpacity={0.85}
                   onPress={() => handleTransactionPress(txn)}>
                   {renderTransactionIcon(txn)}
                   <View style={styles.transactionDetails}>
                     <ThemedText style={styles.transactionType}>{renderTransactionTitle(txn)}</ThemedText>
-                    <ThemedText style={styles.transactionDate}>
-                      {new Date(txn.created_at).toLocaleString()}
-                    </ThemedText>
+                    <ThemedText style={styles.transactionDate}>{txn.formattedDate}</ThemedText>
                   </View>
                   <View style={styles.transactionAmountContainer}>
-                    {renderTransactionAmount(txn, isCredit)}
+                    {renderTransactionAmount(txn)}
                     <ThemedText style={styles.transactionStatus}>
-                      {isWalletRefund ? 'Refund' : isCredit ? 'Credit' : 'Debit'}
+                      {txn.serviceType === 'Refund' ? 'Refund' : isCredit ? 'Credit' : 'Debit'}
                     </ThemedText>
                   </View>
                 </TouchableOpacity>
@@ -866,7 +784,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f7f7f7',
+    backgroundColor: '#FFFFFF',
   },
   scrollView: {
     flex: 1,
@@ -878,9 +796,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: HORIZONTAL_PADDING,
     paddingBottom: 12,
-    backgroundColor: '#f7f7f7',
+    backgroundColor: '#FFFFFF',
     zIndex: 2,
   },
   headerTitleWrap: {
@@ -889,64 +807,96 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   headerTitle: {
-    fontSize: 21,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
   },
   notificationButton: {
     position: 'relative',
     padding: 4,
     flexShrink: 0,
   },
-  welcomeSection: {
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 12,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+  notificationDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#FF7F00',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
-  welcomeTextGroup: {
+  welcomeSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: HORIZONTAL_PADDING,
+    marginTop: 8,
+    marginBottom: 16,
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#F0F0F0',
   },
-  welcomeGreeting: {
-    fontSize: 14,
-    color: '#666',
+  welcomeLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  welcomeGreetingLine: {
+    fontSize: 16,
+    color: '#374151',
   },
   welcomeName: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#111',
+    color: '#111827',
   },
   welcomeBack: {
-    marginTop: 6,
-    fontSize: 12,
-    color: '#888',
+    marginTop: 4,
+    fontSize: 13,
+    color: '#9CA3AF',
+  },
+  welcomeAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFF3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   balanceCard: {
     backgroundColor: '#FF7F00',
     borderRadius: 20,
-    padding: 24,
-    marginHorizontal: 20,
-    marginBottom: 32,
+    padding: 22,
+    marginHorizontal: HORIZONTAL_PADDING,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  balanceCardPattern: {
+    position: 'absolute',
+    right: -30,
+    top: -20,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   balanceLabel: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#fff',
     opacity: 0.95,
     fontWeight: '500',
@@ -955,14 +905,13 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   balanceAmountContainer: {
-    marginBottom: 24,
-    minHeight: 60,
+    marginBottom: 20,
+    minHeight: 52,
     justifyContent: 'center',
-    paddingVertical: 8,
   },
   balanceAmount: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '700',
     color: '#fff',
     lineHeight: 40,
   },
@@ -972,10 +921,13 @@ const styles = StyleSheet.create({
   },
   addMoneyButton: {
     flex: 1,
-    backgroundColor: '#FF9500',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
     borderRadius: 12,
     paddingVertical: 12,
-    alignItems: 'center',
   },
   addMoneyText: {
     color: '#fff',
@@ -984,18 +936,82 @@ const styles = StyleSheet.create({
   },
   transferButton: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingVertical: 12,
-    alignItems: 'center',
   },
   transferText: {
     color: '#FF7F00',
     fontSize: 14,
     fontWeight: '600',
   },
+  servicesSection: {
+    marginHorizontal: HORIZONTAL_PADDING,
+    marginBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingTop: 18,
+    paddingBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#F0F0F0',
+  },
+  servicesScrollContent: {
+    paddingHorizontal: 0,
+  },
+  servicesPage: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  serviceItem: {
+    width: '23%',
+    alignItems: 'center',
+  },
+  serviceIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#FFF3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  serviceLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
+  },
+  serviceDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  serviceDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#D1D5DB',
+  },
+  serviceDotActive: {
+    backgroundColor: '#FF7F00',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
   transactionsSection: {
-    paddingHorizontal: 20,
+    paddingHorizontal: HORIZONTAL_PADDING,
     marginBottom: 40,
   },
   sectionHeader: {
@@ -1076,15 +1092,40 @@ const styles = StyleSheet.create({
     color: '#4CAF50',
     opacity: 0.8,
   },
-  emptyState: {
+  emptyStateCard: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 32,
-    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#F0F0F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  emptyStateIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   emptyStateText: {
-    fontSize: 14,
-    color: '#777',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 6,
+  },
+  emptyStateSubtext: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    textAlign: 'center',
   },
   errorContainer: {
     backgroundColor: '#fdecea',
@@ -1238,23 +1279,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FF7F00',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -2,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#FF3B30',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  notificationBadgeText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#fff',
-    lineHeight: 12,
   },
 });

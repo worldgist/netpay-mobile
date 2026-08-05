@@ -25,7 +25,7 @@ export default function EmailVerificationScreen() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
 
   const email = typeof params.email === 'string' ? params.email : undefined;
 

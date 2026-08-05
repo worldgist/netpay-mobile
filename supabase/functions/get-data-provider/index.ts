@@ -16,9 +16,10 @@ const normalizeProvider = (value?: string | null) => {
     normalized === "vtpass" ||
     normalized === "anyone" ||
     normalized === "mobilenig" ||
+    normalized === "ebills" ||
     normalized === "ebills.africa"
   ) {
-    return normalized;
+    return normalized === "ebills.africa" ? "ebills" : normalized;
   }
   return DEFAULT_PROVIDER;
 };

@@ -13,6 +13,7 @@ import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal"
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useVendingSettings } from "@/contexts/VendingSettingsContext";
 import { cn } from "@/lib/utils";
 import { Check, ChevronDown } from "lucide-react";
 
@@ -38,6 +39,8 @@ const PROVIDERS = [
 const PurchaseCableTv = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { providers: vendingSettings } = useVendingSettings();
+  const cableVendingProvider = vendingSettings.cable;
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
   const [cablePlans, setCablePlans] = useState<CablePlan[]>([]);
@@ -139,18 +142,8 @@ const PurchaseCableTv = () => {
 
       setLoadingPlans(true);
       try {
-        // Get the active cable vending provider setting
-        const { data: providerSetting, error: settingError } = await supabase
-          .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'cable_provider')
-          .maybeSingle();
-
-        console.log('Cable provider query result:', { providerSetting, settingError });
-
-        const vendingProvider = providerSetting?.setting_value?.provider || 'mobilenig';
+        const vendingProvider = cableVendingProvider || 'mobilenig';
         console.log('Fetching cable plans for provider:', selectedProvider, 'from vending provider:', vendingProvider);
-        console.log('Provider setting data:', providerSetting);
 
         // Determine which API function to call based on vending provider
         let apiFunctionName = '';
@@ -158,6 +151,8 @@ const PurchaseCableTv = () => {
           apiFunctionName = 'fetch-mobilenig-cable-packages';
         } else if (vendingProvider === 'vtpass') {
           apiFunctionName = 'fetch-vtpass-cable-packages';
+        } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+          apiFunctionName = 'fetch-ebills-cable-packages';
         }
 
         // If using a supported API provider, try fetching packages directly from API first
@@ -347,7 +342,7 @@ const PurchaseCableTv = () => {
     };
 
     fetchCablePlans();
-  }, [selectedProvider, toast]);
+  }, [selectedProvider, cableVendingProvider, toast]);
 
   // Auto-validation effect with debounce
   useEffect(() => {

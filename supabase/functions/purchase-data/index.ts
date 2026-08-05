@@ -163,9 +163,14 @@ serve(async (req) => {
       const providerValue = typeof providerSetting.setting_value === 'string' 
         ? providerSetting.setting_value 
         : (providerSetting.setting_value as any)?.provider;
-      if (providerValue && ['smeplug', 'vtpass', 'anyone'].includes(providerValue.toLowerCase())) {
+      if (providerValue && ['smeplug', 'vtpass', 'anyone', 'ebills', 'ebills.africa'].includes(providerValue.toLowerCase())) {
         preferredProvider = providerValue.toLowerCase();
       }
+    }
+
+    // Normalize ebills.africa alias
+    if (preferredProvider === 'ebills.africa') {
+      preferredProvider = 'ebills';
     }
 
     // Fetch data plan to determine which provider to use
@@ -185,8 +190,14 @@ serve(async (req) => {
 
     // Determine which provider to use based on preference and plan availability
     const providers = preferredProvider === 'anyone' 
-      ? ['smeplug', 'vtpass'] 
+      ? ['smeplug', 'vtpass', 'ebills'] 
       : [preferredProvider];
+
+    const providerFunctionMap: Record<string, string> = {
+      vtpass: 'purchase-vtpass-data',
+      smeplug: 'purchase-smeplug-data',
+      ebills: 'purchase-ebills-data',
+    };
 
     // Try each provider in order
     let lastError: any = null;
@@ -197,7 +208,7 @@ serve(async (req) => {
       
       try {
         // Call the appropriate purchase function
-        const functionName = provider === 'vtpass' ? 'purchase-vtpass-data' : 'purchase-smeplug-data';
+        const functionName = providerFunctionMap[provider] || 'purchase-smeplug-data';
         const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
 
         const response = await fetch(functionUrl, {

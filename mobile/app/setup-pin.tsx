@@ -29,8 +29,8 @@ export default function SetupPinScreen() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const pinRefs = useRef<Array<TextInput | null>>([]);
-  const confirmRefs = useRef<Array<TextInput | null>>([]);
+  const pinRefs = useRef<(TextInput | null)[]>([]);
+  const confirmRefs = useRef<(TextInput | null)[]>([]);
 
   useEffect(() => {
     pinRefs.current[0]?.focus();
@@ -141,7 +141,7 @@ export default function SetupPinScreen() {
     router.push('/setup-biometric');
   };
 
-  const renderInputs = (array: string[], refs: Array<TextInput | null>, label: string, type: 'pin' | 'confirm') => (
+  const renderInputs = (array: string[], refs: (TextInput | null)[], label: string, type: 'pin' | 'confirm') => (
     <View style={styles.section}>
       <ThemedText style={styles.sectionTitle}>{label}</ThemedText>
       <View style={styles.inputRow}>

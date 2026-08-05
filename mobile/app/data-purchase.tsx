@@ -11,14 +11,16 @@ import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import { useVendingSettings } from '@/contexts/vending-settings-context';
 import * as Clipboard from 'expo-clipboard';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
   GLO: require('@/assets/images/glo.png'),
-  '9MOBILE': require('@/assets/images/9mobile.png'),
-  '9 MOBILE': require('@/assets/images/9mobile.png'),
+  T2: require('@/assets/images/t2.png'),
+  '9MOBILE': require('@/assets/images/t2.png'),
+  '9 MOBILE': require('@/assets/images/t2.png'),
 };
 
 const DEFAULT_NETWORK_LOGO = require('@/assets/images/logo.png');
@@ -40,25 +42,48 @@ const NETWORK_KEY_MAP: Record<string, string> = {
   GLOBACOM: 'GLO',
   'GLO SME': 'GLO',
   'GLO SME DATA': 'GLO',
-  '9MOBILE': '9MOBILE',
-  '9 MOBILE': '9MOBILE',
-  '9MOBILE SME': '9MOBILE',
-  '9 MOBILE SME': '9MOBILE',
-  ETISALAT: '9MOBILE',
+  '9MOBILE': 'T2',
+  '9 MOBILE': 'T2',
+  '9MOBILE SME': 'T2',
+  '9 MOBILE SME': 'T2',
+  ETISALAT: 'T2',
+  T2: 'T2',
+  'T2 MOBILE': 'T2',
+  'T2 SME': 'T2',
 };
 
 const NETWORK_DISPLAY_NAMES: Record<string, string> = {
   MTN: 'MTN',
   AIRTEL: 'Airtel',
   GLO: 'Glo',
-  '9MOBILE': '9Mobile',
+  T2: 'T2',
 };
 
 const SMEPLUG_NETWORK_IDS: Record<string, string> = {
   MTN: '1',
   AIRTEL: '2',
-  '9MOBILE': '3',
+  T2: '3',
   GLO: '4',
+};
+
+const SUPPORTED_DATA_NETWORKS = ['MTN', 'AIRTEL', 'GLO', 'T2'] as const;
+
+const mergeLegacyNineMobilePlans = (grouped: Record<string, DataPlan[]>) => {
+  const legacyPlans = grouped['9MOBILE'];
+  if (!legacyPlans?.length) return grouped;
+
+  grouped['T2'] = [...(grouped['T2'] ?? []), ...legacyPlans];
+  delete grouped['9MOBILE'];
+  grouped['T2'].sort((a, b) => a.price - b.price);
+  return grouped;
+};
+
+const mergeLegacyNetworkIdMap = (map: Record<string, string>) => {
+  if (map['9MOBILE'] && !map['T2']) {
+    map['T2'] = map['9MOBILE'];
+  }
+  delete map['9MOBILE'];
+  return map;
 };
 
 const normalizeNetwork = (value?: string | null) => {
@@ -78,8 +103,13 @@ const normalizeNetwork = (value?: string | null) => {
   if (upper.includes('GLO') || upper.includes('GLOBACOM')) {
     return 'GLO';
   }
-  if (upper.includes('9MOBILE') || upper.includes('9 MOBILE') || upper.includes('ETISALAT')) {
-    return '9MOBILE';
+  if (
+    upper.includes('T2') ||
+    upper.includes('9MOBILE') ||
+    upper.includes('9 MOBILE') ||
+    upper.includes('ETISALAT')
+  ) {
+    return 'T2';
   }
 
   return upper;
@@ -97,30 +127,6 @@ const formatCurrency = (amount?: number | null) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-};
-
-const generateRequestId = () => {
-  try {
-    const now = new Date();
-    const pad = (value: number) => {
-      const num = Number(value);
-      return isNaN(num) ? '00' : `${num}`.padStart(2, '0');
-    };
-    const timestamp =
-      now.getFullYear().toString() +
-      pad(now.getMonth() + 1) +
-      pad(now.getDate()) +
-      pad(now.getHours()) +
-      pad(now.getMinutes()) +
-      pad(now.getSeconds());
-    const random = Math.random().toString(36).slice(2, 10).toUpperCase();
-    return `${timestamp}${random}`;
-  } catch (error) {
-    // Fallback if date conversion fails
-    const timestamp = Date.now().toString();
-    const random = Math.random().toString(36).slice(2, 10).toUpperCase();
-    return `${timestamp}${random}`;
-  }
 };
 
 type DataPlan = {
@@ -161,7 +167,8 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
-  const [dataProvider, setDataProvider] = useState<'smeplug' | 'vtpass' | 'anyone' | 'mobilenig' | 'ebills.africa'>('smeplug');
+  const { providers: vendingSettings } = useVendingSettings();
+  const dataProvider = vendingSettings.data;
   const [isDemoUser, setIsDemoUser] = useState(false);
 
   const isMounted = useRef(true);
@@ -210,22 +217,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         throw new Error('Missing access token. Please sign in again.');
       }
 
-      const providerResponse = await supabase.functions.invoke('get-data-provider', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      let resolvedProvider =
-        typeof providerResponse.data?.provider === 'string'
-          ? providerResponse.data.provider
-          : (providerResponse.data as string) || 'smeplug';
-
-      if (!['smeplug', 'vtpass', 'anyone', 'mobilenig', 'ebills.africa'].includes(resolvedProvider)) {
-        resolvedProvider = 'smeplug';
-      }
-
-      if (isMounted.current) {
-        setDataProvider(resolvedProvider as typeof dataProvider);
-      }
+      const resolvedProvider = dataProvider || 'smeplug';
 
       const networksPromise =
         resolvedProvider === 'smeplug'
@@ -453,23 +445,14 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         grouped[key].sort((a, b) => a.price - b.price);
       });
 
-      const priorityOrder = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
-      const networkList: NetworkOption[] = Object.keys(grouped)
-        .map((networkId) => ({
-          id: networkId,
-          name: getNetworkDisplayName(networkId),
-          logo: NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
-        }))
-        .sort((a, b) => {
-          const aIndex = priorityOrder.indexOf(a.id);
-          const bIndex = priorityOrder.indexOf(b.id);
-          if (aIndex === -1 && bIndex === -1) {
-            return a.name.localeCompare(b.name);
-          }
-          if (aIndex === -1) return 1;
-          if (bIndex === -1) return -1;
-          return aIndex - bIndex;
-        });
+      mergeLegacyNineMobilePlans(grouped);
+
+      const priorityOrder = [...SUPPORTED_DATA_NETWORKS];
+      const networkList: NetworkOption[] = priorityOrder.map((networkId) => ({
+        id: networkId,
+        name: getNetworkDisplayName(networkId),
+        logo: NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
+      }));
 
       const previousNetwork = selectedNetworkRef.current;
       const effectiveNetwork =
@@ -493,7 +476,11 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         if (!effectivePlanId) {
           setSelectedPlanCache(null);
         }
-        setNetworkIdMap(resolvedProvider === 'smeplug' ? fetchedNetworkMap : {});
+        setNetworkIdMap(
+          resolvedProvider === 'smeplug'
+            ? mergeLegacyNetworkIdMap({ ...fetchedNetworkMap })
+            : {},
+        );
       }
     } catch (err) {
       console.error('Failed to fetch data plans:', err);
@@ -511,7 +498,11 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         setLoading(false);
       }
     }
-  }, [router]);
+  }, [router, dataProvider]);
+
+  useEffect(() => {
+    fetchDataPlans();
+  }, [dataProvider, fetchDataPlans]);
 
   useFocusEffect(
     useCallback(() => {
@@ -935,7 +926,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
     } finally {
       setIsProcessing(false);
     }
-  }, [phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
+  }, [dataProvider, networkIdMap, phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
 
   return (
     <ThemedView style={styles.container}>
@@ -1000,7 +991,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                   </TouchableOpacity>
                 </View>
                 <ThemedText style={styles.demoPhoneNote}>
-                  This test number works for all networks (MTN, AIRTEL, GLO, 9MOBILE)
+                  This test number works for all networks (MTN, AIRTEL, GLO, T2)
                 </ThemedText>
               </View>
             </View>

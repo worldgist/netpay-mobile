@@ -10,6 +10,7 @@ import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
+import { useVendingSettings } from '@/contexts/vending-settings-context';
 import { suppressHandledNetworkError } from '@/utils/error-handler';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
 import * as Clipboard from 'expo-clipboard';
@@ -18,8 +19,9 @@ const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
   GLO: require('@/assets/images/glo.png'),
-  '9MOBILE': require('@/assets/images/9mobile.png'),
-  '9 MOBILE': require('@/assets/images/9mobile.png'),
+  T2: require('@/assets/images/t2.png'),
+  '9MOBILE': require('@/assets/images/t2.png'),
+  '9 MOBILE': require('@/assets/images/t2.png'),
 };
 
 const DEFAULT_NETWORK_LOGO = require('@/assets/images/logo.png');
@@ -31,24 +33,64 @@ const NETWORK_KEY_MAP: Record<string, string> = {
   'AIRTEL NIGERIA': 'AIRTEL',
   GLO: 'GLO',
   GLOBACOM: 'GLO',
-  '9MOBILE': '9MOBILE',
-  '9 MOBILE': '9MOBILE',
-  ETISALAT: '9MOBILE',
-  T2: '9MOBILE',
+  '9MOBILE': 'T2',
+  '9 MOBILE': 'T2',
+  ETISALAT: 'T2',
+  T2: 'T2',
+  'T2 MOBILE': 'T2',
 };
 
 const NETWORK_DISPLAY_NAMES: Record<string, string> = {
   MTN: 'MTN',
   AIRTEL: 'Airtel',
   GLO: 'Glo',
-  '9MOBILE': '9Mobile',
+  T2: 'T2',
 };
 
 const SMEPLUG_NETWORK_IDS: Record<string, string> = {
   MTN: '1',
   AIRTEL: '2',
-  '9MOBILE': '3',
+  T2: '3',
   GLO: '4',
+};
+
+const EBILLS_SERVICE_IDS: Record<string, string> = {
+  MTN: 'mtn',
+  AIRTEL: 'airtel',
+  GLO: 'glo',
+  T2: '9mobile',
+  '9MOBILE': '9mobile',
+};
+
+type ProviderDetails = {
+  id: string;
+  network: string;
+  displayName: string;
+  minAmount: number;
+  maxAmount: number;
+  apiCode: string;
+  identifierLabel: string;
+  placeholder?: string;
+  logo?: ImageSourcePropType;
+};
+
+const resolveAirtimeNetworkId = (
+  provider: ProviderDetails,
+  vendingProvider: 'smeplug' | 'ebills',
+): string | null => {
+  if (vendingProvider === 'ebills') {
+    const fromApiCode = provider.apiCode?.trim().toLowerCase();
+    if (fromApiCode && !/^\d+$/.test(fromApiCode)) {
+      return fromApiCode;
+    }
+    if (provider.network && EBILLS_SERVICE_IDS[provider.network]) {
+      return EBILLS_SERVICE_IDS[provider.network];
+    }
+    return null;
+  }
+
+  const smeplugId = provider.network ? SMEPLUG_NETWORK_IDS[provider.network] : null;
+  return (smeplugId || provider.apiCode)?.trim() || null;
 };
 
 const normalizeNetwork = (value?: string | null) => {
@@ -91,18 +133,6 @@ const normalizePhoneNumber = (value: string) => {
 
 const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
 
-type ProviderDetails = {
-  id: string;
-  network: string;
-  displayName: string;
-  minAmount: number;
-  maxAmount: number;
-  apiCode: string;
-  identifierLabel: string;
-  placeholder?: string;
-  logo?: ImageSourcePropType;
-};
-
 export default function AirtimePurchaseScreen() {
   const router = useRouter();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -118,6 +148,8 @@ export default function AirtimePurchaseScreen() {
   const [showInvalidPhoneModal, setShowInvalidPhoneModal] = useState(false);
   const [invalidPhoneMessage, setInvalidPhoneMessage] = useState('Please enter a valid 11-digit phone number (e.g. 08012345678).');
   const [isDemoUser, setIsDemoUser] = useState(false);
+  const { providers: vendingSettings } = useVendingSettings();
+  const airtimeVendingProvider = vendingSettings.airtime === 'ebills' ? 'ebills' : 'smeplug';
 
   const isMounted = useRef(true);
   const providerRef = useRef<string | null>(null);
@@ -253,7 +285,7 @@ export default function AirtimePurchaseScreen() {
         .values()
       );
 
-      const order: Record<string, number> = { MTN: 0, AIRTEL: 1, '9MOBILE': 2, GLO: 3 };
+      const order: Record<string, number> = { MTN: 0, AIRTEL: 1, T2: 2, GLO: 3 };
       const sortedProviders = dedupedProviders.sort((a, b) => {
         const orderA = order[a.network] ?? 99;
         const orderB = order[b.network] ?? 99;
@@ -345,11 +377,10 @@ export default function AirtimePurchaseScreen() {
     if (!currentSelectedProviderDetails) return;
 
     try {
-      const canonicalNetworkId = currentSelectedProviderDetails.network
-        ? SMEPLUG_NETWORK_IDS[currentSelectedProviderDetails.network]
-        : null;
-      const rawNetworkId = canonicalNetworkId || currentSelectedProviderDetails.apiCode;
-      const normalizedNetworkId = rawNetworkId ? String(rawNetworkId).trim() : null;
+      const normalizedNetworkId = resolveAirtimeNetworkId(
+        currentSelectedProviderDetails,
+        airtimeVendingProvider,
+      );
 
       if (!normalizedNetworkId) {
         Alert.alert('Airtime Purchase', 'Unable to determine the network code for this provider. Please try again.');
@@ -367,13 +398,26 @@ export default function AirtimePurchaseScreen() {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      const { data, error } = await supabase.functions.invoke('purchase-smeplug-airtime', {
-        body: {
-          phone_number: sanitizedPhoneNumber,
-          amount: submissionAmount,
-          network_id: normalizedNetworkId,
-          network_name: currentSelectedProviderDetails.network,
-        },
+      const purchaseFunction =
+        airtimeVendingProvider === 'ebills' ? 'purchase-ebills-airtime' : 'purchase-smeplug-airtime';
+
+      const purchaseBody =
+        airtimeVendingProvider === 'ebills'
+          ? {
+              phone_number: sanitizedPhoneNumber,
+              amount: submissionAmount,
+              network_name: currentSelectedProviderDetails.network,
+              service_id: normalizedNetworkId,
+            }
+          : {
+              phone_number: sanitizedPhoneNumber,
+              amount: submissionAmount,
+              network_id: normalizedNetworkId,
+              network_name: currentSelectedProviderDetails.network,
+            };
+
+      const { data, error } = await supabase.functions.invoke(purchaseFunction, {
+        body: purchaseBody,
         headers: accessToken
           ? {
               Authorization: `Bearer ${accessToken}`,
@@ -615,7 +659,7 @@ export default function AirtimePurchaseScreen() {
                   </TouchableOpacity>
                 </View>
                 <ThemedText style={styles.demoPhoneNote}>
-                  This test number works for all networks (MTN, AIRTEL, GLO, 9MOBILE)
+                  This test number works for all networks (MTN, AIRTEL, GLO, T2)
                 </ThemedText>
               </View>
             </View>

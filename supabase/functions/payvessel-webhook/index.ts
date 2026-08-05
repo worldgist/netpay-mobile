@@ -1,7 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import {
+  extractPayvesselPaymentFields,
+  getPayvesselWebhookUrl,
+  shouldProcessPayvesselEvent,
+  verifyPayvesselWebhook,
+} from "../_shared/payvessel-webhook.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +35,7 @@ serve(async (req) => {
       JSON.stringify({ 
         status: 'ok', 
         function: 'payvessel-webhook',
+        webhook_url: getPayvesselWebhookUrl(),
         timestamp: new Date().toISOString(),
         message: 'Webhook endpoint is active and ready to receive requests'
       }),
@@ -112,8 +119,10 @@ serve(async (req) => {
     }
 
     let payload: any;
+    let bodyText = "";
     try {
-      payload = await req.json();
+      bodyText = await req.text();
+      payload = JSON.parse(bodyText);
     } catch (parseError) {
       console.error('Error parsing webhook payload:', parseError);
       return new Response(
@@ -122,115 +131,45 @@ serve(async (req) => {
       );
     }
 
+    const payvesselSecretKey = Deno.env.get('PAYVESSEL_SECRET_KEY');
+    const verification = await verifyPayvesselWebhook(req, bodyText, payvesselSecretKey);
+    if (!verification.ok) {
+      return new Response(
+        JSON.stringify({ error: verification.message }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: verification.status },
+      );
+    }
+
     console.log('PayVessel webhook received:', JSON.stringify(payload, null, 2));
     console.log('Payload keys:', Object.keys(payload));
+
+    if (!shouldProcessPayvesselEvent(payload)) {
+      const ignoredEvent = payload.event || payload.event_type || payload.type || payload.code;
+      console.log('Ignoring PayVessel webhook event:', ignoredEvent);
+      return new Response(
+        JSON.stringify({ message: `Event ignored: ${ignoredEvent ?? 'unknown'}` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
+      );
+    }
+
+    const extracted = extractPayvesselPaymentFields(payload);
     console.log('Payload structure check:', {
+      event: extracted.event,
       hasVirtualAccount: !!payload.virtualAccount,
       hasOrder: !!payload.order,
       hasTransaction: !!payload.transaction,
       hasSender: !!payload.sender,
       code: payload.code,
-      message: payload.message
+      message: payload.message,
     });
 
-    // Verify webhook authenticity (optional but recommended)
-    // You can add signature verification here if PayVessel provides it
-
-    // Extract payment details from webhook
-    // PayVessel might send different payload structures, so we need to handle multiple formats
-    let event_type = payload.event_type || payload.event || payload.type || payload.status || payload.code;
-    let data = payload.data || payload;
-
-    // If payload is flat (no nested data), use the payload directly
-    if (!payload.data && (payload.account_number || payload.amount || payload.virtualAccount)) {
-      data = payload;
-    }
-
-    console.log('Extracted event_type:', event_type);
-    console.log('Extracted data:', JSON.stringify(data, null, 2));
-
-    // Process webhooks by default - only skip if explicitly marked as failure
-    // This ensures we don't miss any valid webhooks due to unexpected event_type formats
-    // Check code field - "00" typically means success in PayVessel
-    if (payload.code && payload.code !== "00") {
-      console.log('Ignoring webhook with non-success code:', payload.code);
-      return new Response(
-        JSON.stringify({ message: `Event ignored (code: ${payload.code})` }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-      );
-    }
-
-    if (event_type) {
-      const normalizedEventType = event_type.toLowerCase().trim();
-      // Only skip if it's explicitly a failure event
-      const failureEvents = ['failed', 'failure', 'error', 'rejected', 'declined', 'cancelled', 'canceled'];
-      if (failureEvents.some(f => normalizedEventType.includes(f))) {
-        console.log('Ignoring failure event type:', event_type);
-        return new Response(
-          JSON.stringify({ message: `Event ignored (failure): ${event_type}` }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-        );
-      }
-      console.log('Processing webhook with event_type:', event_type);
-    } else {
-      console.log('No event_type provided, processing webhook (assuming success)');
-    }
-
-    // Extract fields with multiple possible names and nested structures
-    // Handle PayVessel's nested structure: virtualAccount.virtualAccountNumber, order.amount, etc.
-    // Check both data and payload directly since PayVessel sends at root level
-    const account_number = 
-      payload.virtualAccount?.virtualAccountNumber ||
-      data.virtualAccount?.virtualAccountNumber ||
-      data.account_number || 
-      data.accountNumber || 
-      data.account || 
-      data.virtual_account_number;
-    
-    const amount = 
-      payload.order?.amount ||
-      data.order?.amount ||
-      data.amount || 
-      data.credit_amount || 
-      data.transaction_amount;
-    
-    const reference = 
-      payload.transaction?.reference ||
-      data.transaction?.reference ||
-      data.reference || 
-      data.transaction_reference || 
-      data.ref || 
-      data.tracking_reference;
-    
-    const sender_name = 
-      payload.sender?.senderName ||
-      data.sender?.senderName ||
-      data.sender_name || 
-      data.senderName || 
-      data.sender || 
-      data.customer_name;
-    
-    const sender_account_number = 
-      payload.sender?.senderAccountNumber ||
-      data.sender?.senderAccountNumber ||
-      data.sender_account_number || 
-      data.senderAccountNumber || 
-      data.sender_account;
-    
-    const sender_bank = 
-      payload.sender?.senderBankName ||
-      data.sender?.senderBankName ||
-      data.sender_bank || 
-      data.senderBank || 
-      data.bank_name || 
-      data.bank;
-    
-    const transaction_reference = 
-      payload.transaction?.reference ||
-      data.transaction?.reference ||
-      data.transaction_reference || 
-      data.transactionReference || 
-      reference;
+    let account_number = extracted.account_number;
+    let amount = extracted.amount;
+    let reference = extracted.reference;
+    let transaction_reference = extracted.transaction_reference;
+    let sender_name = extracted.sender_name;
+    let sender_account_number = extracted.sender_account_number;
+    let sender_bank = extracted.sender_bank;
 
     console.log(`Processing payment: ${amount} to account ${account_number}`);
     console.log('Extracted fields:', {
@@ -426,19 +365,8 @@ serve(async (req) => {
       );
     }
 
-    // Get user's current balance
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
-      .select('balance')
-      .eq('id', virtualAccount.user_id)
-      .single();
-
-    if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      throw profileError;
-    }
-
-    const currentBalance = Number(profile.balance || 0);
+    // Authoritative balance from ledger (latest balance_after)
+    const currentBalance = await getUserLedgerBalance(supabaseClient, virtualAccount.user_id);
     const creditAmount = amountValue; // Already converted to number above
     
     // Calculate funding fee

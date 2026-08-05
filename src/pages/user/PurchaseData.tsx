@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
 import { InsufficientBalanceModal } from "@/components/InsufficientBalanceModal";
+import { useVendingSettings } from "@/contexts/VendingSettingsContext";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -95,13 +96,14 @@ interface Network {
 const PurchaseData = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { providers: vendingSettings } = useVendingSettings();
+  const dataProvider = vendingSettings.data;
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [balance, setBalance] = useState(0);
   const [networks, setNetworks] = useState<Network[]>([]);
   const [dataPlans, setDataPlans] = useState<DataPlan[]>([]);
   const [allPlans, setAllPlans] = useState<DataPlan[]>([]);
-  const [dataProvider, setDataProvider] = useState<'smeplug' | 'vtpass' | 'anyone' | 'mobilenig' | 'ebills.africa'>('smeplug');
   const [selectedNetwork, setSelectedNetwork] = useState("");
   const [selectedPlan, setSelectedPlan] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -138,20 +140,7 @@ const PurchaseData = () => {
           return;
         }
 
-        const providerResponse = await supabase.functions.invoke('get-data-provider', {
-          headers: { Authorization: `Bearer ${sessionAccessToken}` },
-        });
-
-        let resolvedProvider =
-          typeof providerResponse.data?.provider === 'string'
-            ? providerResponse.data.provider
-            : (providerResponse.data as string) || 'smeplug';
-
-        if (!['smeplug', 'vtpass', 'anyone', 'mobilenig', 'ebills.africa'].includes(resolvedProvider)) {
-          resolvedProvider = 'smeplug';
-        }
-
-        setDataProvider(resolvedProvider as typeof dataProvider);
+        const resolvedProvider = dataProvider || 'smeplug';
 
         const { data: profile } = await supabase
           .from('profiles')
@@ -385,7 +374,7 @@ const PurchaseData = () => {
     };
 
     fetchInitialData();
-  }, [navigate, toast]);
+  }, [navigate, toast, dataProvider]);
 
   useEffect(() => {
     const {

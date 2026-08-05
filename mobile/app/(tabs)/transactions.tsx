@@ -2,15 +2,15 @@ import { StyleSheet, View, ScrollView, TouchableOpacity, ImageSourcePropType, Re
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
-import { useState, useCallback, useRef, useMemo } from 'react';
-import { supabase } from '@/lib/supabase';
-import { parseEducationPurchaseMetadata } from '@/utils/education';
-import { getSessionOrRedirect } from '@/utils/session';
+import { useCallback, useMemo } from 'react';
+import { useTransactions, type MobileTransaction } from '@/contexts/transactions-context';
+import { getWalletTransactionLabel, isFundWalletTransaction, NGN_LOGO, FUND_WALLET_LABEL } from '@/utils/transaction-display';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
+  NGN: NGN_LOGO,
   MTN: require('@/assets/images/mtn.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
   GLO: require('@/assets/images/glo.png'),
@@ -57,23 +57,6 @@ const ELECTRICITY_LOGO_ALIASES: Record<string, ImageSourcePropType> = {
   JOS: NETWORK_LOGOS.JED,
 };
 
-type MobileTransaction = {
-  id: string;
-  category: 'wallet' | 'airtime' | 'data' | 'electricity' | 'education' | 'betting' | 'transfer_sent' | 'transfer_received';
-  type: 'credit' | 'debit';
-  amount: number;
-  status?: string | null;
-  reference?: string | null;
-  description?: string | null;
-  serviceType?: string | null;
-  provider?: string | null;
-  createdAt: string;
-  formattedDate: string;
-  formattedTime: string;
-  counterparty?: string | null;
-  extra?: Record<string, any>;
-};
-
 const formatCurrency = (amount: number) =>
   `N${amount.toLocaleString('en-NG', {
     minimumFractionDigits: 2,
@@ -84,6 +67,9 @@ const toTitle = (value?: string | null) =>
   value ? value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) : '';
 
 const getLogo = (serviceType?: string | null, provider?: string | null): ImageSourcePropType | null => {
+  if ((serviceType || '').toLowerCase() === 'fund wallet' || (serviceType || '').toLowerCase() === 'add money') {
+    return NGN_LOGO;
+  }
   if (!provider && !serviceType) return null;
   const key = (provider || serviceType || '').toUpperCase();
   if (key.includes('ELECTRICITY')) {
@@ -99,7 +85,6 @@ const getLogo = (serviceType?: string | null, provider?: string | null): ImageSo
     return NETWORK_LOGOS.AEDC;
   }
   if (key.includes('BETTING')) {
-    // For betting, try to get logo from provider
     if (provider) {
       const providerKey = provider.toUpperCase();
       if (NETWORK_LOGOS[providerKey]) {
@@ -112,400 +97,20 @@ const getLogo = (serviceType?: string | null, provider?: string | null): ImageSo
 
 export default function TransactionsScreen() {
   const router = useRouter();
-  const [transactions, setTransactions] = useState<MobileTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
-
-  const fetchTransactions = useCallback(async (isRefresh = false) => {
-    try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      setError(null);
-
-      const session = await getSessionOrRedirect();
-      if (!session) {
-        return;
-      }
-
-      const userId = session.user.id;
-      console.log('Fetching transactions for user:', userId);
-
-      const [walletRes, airtimeRes, dataRes, electricityRes, educationRes, bettingRes, transfersSentRes, transfersReceivedRes] = await Promise.all([
-        supabase
-          .from('user_transactions')
-          .select('id, amount, transaction_type, description, reference, created_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('airtime_transactions')
-          .select('id, amount, network, status, reference, phone_number, created_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('data_transactions')
-          .select('id, amount, network, plan_name, plan_validity, status, reference, phone_number, created_at')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('electricity_transactions')
-          .select('id, amount, provider, status, reference, created_at, meter_number, meter_type, token, customer_name, api_response, vending_provider')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('education_transactions')
-          .select('id, amount, exam_type, status, reference, created_at, phone_number, balance_before, balance_after, api_response, metadata, pin, serial_number, pins')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('betting_transactions')
-          .select('id, amount, betting_provider, status, reference, created_at, account_number, vending_provider')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('transfer_transactions')
-          .select('id, amount, status, reference, description, created_at, recipient_id')
-          .eq('sender_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-        supabase
-          .from('transfer_transactions')
-          .select('id, amount, status, reference, description, created_at, sender_id')
-          .eq('recipient_id', userId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-      ]);
-
-      // Log electricity transactions for debugging
-      console.log('Electricity transactions query result:', {
-        success: !electricityRes.error,
-        error: electricityRes.error,
-        count: electricityRes.data?.length || 0,
-        data: electricityRes.data,
-      });
-
-      if (electricityRes.error) {
-        console.error('Error fetching electricity transactions:', electricityRes.error);
-      }
-
-      const walletTransactions: MobileTransaction[] = (walletRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        const tt = (txn.transaction_type || '').toLowerCase();
-        const isRefund = tt === 'refund';
-        return {
-          id: txn.id,
-          category: 'wallet',
-          type: tt === 'credit' || isRefund ? 'credit' : 'debit',
-          amount: Number(txn.amount) || 0,
-          status: 'Completed',
-          reference: txn.reference,
-          description: txn.description,
-          serviceType: isRefund ? 'Refund' : 'Wallet Transaction',
-          provider: null,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-        };
-      });
-
-      const airtimeTransactions: MobileTransaction[] = (airtimeRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        return {
-          id: txn.id,
-          category: 'airtime',
-          type: 'debit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description: `Airtime purchase • ${txn.phone_number}`,
-          serviceType: 'Airtime VTU',
-          provider: txn.network,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          extra: { phone_number: txn.phone_number },
-        };
-      });
-
-      const dataTransactions: MobileTransaction[] = (dataRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        return {
-          id: txn.id,
-          category: 'data',
-          type: 'debit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description: txn.plan_name,
-          serviceType: 'Data Bundle',
-          provider: txn.network,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          extra: { plan_validity: txn.plan_validity, phone_number: txn.phone_number },
-        };
-      });
-
-      const electricityTransactions: MobileTransaction[] = (electricityRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        
-        // Extract token - check database field first, then api_response
-        let extractedToken = txn.token;
-        let extractedAddress: string | null = null;
-        
-        // If token is null and we have api_response, try to extract from there
-        if ((txn as any).api_response) {
-          const apiResponse = (txn as any).api_response;
-
-          extractedAddress =
-            apiResponse?.data?.customer_address ||
-            apiResponse?.data?.address ||
-            apiResponse?.customer_address ||
-            apiResponse?.address ||
-            null;
-
-          if (extractedAddress) {
-            extractedAddress = String(extractedAddress).trim();
-            if (extractedAddress === '' || extractedAddress.toLowerCase() === 'null') {
-              extractedAddress = null;
-            }
-          }
-
-          if (!extractedToken) {
-          // Check multiple possible locations in api_response
-            extractedToken = apiResponse?.data?.token ||
-                            apiResponse?.token ||
-                            apiResponse?.details?.token ||
-                            null;
-            
-            // Convert to string and validate
-            if (extractedToken) {
-              extractedToken = String(extractedToken).trim();
-              if (extractedToken === '' || extractedToken.toLowerCase() === 'null') {
-                extractedToken = null;
-              }
-            }
-          }
-        }
-        
-        return {
-          id: txn.id,
-          category: 'electricity',
-          type: 'debit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description: txn.meter_number,
-          serviceType: txn.provider || 'Electricity',
-          provider: txn.provider,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          extra: { 
-            meterType: txn.meter_type, 
-            token: extractedToken, // Use extracted token (from DB or api_response)
-            meter_number: txn.meter_number, 
-            customerName: txn.customer_name,
-            customerAddress: extractedAddress,
-            vendingProvider: (txn as any).vending_provider,
-          },
-        };
-      });
-
-      const educationTransactions: MobileTransaction[] = (educationRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        
-        // Priority order for PINs:
-        // 1. Database columns (pin, serial_number, pins) - most reliable
-        // 2. metadata.pins - for backward compatibility
-        // 3. Parse from api_response - fallback
-        
-        let finalPins: Array<{ Pin: string; Serial?: string }> = [];
-        let finalPin: string | undefined;
-        let finalSerial: string | undefined;
-        
-        // First, try database columns (highest priority)
-        if ((txn as any).pins && Array.isArray((txn as any).pins)) {
-          finalPins = (txn as any).pins;
-          if (finalPins.length > 0) {
-            finalPin = finalPins[0].Pin;
-            finalSerial = finalPins[0].Serial;
-          }
-        } else if ((txn as any).pin) {
-          // Single PIN from database column
-          finalPin = (txn as any).pin;
-          finalSerial = (txn as any).serial_number;
-          finalPins = [{ Pin: finalPin || '', Serial: finalSerial || '' }];
-        }
-        
-        // Fallback to metadata if database columns don't have PINs
-        if (finalPins.length === 0) {
-          const metadataObj = (txn as any)?.metadata || {};
-          const pinsFromMetadata = metadataObj.pins || [];
-          
-          if (pinsFromMetadata.length > 0) {
-            finalPins = pinsFromMetadata;
-            if (finalPins.length > 0) {
-              finalPin = finalPins[0].Pin;
-              finalSerial = finalPins[0].Serial;
-            }
-          } else if (metadataObj.educationPin) {
-            finalPin = metadataObj.educationPin;
-            finalSerial = metadataObj.educationSerial;
-            finalPins = [{ Pin: finalPin || '', Serial: finalSerial || '' }];
-          }
-        }
-        
-        // Last fallback: parse from api_response
-        if (finalPins.length === 0) {
-          const parsedMetadata = parseEducationPurchaseMetadata((txn as any)?.api_response);
-          if (parsedMetadata.pin) {
-            finalPin = parsedMetadata.pin;
-            finalSerial = parsedMetadata.serial;
-            finalPins = [{ Pin: finalPin, Serial: finalSerial || '' }];
-          }
-        }
-        
-        const description = txn.phone_number
-          ? `${txn.exam_type || 'Education'} purchase • ${txn.phone_number}`
-          : `${txn.exam_type || 'Education'} purchase`;
-        return {
-          id: txn.id,
-          category: 'education',
-          type: 'debit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description,
-          serviceType: txn.exam_type ? `Education • ${txn.exam_type}` : 'Education',
-          provider: txn.exam_type,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          extra: {
-            phone_number: txn.phone_number,
-            examType: txn.exam_type,
-            pins: finalPins,
-            educationPin: finalPin,
-            educationSerial: finalSerial,
-            educationInstructions: parseEducationPurchaseMetadata((txn as any)?.api_response).instructions,
-            balanceBefore: txn.balance_before,
-            balanceAfter: txn.balance_after,
-          },
-        };
-      });
-
-      const transferSent: MobileTransaction[] = (transfersSentRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        return {
-          id: txn.id,
-          category: 'transfer_sent',
-          type: 'debit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description: txn.description || 'Transfer sent',
-          serviceType: 'Transfer',
-          provider: null,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          counterparty: 'Recipient',
-        };
-      });
-
-      const transferReceived: MobileTransaction[] = (transfersReceivedRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        return {
-          id: txn.id,
-          category: 'transfer_received',
-          type: 'credit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description: txn.description || 'Transfer received',
-          serviceType: 'Transfer',
-          provider: null,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          counterparty: 'Sender',
-        };
-      });
-
-      const bettingTransactions: MobileTransaction[] = (bettingRes.data || []).map((txn) => {
-        const createdDate = new Date(txn.created_at);
-        return {
-          id: txn.id,
-          category: 'betting',
-          type: 'debit',
-          amount: Number(txn.amount) || 0,
-          status: txn.status,
-          reference: txn.reference,
-          description: txn.account_number ? `Betting purchase • ${txn.account_number}` : 'Betting purchase',
-          serviceType: 'Betting',
-          provider: txn.betting_provider,
-          createdAt: txn.created_at,
-          formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-          formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-          extra: { account_number: txn.account_number, vending_provider: txn.vending_provider },
-        };
-      });
-
-      const combined = [
-        ...walletTransactions,
-        ...airtimeTransactions,
-        ...dataTransactions,
-        ...electricityTransactions,
-        ...educationTransactions,
-        ...bettingTransactions,
-        ...transferSent,
-        ...transferReceived,
-      ]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 100);
-
-      if (isMounted.current) {
-        setTransactions(combined);
-      }
-    } catch (err) {
-      console.error('Failed to load transactions:', err);
-      if (isMounted.current) {
-        const message = err instanceof Error ? err.message : 'Unable to load transactions.';
-        setError(message);
-        setTransactions([]);
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      isMounted.current = true;
-      fetchTransactions();
-      return () => {
-        isMounted.current = false;
-      };
-    }, [fetchTransactions])
-  );
-
-  const handleRefresh = useCallback(() => {
-    fetchTransactions(true);
-  }, [fetchTransactions]);
+  const {
+    paginatedTransactions,
+    loading,
+    refreshing,
+    error,
+    refresh,
+    rangeStart,
+    rangeEnd,
+    totalCount,
+    hasPreviousPage,
+    hasNextPage,
+    goToNextPage,
+    goToPreviousPage,
+  } = useTransactions();
 
   const handleTransactionPress = useCallback(
     (transaction: MobileTransaction) => {
@@ -535,6 +140,7 @@ export default function TransactionsScreen() {
           examType: transaction.extra?.examType || '',
           accountNumber: transaction.extra?.account_number || '',
           vendingProvider: transaction.extra?.vending_provider || '',
+          sourceTable: transaction.extra?.sourceTable || '',
         },
       });
     },
@@ -542,38 +148,32 @@ export default function TransactionsScreen() {
   );
 
   const renderTransactionTitle = (transaction: MobileTransaction) => {
-    let title = '';
     switch (transaction.category) {
       case 'wallet':
-        title = transaction.serviceType === 'Refund' ? 'Refund' : 'Wallet Transaction';
-        break;
+        return getWalletTransactionLabel(transaction);
       case 'airtime':
-        title = 'Airtime Purchase';
-        break;
+        return 'Airtime Purchase';
       case 'data':
-        title = 'Data Bundle';
-        break;
+        return 'Data Bundle';
       case 'electricity':
-        title = `${transaction.provider || transaction.description || 'Electricity'} Purchase`;
-        break;
+        return `${transaction.provider || transaction.description || 'Electricity'} Purchase`;
       case 'education':
-        title = `${transaction.provider || 'Education'} Purchase`;
-        break;
+        return `${transaction.provider || 'Education'} Purchase`;
       case 'betting':
-        title = `${transaction.provider || 'Betting'} Purchase`;
-        break;
+        return `${transaction.provider || 'Betting'} Purchase`;
       case 'transfer_sent':
-        title = 'Transfer Sent';
-        break;
+        return 'Transfer Sent';
       case 'transfer_received':
-        title = 'Transfer Received';
-        break;
+        return 'Transfer Received';
+      default:
+        return 'Transaction';
     }
-    return title;
   };
 
+  const showInitialLoading = loading && totalCount === 0;
+
   const content = useMemo(() => {
-    if (loading && !refreshing) {
+    if (showInitialLoading) {
       return (
         <View style={styles.loadingContainer}>
           <NetpayLoadingAnimation message="Loading transactions…" />
@@ -581,7 +181,7 @@ export default function TransactionsScreen() {
       );
     }
 
-    if (transactions.length === 0) {
+    if (totalCount === 0) {
       return (
         <View style={styles.emptyContainer}>
           <MaterialIcons name="receipt-long" size={64} color="#999" />
@@ -591,15 +191,16 @@ export default function TransactionsScreen() {
       );
     }
 
-    return transactions.map((transaction) => {
-      const logo = getLogo(transaction.serviceType, transaction.provider);
+    return paginatedTransactions.map((transaction) => {
+      const logo = isFundWalletTransaction(transaction)
+        ? NGN_LOGO
+        : getLogo(transaction.serviceType, transaction.provider);
       return (
         <TouchableOpacity
           key={`${transaction.category}-${transaction.id}`}
           style={styles.transactionCard}
           onPress={() => handleTransactionPress(transaction)}
-          activeOpacity={0.7}
-        >
+          activeOpacity={0.7}>
           <View style={styles.transactionIconContainer}>
             {logo ? (
               <Image source={logo} style={styles.transactionLogo} contentFit="contain" />
@@ -623,24 +224,26 @@ export default function TransactionsScreen() {
               style={[
                 styles.transactionAmount,
                 { color: transaction.type === 'credit' ? '#4CAF50' : '#F44336' },
-              ]}
-            >
-              {transaction.type === 'credit' ? '+' : '-'}{formatCurrency(Math.abs(Number(transaction.amount)))}
+              ]}>
+              {transaction.type === 'credit' ? '+' : '-'}
+              {formatCurrency(Math.abs(Number(transaction.amount)))}
             </ThemedText>
             <ThemedText style={styles.transactionStatus}>
               {transaction.status
                 ? toTitle(transaction.status)
                 : transaction.serviceType === 'Refund'
                   ? 'Refund'
-                  : transaction.type === 'credit'
-                    ? 'Credit'
-                    : 'Debit'}
+                  : isFundWalletTransaction(transaction)
+                    ? FUND_WALLET_LABEL
+                    : transaction.type === 'credit'
+                      ? 'Credit'
+                      : 'Debit'}
             </ThemedText>
           </View>
         </TouchableOpacity>
       );
     });
-  }, [handleTransactionPress, loading, refreshing, transactions]);
+  }, [handleTransactionPress, paginatedTransactions, showInitialLoading, totalCount]);
 
   return (
     <ThemedView style={styles.container}>
@@ -653,21 +256,52 @@ export default function TransactionsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#FF7F00"
-            colors={["#FF7F00"]}
-          />
-        }
-      >
-        {error && !loading ? (
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#FF7F00" colors={['#FF7F00']} />
+        }>
+        {error && !showInitialLoading ? (
           <View style={styles.errorBanner}>
             <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
             <ThemedText style={styles.errorText}>{error}</ThemedText>
           </View>
         ) : null}
         {content}
+
+        {totalCount > 0 ? (
+          <View style={styles.paginationContainer}>
+            <ThemedText style={styles.paginationLabel}>
+              Showing {rangeStart}-{rangeEnd} of {totalCount}
+            </ThemedText>
+            <View style={styles.paginationButtons}>
+              <TouchableOpacity
+                style={[styles.paginationButton, !hasPreviousPage && styles.paginationButtonDisabled]}
+                onPress={goToPreviousPage}
+                disabled={!hasPreviousPage}
+                activeOpacity={0.7}>
+                <MaterialIcons
+                  name="chevron-left"
+                  size={20}
+                  color={hasPreviousPage ? '#FF7F00' : '#BDBDBD'}
+                />
+                <ThemedText
+                  style={[styles.paginationButtonText, !hasPreviousPage && styles.paginationButtonTextDisabled]}>
+                  Previous
+                </ThemedText>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.paginationButton, !hasNextPage && styles.paginationButtonDisabled]}
+                onPress={goToNextPage}
+                disabled={!hasNextPage}
+                activeOpacity={0.7}>
+                <ThemedText
+                  style={[styles.paginationButtonText, !hasNextPage && styles.paginationButtonTextDisabled]}>
+                  Next
+                </ThemedText>
+                <MaterialIcons name="chevron-right" size={20} color={hasNextPage ? '#FF7F00' : '#BDBDBD'} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </ThemedView>
   );
@@ -792,5 +426,46 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
+  paginationContainer: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E0E0E0',
+  },
+  paginationLabel: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  paginationButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  paginationButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: '#FFF3E8',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#FFD4A8',
+  },
+  paginationButtonDisabled: {
+    backgroundColor: '#F5F5F5',
+    borderColor: '#E0E0E0',
+  },
+  paginationButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF7F00',
+  },
+  paginationButtonTextDisabled: {
+    color: '#BDBDBD',
+  },
 });
-
