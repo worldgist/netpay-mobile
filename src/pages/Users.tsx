@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +12,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { formatNaira } from "@/lib/currency";
 import { balancesMatch, fetchUserLedgerBalance } from "@/lib/ledger-balance";
+import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +59,8 @@ export default function Users() {
   const [isDebitDialogOpen, setIsDebitDialogOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -250,14 +257,37 @@ export default function Users() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handleViewUser = async (user: UserProfile) => {
+  const handleViewUser = async (user: UserProfile, openReconcile = false) => {
     setSelectedUser(user);
     await Promise.all([
       fetchUserTransactions(user.id),
       refreshUserLedgerBalance(user.id, user.balance),
     ]);
     setIsViewDialogOpen(true);
+    if (openReconcile) {
+      setReconcileDialogOpen(true);
+    }
   };
+
+  const openUserFromQuery = useCallback(async () => {
+    const userId = searchParams.get("userId");
+    if (!userId || users.length === 0) return;
+
+    const user = users.find((entry) => entry.id === userId);
+    if (!user) return;
+
+    const openReconcile = searchParams.get("reconcile") === "1";
+    await handleViewUser(user, openReconcile);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("userId");
+    next.delete("reconcile");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, users]);
+
+  useEffect(() => {
+    void openUserFromQuery();
+  }, [openUserFromQuery]);
 
   const handleOpenStatementPreview = () => {
     if (!selectedUser) return;
@@ -593,6 +623,26 @@ export default function Users() {
           </DialogHeader>
           {selectedUser && (
             <div className="space-y-6">
+              {selectedUserHasBalanceDrift && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <span>
+                      Profile cache ({formatNaira(selectedUser.balance)}) differs from ledger (
+                      {formatNaira(selectedUserLedgerBalance)}). Cache should auto-sync on the next ledger entry or admin view.
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2 shrink-0"
+                      onClick={() => setReconcileDialogOpen(true)}
+                    >
+                      View balance detail
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <Label className="text-muted-foreground">Full Name</Label>
@@ -1028,6 +1078,18 @@ export default function Users() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UserBalanceReconcileDialog
+        userId={selectedUser?.id ?? null}
+        open={reconcileDialogOpen}
+        onOpenChange={setReconcileDialogOpen}
+        onReconciled={async () => {
+          await fetchUsers();
+          if (selectedUser) {
+            await refreshUserLedgerBalance(selectedUser.id, selectedUser.balance);
+          }
+        }}
+      />
     </SidebarProvider>
   );
 }

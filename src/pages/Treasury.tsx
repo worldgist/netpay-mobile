@@ -20,7 +20,8 @@ import {
   VENDING_SETTING_KEYS,
   type VendingProviders,
 } from "@/lib/vending-settings";
-import { parseLedgerSummary } from "@/lib/ledger-balance";
+import { parseLedgerSummary, type LedgerBalanceMismatch } from "@/lib/ledger-balance";
+import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
 import { format } from "date-fns";
 import {
   AlertCircle,
@@ -57,7 +58,6 @@ interface TreasuryTransaction {
   reference?: string | null;
   transaction_type?: string | null;
   amount?: number | null;
-  status?: string | null;
   created_at: string;
   profiles?: {
     full_name?: string | null;
@@ -389,6 +389,10 @@ export default function Treasury() {
   const [userWalletLiability, setUserWalletLiability] = useState(0);
   const [profileBalanceTotal, setProfileBalanceTotal] = useState(0);
   const [ledgerMismatchCount, setLedgerMismatchCount] = useState(0);
+  const [ledgerMismatches, setLedgerMismatches] = useState<LedgerBalanceMismatch[]>([]);
+  const [ledgerSummaryUnavailable, setLedgerSummaryUnavailable] = useState(false);
+  const [reconcileUserId, setReconcileUserId] = useState<string | null>(null);
+  const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
   const [activeUsers, setActiveUsers] = useState(0);
   const [platformRevenue, setPlatformRevenue] = useState(0);
   const [totalFundingVolume, setTotalFundingVolume] = useState(0);
@@ -532,7 +536,7 @@ export default function Treasury() {
       { data: fundingFees },
       { data: fundingRows },
     ] = await Promise.all([
-      supabase.functions.invoke("get-ledger-summary", { body: { limit: 1 } }),
+      supabase.functions.invoke("get-ledger-summary", { body: { limit: 20 } }),
       supabase.from("profiles").select("balance"),
       supabase
         .from("platform_revenue")
@@ -542,19 +546,29 @@ export default function Treasury() {
       supabase
         .from("user_transactions")
         .select("amount")
-        .in("transaction_type", ["credit", "wallet_funding", "fund_wallet"])
-        .eq("status", "completed"),
+        .in("transaction_type", ["credit", "wallet_funding", "fund_wallet"]),
     ]);
 
     const profileLiability = (profiles || []).reduce((sum, row) => sum + Number(row.balance || 0), 0);
     let ledgerLiability = profileLiability;
     let mismatches = 0;
+    let summaryAvailable = false;
+
+    if (ledgerRes.error) {
+      console.error("Treasury ledger summary error:", ledgerRes.error);
+    }
 
     if (ledgerRes.data?.success && ledgerRes.data.summary) {
       const summary = parseLedgerSummary(ledgerRes.data.summary);
       ledgerLiability = summary.total_ledger_liability;
       mismatches = summary.mismatch_count;
+      summaryAvailable = true;
+      setLedgerMismatches((ledgerRes.data.mismatches as LedgerBalanceMismatch[]) || []);
+    } else {
+      setLedgerMismatches([]);
     }
+
+    setLedgerSummaryUnavailable(!summaryAvailable);
 
     const revenueFromFees =
       (revenueRows || []).reduce((sum, row) => sum + Number(row.revenue_amount || 0), 0) +
@@ -599,7 +613,6 @@ export default function Treasury() {
           reference,
           transaction_type,
           amount,
-          status,
           created_at,
           profiles:user_id (
             full_name,
@@ -613,10 +626,15 @@ export default function Treasury() {
       setTransactions((data as TreasuryTransaction[]) || []);
     } catch (error) {
       console.error("Error fetching treasury transactions:", error);
+      toast({
+        title: "Activity unavailable",
+        description: error instanceof Error ? error.message : "Failed to load recent ledger activity",
+        variant: "destructive",
+      });
     } finally {
       setLoadingTransactions(false);
     }
-  }, []);
+  }, [toast]);
 
   const fetchVendorTransactions = useCallback(async () => {
     setLoadingVendorTransactions(true);
@@ -923,12 +941,33 @@ export default function Treasury() {
           {!loading && ledgerMismatchCount > 0 && (
             <Alert variant="destructive" className="py-2">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                {ledgerMismatchCount.toLocaleString()} profile cache mismatch
-                {ledgerMismatchCount === 1 ? "" : "es"}.{" "}
-                <Link to="/ledger" className="underline font-medium">
-                  Reconcile in Ledger
-                </Link>
+              <AlertDescription className="text-xs space-y-2">
+                <p>
+                  {ledgerMismatchCount.toLocaleString()} profile cache mismatch
+                  {ledgerMismatchCount === 1 ? "" : "es"} detected — auto-sync runs on load.{" "}
+                  <Link to="/ledger#balance-drift" className="underline font-medium">
+                    Review in Ledger
+                  </Link>
+                </p>
+                {ledgerMismatches.slice(0, 3).map((row) => (
+                  <div key={row.user_id} className="flex items-center justify-between gap-2">
+                    <span>
+                      {row.full_name || row.email || row.user_id.slice(0, 8)} · drift{" "}
+                      {formatNaira(row.drift)}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setReconcileUserId(row.user_id);
+                        setReconcileDialogOpen(true);
+                      }}
+                    >
+                      View profile
+                    </Button>
+                  </div>
+                ))}
               </AlertDescription>
             </Alert>
           )}
@@ -1127,9 +1166,7 @@ export default function Treasury() {
                     </TableCell>
                     <TableCell className="text-right font-medium">{formatNaira(Number(txn.amount || 0))}</TableCell>
                     <TableCell>
-                      <Badge variant={txn.status === "completed" ? "default" : "secondary"}>
-                        {txn.status || "unknown"}
-                      </Badge>
+                      <Badge variant="default">Posted</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {format(new Date(txn.created_at), "MMM d, yyyy HH:mm")}
@@ -1412,6 +1449,18 @@ export default function Treasury() {
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
+                {ledgerSummaryUnavailable && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      Ledger summary unavailable — showing profile cache totals. Open{" "}
+                      <Link to="/ledger" className="underline font-medium">
+                        Ledger
+                      </Link>{" "}
+                      or redeploy <code className="text-xs">get-ledger-summary</code>.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {overviewCards}
 
                 <div className="grid gap-4 md:grid-cols-3">
@@ -1421,8 +1470,13 @@ export default function Treasury() {
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <Button asChild variant="outline" size="sm" className="w-full justify-start gap-2">
+                        <Link to="/wallets">
+                          <Wallet className="h-4 w-4" /> Manage user wallets
+                        </Link>
+                      </Button>
+                      <Button asChild variant="outline" size="sm" className="w-full justify-start gap-2">
                         <Link to="/users">
-                          <Users className="h-4 w-4" /> Credit / debit user wallets
+                          <Users className="h-4 w-4" /> All users
                         </Link>
                       </Button>
                       <Button asChild variant="outline" size="sm" className="w-full justify-start gap-2">
@@ -1556,6 +1610,13 @@ export default function Treasury() {
           </div>
         </main>
       </div>
+
+      <UserBalanceReconcileDialog
+        userId={reconcileUserId}
+        open={reconcileDialogOpen}
+        onOpenChange={setReconcileDialogOpen}
+        onReconciled={() => void loadTreasury(true)}
+      />
     </SidebarProvider>
   );
 }

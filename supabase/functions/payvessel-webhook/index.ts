@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-import { debitUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
+import { debitUserWallet, getUserLedgerBalance, creditUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 import {
   extractPayvesselPaymentFields,
@@ -367,123 +367,48 @@ serve(async (req) => {
 
     // Authoritative balance from ledger (latest balance_after)
     const currentBalance = await getUserLedgerBalance(supabaseClient, virtualAccount.user_id);
-    const creditAmount = amountValue; // Already converted to number above
-    
-    // Calculate funding fee
+    const creditAmount = amountValue;
     const fundingFee = calculateFundingFee(creditAmount);
     const netCreditAmount = creditAmount - fundingFee;
-    
-    // Calculate final balance (net amount after fee)
-    const finalBalance = currentBalance + netCreditAmount;
-    
+
     console.log(`Processing funding:`);
     console.log(`  Amount received: ₦${creditAmount}`);
     console.log(`  Funding fee: ₦${fundingFee}`);
     console.log(`  Net credit: ₦${netCreditAmount}`);
     console.log(`  Current balance: ₦${currentBalance}`);
-    console.log(`  Final balance: ₦${finalBalance}`);
 
-    // Update user's balance with net amount directly
-    // Using service_role should bypass RLS
-    console.log(`Attempting to update balance for user ${virtualAccount.user_id} from ₦${currentBalance} to ₦${finalBalance}`);
-    
-    const { data: updatedProfile, error: balanceError } = await supabaseClient
-      .from('profiles')
-      .update({ balance: finalBalance })
-      .eq('id', virtualAccount.user_id)
-      .select('balance, id')
-      .single();
+    const creditResult = await creditUserWallet({
+      supabase: supabaseClient,
+      userId: virtualAccount.user_id,
+      amount: netCreditAmount,
+      transactionType: "credit",
+      description: `Wallet funding from ${sender_name || "Bank Transfer"} (₦${creditAmount} received, ₦${fundingFee} fee)`,
+      reference: reference || transaction_reference,
+      balanceBefore: currentBalance,
+    });
 
-    if (balanceError) {
-      console.error('Error updating balance:', balanceError);
-      console.error('Balance error code:', balanceError.code);
-      console.error('Balance error message:', balanceError.message);
-      console.error('Balance error details:', JSON.stringify(balanceError, null, 2));
-      throw new Error(`Failed to update balance: ${balanceError.message || JSON.stringify(balanceError)}`);
-    }
+    const finalBalance = creditResult.balanceAfter;
 
-    if (!updatedProfile) {
-      console.error('Profile update returned no data');
-      throw new Error('Profile update failed - no data returned');
-    }
-
-    const verifiedBalance = Number(updatedProfile.balance || 0);
-    console.log(`Balance updated successfully. New balance: ₦${verifiedBalance} (expected: ₦${finalBalance})`);
-    
-    // Verify the balance was actually updated correctly
-    if (Math.abs(verifiedBalance - finalBalance) > 0.01) {
-      console.error(`CRITICAL: Balance mismatch! Expected ₦${finalBalance}, got ₦${verifiedBalance}`);
-      // Try to fix it
-      const { error: fixError } = await supabaseClient
-        .from('profiles')
-        .update({ balance: finalBalance })
-        .eq('id', virtualAccount.user_id);
-      
-      if (fixError) {
-        console.error('Failed to fix balance mismatch:', fixError);
-        throw new Error(`Balance update verification failed. Expected ${finalBalance}, got ${verifiedBalance}`);
-      }
-      console.log('Balance mismatch fixed');
-    }
-
-    // Create all transaction records atomically
-    // If any fail, we'll rollback the balance
-    let rollbackNeeded = false;
-    
     try {
-      // Create funding transaction record
       const { error: fundingError } = await supabaseClient
-        .from('funding_transactions')
+        .from("funding_transactions")
         .insert({
           user_id: virtualAccount.user_id,
           amount: creditAmount,
-          status: 'completed',
+          status: "completed",
           reference: reference || transaction_reference,
-          bank_name: sender_bank || 'Unknown',
-          account_number: sender_account_number || 'Unknown',
-          account_name: sender_name || 'Unknown',
+          bank_name: sender_bank || "Unknown",
+          account_number: sender_account_number || "Unknown",
+          account_name: sender_name || "Unknown",
           api_response: payload,
         });
 
       if (fundingError) {
-        console.error('Error creating funding transaction:', fundingError);
-        rollbackNeeded = true;
+        console.error("Error creating funding transaction:", fundingError);
         throw fundingError;
       }
-
-      // Create user transaction record for the funding (net amount credited)
-      const { error: transactionError } = await supabaseClient
-        .from('user_transactions')
-        .insert({
-          user_id: virtualAccount.user_id,
-          amount: netCreditAmount, // Record the net amount that was actually credited
-          balance_before: currentBalance,
-          balance_after: finalBalance,
-          transaction_type: 'credit',
-          description: `Wallet funding from ${sender_name || 'Bank Transfer'} (₦${creditAmount} received, ₦${fundingFee} fee)`,
-          reference: reference || transaction_reference,
-        });
-
-      if (transactionError) {
-        console.error('Error creating user transaction:', transactionError);
-        rollbackNeeded = true;
-        throw transactionError;
-      }
     } catch (recordError) {
-      // Rollback balance update if transaction recording failed
-      if (rollbackNeeded) {
-        console.error('Rolling back balance update due to transaction recording failure');
-        const { error: rollbackError } = await supabaseClient
-          .from('profiles')
-          .update({ balance: currentBalance })
-          .eq('id', virtualAccount.user_id);
-        
-        if (rollbackError) {
-          console.error('CRITICAL: Failed to rollback balance update:', rollbackError);
-        } else {
-          console.log('Balance rollback successful');
-        }
-      }
+      console.error("Funding transaction record failed after wallet credit:", recordError);
       throw recordError;
     }
 

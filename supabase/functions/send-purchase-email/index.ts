@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { generateReceiptPDF, type ReceiptData } from "../_shared/pdf-receipt.ts";
+import {
+  getResendFromAddress,
+  ResendApiError,
+  sendResendEmail,
+} from "../_shared/resend.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -510,12 +515,7 @@ serve(async (req) => {
   }
 
   try {
-    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    if (!RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY environment variable is not configured");
-    }
-
-    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Notifications <support@netpayy.ng>";
+    const FROM_ADDRESS = getResendFromAddress();
 
     const payload = await parseRequest(req);
     const { subject, html, text } = buildEmailContent(payload);
@@ -581,46 +581,17 @@ serve(async (req) => {
       // Continue without PDF attachment if generation fails
     }
 
-    const emailPayload: any = {
+    const resendJson = await sendResendEmail({
       from: FROM_ADDRESS,
       to: [payload.email],
       subject,
       html,
       text,
-      tags: [
-        { name: "notification_type", value: payload.type },
-      ],
-    };
-
-    // Add PDF attachment if generated successfully
-    if (pdfAttachment) {
-      emailPayload.attachments = [
-        {
-          filename: pdfAttachment.filename,
-          content: pdfAttachment.content,
-        },
-      ];
-    }
-
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(emailPayload),
+      tags: [{ name: "notification_type", value: payload.type }],
+      attachments: pdfAttachment
+        ? [{ filename: pdfAttachment.filename, content: pdfAttachment.content }]
+        : undefined,
     });
-
-    if (!resendResponse.ok) {
-      const errorText = await resendResponse.text();
-      console.error("Resend API error:", errorText);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to send email", details: errorText }),
-        { status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
-
-    const resendJson = await resendResponse.json();
 
     return new Response(
       JSON.stringify({ success: true, data: resendJson }),
@@ -628,6 +599,12 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("send-purchase-email error:", error);
+    if (error instanceof ResendApiError) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to send email", details: error.details }),
+        { status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
     return new Response(
       JSON.stringify({
         success: false,

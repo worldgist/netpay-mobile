@@ -48,18 +48,38 @@ serve(async (req) => {
       );
     }
 
-    const { data, error } = await supabase.rpc("sync_profile_balances_from_ledger");
+    let userId: string | undefined;
+    try {
+      const body = req.method === "POST" ? await req.json() : {};
+      userId = body?.userId || body?.user_id;
+    } catch {
+      // ignore empty body
+    }
+
+    const syncResult = userId
+      ? await supabase.rpc("sync_user_profile_balance_from_ledger", { p_user_id: userId })
+      : await supabase.rpc("sync_profile_balances_from_ledger");
+
+    const { data, error } = syncResult;
     if (error) throw error;
 
-    const [{ data: summary }] = await Promise.all([
+    const [{ data: summary }, { data: mismatches }] = await Promise.all([
       supabase.rpc("get_ledger_balance_summary"),
+      supabase.rpc("get_ledger_balance_mismatches", { p_limit: 50 }),
     ]);
+
+    const payload = (data && typeof data === "object") ? data : {};
 
     return new Response(
       JSON.stringify({
         success: true,
-        ...((data && typeof data === "object") ? data : {}),
+        ...payload,
+        updated_count: userId
+          ? ((payload as { updated?: boolean }).updated ? 1 : 0)
+          : (payload as { updated_count?: number }).updated_count ?? 0,
         summary,
+        mismatches: mismatches ?? [],
+        user_id: userId ?? null,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

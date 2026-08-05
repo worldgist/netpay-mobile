@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { authRedirectUrls, NETPAY_SITE_URL } from "../_shared/site-url.ts";
+import {
+  getResendFromAddress,
+  ResendApiError,
+  sendResendEmail,
+} from "../_shared/resend.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -155,17 +160,10 @@ serve(async (req) => {
       );
     }
 
-    // Get Resend API configuration
-    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    if (!RESEND_API_KEY) {
-      console.error("RESEND_API_KEY is not configured");
-      throw new Error("RESEND_API_KEY environment variable is not configured");
-    }
-
-    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Notifications <support@netpayy.ng>";
+    const FROM_ADDRESS = getResendFromAddress();
     
     console.log("Email configuration:", {
-      hasApiKey: !!RESEND_API_KEY,
+      hasApiKey: true,
       fromAddress: FROM_ADDRESS,
       recipientCount: validEmails.length,
     });
@@ -184,45 +182,33 @@ serve(async (req) => {
     // Send emails individually for better error tracking
     for (const email of validEmails) {
       try {
-        const resendResponse = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: FROM_ADDRESS,
-            to: [email],
-            subject,
-            html,
-            text,
-            tags: [
-              { name: "notification_type", value: "admin_email" },
-              { name: "source", value: "admin_portal" },
-            ],
-          }),
+        const resendJson = await sendResendEmail({
+          from: FROM_ADDRESS,
+          to: [email],
+          subject,
+          html,
+          text,
+          tags: [
+            { name: "notification_type", value: "admin_email" },
+            { name: "source", value: "admin_portal" },
+          ],
         });
-
-        if (!resendResponse.ok) {
-          const errorText = await resendResponse.text();
-          const statusCode = resendResponse.status;
-          console.error(`Resend API error for ${email} (${statusCode}):`, errorText);
-          emailResults.push({ email, success: false, error: `Status ${statusCode}: ${errorText}` });
-          failureCount++;
-        } else {
-          const resendJson = await resendResponse.json();
-          console.log(`Email sent successfully to ${email}:`, resendJson.id);
-          emailResults.push({ email, success: true, id: resendJson.id });
-          resendIds.push(resendJson.id);
-          successCount++;
-        }
+        console.log(`Email sent successfully to ${email}:`, resendJson.id);
+        emailResults.push({ email, success: true, id: resendJson.id });
+        resendIds.push(resendJson.id);
+        successCount++;
       } catch (error) {
-        console.error(`Error sending email to ${email}:`, error);
-        emailResults.push({ 
-          email, 
-          success: false, 
-          error: error instanceof Error ? error.message : "Unknown error" 
-        });
+        if (error instanceof ResendApiError) {
+          console.error(`Resend API error for ${email} (${error.status}):`, error.details);
+          emailResults.push({ email, success: false, error: `Status ${error.status}: ${error.details}` });
+        } else {
+          console.error(`Error sending email to ${email}:`, error);
+          emailResults.push({ 
+            email, 
+            success: false, 
+            error: error instanceof Error ? error.message : "Unknown error" 
+          });
+        }
         failureCount++;
       }
     }

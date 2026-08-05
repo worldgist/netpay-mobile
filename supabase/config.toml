@@ -30,6 +30,9 @@ verify_jwt = true
 [functions.reconcile-ledger-balances]
 verify_jwt = true
 
+[functions.get-user-balance-reconcile]
+verify_jwt = true
+
 [functions.fetch-cable-packages]
 verify_jwt = true
 
@@ -60,6 +63,18 @@ verify_jwt = true
 [functions.fetch-smeplug-wallet-history]
 verify_jwt = true
 
+[functions.fetch-mobilenig-balance]
+verify_jwt = true
+
+[functions.fetch-mobilenig-wallet-history]
+verify_jwt = true
+
+[functions.fetch-mobilenig-data-plans]
+verify_jwt = true
+
+[functions.fetch-mobilenig-cable-packages]
+verify_jwt = true
+
 [functions.purchase-smeplug-airtime]
 verify_jwt = true
 
@@ -76,7 +91,13 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.send-support-email]
+verify_jwt = false
+
+[functions.send-admin-email]
 verify_jwt = true
+
+[functions.send-purchase-email]
+verify_jwt = false
 
 [functions.create-transaction-notification]
 verify_jwt = true

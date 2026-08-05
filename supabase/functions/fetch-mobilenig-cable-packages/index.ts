@@ -1,16 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  getMobilenigPackages,
+  getMobilenigPublicKey,
+  MOBILENIG_CABLE_SERVICES,
+} from "../_shared/mobilenig-api.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-// MobileNig Cable TV Service IDs
-const MOBILENIG_CABLE_SERVICES: Record<string, string> = {
-  'DSTV': 'dstv',
-  'GOTV': 'gotv',
-  'STARTIMES': 'startimes',
 };
 
 serve(async (req) => {
@@ -59,16 +57,7 @@ serve(async (req) => {
 
     console.log('Fetching MobileNig cable packages for provider:', provider);
 
-    // Get MobileNig API credentials from Supabase
-    const mobilenigPublicKey = Deno.env.get('MOBILENIG_PUBLIC_KEY');
-    const mobilenigSecretKey = Deno.env.get('MOBILENIG_SECRET_KEY');
-
-    if (!mobilenigPublicKey || !mobilenigSecretKey) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'MobileNig API credentials not configured' }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
+    getMobilenigPublicKey();
 
     // Get service ID for the provider
     const serviceId = MOBILENIG_CABLE_SERVICES[provider.toUpperCase()];
@@ -79,51 +68,7 @@ serve(async (req) => {
       );
     }
 
-    // Fetch packages from MobileNig API
-    const mobilenigUrl = 'https://enterprise.mobilenig.com/api/v2/services/packages';
-    
-    console.log('Calling MobileNig API:', mobilenigUrl, 'with service_id:', serviceId);
-
-    const mobilenigResponse = await fetch(mobilenigUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${mobilenigPublicKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        service_id: serviceId
-      }),
-    });
-
-    if (!mobilenigResponse.ok) {
-      const errorText = await mobilenigResponse.text();
-      console.error('MobileNig API error:', errorText);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: `MobileNig API error: ${mobilenigResponse.statusText}` 
-        }),
-        { status: mobilenigResponse.status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const mobilenigData = await mobilenigResponse.json();
-    console.log('MobileNig API response:', JSON.stringify(mobilenigData).substring(0, 500));
-
-    // Parse MobileNig response format
-    // MobileNig returns: { statusCode: '200', message: 'success', details: [...] }
-    if (!mobilenigData.statusCode || mobilenigData.statusCode !== '200') {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: mobilenigData.message || 'Invalid response from MobileNig API',
-          details: mobilenigData 
-        }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const packages = mobilenigData.details || [];
+    const packages = await getMobilenigPackages(serviceId);
     
     if (!Array.isArray(packages) || packages.length === 0) {
       console.warn('No packages found in MobileNig response');

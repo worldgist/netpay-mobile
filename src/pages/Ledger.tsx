@@ -22,6 +22,7 @@ import {
   type LedgerBalanceSummary,
   type LedgerBalanceMismatch,
 } from "@/lib/ledger-balance";
+import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -30,8 +31,8 @@ import {
   Download,
   RefreshCw,
   Search,
-  Scale,
   ShieldCheck,
+  Eye,
 } from "lucide-react";
 
 const LEDGER_TYPES = [
@@ -93,7 +94,8 @@ export default function Ledger() {
   const [ledgerSummary, setLedgerSummary] = useState<LedgerBalanceSummary | null>(null);
   const [mismatches, setMismatches] = useState<LedgerBalanceMismatch[]>([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
-  const [reconciling, setReconciling] = useState(false);
+  const [reconcileUserId, setReconcileUserId] = useState<string | null>(null);
+  const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
 
   const fetchLedgerSummary = useCallback(async () => {
     setLoadingSummary(true);
@@ -119,29 +121,9 @@ export default function Ledger() {
     }
   }, [toast]);
 
-  const reconcileBalances = async () => {
-    setReconciling(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("reconcile-ledger-balances");
-      if (error) throw error;
-      if (!data?.success) {
-        throw new Error(data?.error || "Reconciliation failed");
-      }
-      toast({
-        title: "Balances synced",
-        description: `Updated ${data.updated_count ?? 0} profile balance(s) from the ledger.`,
-      });
-      await Promise.all([fetchLedgerSummary(), fetchLedger(true)]);
-    } catch (error) {
-      console.error("Reconcile failed:", error);
-      toast({
-        title: "Reconciliation failed",
-        description: error instanceof Error ? error.message : "Could not sync balances",
-        variant: "destructive",
-      });
-    } finally {
-      setReconciling(false);
-    }
+  const openReconcileDialog = (userId: string) => {
+    setReconcileUserId(userId);
+    setReconcileDialogOpen(true);
   };
 
   const fetchLedger = useCallback(async (isRefresh = false) => {
@@ -236,6 +218,14 @@ export default function Ledger() {
     }
   }, [authorized, fetchLedger, fetchLedgerSummary]);
 
+  useEffect(() => {
+    if (authorized && window.location.hash === "#balance-drift") {
+      window.requestAnimationFrame(() => {
+        document.getElementById("balance-drift")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [authorized, mismatches.length]);
+
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return entries.filter((entry) => {
@@ -311,6 +301,19 @@ export default function Ledger() {
     window.URL.revokeObjectURL(url);
   };
 
+  if (!authorized) {
+    return (
+      <SidebarProvider>
+        <div className="min-h-screen flex w-full bg-background">
+          <AppSidebar />
+          <main className="flex-1 flex items-center justify-center">
+            <p className="text-muted-foreground">Checking admin access…</p>
+          </main>
+        </div>
+      </SidebarProvider>
+    );
+  }
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -324,19 +327,10 @@ export default function Ledger() {
                   <BookOpen className="h-6 w-6" /> Admin Ledger
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  Authoritative wallet record — user balances derive from the latest{" "}
+                  Authoritative wallet record — profile cache auto-syncs from the latest{" "}
                   <code className="text-xs">balance_after</code> entry
                 </p>
               </div>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={reconcileBalances}
-                disabled={reconciling || loadingSummary}
-              >
-                <Scale className={`h-4 w-4 ${reconciling ? "animate-pulse" : ""}`} />
-                Sync profile cache
-              </Button>
               <Button
                 variant="outline"
                 className="gap-2"
@@ -387,8 +381,8 @@ export default function Ledger() {
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
                     {ledgerSummary?.mismatch_count
-                      ? `${ledgerSummary.mismatch_count} user(s) out of sync`
-                      : "Matches ledger"}
+                      ? `${ledgerSummary.mismatch_count} user(s) pending auto-sync`
+                      : "Auto-synced from ledger"}
                   </p>
                 </CardContent>
               </Card>
@@ -451,11 +445,11 @@ export default function Ledger() {
             </div>
 
             {mismatches.length > 0 && (
-              <Card>
+              <Card id="balance-drift">
                 <CardHeader>
                   <CardTitle>Balance Drift</CardTitle>
                   <CardDescription>
-                    Users where <code className="text-xs">profiles.balance</code> differs from the latest ledger entry
+                    Users where profile cache still differs after auto-sync — inspect the profile to investigate.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -467,6 +461,7 @@ export default function Ledger() {
                           <TableHead className="text-right">Ledger Balance</TableHead>
                           <TableHead className="text-right">Profile Cache</TableHead>
                           <TableHead className="text-right">Drift</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -481,6 +476,17 @@ export default function Ledger() {
                             <TableCell className="text-right text-amber-600 font-medium">
                               {formatNaira(row.drift)}
                             </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1"
+                                onClick={() => openReconcileDialog(row.user_id)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                View profile
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -489,6 +495,16 @@ export default function Ledger() {
                 </CardContent>
               </Card>
             )}
+
+            <UserBalanceReconcileDialog
+              userId={reconcileUserId}
+              open={reconcileDialogOpen}
+              onOpenChange={setReconcileDialogOpen}
+              onReconciled={() => {
+                void fetchLedgerSummary();
+                void fetchLedger(true);
+              }}
+            />
 
             <Card>
               <CardHeader>

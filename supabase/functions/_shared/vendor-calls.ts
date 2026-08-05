@@ -1,5 +1,10 @@
 // Shared functions for calling different data vendor APIs
 
+import {
+  getMobilenigSecretKeyOptional,
+  MOBILENIG_DATA_SERVICE_IDS,
+} from "./mobilenig-api.ts";
+
 export interface VendorConfig {
   id: number;
   name: string;
@@ -302,29 +307,17 @@ export async function purchaseViaMobilenig(
   phone: string,
   requestId?: string
 ): Promise<PurchaseResult> {
-  const SECRET_KEY = Deno.env.get('MOBILENIG_SECRET_KEY') || config.secret;
+  const SECRET_KEY = getMobilenigSecretKeyOptional() || config.secret;
 
   if (!SECRET_KEY) {
     return {
       success: false,
       status: 'failed',
-      error: 'Mobilenig credentials not configured',
+      error: 'Mobilenig credentials not configured in Supabase Edge Function secrets',
     };
   }
 
-  // Map network to service_id
-  // BCA = MTN, ACA = Airtel, GCA = Glo, 9CA = 9Mobile
-  const networkServiceMap: Record<string, string> = {
-    'MTN': 'BCA',
-    'MTN NIGERIA': 'BCA',
-    'AIRTEL': 'ACA',
-    'AIRTEL NIGERIA': 'ACA',
-    'GLO': 'GCA',
-    'GLOBACOM': 'GCA',
-    '9MOBILE': '9CA',
-    '9 MOBILE': '9CA',
-    'ETISALAT': '9CA',
-  };
+  const networkServiceMap = MOBILENIG_DATA_SERVICE_IDS;
 
   const normalizedNetwork = plan.network.toUpperCase().trim();
   const serviceId = networkServiceMap[normalizedNetwork] || 'BCA';
@@ -484,12 +477,12 @@ export async function queryMobilenigTransaction(
   transId: string | number,
   secretKey?: string
 ): Promise<{ success: boolean; status?: string; details?: any; error?: string }> {
-  const SECRET_KEY = secretKey || Deno.env.get('MOBILENIG_SECRET_KEY');
+  const SECRET_KEY = secretKey || getMobilenigSecretKeyOptional();
 
   if (!SECRET_KEY) {
     return {
       success: false,
-      error: 'MobileNig secret key not configured',
+      error: 'MobileNig secret key not configured in Supabase Edge Function secrets',
     };
   }
 

@@ -85,6 +85,8 @@ const formatNotificationTimestamp = (value: string) => {
   }
 };
 
+const formatUnreadBadgeCount = (count: number) => (count > 99 ? '99+' : String(count));
+
 const SHOW_NOTIFICATION_PANEL = false;
 
 export default function HomeScreen() {
@@ -636,10 +638,18 @@ export default function HomeScreen() {
           activeOpacity={0.8}
           hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
           accessibilityRole="button"
-          accessibilityLabel="Notifications"
+          accessibilityLabel={
+            unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
+          }
         >
           <MaterialIcons name="notifications-none" size={26} color={headerIconColor} />
-          {unreadCount > 0 && <View style={styles.notificationDot} />}
+          {unreadCount > 0 && (
+            <View style={styles.notificationBadge}>
+              <ThemedText style={styles.notificationBadgeText}>
+                {formatUnreadBadgeCount(unreadCount)}
+              </ThemedText>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -816,16 +826,26 @@ const styles = StyleSheet.create({
     padding: 4,
     flexShrink: 0,
   },
-  notificationDot: {
+  notificationBadge: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
+    top: 0,
+    right: 0,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
     backgroundColor: '#FF7F00',
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
+    textAlign: 'center',
   },
   welcomeSection: {
     flexDirection: 'row',

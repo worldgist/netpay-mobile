@@ -1,4 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import {
+  getResendFromAddress,
+  getResendSupportInbox,
+  ResendApiError,
+  sendResendEmail,
+} from "../_shared/resend.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -52,13 +58,8 @@ serve(async (req) => {
   }
 
   try {
-    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    if (!RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY environment variable is not configured");
-    }
-
-    const SUPPORT_INBOX = Deno.env.get("RESEND_TO_EMAIL") ?? "support@netpayy.ng";
-    const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") ?? "NetPay Support <support@netpayy.ng>";
+    const SUPPORT_INBOX = getResendSupportInbox();
+    const FROM_ADDRESS = getResendFromAddress("NetPay Support <support@netpayy.ng>");
 
     const body = (await req.json()) as SupportEmailPayload;
     const name = normalize(body.name);
@@ -80,32 +81,14 @@ serve(async (req) => {
       message,
     };
 
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: FROM_ADDRESS,
-        to: [SUPPORT_INBOX],
-        reply_to: email,
-        subject: `[Support] ${subject}`,
-        html: buildEmailMarkup(payload),
-        text: `Support message from ${name} <${email}>\n\nSubject: ${subject}\n\n${message}`,
-      }),
+    const resendJson = await sendResendEmail({
+      from: FROM_ADDRESS,
+      to: [SUPPORT_INBOX],
+      reply_to: email,
+      subject: `[Support] ${subject}`,
+      html: buildEmailMarkup(payload),
+      text: `Support message from ${name} <${email}>\n\nSubject: ${subject}\n\n${message}`,
     });
-
-    if (!resendResponse.ok) {
-      const errorText = await resendResponse.text();
-      console.error("Resend API error:", errorText);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to send email", details: errorText }),
-        { status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
-
-    const resendJson = await resendResponse.json();
 
     return new Response(
       JSON.stringify({ success: true, data: resendJson }),
@@ -113,6 +96,12 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("send-support-email error:", error);
+    if (error instanceof ResendApiError) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to send email", details: error.details }),
+        { status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
     return new Response(
       JSON.stringify({
         success: false,

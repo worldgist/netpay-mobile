@@ -22,6 +22,7 @@ import BettingManagement from "./pages/BettingManagement";
 import PlatformRevenue from "./pages/PlatformRevenue";
 import Treasury from "./pages/Treasury";
 import Ledger from "./pages/Ledger";
+import WalletManagement from "./pages/WalletManagement";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
 import ImportCableTransactions from "./pages/ImportCableTransactions";
@@ -113,6 +114,8 @@ const App = () => (
         <Route path="/betting" element={<BettingManagement />} />
         <Route path="/platform-revenue" element={<PlatformRevenue />} />
         <Route path="/treasury" element={<Treasury />} />
+        <Route path="/wallets" element={<WalletManagement />} />
+        <Route path="/wallet-management" element={<Navigate to="/wallets" replace />} />
         <Route path="/ledger" element={<Ledger />} />
         <Route path="/ledger/" element={<Ledger />} />
         <Route path="/admin/ledger" element={<Ledger />} />

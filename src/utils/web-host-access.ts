@@ -34,6 +34,8 @@ const BLOCKED_PATH_PREFIXES = [
   "/betting",
   "/platform-revenue",
   "/treasury",
+  "/wallets",
+  "/wallet-management",
   "/ledger",
   "/admin/ledger",
   "/data-plans",

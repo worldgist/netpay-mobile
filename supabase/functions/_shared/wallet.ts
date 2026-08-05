@@ -188,23 +188,7 @@ export const debitUserWallet = async ({
     throw new Error("Insufficient balance");
   }
 
-  const { data: updatedProfile, error: updateError } = await supabase
-    .from("profiles")
-    .update({ balance: startingBalance - debitAmount })
-    .eq("id", userId)
-    .select("balance")
-    .single();
-
-  if (updateError) {
-    console.error("Failed to update wallet balance:", updateError);
-    throw new Error("Failed to update wallet balance");
-  }
-
-  if (!updatedProfile || updatedProfile.balance === undefined || updatedProfile.balance === null) {
-    throw new Error("Unable to fetch updated wallet balance");
-  }
-
-  const balanceAfter = Number(updatedProfile.balance) || 0;
+  const balanceAfter = startingBalance - debitAmount;
   const txReference =
     reference || `DEBIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
 
@@ -227,13 +211,6 @@ export const debitUserWallet = async ({
 
   if (transactionError) {
     console.error("Failed to record user transaction (debit):", transactionError.message, transactionError);
-    const { error: rollbackError } = await supabase
-      .from("profiles")
-      .update({ balance: startingBalance })
-      .eq("id", userId);
-    if (rollbackError) {
-      console.error("CRITICAL: failed to rollback wallet after debit ledger failure:", rollbackError);
-    }
     throw new Error(
       `Failed to record wallet transaction after debit${
         transactionError?.message
@@ -348,23 +325,7 @@ export const creditUserWallet = async ({
     startingBalance = await getUserLedgerBalance(supabase, userId);
   }
 
-  const { data: updatedProfile, error: updateError } = await supabase
-    .from("profiles")
-    .update({ balance: startingBalance + creditAmount })
-    .eq("id", userId)
-    .select("balance")
-    .single();
-
-  if (updateError) {
-    console.error("Failed to update wallet balance:", updateError);
-    throw new Error("Failed to update wallet balance");
-  }
-
-  if (!updatedProfile || updatedProfile.balance === undefined || updatedProfile.balance === null) {
-    throw new Error("Unable to fetch updated wallet balance");
-  }
-
-  const balanceAfter = Number(updatedProfile.balance) || 0;
+  const balanceAfter = startingBalance + creditAmount;
   const txReference =
     reference || `CREDIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
 
@@ -387,13 +348,6 @@ export const creditUserWallet = async ({
 
   if (transactionError) {
     console.error("Failed to record user transaction (credit):", transactionError.message, transactionError);
-    const { error: rollbackError } = await supabase
-      .from("profiles")
-      .update({ balance: startingBalance })
-      .eq("id", userId);
-    if (rollbackError) {
-      console.error("CRITICAL: failed to rollback wallet after credit ledger failure:", rollbackError);
-    }
     throw new Error(
       `Failed to record wallet transaction after credit${
         transactionError?.message

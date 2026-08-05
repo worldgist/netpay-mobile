@@ -6,6 +6,9 @@ import {
   Platform,
   Linking,
   Alert,
+  TextInput,
+  KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -26,6 +29,12 @@ export default function ContactUsScreen() {
     { day: 'Saturday', time: '10:00 AM - 4:00 PM' },
     { day: 'Sunday', time: 'Closed' },
   ]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
   const isMounted = useRef(true);
 
   // Load contact settings when screen loads
@@ -42,6 +51,24 @@ export default function ContactUsScreen() {
         }
 
         if (!isMounted.current) return;
+
+        const sessionUser = session.user;
+        setUserId(sessionUser.id);
+        setUserEmail(sessionUser.email ?? '');
+
+        try {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', sessionUser.id)
+            .maybeSingle();
+
+          if (isMounted.current && profileRow?.full_name) {
+            setUserName(profileRow.full_name);
+          }
+        } catch (profileError) {
+          console.warn('Unable to load profile for contact form:', profileError);
+        }
 
         try {
           const { data: settingsRow, error: settingsError } = await supabase
@@ -143,6 +170,67 @@ export default function ContactUsScreen() {
     }
   };
 
+  const handleSubmitMessage = async () => {
+    const trimmedName = userName.trim() || 'NetPay User';
+    const trimmedEmail = userEmail.trim();
+    const trimmedSubject = subject.trim();
+    const trimmedMessage = message.trim();
+
+    if (!trimmedEmail || !trimmedSubject || !trimmedMessage) {
+      Alert.alert('Missing information', 'Please enter a subject and message.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      Alert.alert('Invalid email', 'Please use a valid email address on your profile.');
+      return;
+    }
+
+    setSending(true);
+
+    try {
+      const { error: insertError } = await supabase.from('support_contact_submissions').insert({
+        user_id: userId,
+        name: trimmedName,
+        email: trimmedEmail,
+        subject: trimmedSubject,
+        message: trimmedMessage,
+        channel: 'mobile_contact',
+      });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      const { error: notifyError } = await supabase.functions.invoke('send-support-email', {
+        body: {
+          name: trimmedName,
+          email: trimmedEmail,
+          subject: trimmedSubject,
+          message: trimmedMessage,
+        },
+      });
+
+      if (notifyError) {
+        console.error('send-support-email failed:', notifyError);
+        Alert.alert(
+          'Message saved',
+          'Your message was saved, but we could not notify support automatically. We will follow up shortly.',
+        );
+      } else {
+        Alert.alert('Message sent', 'Thank you! Our support team will get back to you soon.');
+      }
+
+      setSubject('');
+      setMessage('');
+    } catch (error: any) {
+      console.error('Failed to send support message:', error);
+      Alert.alert('Unable to send', error?.message ?? 'Please try again in a moment.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
@@ -154,6 +242,10 @@ export default function ContactUsScreen() {
       </View>
       <ThemedText style={styles.headerSubtitle}>Get in touch with our support team</ThemedText>
 
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}>
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -236,7 +328,51 @@ export default function ContactUsScreen() {
             </View>
           )}
         </View>
+
+        <View style={styles.formCard}>
+          <ThemedText style={styles.infoCardTitle}>Send us a message</ThemedText>
+          <ThemedText style={styles.formHint}>
+            We will reply to {userEmail || 'your account email'}.
+          </ThemedText>
+
+          <ThemedText style={styles.inputLabel}>Subject</ThemedText>
+          <TextInput
+            style={styles.textInput}
+            value={subject}
+            onChangeText={setSubject}
+            placeholder="How can we help?"
+            placeholderTextColor="#999"
+            editable={!sending}
+          />
+
+          <ThemedText style={styles.inputLabel}>Message</ThemedText>
+          <TextInput
+            style={[styles.textInput, styles.messageInput]}
+            value={message}
+            onChangeText={setMessage}
+            placeholder="Describe your issue or question..."
+            placeholderTextColor="#999"
+            multiline
+            textAlignVertical="top"
+            editable={!sending}
+          />
+
+          <TouchableOpacity
+            style={[styles.submitButton, sending && styles.submitButtonDisabled]}
+            onPress={handleSubmitMessage}
+            disabled={sending}>
+            {sending ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <MaterialIcons name="send" size={20} color="#fff" />
+                <ThemedText style={styles.submitButtonText}>Send message</ThemedText>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </ThemedView>
   );
 }
@@ -245,6 +381,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  flex: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -372,6 +511,62 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
+  },
+  formCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginHorizontal: 20,
+    padding: 24,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  formHint: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    backgroundColor: '#FAFAFA',
+    marginBottom: 16,
+  },
+  messageInput: {
+    minHeight: 120,
+    paddingTop: 12,
+  },
+  submitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

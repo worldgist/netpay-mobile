@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts, PDFPage } from "https://esm.sh/pdf-lib@1.17.1";
+import { getResendFromAddress, sendResendEmail } from "../_shared/resend.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -946,13 +947,8 @@ async function generateStatementPDF(
  * Sends email with PDF attachment using RESEND API
  */
 async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: string, startDate: Date, endDate: Date): Promise<void> {
-  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-  const FROM_ADDRESS = Deno.env.get("RESEND_FROM_EMAIL") || "NetPay Notifications <support@netpayy.ng>";
+  const FROM_ADDRESS = getResendFromAddress();
   const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netpayy.ng/logo.png";
-
-  if (!RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY environment variable is not configured");
-  }
 
   // Convert Uint8Array to base64
   const base64 = btoa(String.fromCharCode(...pdfBuffer));
@@ -1056,7 +1052,7 @@ This is an automated email. Please do not reply directly to this message.
 © ${new Date().getFullYear()} NetPay. All rights reserved.
   `;
 
-  const emailPayload = {
+  await sendResendEmail({
     from: FROM_ADDRESS,
     to: [to],
     subject: `Your NetPay Statement - ${formattedStartDate} to ${formattedEndDate}`,
@@ -1069,22 +1065,7 @@ This is an automated email. Please do not reply directly to this message.
         content: base64,
       },
     ],
-  };
-
-  const resendResponse = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(emailPayload),
   });
-
-  if (!resendResponse.ok) {
-    const errorText = await resendResponse.text();
-    console.error("Resend API error:", errorText);
-    throw new Error("Failed to send email via RESEND");
-  }
 }
 
 serve(async (req) => {

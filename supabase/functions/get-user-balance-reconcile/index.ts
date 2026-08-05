@@ -54,59 +54,77 @@ serve(async (req) => {
 
     await requireAdmin(supabase, authHeader);
 
-    let limit = 50;
+    let userId: string | undefined;
     try {
       const body = req.method === "POST" ? await req.json() : {};
-      if (body?.limit) limit = Number(body.limit) || 50;
+      userId = body?.userId || body?.user_id;
     } catch {
       // ignore empty body
     }
 
-    let { data: summary, error: summaryError } = await supabase.rpc("get_ledger_balance_summary");
-    if (summaryError) {
-      console.error("get_ledger_balance_summary error:", summaryError);
-      throw summaryError;
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ success: false, error: "userId is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    const mismatchCount = Number((summary as { mismatch_count?: number })?.mismatch_count) || 0;
-    let autoSynced = false;
+    const [{ data: detail, error: detailError }, { data: recentTx, error: txError }] = await Promise.all([
+      supabase.rpc("get_user_balance_reconcile_detail", { p_user_id: userId }),
+      supabase
+        .from("user_transactions")
+        .select("id, amount, balance_before, balance_after, transaction_type, description, reference, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(15),
+    ]);
 
-    if (mismatchCount > 0) {
-      const { error: syncError } = await supabase.rpc("sync_profile_balances_from_ledger");
+    if (detailError) throw detailError;
+    if (txError) throw txError;
+
+    let resolvedDetail = detail;
+    const needsSync =
+      detail &&
+      typeof detail === "object" &&
+      (detail as { needs_reconcile?: boolean }).needs_reconcile === true;
+
+    if (needsSync) {
+      const { error: syncError } = await supabase.rpc("sync_user_profile_balance_from_ledger", {
+        p_user_id: userId,
+      });
       if (syncError) {
-        console.error("auto sync_profile_balances_from_ledger error:", syncError);
+        console.error("auto sync_user_profile_balance_from_ledger error:", syncError);
       } else {
-        autoSynced = true;
-        const refreshed = await supabase.rpc("get_ledger_balance_summary");
-        if (!refreshed.error && refreshed.data) {
-          summary = refreshed.data;
+        const { data: refreshedDetail, error: refreshError } = await supabase.rpc(
+          "get_user_balance_reconcile_detail",
+          { p_user_id: userId },
+        );
+        if (!refreshError && refreshedDetail) {
+          resolvedDetail = refreshedDetail;
         }
       }
     }
 
-    const { data: mismatches, error: mismatchError } = await supabase.rpc(
-      "get_ledger_balance_mismatches",
-      { p_limit: limit },
-    );
-
-    if (mismatchError) {
-      console.error("get_ledger_balance_mismatches error:", mismatchError);
-      throw mismatchError;
+    if (resolvedDetail && typeof resolvedDetail === "object" && (resolvedDetail as { success?: boolean }).success === false) {
+      return new Response(JSON.stringify(detail), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     return new Response(
       JSON.stringify({
         success: true,
-        summary,
-        mismatches: mismatches ?? [],
-        auto_synced: autoSynced,
+        detail: resolvedDetail,
+        recent_transactions: recentTx ?? [],
+        auto_synced: needsSync,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
     if (error instanceof Response) return error;
 
-    console.error("get-ledger-summary error:", error);
+    console.error("get-user-balance-reconcile error:", error);
     return new Response(
       JSON.stringify({
         success: false,

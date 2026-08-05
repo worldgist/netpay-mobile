@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getMobilenigSecretKey } from "../_shared/mobilenig-api.ts";
 import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
@@ -198,7 +199,7 @@ serve(async (req) => {
     const finalSanitizedMeter = sanitizedMeter || (isDemoUser ? '12345678901' : '');
 
     // Get MobileNig secret key (required for purchase)
-    const mobilenigSecretKey = Deno.env.get('MOBILENIG_SECRET_KEY');
+    const mobilenigSecretKey = getMobilenigSecretKey();
     if (!mobilenigSecretKey) {
       return new Response(
         JSON.stringify({
