@@ -60,7 +60,7 @@ export default function SetupBiometricScreen() {
 
     const checkDemoUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user?.email === 'demo@netpayy.ng') {
+      if (user?.email === 'demo@netppay.com') {
         setIsDemoUser(true);
       }
     };
@@ -199,7 +199,7 @@ export default function SetupBiometricScreen() {
               </View>
               <View style={styles.demoUserContent}>
                 <ThemedText style={styles.demoUserText}>
-                  You are currently using a demo account (demo@netpayy.ng). Biometric login works normally with demo accounts.
+                  You are currently using a demo account (demo@netppay.com). Biometric login works normally with demo accounts.
                 </ThemedText>
                 <ThemedText style={styles.demoUserText}>
                   After enabling biometric login, you can use it to quickly sign in to your demo account.

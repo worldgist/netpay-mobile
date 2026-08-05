@@ -172,7 +172,7 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
 
     if (isDemoUser) {
       const debitResult = await debitUserWallet({

@@ -51,7 +51,7 @@ Transaction terms:
 - Completed transactions are generally final and cannot be reversed except in cases of system errors or as required by law
 - **Refunds:** Refunds will be processed in accordance with our refund policy - typically within 5-10 business days if approved
 - **Failed transactions:** If a transaction fails after funds are deducted, we will investigate and refund within 48 hours if the service was not delivered
-- **Disputed transactions:** Contact support@netpayy.ng within 48 hours of transaction date with transaction reference
+- **Disputed transactions:** Contact support@netppay.com within 48 hours of transaction date with transaction reference
 - **Transaction limits:** We may impose daily or monthly transaction limits for security purposes
 
 > **Note:** Transaction completion is indicated by confirmation message and deduction from your wallet balance. Please verify transaction status before assuming failure.
@@ -125,7 +125,7 @@ Upon termination:
 - Outstanding transactions will be completed or refunded as appropriate
 - You remain liable for all transactions made before termination
 
-> **Note:** You may close your account at any time by contacting support@netpayy.ng or using the delete account feature in-app.
+> **Note:** You may close your account at any time by contacting support@netppay.com or using the delete account feature in-app.
 
 ## 10. Service Modifications and Changes to Terms
 
@@ -147,7 +147,7 @@ For material changes to Terms:
 
 Dispute resolution process:
 
-- **First:** Contact our support team at support@netpayy.ng to attempt informal resolution (within 30 days)
+- **First:** Contact our support team at support@netppay.com to attempt informal resolution (within 30 days)
 - **Mediation:** If informal resolution fails, disputes shall be resolved through mediation in Lagos, Nigeria
 - **Arbitration:** If mediation fails, disputes shall be resolved through binding arbitration under Nigerian Arbitration Act
 - **Court Jurisdiction:** Subject to arbitration clause, disputes shall be subject to exclusive jurisdiction of Nigerian courts
@@ -163,7 +163,7 @@ Governing Law:
 
 For questions, complaints, or support:
 
-- **Email:** support@netpayy.ng (include transaction reference if applicable)
+- **Email:** support@netppay.com (include transaction reference if applicable)
 - **Phone:** +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)
 - **In-App:** Use the "Contact Us" feature
 - **Address:** Lagos, Nigeria (specific address available upon request)
@@ -238,7 +238,7 @@ We retain your data as follows:
 - **Active Accounts:** Data retained while your account is active and for 7 years after last transaction (as required by Nigerian financial regulations)
 - **Inactive Accounts:** Data retained for 3 years after account closure, then anonymized or securely deleted
 - **Legal Requirements:** Transaction records retained for minimum 7 years as required by law
-- **Deletion Requests:** You may request deletion of your account and associated data by contacting support@netpayy.ng. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)
+- **Deletion Requests:** You may request deletion of your account and associated data by contacting support@netppay.com. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)
 - **Processing Time:** Upon account deletion request, we will process within 30 days, subject to legal retention requirements
 
 ## 7. Your Privacy Rights
@@ -254,7 +254,7 @@ You have the right to:
 - **Withdraw Consent:** Withdraw consent for data processing where consent is the legal basis
 - **Lodge Complaints:** File a complaint with the Nigerian Data Protection Commission or relevant supervisory authority
 
-> **Note:** To exercise these rights, contact us at support@netpayy.ng. We will respond within 30 days.
+> **Note:** To exercise these rights, contact us at support@netppay.com. We will respond within 30 days.
 
 ## 8. Biometric Authentication
 
@@ -269,7 +269,7 @@ Our app offers optional biometric authentication (Face ID/Touch ID on iOS, finge
 
 ## 9. Age Restrictions and Children's Privacy
 
-Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netpayy.ng.
+Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netppay.com.
 
 ## 10. International Data Transfers
 
@@ -297,11 +297,11 @@ We may update this Privacy Policy periodically to reflect changes in our practic
 For privacy-related questions, requests, or complaints:
 
 - **Data Controller:** NetPay (registered in Nigeria)
-- **Email:** support@netpayy.ng (include "Privacy Request" in subject line)
+- **Email:** support@netppay.com (include "Privacy Request" in subject line)
 - **Phone:** +234 706 739 8399
 - **Address:** Lagos, Nigeria (specific address available upon request)
 - **Response Time:** We aim to respond to privacy requests within 30 days
-- **Data Protection Officer:** Contact support@netpayy.ng for data protection inquiries
+- **Data Protection Officer:** Contact support@netppay.com for data protection inquiries
 
 > **Note:** For complaints not resolved directly, you may contact the Nigerian Data Protection Commission.`;
 

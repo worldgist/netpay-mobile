@@ -73,7 +73,7 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
 
     // For demo users, return mock successful response
     if (isDemoUser) {

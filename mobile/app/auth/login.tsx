@@ -163,7 +163,7 @@ export default function LoginScreen() {
       }
 
       // Check if user is demo user and setup demo mode
-      if (data?.user?.email === 'demo@netpayy.ng') {
+      if (data?.user?.email === 'demo@netppay.com') {
         try {
           // Setup demo user data if needed - wait for completion
           const { data: setupData, error: setupError } = await supabase.functions.invoke('setup-demo-user', {

@@ -455,7 +455,7 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Uint8Array>
     color: darkGray,
   });
 
-  page.drawText("For support, contact: support@netpayy.ng", {
+  page.drawText("For support, contact: support@netppay.com", {
     x: 50,
     y: footerY - 35,
     size: 9,

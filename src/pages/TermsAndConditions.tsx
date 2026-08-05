@@ -54,7 +54,7 @@ const TermsAndConditions = () => {
         "Completed transactions are generally final and cannot be reversed except in cases of system errors or as required by law",
         "Refunds: Refunds will be processed in accordance with our refund policy - typically within 5-10 business days if approved",
         "Failed transactions: If a transaction fails after funds are deducted, we will investigate and refund within 48 hours if the service was not delivered",
-        "Disputed transactions: Contact support@netpayy.ng within 48 hours of transaction date with transaction reference",
+        "Disputed transactions: Contact support@netppay.com within 48 hours of transaction date with transaction reference",
         "Transaction limits: We may impose daily or monthly transaction limits for security purposes"
       ],
       note: "Transaction completion is indicated by confirmation message and deduction from your wallet balance. Please verify transaction status before assuming failure.",
@@ -138,7 +138,7 @@ const TermsAndConditions = () => {
         "Outstanding transactions will be completed or refunded as appropriate",
         "You remain liable for all transactions made before termination"
       ],
-      note: "You may close your account at any time by contacting support@netpayy.ng or using the delete account feature in-app.",
+      note: "You may close your account at any time by contacting support@netppay.com or using the delete account feature in-app.",
       color: "text-orange-600"
     },
     {
@@ -164,7 +164,7 @@ const TermsAndConditions = () => {
       title: "11. Dispute Resolution and Governing Law",
       content: "Dispute resolution process:",
       list: [
-        "First: Contact our support team at support@netpayy.ng to attempt informal resolution (within 30 days)",
+        "First: Contact our support team at support@netppay.com to attempt informal resolution (within 30 days)",
         "Mediation: If informal resolution fails, disputes shall be resolved through mediation in Lagos, Nigeria",
         "Arbitration: If mediation fails, disputes shall be resolved through binding arbitration under Nigerian Arbitration Act",
         "Court Jurisdiction: Subject to arbitration clause, disputes shall be subject to exclusive jurisdiction of Nigerian courts"
@@ -182,7 +182,7 @@ const TermsAndConditions = () => {
       title: "12. Contact Information and Support",
       content: "For questions, complaints, or support:",
       list: [
-        "Email: support@netpayy.ng (include transaction reference if applicable)",
+        "Email: support@netppay.com (include transaction reference if applicable)",
         "Phone: +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)",
         "In-App: Use the \"Contact Us\" feature",
         "Address: Lagos, Nigeria (specific address available upon request)"

@@ -35,7 +35,7 @@ function resolvePath(parsed: Linking.ParsedURL, rawUrl: string): string {
 }
 
 /**
- * Routes netpay:// and https://netpayy.ng/... links into the mobile app.
+ * Routes netpay:// and https://netppay.com/... links into the mobile app.
  */
 export function handleAppLink(url: string): void {
   if (!url?.trim()) return;

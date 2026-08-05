@@ -82,7 +82,7 @@ const ContactLanding = () => {
     return parsed.length > 0 ? parsed : DEFAULT_BUSINESS_HOURS;
   }, [settings?.business_hours]);
 
-  const supportEmail = settings?.support_email || "support@netpayy.ng";
+  const supportEmail = settings?.support_email || "support@netppay.com";
   const supportPhone = settings?.support_phone_display || "+234 706 739 8399";
   const supportPhoneRaw = settings?.support_phone || "07067398399";
   const supportAddress = [settings?.address_line, settings?.city, settings?.state, settings?.country]

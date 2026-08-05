@@ -208,7 +208,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       // Check if user is demo user
       const userEmail = session.user.email;
       if (isMounted.current) {
-        setIsDemoUser(userEmail === 'demo@netpayy.ng');
+        setIsDemoUser(userEmail === 'demo@netppay.com');
       }
 
       const userId = session.user.id;

@@ -243,7 +243,7 @@ export default function AddMoney() {
         return;
       }
 
-      const isDemoUser = session.user.email === "demo@netpayy.ng";
+      const isDemoUser = session.user.email === "demo@netppay.com";
       if (isDemoUser) {
         try {
           const { data, error: creditError } = await supabase.functions.invoke("demo-auto-credit", { body: {} });

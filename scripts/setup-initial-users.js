@@ -49,7 +49,7 @@ function getEnv() {
 
 const BUILTIN_USERS = [
   {
-    email: 'demo@netpayy.ng',
+    email: 'demo@netppay.com',
     password: 'Demo@1234',
     full_name: 'Demo User',
     phone: '08012345678',
@@ -59,7 +59,7 @@ const BUILTIN_USERS = [
     demo: true,
   },
   {
-    email: 'demo-recipient@netpayy.ng',
+    email: 'demo-recipient@netppay.com',
     password: 'Demo@1234',
     full_name: 'Demo Recipient',
     phone: '08098765432',

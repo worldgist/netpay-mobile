@@ -1,6 +1,6 @@
 /** Canonical NetPay website URL (auth emails, share links, deep-link fallbacks). */
 export const NETPAY_SITE_URL = (
-  import.meta.env.VITE_SITE_URL || "https://netpayy.ng"
+  import.meta.env.VITE_SITE_URL || "https://netppay.com"
 ).replace(/\/$/, "");
 
 export const NETPAY_APP_SCHEME = "netpay";

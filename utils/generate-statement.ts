@@ -799,7 +799,7 @@ export async function generateStatementPDF(options: StatementOptions): Promise<U
   });
   y -= 12;
 
-  currentPage.drawText('For inquiries, please contact support@netpayy.ng', {
+  currentPage.drawText('For inquiries, please contact support@netppay.com', {
     x: margin,
     y,
     size: 8,

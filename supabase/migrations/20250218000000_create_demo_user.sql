@@ -11,7 +11,7 @@ SET search_path = public, auth
 AS $$
 DECLARE
   demo_user_id UUID;
-  demo_email TEXT := 'demo@netpayy.ng';
+  demo_email TEXT := 'demo@netppay.com';
   demo_password TEXT := 'Demo@1234'; -- Simple password for reviewers
   demo_pin TEXT := '1234'; -- Simple PIN for reviewers
   pin_hash_value TEXT;

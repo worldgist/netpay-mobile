@@ -63,7 +63,7 @@ export default function ChangePinScreen() {
         setUserId(session.user.id);
 
         // Check if user is demo user
-        if (session.user.email === 'demo@netpayy.ng') {
+        if (session.user.email === 'demo@netppay.com') {
           setIsDemoUser(true);
         }
 
@@ -646,7 +646,7 @@ export default function ChangePinScreen() {
             </View>
             <View style={styles.demoUserContent}>
               <ThemedText style={styles.demoUserText}>
-                You are currently using a demo account (demo@netpayy.ng). This account is designed for testing purposes.
+                You are currently using a demo account (demo@netppay.com). This account is designed for testing purposes.
               </ThemedText>
               <ThemedText style={styles.demoUserText}>
                 PIN changes for demo accounts work normally. You can change your PIN as needed for testing.

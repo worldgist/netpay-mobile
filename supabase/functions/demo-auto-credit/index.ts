@@ -6,7 +6,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEMO_USER_EMAIL = "demo@netpayy.ng";
+const DEMO_USER_EMAIL = "demo@netppay.com";
 const DEMO_CREDIT_AMOUNT = 50000.00;
 
 serve(async (req) => {

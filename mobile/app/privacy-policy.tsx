@@ -97,7 +97,7 @@ export default function PrivacyPolicyScreen() {
             <ThemedText style={styles.bulletPoint}>• Active Accounts: Data retained while your account is active and for 7 years after last transaction (as required by Nigerian financial regulations)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Inactive Accounts: Data retained for 3 years after account closure, then anonymized or securely deleted</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Legal Requirements: Transaction records retained for minimum 7 years as required by law</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• You may request deletion of your account and associated data by contacting support@netpayy.ng. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• You may request deletion of your account and associated data by contacting support@netppay.com. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Upon account deletion request, we will process within 30 days, subject to legal retention requirements</ThemedText>
           </View>
 
@@ -115,7 +115,7 @@ export default function PrivacyPolicyScreen() {
             <ThemedText style={styles.bulletPoint}>• Withdraw Consent: Withdraw consent for data processing where consent is the legal basis</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Lodge Complaints: File a complaint with the Nigerian Data Protection Commission or relevant supervisory authority</ThemedText>
             <ThemedText style={styles.noteText}>
-              To exercise these rights, contact us at support@netpayy.ng. We will respond within 30 days.
+              To exercise these rights, contact us at support@netppay.com. We will respond within 30 days.
             </ThemedText>
           </View>
 
@@ -136,7 +136,7 @@ export default function PrivacyPolicyScreen() {
           <View style={styles.sectionCard}>
             <ThemedText style={styles.sectionTitle}>9. Age Restrictions and Children&apos;s Privacy</ThemedText>
             <ThemedText style={styles.sectionText}>
-              Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netpayy.ng.
+              Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netppay.com.
             </ThemedText>
           </View>
 
@@ -173,11 +173,11 @@ export default function PrivacyPolicyScreen() {
               For privacy-related questions, requests, or complaints:
             </ThemedText>
             <ThemedText style={styles.contactInfo}>Data Controller: NetPay (registered in Nigeria)</ThemedText>
-            <ThemedText style={styles.contactInfo}>Email: support@netpayy.ng (include &quot;Privacy Request&quot; in subject line)</ThemedText>
+            <ThemedText style={styles.contactInfo}>Email: support@netppay.com (include &quot;Privacy Request&quot; in subject line)</ThemedText>
             <ThemedText style={styles.contactInfo}>Phone: +234 706 739 8399</ThemedText>
             <ThemedText style={styles.contactInfo}>Address: Lagos, Nigeria (specific address available upon request)</ThemedText>
             <ThemedText style={styles.contactInfo}>Response Time: We aim to respond to privacy requests within 30 days</ThemedText>
-            <ThemedText style={styles.contactInfo}>Data Protection Officer: Contact support@netpayy.ng for data protection inquiries</ThemedText>
+            <ThemedText style={styles.contactInfo}>Data Protection Officer: Contact support@netppay.com for data protection inquiries</ThemedText>
             <ThemedText style={styles.noteText}>
               For complaints not resolved directly, you may contact the Nigerian Data Protection Commission.
             </ThemedText>

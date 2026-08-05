@@ -401,7 +401,7 @@ async function generateStatementPDF(
     // Try to fetch and embed logo
     let logoImage: any = null;
     try {
-      const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netpayy.ng/logo.png";
+      const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netppay.com/logo.png";
       console.log("Fetching logo from:", LOGO_URL);
       const logoResponse = await fetch(LOGO_URL);
       if (logoResponse.ok) {
@@ -912,7 +912,7 @@ async function generateStatementPDF(
     });
     summaryY -= 12;
 
-    currentPage.drawText("For inquiries, please contact support@netpayy.ng", {
+    currentPage.drawText("For inquiries, please contact support@netppay.com", {
       x: margin,
       y: summaryY,
       size: 8,
@@ -948,7 +948,7 @@ async function generateStatementPDF(
  */
 async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: string, startDate: Date, endDate: Date): Promise<void> {
   const FROM_ADDRESS = getResendFromAddress();
-  const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netpayy.ng/logo.png";
+  const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netppay.com/logo.png";
 
   // Convert Uint8Array to base64
   const base64 = btoa(String.fromCharCode(...pdfBuffer));
@@ -1002,7 +1002,7 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
             <div style="background-color: #fff7f0; border-left: 4px solid #ff7f00; padding: 16px; margin: 24px 0; border-radius: 4px;">
               <p style="margin: 0; color: #333333; font-size: 14px; line-height: 1.6;">
                 <strong>Need Assistance?</strong><br />
-                Our support team is available 24/7 to help you. You can reach us at <a href="mailto:support@netpayy.ng" style="color: #ff7f00; text-decoration: none;">support@netpayy.ng</a> or through the app's support section.
+                Our support team is available 24/7 to help you. You can reach us at <a href="mailto:support@netppay.com" style="color: #ff7f00; text-decoration: none;">support@netppay.com</a> or through the app's support section.
               </p>
             </div>
 
@@ -1040,7 +1040,7 @@ This statement provides a comprehensive overview of all your transactions during
 Your statement is attached as a PDF document for your records. Please review it carefully and contact our support team if you notice any discrepancies or have any questions.
 
 Need Assistance?
-Our support team is available 24/7 to help you. You can reach us at support@netpayy.ng or through the app's support section.
+Our support team is available 24/7 to help you. You can reach us at support@netppay.com or through the app's support section.
 
 We appreciate your continued trust in NetPay for all your bill payment needs.
 

@@ -1,13 +1,13 @@
-# NetPay deep links (`https://netpayy.ng`)
+# NetPay deep links (`https://netppay.com`)
 
 ## Site URL
 
-Production website: **https://netpayy.ng**
+Production website: **https://netppay.com**
 
 Set in environment:
 
-- Web: `VITE_SITE_URL=https://netpayy.ng`
-- Mobile: `EXPO_PUBLIC_SITE_URL=https://netpayy.ng`
+- Web: `VITE_SITE_URL=https://netppay.com`
+- Mobile: `EXPO_PUBLIC_SITE_URL=https://netppay.com`
 - Supabase Edge Functions: `NETPAY_SITE_URL` or `SITE_URL`
 
 ## Supabase Auth redirect URLs
@@ -16,19 +16,19 @@ In [Supabase Dashboard → Authentication → URL Configuration](https://supabas
 
 | Setting | Value |
 |---------|--------|
-| **Site URL** | `https://netpayy.ng` |
-| **Redirect URLs** (add each) | `https://netpayy.ng/**` |
-| | `https://www.netpayy.ng/**` |
+| **Site URL** | `https://netppay.com` |
+| **Redirect URLs** (add each) | `https://netppay.com/**` |
+| | `https://www.netppay.com/**` |
 | | `netpay://**` |
 
 ## App link paths
 
 | URL | Opens in app |
 |-----|----------------|
-| `https://netpayy.ng/reset-password` | Password reset |
-| `https://netpayy.ng/pay?screen=airtime` | Airtime purchase |
-| `https://netpayy.ng/open/signup?ref=CODE` | Sign up with referral |
-| `https://netpayy.ng/open/verify-email?email=` | Email verification |
+| `https://netppay.com/reset-password` | Password reset |
+| `https://netppay.com/pay?screen=airtime` | Airtime purchase |
+| `https://netppay.com/open/signup?ref=CODE` | Sign up with referral |
+| `https://netppay.com/open/verify-email?email=` | Email verification |
 | `netpay://reset-password` | Password reset (custom scheme) |
 
 ## Universal links setup (required once per store build)
@@ -36,7 +36,7 @@ In [Supabase Dashboard → Authentication → URL Configuration](https://supabas
 ### iOS
 
 1. Replace `TEAM_ID` in `public/.well-known/apple-app-site-association` with your Apple Team ID (e.g. `AB12CD34EF`).
-2. Host the file at `https://netpayy.ng/.well-known/apple-app-site-association` (no file extension, `application/json`).
+2. Host the file at `https://netppay.com/.well-known/apple-app-site-association` (no file extension, `application/json`).
 3. Rebuild the iOS app after updating `associatedDomains` in `app.config.js`.
 
 ### Android
@@ -44,7 +44,7 @@ In [Supabase Dashboard → Authentication → URL Configuration](https://supabas
 1. Add your release keystore SHA-256 fingerprint to `public/.well-known/assetlinks.json`.
    - EAS: `eas credentials -p android`
    - Or: `keytool -list -v -keystore your.keystore`
-2. Host at `https://netpayy.ng/.well-known/assetlinks.json`.
+2. Host at `https://netppay.com/.well-known/assetlinks.json`.
 3. Rebuild the Android app (App Links verification runs on install).
 
 ## Custom scheme

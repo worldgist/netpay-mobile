@@ -26,7 +26,7 @@ export default function UserContact() {
   });
   const [sending, setSending] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [supportEmail, setSupportEmail] = useState("support@netpayy.ng");
+  const [supportEmail, setSupportEmail] = useState("support@netppay.com");
   const [supportPhone, setSupportPhone] = useState("07067398399");
   const [supportPhoneDisplay, setSupportPhoneDisplay] = useState("+234 706 739 8399");
   const [address, setAddress] = useState("Lagos, Nigeria");

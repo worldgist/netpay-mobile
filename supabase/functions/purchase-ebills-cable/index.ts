@@ -100,7 +100,7 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
     const balanceBefore = Number(profile.balance) || 0;
 
     if (balanceBefore < totalAmount) {

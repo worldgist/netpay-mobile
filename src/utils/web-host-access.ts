@@ -1,7 +1,7 @@
 /** Hostnames where only marketing/landing pages are allowed (no web wallet or admin). */
-const DEFAULT_MARKETING_ONLY_HOSTS = ["netpayy.ng", "www.netpayy.ng"];
+const DEFAULT_MARKETING_ONLY_HOSTS = ["netppay.com", "www.netppay.com"];
 
-/** App deep-link paths on netpayy.ng (allowed even when web wallet is disabled). */
+/** App deep-link paths on netppay.com (allowed even when web wallet is disabled). */
 const ALLOWED_DEEP_LINK_PATH_PREFIXES = [
   "/reset-password",
   "/pay",

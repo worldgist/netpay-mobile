@@ -1,6 +1,6 @@
 /** Canonical public website (also used in auth email redirect URLs). */
 export const NETPAY_SITE_URL =
-  (Deno.env.get("NETPAY_SITE_URL") || Deno.env.get("SITE_URL") || "https://netpayy.ng").replace(
+  (Deno.env.get("NETPAY_SITE_URL") || Deno.env.get("SITE_URL") || "https://netppay.com").replace(
     /\/$/,
     "",
   );

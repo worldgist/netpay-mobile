@@ -41,7 +41,7 @@ const DEMO_NUMBERS = {
   },
   transfer: {
     title: 'Demo Recipient Email for Transfer',
-    number: 'demo-recipient@netpayy.ng',
+    number: 'demo-recipient@netppay.com',
     description: 'Use this email address to test money transfers',
   },
   education: {

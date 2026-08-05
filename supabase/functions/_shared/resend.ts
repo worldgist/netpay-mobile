@@ -41,11 +41,11 @@ export function getResendApiKey(): string {
   return apiKey;
 }
 
-export function getResendFromAddress(fallback = "NetPay Notifications <support@netpayy.ng>"): string {
+export function getResendFromAddress(fallback = "NetPay Notifications <support@netppay.com>"): string {
   return Deno.env.get("RESEND_FROM_EMAIL") ?? fallback;
 }
 
-export function getResendSupportInbox(fallback = "support@netpayy.ng"): string {
+export function getResendSupportInbox(fallback = "support@netppay.com"): string {
   return Deno.env.get("RESEND_TO_EMAIL") ?? fallback;
 }
 

@@ -44,7 +44,7 @@ export default function TransferScreen() {
   const transferFee = useMemo(() => calculateTransferFee(amountValue), [amountValue]);
   const totalAmount = useMemo(() => amountValue + transferFee, [amountValue, transferFee]);
   // For demo users, allow transfer if using demo email even without verification
-  const canTransfer = (isDemoUser && recipientEmail.trim().toLowerCase() === 'demo-recipient@netpayy.ng' && amountValue > 0 && totalAmount <= balance && !transferLoading) ||
+  const canTransfer = (isDemoUser && recipientEmail.trim().toLowerCase() === 'demo-recipient@netppay.com' && amountValue > 0 && totalAmount <= balance && !transferLoading) ||
                       (!!recipientDetails && amountValue > 0 && totalAmount <= balance && !transferLoading);
 
   const fetchBalance = useCallback(async (isRefresh = false) => {
@@ -69,7 +69,7 @@ export default function TransferScreen() {
       setCurrentUserEmail(userEmail);
       
       // Check if user is demo user
-      setIsDemoUser(userEmail === 'demo@netpayy.ng');
+      setIsDemoUser(userEmail === 'demo@netppay.com');
 
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
@@ -177,9 +177,9 @@ export default function TransferScreen() {
     }
     
     // Auto-set recipient details for demo users using demo email
-    if (isDemoUser && !recipientDetails && recipientEmail.trim().toLowerCase() === 'demo-recipient@netpayy.ng') {
+    if (isDemoUser && !recipientDetails && recipientEmail.trim().toLowerCase() === 'demo-recipient@netppay.com') {
       setRecipientDetails({
-        email: 'demo-recipient@netpayy.ng',
+        email: 'demo-recipient@netppay.com',
         full_name: 'Demo Recipient',
       });
     }
@@ -199,7 +199,7 @@ export default function TransferScreen() {
 
   const handleConfirmTransfer = async () => {
     // For demo users, use recipient email directly if not verified
-    const finalRecipientEmail = isDemoUser && !recipientDetails && recipientEmail.trim().toLowerCase() === 'demo-recipient@netpayy.ng'
+    const finalRecipientEmail = isDemoUser && !recipientDetails && recipientEmail.trim().toLowerCase() === 'demo-recipient@netppay.com'
       ? recipientEmail.trim().toLowerCase()
       : recipientDetails?.email.toLowerCase();
     
@@ -348,13 +348,13 @@ export default function TransferScreen() {
               <View style={styles.demoEmailBox}>
                 <ThemedText style={styles.demoEmailLabel}>Use this recipient email:</ThemedText>
                 <View style={styles.demoEmailValueContainer}>
-                  <ThemedText style={styles.demoEmailValue}>demo-recipient@netpayy.ng</ThemedText>
+                  <ThemedText style={styles.demoEmailValue}>demo-recipient@netppay.com</ThemedText>
                   <TouchableOpacity
                     style={styles.demoEmailCopyButton}
                     onPress={async () => {
-                      await Clipboard.setStringAsync('demo-recipient@netpayy.ng');
+                      await Clipboard.setStringAsync('demo-recipient@netppay.com');
                       Alert.alert('Copied!', 'Recipient email copied to clipboard');
-                      setRecipientEmail('demo-recipient@netpayy.ng');
+                      setRecipientEmail('demo-recipient@netppay.com');
                     }}
                     activeOpacity={0.7}>
                     <MaterialIcons name="content-copy" size={20} color="#FF7F00" />

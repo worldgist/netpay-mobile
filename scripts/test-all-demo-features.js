@@ -3,7 +3,7 @@
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhycHV2bmhtZG1wZ2VsZnhwZGN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4NDc4MTgsImV4cCI6MjEwMTQyMzgxOH0.vIatIAJq-ay-y2-C1_t00l65-oK2nr7kkmitq_34oOk';
-const DEMO_EMAIL = 'demo@netpayy.ng';
+const DEMO_EMAIL = 'demo@netppay.com';
 const DEMO_PASSWORD = 'Demo@1234';
 
 const colors = {

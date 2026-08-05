@@ -319,7 +319,7 @@ serve(async (req) => {
       `Purchasing airtime: ${normalizedAmount} for ${sanitizedPhone} on network ${smeplugNetworkId} (${normalizedNetworkName ?? 'UNKNOWN'})`
     );
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
 
     const fallbackNetworkId = network_id ?? smeplugNetworkId;
     const displayNetwork =

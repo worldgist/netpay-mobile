@@ -437,11 +437,11 @@ const Index = () => {
                     <span>WhatsApp</span>
                   </a>
                   <a
-                    href="mailto:support@netpayy.ng"
+                    href="mailto:support@netppay.com"
                     className="hover:text-foreground transition-colors flex items-center gap-2"
                   >
                     <Mail className="w-4 h-4" />
-                    <span>support@netpayy.ng</span>
+                    <span>support@netppay.com</span>
                   </a>
                 </div>
               </div>

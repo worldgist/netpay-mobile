@@ -3,7 +3,7 @@
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
-const DEMO_EMAIL = 'demo@netpayy.ng';
+const DEMO_EMAIL = 'demo@netppay.com';
 const DEMO_PASSWORD = 'Demo@1234';
 
 async function testDemoUser() {

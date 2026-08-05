@@ -20,7 +20,7 @@ export default function DeleteAccountScreen() {
   useEffect(() => {
     const checkDemoUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user?.email === 'demo@netpayy.ng') {
+      if (user?.email === 'demo@netppay.com') {
         setIsDemoUser(true);
       }
     };
@@ -166,7 +166,7 @@ export default function DeleteAccountScreen() {
       
       // Check for specific error types
       if (errorMessage.includes('non-2xx') || errorMessage.includes('Edge Function')) {
-        errorMessage = 'The delete account service is currently unavailable. Please contact support at support@netpayy.ng or try again later.';
+        errorMessage = 'The delete account service is currently unavailable. Please contact support at support@netppay.com or try again later.';
       } else if (errorMessage.includes('Unauthorized') || errorMessage.includes('Session')) {
         errorMessage = 'Your session has expired. Please log in again and try deleting your account.';
       }
@@ -214,7 +214,7 @@ export default function DeleteAccountScreen() {
             </View>
             <View style={styles.demoUserContent}>
               <ThemedText style={styles.demoUserText}>
-                You are currently using a demo account (demo@netpayy.ng). This account is designed for testing purposes.
+                You are currently using a demo account (demo@netppay.com). This account is designed for testing purposes.
               </ThemedText>
               <ThemedText style={styles.demoUserText}>
                 Account deletion for demo accounts may be restricted or handled differently. If you need to delete a demo account, please contact support.

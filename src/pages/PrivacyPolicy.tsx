@@ -77,7 +77,7 @@ const PrivacyPolicy = () => {
         "Active Accounts: Data retained while your account is active and for 7 years after last transaction (as required by Nigerian financial regulations)",
         "Inactive Accounts: Data retained for 3 years after account closure, then anonymized or securely deleted",
         "Legal Requirements: Transaction records retained for minimum 7 years as required by law",
-        "You may request deletion of your account and associated data by contacting support@netpayy.ng. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)",
+        "You may request deletion of your account and associated data by contacting support@netppay.com. Note: We may retain certain information as required by law (e.g., transaction records for regulatory compliance)",
         "Upon account deletion request, we will process within 30 days, subject to legal retention requirements"
       ],
       color: "text-orange-600"
@@ -96,13 +96,13 @@ const PrivacyPolicy = () => {
         "Withdraw Consent: Withdraw consent for data processing where consent is the legal basis",
         "Lodge Complaints: File a complaint with the Nigerian Data Protection Commission or relevant supervisory authority"
       ],
-      note: "To exercise these rights, contact us at support@netpayy.ng. We will respond within 30 days.",
+      note: "To exercise these rights, contact us at support@netppay.com. We will respond within 30 days.",
       color: "text-orange-600"
     },
     {
       icon: Info,
       title: "8. Age Restrictions and Children's Privacy",
-      content: "Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netpayy.ng.",
+      content: "Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netppay.com.",
       color: "text-orange-600"
     },
     {
@@ -111,11 +111,11 @@ const PrivacyPolicy = () => {
       content: "For privacy-related questions, requests, or complaints:",
       list: [
         "Data Controller: NetPay (registered in Nigeria)",
-        "Email: support@netpayy.ng (include \"Privacy Request\" in subject line)",
+        "Email: support@netppay.com (include \"Privacy Request\" in subject line)",
         "Phone: +234 706 739 8399",
         "Address: Lagos, Nigeria (specific address available upon request)",
         "Response Time: We aim to respond to privacy requests within 30 days",
-        "Data Protection Officer: Contact support@netpayy.ng for data protection inquiries"
+        "Data Protection Officer: Contact support@netppay.com for data protection inquiries"
       ],
       note: "For complaints not resolved directly, you may contact the Nigerian Data Protection Commission.",
       color: "text-orange-600"
@@ -200,13 +200,13 @@ const PrivacyPolicy = () => {
                     </p>
                     <div className="flex flex-wrap gap-3">
                       <a 
-                        href="mailto:support@netpayy.ng"
+                        href="mailto:support@netppay.com"
                         className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
                       >
                         Contact DPO
                       </a>
                       <a 
-                        href="mailto:support@netpayy.ng"
+                        href="mailto:support@netppay.com"
                         className="px-4 py-2 border border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-colors text-sm font-medium"
                       >
                         Request Data Access

@@ -33,7 +33,7 @@ INSERT INTO admin_actions (
 SELECT 
   'ban_user',
   'User banned for suspicious activity: ' || email,
-  (SELECT id FROM auth.users WHERE email = 'demo@netpayy.ng' LIMIT 1),
+  (SELECT id FROM auth.users WHERE email = 'demo@netppay.com' LIMIT 1),
   id,
   NOW()
 FROM profiles

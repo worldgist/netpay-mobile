@@ -1,7 +1,7 @@
 // Single Expo config source (no app.json) — satisfies expo-doctor and keeps EAS google-services override.
 
 const googleServicesFromEnv = process.env.GOOGLE_SERVICES_JSON;
-const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://netpayy.ng').replace(/\/$/, '');
+const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://netppay.com').replace(/\/$/, '');
 const siteHost = siteUrl.replace(/^https?:\/\//, '');
 
 module.exports = {
@@ -21,7 +21,7 @@ module.exports = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.netpay.mobile',
-    associatedDomains: [`applinks:${siteHost}`, 'applinks:www.netpayy.ng'],
+    associatedDomains: [`applinks:${siteHost}`, 'applinks:www.netppay.com'],
     infoPlist: {
       CFBundleURLTypes: [
         {
@@ -57,11 +57,11 @@ module.exports = {
         category: ['BROWSABLE', 'DEFAULT'],
         data: [
           { scheme: 'https', host: siteHost, pathPrefix: '/reset-password' },
-          { scheme: 'https', host: 'www.netpayy.ng', pathPrefix: '/reset-password' },
+          { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/reset-password' },
           { scheme: 'https', host: siteHost, pathPrefix: '/pay' },
-          { scheme: 'https', host: 'www.netpayy.ng', pathPrefix: '/pay' },
+          { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/pay' },
           { scheme: 'https', host: siteHost, pathPrefix: '/open' },
-          { scheme: 'https', host: 'www.netpayy.ng', pathPrefix: '/open' },
+          { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/open' },
         ],
       },
       {

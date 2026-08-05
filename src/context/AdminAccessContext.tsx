@@ -71,7 +71,7 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
     if (typeof userMeta.hr === "boolean" && userMeta.hr) collected.add("hr");
 
     const email = userSession.user.email?.toLowerCase();
-    if (email?.endsWith("@netpayy.ng")) {
+    if (email?.endsWith("@netppay.com")) {
       collected.add("admin");
     }
 

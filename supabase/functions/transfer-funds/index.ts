@@ -91,7 +91,7 @@ async function enforceTransferRiskLimits(params: {
   amount: number;
 }): Promise<void> {
   const senderEmail = normalizeEmail(params.senderEmail);
-  if (senderEmail === "demo@netpayy.ng") {
+  if (senderEmail === "demo@netppay.com") {
     return;
   }
 

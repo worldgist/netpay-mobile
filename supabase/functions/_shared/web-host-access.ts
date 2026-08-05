@@ -1,4 +1,4 @@
-const DEFAULT_MARKETING_ONLY_HOSTS = ["netpayy.ng", "www.netpayy.ng"];
+const DEFAULT_MARKETING_ONLY_HOSTS = ["netppay.com", "www.netppay.com"];
 
 const ALLOWED_DEEP_LINK_PATH_PREFIXES = ["/reset-password", "/pay", "/open"];
 

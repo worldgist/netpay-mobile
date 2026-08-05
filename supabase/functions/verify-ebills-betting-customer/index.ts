@@ -47,7 +47,7 @@ serve(async (req) => {
       .eq('id', user.id)
       .maybeSingle();
     
-    const isDemoUser = profile?.email === 'demo@netpayy.ng';
+    const isDemoUser = profile?.email === 'demo@netppay.com';
     
     // Demo account IDs that work for testing
     const DEMO_ACCOUNT_IDS = ['1234567890', 'demo123', 'testaccount', '9999999999'];

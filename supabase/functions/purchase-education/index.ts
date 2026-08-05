@@ -239,7 +239,7 @@ serve(async (req) => {
     }
 
     const balanceBefore = Number(profile.balance) || 0;
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
 
     // Calculate total amount (purchase amount + 7% charge fee)
     const CHARGE_FEE_RATE = 0.07; // 7% charge fee

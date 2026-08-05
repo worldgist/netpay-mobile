@@ -46,7 +46,7 @@ export default function Transfer() {
 
     const userEmail = session.user.email || "";
     setCurrentUserEmail(userEmail);
-    setIsDemoUser(userEmail === "demo@netpayy.ng");
+    setIsDemoUser(userEmail === "demo@netppay.com");
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -82,9 +82,9 @@ export default function Transfer() {
       return;
     }
 
-    if (isDemoUser && trimmedEmail === "demo-recipient@netpayy.ng") {
+    if (isDemoUser && trimmedEmail === "demo-recipient@netppay.com") {
       setRecipientDetails({
-        email: "demo-recipient@netpayy.ng",
+        email: "demo-recipient@netppay.com",
         full_name: "Demo Recipient",
       });
       toast.success("Demo recipient ready");
@@ -135,14 +135,14 @@ export default function Transfer() {
   const handleTransfer = async () => {
     const trimmedEmail = recipientEmail.trim().toLowerCase();
 
-    if (!recipientDetails && !(isDemoUser && trimmedEmail === "demo-recipient@netpayy.ng")) {
+    if (!recipientDetails && !(isDemoUser && trimmedEmail === "demo-recipient@netppay.com")) {
       toast.error("Please verify recipient first");
       return;
     }
 
-    if (!recipientDetails && isDemoUser && trimmedEmail === "demo-recipient@netpayy.ng") {
+    if (!recipientDetails && isDemoUser && trimmedEmail === "demo-recipient@netppay.com") {
       setRecipientDetails({
-        email: "demo-recipient@netpayy.ng",
+        email: "demo-recipient@netppay.com",
         full_name: "Demo Recipient",
       });
     }
@@ -176,8 +176,8 @@ export default function Transfer() {
       }
 
       const finalRecipientEmail =
-        isDemoUser && recipientEmail.trim().toLowerCase() === "demo-recipient@netpayy.ng"
-          ? "demo-recipient@netpayy.ng"
+        isDemoUser && recipientEmail.trim().toLowerCase() === "demo-recipient@netppay.com"
+          ? "demo-recipient@netppay.com"
           : recipientDetails?.email?.toLowerCase();
 
       if (!finalRecipientEmail) {
@@ -262,14 +262,14 @@ export default function Transfer() {
               </div>
             </div>
             <div className="flex items-center justify-between gap-3 bg-white rounded-xl border px-4 py-3">
-              <span className="text-sm font-medium text-gray-900 break-all">demo-recipient@netpayy.ng</span>
+              <span className="text-sm font-medium text-gray-900 break-all">demo-recipient@netppay.com</span>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  await navigator.clipboard.writeText("demo-recipient@netpayy.ng");
-                  setRecipientEmail("demo-recipient@netpayy.ng");
+                  await navigator.clipboard.writeText("demo-recipient@netppay.com");
+                  setRecipientEmail("demo-recipient@netppay.com");
                   setRecipientDetails(null);
                   toast.success("Demo recipient copied and filled");
                 }}
@@ -309,7 +309,7 @@ export default function Transfer() {
                 {verifying ? "Verifying..." : "Verify"}
               </Button>
             </div>
-            {isDemoUser && recipientEmail.trim().toLowerCase() === "demo-recipient@netpayy.ng" && !recipientDetails && (
+            {isDemoUser && recipientEmail.trim().toLowerCase() === "demo-recipient@netppay.com" && !recipientDetails && (
               <p className="text-xs text-amber-700">Demo recipient can be used directly, even before verification.</p>
             )}
           </div>

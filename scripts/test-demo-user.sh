@@ -6,7 +6,7 @@
 set -e
 
 SUPABASE_URL="${SUPABASE_URL:-https://xrpuvnhmdmpgelfxpdcx.supabase.co}"
-DEMO_EMAIL="demo@netpayy.ng"
+DEMO_EMAIL="demo@netppay.com"
 DEMO_PASSWORD="Demo@1234"
 
 echo "🧪 Testing Demo User Functionality"

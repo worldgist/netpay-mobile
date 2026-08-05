@@ -259,7 +259,7 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
     const basePrice = Number(plan.custom_price || plan.original_price || plan.price || 0);
     
     // Calculate 2% charge fee

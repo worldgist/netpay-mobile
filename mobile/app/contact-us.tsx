@@ -20,7 +20,7 @@ import { supabase } from '@/lib/supabase';
 
 export default function ContactUsScreen() {
   const router = useRouter();
-  const [supportEmail, setSupportEmail] = useState('support@netpayy.ng');
+  const [supportEmail, setSupportEmail] = useState('support@netppay.com');
   const [supportPhone, setSupportPhone] = useState('07067398399');
   const [supportPhoneDisplay, setSupportPhoneDisplay] = useState('+234 706 739 8399');
   const [supportAddress, setSupportAddress] = useState('');

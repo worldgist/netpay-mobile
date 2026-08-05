@@ -5,7 +5,7 @@ import { authRedirectUrls, appDeepLink, NETPAY_SITE_URL, siteUrl } from "@/confi
 import { Button } from "@/components/ui/button";
 
 /**
- * Fallback page when a user opens https://netpayy.ng/... in the browser.
+ * Fallback page when a user opens https://netppay.com/... in the browser.
  * Attempts to open the native app via custom scheme; universal links open the app directly when configured.
  */
 export default function AppLinkRedirect() {

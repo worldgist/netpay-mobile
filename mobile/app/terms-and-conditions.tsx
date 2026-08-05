@@ -80,7 +80,7 @@ export default function TermsAndConditionsScreen() {
             <ThemedText style={styles.bulletPoint}>• Completed transactions are generally final and cannot be reversed except in cases of system errors or as required by law</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Refunds: Refunds will be processed in accordance with our refund policy - typically within 5-10 business days if approved</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Failed transactions: If a transaction fails after funds are deducted, we will investigate and refund within 48 hours if the service was not delivered</ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Disputed transactions: Contact support@netpayy.ng within 48 hours of transaction date with transaction reference</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Disputed transactions: Contact support@netppay.com within 48 hours of transaction date with transaction reference</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Transaction limits: We may impose daily or monthly transaction limits for security purposes</ThemedText>
             <ThemedText style={styles.noteText}>
               Transaction completion is indicated by confirmation message and deduction from your wallet balance. Please verify transaction status before assuming failure.
@@ -169,7 +169,7 @@ export default function TermsAndConditionsScreen() {
             <ThemedText style={styles.bulletPoint}>• Outstanding transactions will be completed or refunded as appropriate</ThemedText>
             <ThemedText style={styles.bulletPoint}>• You remain liable for all transactions made before termination</ThemedText>
             <ThemedText style={styles.noteText}>
-              You may close your account at any time by contacting support@netpayy.ng or using the delete account feature in-app.
+              You may close your account at any time by contacting support@netppay.com or using the delete account feature in-app.
             </ThemedText>
           </View>
 
@@ -197,7 +197,7 @@ export default function TermsAndConditionsScreen() {
             <ThemedText style={styles.sectionText}>
               Dispute resolution process:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• First: Contact our support team at support@netpayy.ng to attempt informal resolution (within 30 days)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• First: Contact our support team at support@netppay.com to attempt informal resolution (within 30 days)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Mediation: If informal resolution fails, disputes shall be resolved through mediation in Lagos, Nigeria</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Arbitration: If mediation fails, disputes shall be resolved through binding arbitration under Nigerian Arbitration Act</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Court Jurisdiction: Subject to arbitration clause, disputes shall be subject to exclusive jurisdiction of Nigerian courts</ThemedText>
@@ -216,7 +216,7 @@ export default function TermsAndConditionsScreen() {
             <ThemedText style={styles.sectionText}>
               For questions, complaints, or support:
             </ThemedText>
-            <ThemedText style={styles.bulletPoint}>• Email: support@netpayy.ng (include transaction reference if applicable)</ThemedText>
+            <ThemedText style={styles.bulletPoint}>• Email: support@netppay.com (include transaction reference if applicable)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Phone: +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)</ThemedText>
             <ThemedText style={styles.bulletPoint}>• In-App: Use the Contact Us feature</ThemedText>
             <ThemedText style={styles.bulletPoint}>• Address: Lagos, Nigeria (specific address available upon request)</ThemedText>

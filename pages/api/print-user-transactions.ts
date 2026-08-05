@@ -15,7 +15,7 @@ type ApiResponse = {
 // Helper to send email with PDF attachment using RESEND API
 async function sendStatementEmail({ to, pdfBuffer }: { to: string, pdfBuffer: Buffer }) {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  const FROM_ADDRESS = process.env.RESEND_FROM_EMAIL || 'NetPay Notifications <support@netpayy.ng>';
+  const FROM_ADDRESS = process.env.RESEND_FROM_EMAIL || 'NetPay Notifications <support@netppay.com>';
   if (!RESEND_API_KEY) throw new Error('RESEND_API_KEY environment variable is not configured');
 
   const pdfBase64 = pdfBuffer.toString('base64');

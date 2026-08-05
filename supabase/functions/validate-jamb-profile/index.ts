@@ -53,7 +53,7 @@ serve(async (req) => {
       .eq('id', user.id)
       .maybeSingle();
     
-    const isDemoUser = profile?.email === 'demo@netpayy.ng';
+    const isDemoUser = profile?.email === 'demo@netppay.com';
 
     // Parse request body
     const body: ValidateJambProfileRequest = await req.json();

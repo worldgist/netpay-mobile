@@ -6,7 +6,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEMO_RECIPIENT_EMAIL = "demo-recipient@netpayy.ng";
+const DEMO_RECIPIENT_EMAIL = "demo-recipient@netppay.com";
 const DEMO_RECIPIENT_PASSWORD = "Demo@1234";
 const DEMO_RECIPIENT_PHONE = "08098765432";
 const DEMO_RECIPIENT_BALANCE = 10000.00; // ₦10,000 initial balance

@@ -108,7 +108,7 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netpayy.ng';
+    const isDemoUser = profile.email === 'demo@netppay.com';
 
     // Validate inputs (more lenient for demo users)
     if (!isDemoUser) {

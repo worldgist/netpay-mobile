@@ -83,7 +83,7 @@ serve(async (req) => {
         customizations: {
           title: "NetPay Wallet Funding",
           description: `Add ₦${paymentAmount.toLocaleString()} to your NetPay wallet`,
-          logo: "https://netpayy.ng/logo.png",
+          logo: "https://netppay.com/logo.png",
         },
         meta: {
           user_id: user.id,

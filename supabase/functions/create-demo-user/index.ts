@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Demo user credentials (safe to expose as this is for testing only)
 const DEMO_USER = {
-  email: 'demo@netpayy.ng',
+  email: 'demo@netppay.com',
   password: 'Demo@1234',
   pin: '1234',
   fullName: 'Demo User',

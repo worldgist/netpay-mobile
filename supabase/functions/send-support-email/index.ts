@@ -59,7 +59,7 @@ serve(async (req) => {
 
   try {
     const SUPPORT_INBOX = getResendSupportInbox();
-    const FROM_ADDRESS = getResendFromAddress("NetPay Support <support@netpayy.ng>");
+    const FROM_ADDRESS = getResendFromAddress("NetPay Support <support@netppay.com>");
 
     const body = (await req.json()) as SupportEmailPayload;
     const name = normalize(body.name);

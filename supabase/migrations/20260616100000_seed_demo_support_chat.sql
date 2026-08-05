@@ -1,4 +1,4 @@
--- Seed one open support conversation + starter message for the existing App Review demo account (demo@netpayy.ng).
+-- Seed one open support conversation + starter message for the existing App Review demo account (demo@netppay.com).
 -- Safe to run repeatedly: skips if an open thread already exists; only adds the welcome message when the thread is empty.
 
 CREATE OR REPLACE FUNCTION public.seed_demo_support_chat()
@@ -16,13 +16,13 @@ BEGIN
   SELECT u.id
   INTO demo_uid
   FROM auth.users u
-  WHERE lower(u.email) = lower('demo@netpayy.ng')
+  WHERE lower(u.email) = lower('demo@netppay.com')
   LIMIT 1;
 
   IF demo_uid IS NULL THEN
     RETURN jsonb_build_object(
       'skipped', true,
-      'reason', 'No auth user with email demo@netpayy.ng. Create the demo user first (e.g. create-demo-user edge function).'
+      'reason', 'No auth user with email demo@netppay.com. Create the demo user first (e.g. create-demo-user edge function).'
     );
   END IF;
 
@@ -69,6 +69,6 @@ REVOKE ALL ON FUNCTION public.seed_demo_support_chat() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.seed_demo_support_chat() TO service_role;
 
 COMMENT ON FUNCTION public.seed_demo_support_chat() IS
-  'Creates an open support_conversations row for demo@netpayy.ng and one starter message if the thread is empty. Idempotent.';
+  'Creates an open support_conversations row for demo@netppay.com and one starter message if the thread is empty. Idempotent.';
 
 SELECT public.seed_demo_support_chat();

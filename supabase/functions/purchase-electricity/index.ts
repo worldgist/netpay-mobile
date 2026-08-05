@@ -251,7 +251,7 @@ serve(async (req) => {
           );
         }
 
-        const isDemoUser = profile.email === 'demo@netpayy.ng';
+        const isDemoUser = profile.email === 'demo@netppay.com';
         const basePrice = Number(amount);
         const minPurchaseAmount = Number(minimum_vend) || 100;
 
