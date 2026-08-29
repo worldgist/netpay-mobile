@@ -9,7 +9,9 @@ Write-Host "NetPay - Apply Supabase email template" -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Project: xrpuvnhmdmpgelfxpdcx (Netpay)"
-Write-Host "Template: supabase/templates/confirm-signup.html"
+Write-Host "Templates:"
+Write-Host "  - supabase/templates/confirm-signup.html"
+Write-Host "  - supabase/templates/reset-password.html"
 Write-Host "OTP length: 6 digits (10 minute expiry)"
 Write-Host ""
 
@@ -33,7 +35,7 @@ try {
       Write-Host "No token provided. Cancelled." -ForegroundColor Red
       exit 1
     }
-    node "$PSScriptRoot\update-supabase-confirm-signup-template.js" $token.Trim()
+    node "$PSScriptRoot\update-supabase-email-templates.js" $token.Trim()
     if ($LASTEXITCODE -ne 0) {
       exit $LASTEXITCODE
     }

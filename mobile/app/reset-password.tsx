@@ -26,7 +26,7 @@ import { authRedirectUrls } from '@/constants/site';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const CODE_LENGTH = 8;
+const CODE_LENGTH = 6;
 
 export default function ResetPasswordScreen() {
   const router = useRouter();

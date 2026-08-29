@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2 } from "lucide-react";
+import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
@@ -90,6 +90,9 @@ export default function Users() {
   const [deletingUser, setDeletingUser] = useState(false);
   const [verifyingUser, setVerifyingUser] = useState(false);
   const [isResetPasswordDialogOpen, setIsResetPasswordDialogOpen] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [resetPasswordReason, setResetPasswordReason] = useState("");
   const [resettingPassword, setResettingPassword] = useState(false);
   const [isSendResetLinkDialogOpen, setIsSendResetLinkDialogOpen] = useState(false);
@@ -397,7 +400,19 @@ export default function Users() {
     setIsDeleteDialogOpen(true);
   };
 
+  const generateSecurePassword = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*";
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    const password = Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
+    setResetPasswordValue(password);
+    setResetPasswordConfirm(password);
+    setShowResetPassword(true);
+  };
+
   const handleOpenResetPasswordDialog = () => {
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+    setShowResetPassword(false);
     setResetPasswordReason("");
     setIsResetPasswordDialogOpen(true);
   };
@@ -448,11 +463,42 @@ export default function Users() {
   const handleResetUserPassword = async () => {
     if (!selectedUser) return;
 
+    const trimmedPassword = resetPasswordValue.trim();
+    const trimmedConfirm = resetPasswordConfirm.trim();
+
+    if (!trimmedPassword) {
+      toast({
+        title: "Password Required",
+        description: "Enter a new password for the user",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (trimmedPassword.length < 6) {
+      toast({
+        title: "Password Too Short",
+        description: "Password must be at least 6 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (trimmedPassword !== trimmedConfirm) {
+      toast({
+        title: "Passwords Do Not Match",
+        description: "Confirm the new password before sending",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setResettingPassword(true);
       const { data, error } = await supabase.functions.invoke("admin-reset-user-password", {
         body: {
           userId: selectedUser.id,
+          newPassword: trimmedPassword,
           reason: resetPasswordReason.trim() || null,
         },
       });
@@ -467,10 +513,13 @@ export default function Users() {
 
       toast({
         title: "Password Reset",
-        description: data.message || `A new password was emailed to ${selectedUser.email}`,
+        description: data.message || `The new password was emailed to ${selectedUser.email}`,
       });
 
       setIsResetPasswordDialogOpen(false);
+      setResetPasswordValue("");
+      setResetPasswordConfirm("");
+      setShowResetPassword(false);
       setResetPasswordReason("");
     } catch (error: any) {
       toast({
@@ -681,6 +730,9 @@ export default function Users() {
         description: `User ${newStatus === "suspended" ? "suspended" : "activated"} successfully`,
       });
 
+      setSelectedUser((current) =>
+        current && current.id === user.id ? { ...current, status: newStatus } : current,
+      );
       fetchUsers();
     } catch (error: any) {
       console.error('Suspend user error:', error);
@@ -1007,15 +1059,39 @@ export default function Users() {
         </main>
       </div>
 
-      {/* View User Details Dialog */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>User Details</DialogTitle>
-            <DialogDescription>Complete user information and transaction history</DialogDescription>
-          </DialogHeader>
-          {selectedUser && (
-            <div className="space-y-6">
+      {/* Full-screen user details view */}
+      {isViewDialogOpen && selectedUser && (
+        <div className="fixed inset-0 z-40 flex flex-col bg-background">
+          <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <div className="flex h-16 items-center justify-between gap-4 px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsViewDialogOpen(false)}
+                  aria-label="Back to users list"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+                <div className="min-w-0">
+                  <h1 className="truncate text-xl font-bold">User Details</h1>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {selectedUser.full_name || selectedUser.email || selectedUser.id}
+                  </p>
+                </div>
+              </div>
+              <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
+              <p className="text-sm text-muted-foreground">
+                Complete user information and transaction history
+              </p>
+
               {selectedUserHasBalanceDrift && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -1036,14 +1112,14 @@ export default function Users() {
                 </Alert>
               )}
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <div>
                   <Label className="text-muted-foreground">Full Name</Label>
                   <p className="font-medium">{selectedUser.full_name || "N/A"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Email</Label>
-                  <p className="font-medium">{selectedUser.email || "N/A"}</p>
+                  <p className="font-medium break-all">{selectedUser.email || "N/A"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Phone</Label>
@@ -1118,7 +1194,7 @@ export default function Users() {
                     {new Date(selectedUser.created_at).toLocaleTimeString()}
                   </p>
                 </div>
-                <div className="sm:col-span-2 lg:col-span-3">
+                <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
                   <Label className="text-muted-foreground">User ID</Label>
                   <p className="font-mono text-xs break-all">{selectedUser.id}</p>
                 </div>
@@ -1161,118 +1237,100 @@ export default function Users() {
                 </Card>
               </div>
 
-              <div>
-                <Label className="text-lg font-semibold">Recent Transactions</Label>
-                <div className="mt-3 space-y-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Transactions</CardTitle>
+                  <CardDescription>Last 100 wallet transactions for this user</CardDescription>
+                </CardHeader>
+                <CardContent>
                   {userTransactions.length === 0 ? (
                     <p className="text-muted-foreground text-sm">No transactions yet</p>
                   ) : (
-                    userTransactions.map((tx) => (
-                      <div
-                        key={tx.id}
-                        className="flex items-center justify-between p-3 border rounded-lg"
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant={
-                                tx.transaction_type === "credit"
-                                  ? "default"
-                                  : tx.transaction_type === "debit"
-                                  ? "destructive"
-                                  : "secondary"
-                              }
-                            >
-                              {tx.transaction_type}
-                            </Badge>
-                            <span className="text-sm text-muted-foreground">
-                              {new Date(tx.created_at).toLocaleString()}
-                            </span>
+                    <div className="space-y-2">
+                      {userTransactions.map((tx) => (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between gap-4 p-3 border rounded-lg"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge
+                                variant={
+                                  tx.transaction_type === "credit"
+                                    ? "default"
+                                    : tx.transaction_type === "debit"
+                                    ? "destructive"
+                                    : "secondary"
+                                }
+                              >
+                                {tx.transaction_type}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground">
+                                {new Date(tx.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            {tx.description && (
+                              <p className="text-sm mt-1">{tx.description}</p>
+                            )}
+                            {tx.reference && (
+                              <p className="text-xs text-muted-foreground mt-1 break-all">
+                                Ref: {tx.reference}
+                              </p>
+                            )}
                           </div>
-                          {tx.description && (
-                            <p className="text-sm mt-1">{tx.description}</p>
-                          )}
-                          {tx.reference && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Ref: {tx.reference}
+                          <div className="text-right shrink-0">
+                            <p
+                              className={`font-semibold ${
+                                tx.transaction_type === "credit"
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                              }`}
+                            >
+                              {tx.transaction_type === "credit" ? "+" : "-"}₦
+                              {tx.amount.toFixed(2)}
                             </p>
-                          )}
+                            <p className="text-xs text-muted-foreground">
+                              Balance: ₦{tx.balance_after.toFixed(2)}
+                            </p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p
-                            className={`font-semibold ${
-                              tx.transaction_type === "credit"
-                                ? "text-green-600"
-                                : "text-red-600"
-                            }`}
-                          >
-                            {tx.transaction_type === "credit" ? "+" : "-"}₦
-                            {tx.amount.toFixed(2)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Balance: ₦{tx.balance_after.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             </div>
-          )}
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <div className="flex gap-2 flex-1">
-              <Button
-                variant="outline"
-                onClick={handleOpenStatementPreview}
-                className="flex-1"
-                disabled={!selectedUser}
-              >
+          </div>
+
+          <footer className="sticky bottom-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-4">
+            <div className="mx-auto flex w-full max-w-7xl flex-wrap gap-2">
+              <Button variant="outline" onClick={handleOpenStatementPreview} disabled={!selectedUser}>
                 <Printer className="h-4 w-4 mr-2" />
-                Print Transactions
+                Print
               </Button>
-              <Button
-                variant="outline"
-                onClick={handleOpenStatementPreview}
-                className="flex-1"
-                disabled={!selectedUser}
-              >
+              <Button variant="outline" onClick={handleOpenStatementPreview} disabled={!selectedUser}>
                 <Download className="h-4 w-4 mr-2" />
                 Export CSV
               </Button>
               <Button
                 variant="default"
-                onClick={() => {
-                  setIsViewDialogOpen(false);
-                  handleCreditUser(selectedUser!);
-                }}
-                className="flex-1"
+                onClick={() => handleCreditUser(selectedUser)}
               >
                 <DollarSign className="h-4 w-4 mr-2" />
                 Credit User
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => {
-                  setIsViewDialogOpen(false);
-                  handleDebitUser(selectedUser!);
-                }}
-                className="flex-1"
+                onClick={() => handleDebitUser(selectedUser)}
               >
                 <DollarSign className="h-4 w-4 mr-2" />
                 Debit User
               </Button>
               <Button
-                variant={selectedUser?.status === "suspended" ? "default" : "destructive"}
-                onClick={() => {
-                  if (selectedUser) {
-                    handleSuspendUser(selectedUser);
-                    setIsViewDialogOpen(false);
-                  }
-                }}
-                className="flex-1"
+                variant={selectedUser.status === "suspended" ? "default" : "destructive"}
+                onClick={() => handleSuspendUser(selectedUser)}
               >
-                {selectedUser?.status === "suspended" ? (
+                {selectedUser.status === "suspended" ? (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2" />
                     Activate
@@ -1287,8 +1345,7 @@ export default function Users() {
               <Button
                 variant="outline"
                 onClick={handleOpenSendResetLinkDialog}
-                disabled={!selectedUser || sendingResetLink || !selectedUser.email}
-                className="flex-1"
+                disabled={sendingResetLink || !selectedUser.email}
               >
                 <Link2 className="h-4 w-4 mr-2" />
                 Send Reset Link
@@ -1296,8 +1353,7 @@ export default function Users() {
               <Button
                 variant="outline"
                 onClick={handleOpenResetPasswordDialog}
-                disabled={!selectedUser || resettingPassword || !selectedUser.email}
-                className="flex-1"
+                disabled={resettingPassword || !selectedUser.email}
               >
                 <KeyRound className="h-4 w-4 mr-2" />
                 Reset Password
@@ -1305,8 +1361,7 @@ export default function Users() {
               <Button
                 variant="outline"
                 onClick={handleVerifyUserEmail}
-                disabled={!selectedUser || verifyingUser || loadingUserDetails || userDetails?.email_verified}
-                className="flex-1"
+                disabled={verifyingUser || loadingUserDetails || userDetails?.email_verified}
               >
                 <MailCheck className="h-4 w-4 mr-2" />
                 {verifyingUser ? "Verifying…" : "Verify Email"}
@@ -1314,19 +1369,15 @@ export default function Users() {
               <Button
                 variant="destructive"
                 onClick={handleOpenDeleteDialog}
-                disabled={!selectedUser || deletingUser}
-                className="flex-1"
+                disabled={deletingUser}
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete User
               </Button>
             </div>
-            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </footer>
+        </div>
+      )}
 
       <Dialog open={isStatementPreviewOpen} onOpenChange={setIsStatementPreviewOpen}>
         <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
@@ -1599,11 +1650,11 @@ export default function Users() {
       </Dialog>
 
       <Dialog open={isResetPasswordDialogOpen} onOpenChange={setIsResetPasswordDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Reset User Password</DialogTitle>
             <DialogDescription>
-              Generate a new temporary password and email it to the user so they can sign in again.
+              Set a new password and email it to the user in a secure NetPay-branded message.
             </DialogDescription>
           </DialogHeader>
           {selectedUser && (
@@ -1611,11 +1662,57 @@ export default function Users() {
               <Alert>
                 <KeyRound className="h-4 w-4" />
                 <AlertDescription>
-                  A new password will be sent to <strong>{selectedUser.email}</strong>. The user will be signed out of all devices.
+                  The password will be sent to <strong>{selectedUser.email}</strong>. The user will be signed out of all devices.
                 </AlertDescription>
               </Alert>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="reset-password-value">New password</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={generateSecurePassword}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Generate secure password
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="reset-password-value"
+                    type={showResetPassword ? "text" : "password"}
+                    placeholder="Enter new password (min. 6 characters)"
+                    value={resetPasswordValue}
+                    onChange={(event) => setResetPasswordValue(event.target.value)}
+                    autoComplete="new-password"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                    onClick={() => setShowResetPassword((current) => !current)}
+                    aria-label={showResetPassword ? "Hide password" : "Show password"}
+                  >
+                    {showResetPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reset-password-confirm">Confirm password</Label>
+                <Input
+                  id="reset-password-confirm"
+                  type={showResetPassword ? "text" : "password"}
+                  placeholder="Re-enter the new password"
+                  value={resetPasswordConfirm}
+                  onChange={(event) => setResetPasswordConfirm(event.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
               <div>
-                <Label htmlFor="reset-password-reason">Reason (optional, included in email)</Label>
+                <Label htmlFor="reset-password-reason">Note for user (optional, included in email)</Label>
                 <Textarea
                   id="reset-password-reason"
                   placeholder="Why is this password being reset?"
@@ -1629,8 +1726,16 @@ export default function Users() {
             <Button variant="outline" onClick={() => setIsResetPasswordDialogOpen(false)} disabled={resettingPassword}>
               Cancel
             </Button>
-            <Button onClick={handleResetUserPassword} disabled={resettingPassword || !selectedUser?.email}>
-              {resettingPassword ? "Resetting…" : "Reset & Email Password"}
+            <Button
+              onClick={handleResetUserPassword}
+              disabled={
+                resettingPassword ||
+                !selectedUser?.email ||
+                !resetPasswordValue.trim() ||
+                !resetPasswordConfirm.trim()
+              }
+            >
+              {resettingPassword ? "Sending…" : "Set Password & Email User"}
             </Button>
           </DialogFooter>
         </DialogContent>

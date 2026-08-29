@@ -88,7 +88,7 @@ export default function ForgetPasswordScreen() {
               Forgot Password?
             </ThemedText>
             <ThemedText style={styles.subtitle}>
-              Enter your email address and we will send you an 8-digit reset code.
+              Enter your email address and we will send you a 6-digit reset code.
             </ThemedText>
           </View>
 
