@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 interface PlatformRevenue {
   id: string;
@@ -79,6 +87,8 @@ export default function PlatformRevenue() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all"); // all, today, week, month, year
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const { toast } = useToast();
 
   const getStartDateForFilter = (filter: string): Date | null => {
@@ -103,6 +113,30 @@ export default function PlatformRevenue() {
     fetchRevenue();
     fetchStats();
   }, [typeFilter, dateFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, typeFilter, dateFilter]);
+
+  const filteredRevenue = useMemo(() => {
+    const searchLower = searchQuery.toLowerCase();
+    return revenue.filter((r) =>
+      r.transaction_reference?.toLowerCase().includes(searchLower) ||
+      r.profiles?.full_name?.toLowerCase().includes(searchLower) ||
+      r.profiles?.email?.toLowerCase().includes(searchLower) ||
+      r.transaction_type?.toLowerCase().includes(searchLower)
+    );
+  }, [revenue, searchQuery]);
+
+  const totalFilteredCount = filteredRevenue.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedRevenue = filteredRevenue.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
 
   const fetchRevenue = async () => {
     try {
@@ -281,16 +315,6 @@ export default function PlatformRevenue() {
     }
   };
 
-  const filteredRevenue = revenue.filter((r) => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      r.transaction_reference?.toLowerCase().includes(searchLower) ||
-      r.profiles?.full_name?.toLowerCase().includes(searchLower) ||
-      r.profiles?.email?.toLowerCase().includes(searchLower) ||
-      r.transaction_type?.toLowerCase().includes(searchLower)
-    );
-  });
-
   const getTypeBadgeVariant = (type: string) => {
     switch (type.toLowerCase()) {
       case 'education':
@@ -437,7 +461,11 @@ export default function PlatformRevenue() {
                   <div>
                     <CardTitle>Revenue Records</CardTitle>
                     <CardDescription>
-                      Detailed breakdown of all platform revenue from charge fees
+                      {loading
+                        ? "Loading revenue records..."
+                        : totalFilteredCount === 0
+                          ? "No revenue records match your filters"
+                          : `Showing ${pageStart}–${pageEnd} of ${totalFilteredCount} record${totalFilteredCount !== 1 ? "s" : ""}`}
                     </CardDescription>
                   </div>
                   <Button
@@ -522,7 +550,7 @@ export default function PlatformRevenue() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredRevenue.map((r) => (
+                        paginatedRevenue.map((r) => (
                           <TableRow key={r.id}>
                             <TableCell className="text-sm">
                               {format(new Date(r.created_at), 'MMM dd, yyyy HH:mm')}
@@ -561,6 +589,83 @@ export default function PlatformRevenue() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {!loading && totalFilteredCount > 0 && (
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span>
+                        Page {safeCurrentPage} of {totalPages}
+                      </span>
+                      <Select
+                        value={String(pageSize)}
+                        onValueChange={(value) => {
+                          setPageSize(Number(value));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <SelectTrigger className="w-[110px] h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10 / page</SelectItem>
+                          <SelectItem value="25">25 / page</SelectItem>
+                          <SelectItem value="50">50 / page</SelectItem>
+                          <SelectItem value="100">100 / page</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {totalPages > 1 && (
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.max(1, page - 1));
+                              }}
+                              className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                          {Array.from({ length: Math.min(totalPages, 7) }, (_, index) => {
+                            let pageNumber = index + 1;
+                            if (totalPages > 7) {
+                              if (safeCurrentPage <= 4) pageNumber = index + 1;
+                              else if (safeCurrentPage >= totalPages - 3) pageNumber = totalPages - 6 + index;
+                              else pageNumber = safeCurrentPage - 3 + index;
+                            }
+                            return (
+                              <PaginationItem key={pageNumber}>
+                                <PaginationLink
+                                  href="#"
+                                  isActive={pageNumber === safeCurrentPage}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage(pageNumber);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  {pageNumber}
+                                </PaginationLink>
+                              </PaginationItem>
+                            );
+                          })}
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.min(totalPages, page + 1));
+                              }}
+                              className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

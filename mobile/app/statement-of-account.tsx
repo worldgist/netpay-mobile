@@ -11,7 +11,6 @@ import { getSessionOrRedirect } from '@/utils/session';
 import { downloadStatementPDF, sendStatementEmail } from '@/utils/statement';
 
 type StatementTransaction = {
-  /** Stable key for lists; includes source prefix so merged rows never collide. */
   id: string;
   date: string;
   description: string;
@@ -22,20 +21,55 @@ type StatementTransaction = {
   category: string;
 };
 
+type SummaryCardProps = {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  iconColor: string;
+  iconBackground: string;
+  label: string;
+  value: string;
+  valueColor?: string;
+};
+
 const formatCurrency = (amount: number) =>
   `₦${amount.toLocaleString('en-NG', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 
-const formatDate = (dateString: string) => {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-NG', {
+const formatPickerDate = (date: Date) =>
+  date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
     year: 'numeric',
-    month: 'short',
-    day: 'numeric',
   });
+
+const startOfDay = (date: Date) => {
+  const normalized = new Date(date);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
 };
+
+const endOfDay = (date: Date) => {
+  const normalized = new Date(date);
+  normalized.setHours(23, 59, 59, 999);
+  return normalized;
+};
+
+function SummaryCard({ icon, iconColor, iconBackground, label, value, valueColor = '#1A2B4A' }: SummaryCardProps) {
+  return (
+    <View style={styles.summaryCard}>
+      <View style={[styles.summaryIconWrap, { backgroundColor: iconBackground }]}>
+        <MaterialIcons name={icon} size={22} color={iconColor} />
+      </View>
+      <View style={styles.summaryTextWrap}>
+        <ThemedText style={styles.summaryLabel}>{label}</ThemedText>
+        <ThemedText style={[styles.summaryValue, { color: valueColor }]} numberOfLines={1}>
+          {value}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
 
 export default function StatementOfAccountScreen() {
   const router = useRouter();
@@ -46,17 +80,16 @@ export default function StatementOfAccountScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
-  
-  // Date range state
+
   const [startDate, setStartDate] = useState<Date>(() => {
     const date = new Date();
-    date.setMonth(date.getMonth() - 1); // Default to last month
+    date.setMonth(date.getMonth() - 1);
     return date;
   });
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-  
+
   const isMounted = useRef(true);
 
   const fetchTransactions = useCallback(async (isRefresh = false) => {
@@ -74,9 +107,12 @@ export default function StatementOfAccountScreen() {
       setUserId(currentUserId);
       setUserEmail(session.user.email || '');
 
-      // Fetch all transaction types
+      const rangeStart = startOfDay(startDate).toISOString();
+      const rangeEnd = endOfDay(endDate).toISOString();
+
       const [
         userTxns,
+        fundingTxns,
         airtimeTxns,
         dataTxns,
         electricityTxns,
@@ -89,61 +125,74 @@ export default function StatementOfAccountScreen() {
           .from('user_transactions')
           .select('id, amount, transaction_type, description, reference, created_at, balance_after')
           .eq('user_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('funding_transactions')
+          .select('id, amount, status, reference, bank_name, created_at')
+          .eq('user_id', currentUserId)
+          .eq('status', 'completed')
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('airtime_transactions')
           .select('id, amount, network, status, reference, phone_number, created_at')
           .eq('user_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('data_transactions')
           .select('id, amount, network, plan_name, status, reference, phone_number, created_at')
           .eq('user_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('electricity_transactions')
           .select('id, amount, provider, status, reference, meter_number, created_at')
           .eq('user_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('education_transactions')
           .select('id, amount, exam_type, status, reference, created_at')
           .eq('user_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('betting_transactions')
           .select('id, amount, betting_provider, status, reference, created_at')
           .eq('user_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('transfer_transactions')
           .select('id, amount, status, reference, description, created_at, recipient:profiles!transfer_transactions_recipient_id_fkey(full_name)')
           .eq('sender_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
         supabase
           .from('transfer_transactions')
           .select('id, amount, status, reference, description, created_at, sender:profiles!transfer_transactions_sender_id_fkey(full_name)')
           .eq('recipient_id', currentUserId)
-          .gte('created_at', startDate.toISOString())
-          .lte('created_at', endDate.toISOString())
+          .gte('created_at', rangeStart)
+          .lte('created_at', rangeEnd)
           .order('created_at', { ascending: false }),
       ]);
 
-      // Combine and format transactions
+      const walletReferences = new Set(
+        (userTxns.data || [])
+          .map((txn) => txn.reference)
+          .filter((reference): reference is string => Boolean(reference)),
+      );
+
       const combined: StatementTransaction[] = [
         ...(userTxns.data || []).map((txn) => {
           const tt = (txn.transaction_type || '').toLowerCase();
@@ -153,18 +202,30 @@ export default function StatementOfAccountScreen() {
             date: txn.created_at,
             description: isRefund ? txn.description || 'Refund' : txn.description || txn.transaction_type,
             type: tt === 'credit' || isRefund ? 'credit' : 'debit',
-            amount: txn.amount,
+            amount: Number(txn.amount) || 0,
             balanceAfter: txn.balance_after || 0,
             reference: txn.reference || '',
             category: 'Wallet',
           };
         }),
+        ...(fundingTxns.data || [])
+          .filter((txn) => txn.reference && !walletReferences.has(txn.reference))
+          .map((txn) => ({
+            id: `funding:${txn.id}`,
+            date: txn.created_at,
+            description: `Account Funding - ${txn.bank_name || 'Bank Transfer'}`,
+            type: 'credit' as const,
+            amount: Number(txn.amount) || 0,
+            balanceAfter: 0,
+            reference: txn.reference || '',
+            category: 'Funding',
+          })),
         ...(airtimeTxns.data || []).map((txn) => ({
           id: `airtime:${txn.id}`,
           date: txn.created_at,
           description: `Airtime - ${txn.network} ${txn.phone_number}`,
-          type: 'debit',
-          amount: txn.amount,
+          type: 'debit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Airtime',
@@ -173,8 +234,8 @@ export default function StatementOfAccountScreen() {
           id: `data:${txn.id}`,
           date: txn.created_at,
           description: `Data - ${txn.network} ${txn.plan_name}`,
-          type: 'debit',
-          amount: txn.amount,
+          type: 'debit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Data',
@@ -183,8 +244,8 @@ export default function StatementOfAccountScreen() {
           id: `electricity:${txn.id}`,
           date: txn.created_at,
           description: `Electricity - ${txn.provider} ${txn.meter_number}`,
-          type: 'debit',
-          amount: txn.amount,
+          type: 'debit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Electricity',
@@ -193,8 +254,8 @@ export default function StatementOfAccountScreen() {
           id: `education:${txn.id}`,
           date: txn.created_at,
           description: `Education - ${txn.exam_type}`,
-          type: 'debit',
-          amount: txn.amount,
+          type: 'debit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Education',
@@ -203,8 +264,8 @@ export default function StatementOfAccountScreen() {
           id: `betting:${txn.id}`,
           date: txn.created_at,
           description: `Betting - ${txn.betting_provider}`,
-          type: 'debit',
-          amount: txn.amount,
+          type: 'debit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Betting',
@@ -212,9 +273,9 @@ export default function StatementOfAccountScreen() {
         ...(transfersSent.data || []).map((txn) => ({
           id: `transfer-out:${txn.id}`,
           date: txn.created_at,
-          description: `Transfer to ${(txn.recipient as any)?.full_name || 'User'}`,
-          type: 'debit',
-          amount: txn.amount,
+          description: `Transfer to ${(txn.recipient as { full_name?: string } | null)?.full_name || 'User'}`,
+          type: 'debit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Transfer',
@@ -222,15 +283,14 @@ export default function StatementOfAccountScreen() {
         ...(transfersReceived.data || []).map((txn) => ({
           id: `transfer-in:${txn.id}`,
           date: txn.created_at,
-          description: `Transfer from ${(txn.sender as any)?.full_name || 'User'}`,
-          type: 'credit',
-          amount: txn.amount,
+          description: `Transfer from ${(txn.sender as { full_name?: string } | null)?.full_name || 'User'}`,
+          type: 'credit' as const,
+          amount: Number(txn.amount) || 0,
           balanceAfter: 0,
           reference: txn.reference || '',
           category: 'Transfer',
         })),
-      ]
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       if (isMounted.current) {
         setTransactions(combined);
@@ -238,7 +298,7 @@ export default function StatementOfAccountScreen() {
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
       if (isMounted.current) {
-        Alert.alert('Error', 'Failed to load transactions. Please try again.');
+        Alert.alert('Error', 'Failed to load statement summary. Please try again.');
       }
     } finally {
       if (isMounted.current) {
@@ -254,7 +314,7 @@ export default function StatementOfAccountScreen() {
       return () => {
         isMounted.current = false;
       };
-    }, [fetchTransactions])
+    }, [fetchTransactions]),
   );
 
   const handleRefresh = useCallback(() => {
@@ -266,22 +326,25 @@ export default function StatementOfAccountScreen() {
 
     setDownloading(true);
     try {
-      await downloadStatementPDF(userId, startDate, endDate);
+      await downloadStatementPDF(userId, startOfDay(startDate), endOfDay(endDate));
     } catch (err) {
       console.error('Download PDF error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to download statement';
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to download statement');
     } finally {
       setDownloading(false);
     }
   }, [userId, startDate, endDate]);
 
   const handleSendEmail = useCallback(async () => {
-    if (!userId || !userEmail) return;
+    if (!userId || !userEmail) {
+      Alert.alert('Email unavailable', 'No email address is linked to your account.');
+      return;
+    }
 
     setSendingEmail(true);
     try {
-      await sendStatementEmail(userId, userEmail, startDate, endDate);
+      const message = await sendStatementEmail(userId, userEmail, startOfDay(startDate), endOfDay(endDate));
+      Alert.alert('Success', message);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to send statement');
     } finally {
@@ -289,10 +352,13 @@ export default function StatementOfAccountScreen() {
     }
   }, [userId, userEmail, startDate, endDate]);
 
-  // Calculate summary statistics
   const summary = useMemo(() => {
-    const credits = transactions.filter((t) => t.type === 'credit').reduce((sum, t) => sum + t.amount, 0);
-    const debits = transactions.filter((t) => t.type === 'debit').reduce((sum, t) => sum + t.amount, 0);
+    const credits = transactions
+      .filter((t) => t.type === 'credit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const debits = transactions
+      .filter((t) => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
     return {
       totalCredits: credits,
       totalDebits: debits,
@@ -301,117 +367,106 @@ export default function StatementOfAccountScreen() {
     };
   }, [transactions]);
 
+  const netAmountColor = summary.netAmount >= 0 ? '#10B981' : '#EF4444';
+
   return (
     <ThemedView style={styles.container}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color="#333" />
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerSide}>
+          <MaterialIcons name="arrow-back" size={24} color="#1A2B4A" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>Statement</ThemedText>
-        <View style={styles.placeholder} />
+        <View style={styles.headerSide} />
       </View>
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}
-      >
-        {/* Date Range Selector */}
+        showsVerticalScrollIndicator={false}>
         <View style={styles.dateRangeContainer}>
           <ThemedText style={styles.sectionTitle}>Date Range</ThemedText>
           <View style={styles.dateRow}>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => setShowStartPicker(true)}
-            >
-              <MaterialIcons name="calendar-today" size={20} color="#FF7F00" />
-              <ThemedText style={styles.dateText}>
-                {startDate.toLocaleDateString('en-NG')}
-              </ThemedText>
+            <TouchableOpacity style={styles.dateButton} onPress={() => setShowStartPicker(true)}>
+              <MaterialIcons name="calendar-today" size={18} color="#FF7F00" />
+              <ThemedText style={styles.dateText}>{formatPickerDate(startDate)}</ThemedText>
             </TouchableOpacity>
             <ThemedText style={styles.dateSeparator}>to</ThemedText>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => setShowEndPicker(true)}
-            >
-              <MaterialIcons name="calendar-today" size={20} color="#FF7F00" />
-              <ThemedText style={styles.dateText}>
-                {endDate.toLocaleDateString('en-NG')}
-              </ThemedText>
+            <TouchableOpacity style={styles.dateButton} onPress={() => setShowEndPicker(true)}>
+              <MaterialIcons name="calendar-today" size={18} color="#FF7F00" />
+              <ThemedText style={styles.dateText}>{formatPickerDate(endDate)}</ThemedText>
             </TouchableOpacity>
           </View>
 
-          {showStartPicker && (
+          {showStartPicker ? (
             <DateTimePicker
               value={startDate}
               mode="date"
               display="default"
               maximumDate={endDate}
-              onChange={(event, date) => {
+              onChange={(_event, date) => {
                 setShowStartPicker(false);
-                if (date) {
-                  setStartDate(date);
-                }
+                if (date) setStartDate(date);
               }}
             />
-          )}
-          {showEndPicker && (
+          ) : null}
+          {showEndPicker ? (
             <DateTimePicker
               value={endDate}
               mode="date"
               display="default"
               maximumDate={new Date()}
               minimumDate={startDate}
-              onChange={(event, date) => {
+              onChange={(_event, date) => {
                 setShowEndPicker(false);
-                if (date) {
-                  setEndDate(date);
-                }
+                if (date) setEndDate(date);
               }}
             />
-          )}
+          ) : null}
         </View>
 
-        {/* Summary Cards */}
-        <View style={styles.summaryContainer}>
-          <View style={styles.summaryCard}>
-            <ThemedText style={styles.summaryLabel}>Total Credits</ThemedText>
-            <ThemedText style={[styles.summaryValue, styles.creditText]}>
-              {formatCurrency(summary.totalCredits)}
-            </ThemedText>
-          </View>
-          <View style={styles.summaryCard}>
-            <ThemedText style={styles.summaryLabel}>Total Debits</ThemedText>
-            <ThemedText style={[styles.summaryValue, styles.debitText]}>
-              {formatCurrency(summary.totalDebits)}
-            </ThemedText>
-          </View>
-          <View style={styles.summaryCard}>
-            <ThemedText style={styles.summaryLabel}>Net Amount</ThemedText>
-            <ThemedText
-              style={[
-                styles.summaryValue,
-                summary.netAmount >= 0 ? styles.creditText : styles.debitText,
-              ]}
-            >
-              {formatCurrency(summary.netAmount)}
-            </ThemedText>
-          </View>
-          <View style={styles.summaryCard}>
-            <ThemedText style={styles.summaryLabel}>Transactions</ThemedText>
-            <ThemedText style={styles.summaryValue}>{summary.transactionCount}</ThemedText>
-          </View>
+        <View style={styles.summaryGrid}>
+          <SummaryCard
+            icon="account-balance-wallet"
+            iconColor="#10B981"
+            iconBackground="#ECFDF5"
+            label="Total Credits"
+            value={formatCurrency(summary.totalCredits)}
+            valueColor="#10B981"
+          />
+          <SummaryCard
+            icon="account-balance-wallet"
+            iconColor="#EF4444"
+            iconBackground="#FEF2F2"
+            label="Total Debits"
+            value={formatCurrency(summary.totalDebits)}
+            valueColor="#EF4444"
+          />
+          <SummaryCard
+            icon="pie-chart"
+            iconColor="#FF7F00"
+            iconBackground="#FFF3E8"
+            label="Net Amount"
+            value={formatCurrency(summary.netAmount)}
+            valueColor={netAmountColor}
+          />
+          <SummaryCard
+            icon="description"
+            iconColor="#FF7F00"
+            iconBackground="#FFF3E8"
+            label="Transactions"
+            value={String(summary.transactionCount)}
+            valueColor="#1A2B4A"
+          />
         </View>
 
-        {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity
             style={[styles.actionButton, styles.downloadButton]}
             onPress={handleDownloadPDF}
-            disabled={downloading || transactions.length === 0}
-          >
-            <MaterialIcons name="download" size={20} color="#fff" />
+            disabled={downloading}
+            activeOpacity={0.85}>
+            <MaterialIcons name="file-download" size={20} color="#fff" />
             <ThemedText style={styles.actionButtonText}>
               {downloading ? 'Downloading...' : 'Download PDF'}
             </ThemedText>
@@ -419,8 +474,8 @@ export default function StatementOfAccountScreen() {
           <TouchableOpacity
             style={[styles.actionButton, styles.emailButton]}
             onPress={handleSendEmail}
-            disabled={sendingEmail || transactions.length === 0}
-          >
+            disabled={sendingEmail || !userEmail}
+            activeOpacity={0.85}>
             <MaterialIcons name="email" size={20} color="#fff" />
             <ThemedText style={styles.actionButtonText}>
               {sendingEmail ? 'Sending...' : 'Send to Email'}
@@ -428,72 +483,11 @@ export default function StatementOfAccountScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Transactions List */}
-        <View style={styles.transactionsContainer}>
-          <ThemedText style={styles.sectionTitle}>
-            Recent Transactions ({Math.min(transactions.length, 4)} of {transactions.length})
+        <View style={styles.infoBox}>
+          <MaterialIcons name="info-outline" size={18} color="#667085" />
+          <ThemedText style={styles.infoText}>
+            Download the PDF or send it to your email to view the full transaction list for this period.
           </ThemedText>
-          {transactions.length === 0 ? (
-            <View style={styles.emptyState}>
-              <MaterialIcons name="description" size={48} color="#ccc" />
-              <ThemedText style={styles.emptyText}>No transactions found</ThemedText>
-              <ThemedText style={styles.emptySubtext}>
-                Try adjusting your date range
-              </ThemedText>
-            </View>
-          ) : (
-            transactions.slice(0, 4).map((transaction, index) => (
-              <TouchableOpacity
-                key={`${transaction.id}:${index}`}
-                style={styles.transactionCard}
-                activeOpacity={0.7}
-              >
-                <View style={styles.transactionLeft}>
-                  <View
-                    style={[
-                      styles.transactionIcon,
-                      transaction.type === 'credit' ? styles.creditIcon : styles.debitIcon,
-                    ]}
-                  >
-                    <MaterialIcons
-                      name={transaction.type === 'credit' ? 'arrow-downward' : 'arrow-upward'}
-                      size={20}
-                      color="#fff"
-                    />
-                  </View>
-                  <View style={styles.transactionDetails}>
-                    <ThemedText style={styles.transactionDescription}>
-                      {transaction.description}
-                    </ThemedText>
-                    <ThemedText style={styles.transactionDate}>
-                      {formatDate(transaction.date)}
-                    </ThemedText>
-                    {transaction.reference && (
-                      <ThemedText style={styles.transactionRef}>
-                        Ref: {transaction.reference}
-                      </ThemedText>
-                    )}
-                  </View>
-                </View>
-                <View style={styles.transactionRight}>
-                  <ThemedText
-                    style={[
-                      styles.transactionAmount,
-                      transaction.type === 'credit' ? styles.creditText : styles.debitText,
-                    ]}
-                  >
-                    {transaction.type === 'credit' ? '+' : '-'}
-                    {formatCurrency(transaction.amount)}
-                  </ThemedText>
-                  {transaction.balanceAfter > 0 && (
-                    <ThemedText style={styles.transactionBalance}>
-                      Balance: {formatCurrency(transaction.balanceAfter)}
-                    </ThemedText>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))
-          )}
         </View>
       </ScrollView>
     </ThemedView>
@@ -503,7 +497,7 @@ export default function StatementOfAccountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -511,26 +505,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
+    backgroundColor: '#FFFFFF',
   },
-  backButton: {
-    padding: 8,
+  headerSide: {
+    width: 40,
+    alignItems: 'flex-start',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  placeholder: {
-    width: 40,
+    fontWeight: '700',
+    color: '#1A2B4A',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 8,
   },
   dateRangeContainer: {
     marginBottom: 24,
@@ -538,7 +529,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1A2B4A',
     marginBottom: 12,
   },
   dateRow: {
@@ -551,64 +542,76 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderWidth: 1.5,
     borderColor: '#FF7F00',
     gap: 8,
   },
   dateText: {
     fontSize: 14,
-    color: '#333',
+    color: '#1A2B4A',
+    fontWeight: '500',
   },
   dateSeparator: {
-    marginHorizontal: 12,
+    marginHorizontal: 10,
     fontSize: 14,
-    color: '#666',
+    color: '#667085',
   },
-  summaryContainer: {
+  summaryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 24,
-    gap: 12,
+    justifyContent: 'space-between',
+    marginBottom: 28,
+    gap: 14,
   },
   summaryCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
+    width: '47%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     padding: 16,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    minHeight: 96,
+    justifyContent: 'center',
+  },
+  summaryIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  summaryTextWrap: {
+    gap: 4,
   },
   summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
+    fontSize: 13,
+    color: '#667085',
   },
   summaryValue: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  creditText: {
-    color: '#10B981',
-  },
-  debitText: {
-    color: '#EF4444',
+    fontWeight: '700',
   },
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 24,
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-    padding: 14,
+    borderRadius: 10,
+    paddingVertical: 16,
     gap: 8,
   },
   downloadButton: {
@@ -618,85 +621,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
   },
   actionButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
-  transactionsContainer: {
-    marginBottom: 24,
-  },
-  transactionCard: {
+  infoBox: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 20,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
   },
-  transactionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  infoText: {
     flex: 1,
-  },
-  transactionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  creditIcon: {
-    backgroundColor: '#10B981',
-  },
-  debitIcon: {
-    backgroundColor: '#EF4444',
-  },
-  transactionDetails: {
-    flex: 1,
-  },
-  transactionDescription: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 4,
-  },
-  transactionDate: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 2,
-  },
-  transactionRef: {
-    fontSize: 11,
-    color: '#999',
-  },
-  transactionRight: {
-    alignItems: 'flex-end',
-  },
-  transactionAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  transactionBalance: {
-    fontSize: 11,
-    color: '#666',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#666',
-    marginTop: 16,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#667085',
   },
 });

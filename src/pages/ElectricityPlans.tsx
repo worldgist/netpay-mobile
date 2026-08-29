@@ -38,7 +38,7 @@ interface ElectricityTransaction {
 }
 
 export default function ElectricityPlans() {
-  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'ebills'>('vtpass');
+  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave'>('vtpass');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [transactions, setTransactions] = useState<ElectricityTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -67,8 +67,8 @@ export default function ElectricityPlans() {
 
       if (data?.setting_value) {
         const provider = (data.setting_value as any)?.provider || 'vtpass';
-        const validProviders = ['vtpass', 'mobilenig', 'ebills'];
-        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'ebills' : 'vtpass';
+        const validProviders = ['vtpass', 'mobilenig', 'ebills', 'flutterwave'];
+        const selectedProvider = validProviders.includes(provider) ? provider as 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave' : 'vtpass';
         console.log('Setting electricity vending provider to:', selectedProvider);
         setVendingProvider(selectedProvider);
       } else {
@@ -81,7 +81,7 @@ export default function ElectricityPlans() {
     }
   };
 
-  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'ebills') => {
+  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave') => {
     setIsUpdatingProvider(true);
     try {
       const { error } = await supabase
@@ -90,7 +90,7 @@ export default function ElectricityPlans() {
           setting_key: 'electricity_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Electricity vending provider: vtpass, mobilenig, or ebills'
+          description: 'Electricity vending provider: vtpass, mobilenig, ebills, or flutterwave'
         }, {
           onConflict: 'setting_key'
         });
@@ -215,7 +215,7 @@ export default function ElectricityPlans() {
                   </Label>
                   <Select
                     value={vendingProvider}
-                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'ebills')}
+                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave')}
                     disabled={isUpdatingProvider}
                   >
                     <SelectTrigger id="vending-provider" className="w-[200px]">
@@ -225,6 +225,7 @@ export default function ElectricityPlans() {
                       <SelectItem value="vtpass">VTpass</SelectItem>
                       <SelectItem value="mobilenig">MobileNig</SelectItem>
                       <SelectItem value="ebills">eBills Africa</SelectItem>
+                      <SelectItem value="flutterwave">Flutterwave</SelectItem>
                     </SelectContent>
                   </Select>
                   {isUpdatingProvider && (

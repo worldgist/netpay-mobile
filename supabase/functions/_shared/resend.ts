@@ -3,6 +3,7 @@ export type ResendTag = { name: string; value: string };
 export type ResendAttachment = {
   filename: string;
   content: string;
+  content_type?: string;
 };
 
 export type ResendEmailOptions = {
@@ -47,6 +48,23 @@ export function getResendFromAddress(fallback = "NetPay Notifications <support@n
 
 export function getResendSupportInbox(fallback = "support@netppay.com"): string {
   return Deno.env.get("RESEND_TO_EMAIL") ?? fallback;
+}
+
+export function parseResendErrorMessage(details: string): string {
+  if (!details) return "Failed to send email";
+
+  try {
+    const parsed = JSON.parse(details) as { message?: string; name?: string };
+    if (parsed.message) return parsed.message;
+  } catch {
+    // Not JSON — fall through
+  }
+
+  if (details.includes("only send testing emails")) {
+    return "Email can only be sent to verified addresses in test mode. Use your Resend account email or verify your domain.";
+  }
+
+  return details.slice(0, 240);
 }
 
 export async function sendResendEmail(options: ResendEmailOptions): Promise<ResendSendResult> {

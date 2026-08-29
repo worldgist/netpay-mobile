@@ -10,6 +10,7 @@ import {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { isJwtClockSkewError, recoverFromJwtClockSkew } from '@/utils/supabase-auth-recovery';
 
 export type UserProfile = {
   id: string;
@@ -141,11 +142,21 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           const userId = session.user.id;
           const sessionEmail = session.user.email || '';
 
-          const { data: row, error: profileError } = await supabase
-            .from('profiles')
-            .select('full_name, email, phone, biometric_enabled, pin_enabled')
-            .eq('id', userId)
-            .maybeSingle();
+          const loadProfileRow = () =>
+            supabase
+              .from('profiles')
+              .select('full_name, email, phone, biometric_enabled, pin_enabled')
+              .eq('id', userId)
+              .maybeSingle();
+
+          let { data: row, error: profileError } = await loadProfileRow();
+
+          if (profileError && isJwtClockSkewError(profileError)) {
+            const recovered = await recoverFromJwtClockSkew();
+            if (recovered) {
+              ({ data: row, error: profileError } = await loadProfileRow());
+            }
+          }
 
           if (profileError && profileError.code !== 'PGRST116') {
             throw profileError;
@@ -186,7 +197,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           applyProfile(nextProfile);
           lastFetchedAtRef.current = Date.now();
         } catch (error) {
-          console.error('Failed to load profile:', error);
+          if (isJwtClockSkewError(error)) {
+            console.warn(
+              'Session rejected due to clock skew. Sign in again and ensure your device date/time is set automatically.',
+            );
+          } else {
+            console.error('Failed to load profile:', error);
+          }
         } finally {
           if (isMountedRef.current) {
             setLoading(false);

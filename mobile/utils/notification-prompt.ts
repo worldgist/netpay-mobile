@@ -2,7 +2,7 @@ import { Alert , Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 import Constants from 'expo-constants';
-import { registerForPushNotifications } from '@/utils/push-notifications';
+import { registerForPushNotifications, setPushNotificationsEnabled, deactivatePushNotifications } from '@/utils/push-notifications';
 
 const NOTIFICATION_PROMPT_SEEN_KEY = 'notification_prompt_seen_v1';
 const NOTIFICATION_PROMPT_NEVER_KEY = 'notification_prompt_never_v1';
@@ -95,7 +95,10 @@ export const promptEnableNotifications = async (options: PromptOptions = {}) => 
 
     // If already granted, just ensure token registration is up to date.
     if (status === 'granted') {
-      await registerForPushNotifications();
+      const result = await registerForPushNotifications();
+      if (result.registered) {
+        await setPushNotificationsEnabled(true);
+      }
       await markPromptSeen();
       return;
     }
@@ -114,6 +117,8 @@ export const promptEnableNotifications = async (options: PromptOptions = {}) => 
     if (choice === 'never') {
       try {
         await SecureStore.setItemAsync(NOTIFICATION_PROMPT_NEVER_KEY, 'true');
+        await setPushNotificationsEnabled(false);
+        await deactivatePushNotifications();
       } catch (error) {
         console.warn('Failed to persist notification prompt never state:', error);
       }
@@ -125,7 +130,9 @@ export const promptEnableNotifications = async (options: PromptOptions = {}) => 
     }
 
     const result = await registerForPushNotifications();
-    if (!result.registered) {
+    if (result.registered) {
+      await setPushNotificationsEnabled(true);
+    } else {
       Alert.alert(
         'Notifications',
         result.reason || 'Could not enable notifications right now. You can enable them later in app settings.'

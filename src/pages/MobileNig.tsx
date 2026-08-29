@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { MOBILENIG_GATEWAY_FUNCTION, mobilenigActions } from "@/lib/mobilenig-gateway";
 
 interface BalanceData {
   amount: number;
@@ -67,7 +68,8 @@ export default function MobileNig() {
 
       const accessToken = session.access_token;
 
-      const { data, error } = await supabase.functions.invoke('fetch-mobilenig-balance', {
+      const { data, error } = await supabase.functions.invoke(MOBILENIG_GATEWAY_FUNCTION, {
+        body: mobilenigActions.balance,
         headers: accessToken
           ? {
               Authorization: `Bearer ${accessToken}`,
@@ -145,8 +147,8 @@ export default function MobileNig() {
         ? { trans_id: transId }
         : { page, per_page: 10 };
 
-      const { data, error } = await supabase.functions.invoke('fetch-mobilenig-wallet-history', {
-        body: payload,
+      const { data, error } = await supabase.functions.invoke(MOBILENIG_GATEWAY_FUNCTION, {
+        body: mobilenigActions.walletHistory(payload),
         headers: accessToken
           ? {
               Authorization: `Bearer ${accessToken}`,

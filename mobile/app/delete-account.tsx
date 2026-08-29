@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Text } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput, Alert, Modal, Text, Platform } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -12,6 +12,7 @@ export default function DeleteAccountScreen() {
   const [loading, setLoading] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
@@ -259,14 +260,31 @@ export default function DeleteAccountScreen() {
 
           <View style={styles.inputContainer}>
             <ThemedText style={styles.inputLabel}>Password (Optional)</ThemedText>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password for additional verification"
-              placeholderTextColor="#999"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+            <View style={styles.passwordField}>
+              <MaterialIcons name="lock" size={20} color="#666" style={styles.passwordIcon} />
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter your password"
+                placeholderTextColor="#999"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="password"
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword((current) => !current)}
+                style={styles.passwordToggle}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}>
+                <MaterialIcons
+                  name={showPassword ? 'visibility' : 'visibility-off'}
+                  size={20}
+                  color="#666"
+                />
+              </TouchableOpacity>
+            </View>
             <ThemedText style={styles.inputHint}>
               Providing your password adds an extra layer of security
             </ThemedText>
@@ -465,10 +483,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 8,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'android' ? 10 : 12,
+    minHeight: 48,
     fontSize: 16,
+    lineHeight: 22,
     color: '#333',
     fontFamily: 'monospace',
+    ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' as const } : {}),
+  },
+  passwordField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    minHeight: 48,
+    height: 48,
+  },
+  passwordIcon: {
+    marginRight: 10,
+  },
+  passwordInput: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#333',
+    paddingVertical: Platform.OS === 'android' ? 0 : 8,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' as const } : {}),
+  },
+  passwordToggle: {
+    padding: 4,
+    marginLeft: 8,
   },
   inputHint: {
     fontSize: 12,

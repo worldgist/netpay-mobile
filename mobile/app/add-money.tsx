@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -19,6 +19,12 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
+import { readCachedWalletBalance, writeCachedWalletBalance } from '@/utils/wallet-balance-cache';
+import {
+  buildFundingCallbackParams,
+  shouldHandleFundingCallback,
+} from '@/utils/funding-callback-guard';
+import { returnToAppAfterFunding } from '@/utils/verify-flutterwave-funding';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -49,9 +55,9 @@ export default function AddMoneyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [amountInput, setAmountInput] = useState('');
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
   const [balanceVisible, setBalanceVisible] = useState(true);
-  const [loadingBalance, setLoadingBalance] = useState(true);
+  const [loadingBalance, setLoadingBalance] = useState(false);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,10 +84,11 @@ export default function AddMoneyScreen() {
         .single();
 
       if (profileError) throw profileError;
-      setWalletBalance(Number(profile?.balance) || 0);
+      const balance = Number(profile?.balance) || 0;
+      setWalletBalance(balance);
+      await writeCachedWalletBalance(session.user.id, balance);
     } catch (err) {
       console.error('Failed to load wallet balance:', err);
-      setWalletBalance(null);
     } finally {
       setLoadingBalance(false);
     }
@@ -89,22 +96,27 @@ export default function AddMoneyScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchWalletBalance();
-    }, [fetchWalletBalance])
+      void (async () => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData.session?.user.id;
+        if (userId) {
+          const cachedBalance = await readCachedWalletBalance(userId);
+          if (cachedBalance !== null) {
+            setWalletBalance(cachedBalance);
+          }
+        }
+        void fetchWalletBalance();
+      })();
+    }, [fetchWalletBalance]),
   );
 
-  useEffect(() => {
-    void fetchWalletBalance();
-  }, [fetchWalletBalance]);
-
-  const projectedBalance =
-    walletBalance !== null && amount >= MIN_AMOUNT ? walletBalance + netCredit : null;
+  const projectedBalance = amount >= MIN_AMOUNT ? walletBalance + netCredit : null;
 
   const handlePay = async () => {
     if (!canPay) {
       Alert.alert(
         'Invalid Amount',
-        `Enter an amount between ${formatCurrency(MIN_AMOUNT)} and ${formatCurrency(MAX_AMOUNT)}.`
+        `Enter an amount between ${formatCurrency(MIN_AMOUNT)} and ${formatCurrency(MAX_AMOUNT)}.`,
       );
       return;
     }
@@ -128,18 +140,13 @@ export default function AddMoneyScreen() {
       }
 
       const paymentLink = data.data.paymentLink as string;
-
       const result = await WebBrowser.openAuthSessionAsync(paymentLink, redirectUrl);
 
       if (result.type === 'success' && result.url) {
-        const parsed = Linking.parse(result.url);
-        router.replace({
-          pathname: '/add-money-callback',
-          params: {
-            tx_ref: typeof parsed.queryParams?.tx_ref === 'string' ? parsed.queryParams.tx_ref : '',
-            status: typeof parsed.queryParams?.status === 'string' ? parsed.queryParams.status : 'successful',
-          },
-        });
+        const callbackParams = buildFundingCallbackParams(result.url);
+        if (callbackParams && (await shouldHandleFundingCallback(callbackParams.tx_ref))) {
+          returnToAppAfterFunding(callbackParams.tx_ref, callbackParams.status);
+        }
         return;
       }
 
@@ -168,152 +175,145 @@ export default function AddMoneyScreen() {
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-        >
-        <View style={styles.balanceCard}>
-          <View style={styles.balanceCardPattern} />
-          <View style={styles.balanceHeader}>
-            <View style={styles.balanceHeaderLeft}>
-              <View style={styles.balanceIconWrap}>
-                <MaterialIcons name="account-balance-wallet" size={20} color="#FF7F00" />
+          automaticallyAdjustKeyboardInsets>
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceCardPattern} />
+            <View style={styles.balanceHeader}>
+              <View style={styles.balanceHeaderLeft}>
+                <View style={styles.balanceIconWrap}>
+                  <MaterialIcons name="account-balance-wallet" size={20} color="#FF7F00" />
+                </View>
+                <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
               </View>
-              <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
+              <TouchableOpacity
+                onPress={() => setBalanceVisible((visible) => !visible)}
+                style={styles.eyeButton}
+                activeOpacity={0.8}>
+                <MaterialIcons
+                  name={balanceVisible ? 'visibility' : 'visibility-off'}
+                  size={22}
+                  color="#fff"
+                />
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              onPress={() => setBalanceVisible((visible) => !visible)}
-              style={styles.eyeButton}
-              activeOpacity={0.8}
-            >
-              <MaterialIcons
-                name={balanceVisible ? 'visibility' : 'visibility-off'}
-                size={22}
-                color="#fff"
+
+            <View style={styles.balanceAmountContainer}>
+              {loadingBalance ? (
+                <NetpayLoadingAnimation size={36} variant="onBrand" strokeWidth={2.5} />
+              ) : (
+                <ThemedText style={styles.balanceValue}>
+                  {balanceVisible ? formatCurrency(walletBalance) : '₦ ••••••'}
+                </ThemedText>
+              )}
+            </View>
+
+            {balanceVisible && projectedBalance !== null ? (
+              <View style={styles.projectedBalanceRow}>
+                <MaterialIcons name="trending-up" size={16} color="#fff" />
+                <ThemedText style={styles.projectedBalanceText}>
+                  After funding: {formatCurrency(projectedBalance)}
+                </ThemedText>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.infoBanner}>
+            <View style={styles.infoIconContainer}>
+              <ThemedText style={styles.infoIcon}>i</ThemedText>
+            </View>
+            <ThemedText style={styles.infoText}>
+              Fund your wallet securely with card, bank transfer, or USSD via Flutterwave. Your balance updates
+              after successful payment.
+            </ThemedText>
+          </View>
+
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionLabel}>Enter Amount</ThemedText>
+            <View style={styles.amountRow}>
+              <ThemedText style={styles.currencyPrefix}>₦</ThemedText>
+              <TextInput
+                style={styles.amountInput}
+                placeholder="0"
+                placeholderTextColor="#999"
+                value={amountInput}
+                onChangeText={(value) => setAmountInput(value.replace(/\D/g, ''))}
+                keyboardType="numeric"
+                maxLength={7}
               />
-            </TouchableOpacity>
+            </View>
+            <ThemedText style={styles.helperText}>
+              Min {formatCurrency(MIN_AMOUNT)} · Max {formatCurrency(MAX_AMOUNT)}
+            </ThemedText>
           </View>
 
-          <View style={styles.balanceAmountContainer}>
-            {loadingBalance ? (
-              <NetpayLoadingAnimation size={36} variant="onBrand" strokeWidth={2.5} />
-            ) : (
-              <ThemedText style={styles.balanceValue}>
-                {balanceVisible ? formatCurrency(walletBalance || 0) : '₦ ••••••'}
-              </ThemedText>
-            )}
+          <View style={styles.quickAmountRow}>
+            {QUICK_AMOUNTS.map((quickAmount) => (
+              <TouchableOpacity
+                key={quickAmount}
+                style={[styles.quickAmountButton, amount === quickAmount && styles.quickAmountButtonActive]}
+                onPress={() => setAmountInput(String(quickAmount))}
+                activeOpacity={0.85}
+                disabled={paying}>
+                <ThemedText
+                  style={[styles.quickAmountText, amount === quickAmount && styles.quickAmountTextActive]}>
+                  {formatCurrency(quickAmount)}
+                </ThemedText>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          {balanceVisible && projectedBalance !== null ? (
-            <View style={styles.projectedBalanceRow}>
-              <MaterialIcons name="trending-up" size={16} color="#fff" />
-              <ThemedText style={styles.projectedBalanceText}>
-                After funding: {formatCurrency(projectedBalance)}
-              </ThemedText>
+          {amount >= MIN_AMOUNT ? (
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryRow}>
+                <ThemedText style={styles.summaryLabel}>You pay</ThemedText>
+                <ThemedText style={styles.summaryValue}>{formatCurrency(amount)}</ThemedText>
+              </View>
+              <View style={styles.summaryRow}>
+                <ThemedText style={styles.summaryLabel}>Processing fee (5%, min ₦10)</ThemedText>
+                <ThemedText style={styles.summaryValue}>-{formatCurrency(fundingFee)}</ThemedText>
+              </View>
+              <View style={[styles.summaryRow, styles.summaryRowTotal]}>
+                <ThemedText style={styles.summaryTotalLabel}>Wallet credit</ThemedText>
+                <ThemedText style={styles.summaryTotalValue}>{formatCurrency(netCredit)}</ThemedText>
+              </View>
             </View>
           ) : null}
-        </View>
 
-        <View style={styles.infoBanner}>
-          <View style={styles.infoIconContainer}>
-            <ThemedText style={styles.infoIcon}>i</ThemedText>
-          </View>
-          <ThemedText style={styles.infoText}>
-            Fund your wallet securely with card, bank transfer, or USSD via Flutterwave. Your balance updates
-            instantly after successful payment.
-          </ThemedText>
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText style={styles.sectionLabel}>Enter Amount</ThemedText>
-          <View style={styles.amountRow}>
-            <ThemedText style={styles.currencyPrefix}>₦</ThemedText>
-            <TextInput
-              style={styles.amountInput}
-              placeholder="0"
-              placeholderTextColor="#999"
-              value={amountInput}
-              onChangeText={(value) => setAmountInput(value.replace(/\D/g, ''))}
-              keyboardType="numeric"
-              maxLength={7}
-            />
-          </View>
-          <ThemedText style={styles.helperText}>
-            Min {formatCurrency(MIN_AMOUNT)} · Max {formatCurrency(MAX_AMOUNT)}
-          </ThemedText>
-        </View>
-
-        <View style={styles.quickAmountRow}>
-          {QUICK_AMOUNTS.map((quickAmount) => (
-            <TouchableOpacity
-              key={quickAmount}
-              style={[styles.quickAmountButton, amount === quickAmount && styles.quickAmountButtonActive]}
-              onPress={() => setAmountInput(String(quickAmount))}
-              activeOpacity={0.85}
-              disabled={paying}
-            >
-              <ThemedText
-                style={[styles.quickAmountText, amount === quickAmount && styles.quickAmountTextActive]}
-              >
-                {formatCurrency(quickAmount)}
-              </ThemedText>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {amount >= MIN_AMOUNT ? (
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryRow}>
-              <ThemedText style={styles.summaryLabel}>You pay</ThemedText>
-              <ThemedText style={styles.summaryValue}>{formatCurrency(amount)}</ThemedText>
+          {error ? (
+            <View style={styles.errorBanner}>
+              <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
+              <ThemedText style={styles.errorText}>{error}</ThemedText>
             </View>
-            <View style={styles.summaryRow}>
-              <ThemedText style={styles.summaryLabel}>Processing fee (5%, min ₦10)</ThemedText>
-              <ThemedText style={styles.summaryValue}>-{formatCurrency(fundingFee)}</ThemedText>
-            </View>
-            <View style={[styles.summaryRow, styles.summaryRowTotal]}>
-              <ThemedText style={styles.summaryTotalLabel}>Wallet funding</ThemedText>
-              <ThemedText style={styles.summaryTotalValue}>{formatCurrency(netCredit)}</ThemedText>
-            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.payButton, !canPay && styles.payButtonDisabled]}
+            onPress={handlePay}
+            disabled={!canPay}
+            activeOpacity={0.85}>
+            {paying ? (
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
+            ) : (
+              <>
+                <MaterialIcons name="account-balance-wallet" size={18} color="#fff" style={styles.payButtonIcon} />
+                <ThemedText style={styles.payButtonText}>Pay with Flutterwave</ThemedText>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.securityNote}>
+            <MaterialIcons name="shield" size={20} color="#4CAF50" style={styles.securityIcon} />
+            <ThemedText style={styles.securityText}>
+              Payments are processed securely by Flutterwave. You will be redirected to complete checkout.
+            </ThemedText>
           </View>
-        ) : null}
-
-        {error ? (
-          <View style={styles.errorBanner}>
-            <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
-            <ThemedText style={styles.errorText}>{error}</ThemedText>
-          </View>
-        ) : null}
-
-        <TouchableOpacity
-          style={[styles.payButton, !canPay && styles.payButtonDisabled]}
-          onPress={handlePay}
-          disabled={!canPay}
-          activeOpacity={0.85}
-        >
-          {paying ? (
-            <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
-          ) : (
-            <>
-              <MaterialIcons name="account-balance-wallet" size={18} color="#fff" style={styles.payButtonIcon} />
-              <ThemedText style={styles.payButtonText}>Fund Wallet</ThemedText>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.securityNote}>
-          <MaterialIcons name="shield" size={20} color="#4CAF50" style={styles.securityIcon} />
-          <ThemedText style={styles.securityText}>
-            Payments are processed securely by Flutterwave. You will be redirected to complete checkout.
-          </ThemedText>
-        </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </ThemedView>

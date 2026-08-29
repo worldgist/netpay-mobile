@@ -35,7 +35,7 @@ interface CableTvTransaction {
   } | null;
 }
 
-type CableVendingProvider = 'vtpass' | 'anyone' | 'mobilenig' | 'ebills';
+type CableVendingProvider = 'mobilenig' | 'ebills' | 'flutterwave';
 
 export default function CableTvPlans() {
   const [vendingProvider, setVendingProvider] = useState<CableVendingProvider>('mobilenig');
@@ -67,12 +67,11 @@ export default function CableTvPlans() {
 
       if (data?.setting_value) {
         const provider = (data.setting_value as any)?.provider || 'ebills';
-        // Handle both "ebills" and "ebills.africa" for backward compatibility
         const normalizedProvider = provider === 'ebills.africa' ? 'ebills' : provider;
-        const validProviders: CableVendingProvider[] = ['vtpass', 'anyone', 'ebills', 'mobilenig'];
+        const validProviders: CableVendingProvider[] = ['ebills', 'mobilenig', 'flutterwave'];
         const selectedProvider = validProviders.includes(normalizedProvider as CableVendingProvider) 
           ? (normalizedProvider as CableVendingProvider)
-          : 'ebills';
+          : 'mobilenig';
         console.log('Setting cable vending provider to:', selectedProvider);
         setVendingProvider(selectedProvider);
       } else {
@@ -135,7 +134,7 @@ export default function CableTvPlans() {
             setting_key: 'cable_provider',
             setting_value: { provider: newProvider },
             setting_category: 'system',
-            description: 'Cable TV vending provider: vtpass, mobilenig, ebills, or anyone'
+            description: 'Cable TV vending provider: mobilenig, ebills, or flutterwave'
           })
           .select();
       }
@@ -214,14 +213,12 @@ export default function CableTvPlans() {
 
   const getProviderDisplayName = (provider: CableVendingProvider): string => {
     switch (provider) {
-      case 'vtpass':
-        return 'VTpass';
       case 'mobilenig':
         return 'MobileNig';
-      case 'anyone':
-        return 'ANYONE';
       case 'ebills':
         return 'eBills Africa';
+      case 'flutterwave':
+        return 'Flutterwave';
       default:
         return provider.toUpperCase();
     }
@@ -229,14 +226,12 @@ export default function CableTvPlans() {
 
   const getProviderDescription = (provider: CableVendingProvider): string => {
     switch (provider) {
-      case 'vtpass':
-        return 'VTpass API - Reliable cable TV service provider';
       case 'mobilenig':
         return 'MobileNig API - Enterprise cable TV service provider';
-      case 'anyone':
-        return 'ANYONE API';
       case 'ebills':
         return 'eBills Africa API — cable packages, verification, and purchases via JWT auth';
+      case 'flutterwave':
+        return 'Flutterwave API — bill payment vending for cable TV subscriptions';
       default:
         return '';
     }
@@ -315,22 +310,16 @@ export default function CableTvPlans() {
                           <span className="text-xs text-muted-foreground">Enterprise service</span>
                         </div>
                       </SelectItem>
-                      <SelectItem value="vtpass">
-                        <div className="flex flex-col">
-                          <span>VTpass</span>
-                          <span className="text-xs text-muted-foreground">Reliable service</span>
-                        </div>
-                      </SelectItem>
                       <SelectItem value="ebills">
                         <div className="flex flex-col">
                           <span>eBills Africa</span>
                           <span className="text-xs text-muted-foreground">DSTV, GOTV, Startimes via eBills API</span>
                         </div>
                       </SelectItem>
-                      <SelectItem value="anyone">
+                      <SelectItem value="flutterwave">
                         <div className="flex flex-col">
-                          <span>ANYONE</span>
-                          <span className="text-xs text-muted-foreground">Alternative provider</span>
+                          <span>Flutterwave</span>
+                          <span className="text-xs text-muted-foreground">Bill payment vending</span>
                         </div>
                       </SelectItem>
                     </SelectContent>

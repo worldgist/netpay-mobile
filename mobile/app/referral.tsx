@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authRedirectUrls, NETPAY_SITE_URL } from '@/constants/site';
+import { buildReferralCode, REFERRER_REWARD_AMOUNT } from '@/utils/referral';
 
 export default function ReferralScreen() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function ReferralScreen() {
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
+  const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
   const [stats, setStats] = useState({
     totalReferrals: 0,
     completedReferrals: 0,
@@ -44,9 +45,39 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
       referrer_reward_paid: boolean;
     }[]
   >([]);
-  const [referrerReward, setReferrerReward] = useState<number | null>(null);
-  const [referredReward, setReferredReward] = useState<number | null>(null);
   const isMounted = useRef(true);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const applySession = (sessionUserId: string) => {
+      if (!isActive) return;
+      setReferralCode(buildReferralCode(sessionUserId));
+    };
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        console.warn('referral session error:', error);
+        return;
+      }
+      if (data.session?.user?.id) {
+        applySession(data.session.user.id);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user?.id) {
+        applySession(session.user.id);
+      }
+    });
+
+    return () => {
+      isActive = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const formatCurrency = useCallback((value: number | null | undefined) => {
     const amount = Number(value || 0);
@@ -73,18 +104,8 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
         }
 
         const userId = session.user.id;
-        
-        // Fetch user's referral code from profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('referral_code')
-          .eq('id', userId)
-          .single();
-        
-        // Use existing referral code or generate one from user ID
-        const code = profile?.referral_code || `REF-${userId.slice(0, 8).toUpperCase()}`;
         if (isMounted.current) {
-          setReferralCode(code);
+          setReferralCode(buildReferralCode(userId));
         }
 
         const { data: referralRows, error: referralError } = await supabase
@@ -129,32 +150,8 @@ const [isReferralLinkReachable, setIsReferralLinkReachable] = useState(true);
             pendingEarnings,
           });
         }
-
-        const { data: settingsRow, error: settingsError } = await supabase
-          .from('referral_settings')
-          .select('referrer_reward, referred_reward')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (settingsError && settingsError.code !== 'PGRST116') {
-          throw settingsError;
-        }
-
-        if (isMounted.current && settingsRow) {
-          setReferrerReward(Number(settingsRow.referrer_reward || 0));
-          setReferredReward(Number(settingsRow.referred_reward || 0));
-        } else if (isMounted.current) {
-          setReferrerReward(null);
-          setReferredReward(null);
-        }
       } catch (error) {
         console.error('Failed to load referral data:', error);
-        if (isMounted.current) {
-          const message = error instanceof Error ? error.message : 'Unable to load referral data. Please try again.';
-          Alert.alert('Referral Program', message);
-        }
       } finally {
         if (isMounted.current && isRefresh) {
           setRefreshing(false);
@@ -231,8 +228,8 @@ const handleShareLink = () => {
   if (!referralCode) return;
 
   const message = referralLink
-    ? `Join NetPay using my referral code ${referralCode} and earn rewards! Sign up now: ${referralLink}`
-    : `Use my NetPay referral code ${referralCode} to sign up and earn rewards! Download the app: ${NETPAY_SITE_URL}`;
+    ? `Join NetPay with my referral code ${referralCode}. I earn ₦${REFERRER_REWARD_AMOUNT.toLocaleString('en-NG')} when you sign up: ${referralLink}`
+    : `Use my NetPay referral code ${referralCode} to sign up. Download the app: ${NETPAY_SITE_URL}`;
 
   Share.share({
     message,
@@ -244,23 +241,7 @@ const handleShareLink = () => {
   });
 };
 
-  const rewardSummary = useMemo(() => {
-    if (referrerReward === null && referredReward === null) return '';
-
-    if (referrerReward !== null && referredReward !== null) {
-      return `Earn ${formatCurrency(referrerReward)} and your friend gets ${formatCurrency(referredReward)} after their first transaction.`;
-    }
-
-    if (referrerReward !== null) {
-      return `Earn ${formatCurrency(referrerReward)} when your friend completes their first transaction.`;
-    }
-
-    if (referredReward !== null) {
-      return `Your friend receives ${formatCurrency(referredReward)} after their first transaction.`;
-    }
-
-    return '';
-  }, [formatCurrency, referrerReward, referredReward]);
+  const rewardSummary = `Earn ${formatCurrency(REFERRER_REWARD_AMOUNT)} each time someone signs up with your referral code.`;
 
   return (
     <ThemedView style={styles.container}>
@@ -285,7 +266,9 @@ const handleShareLink = () => {
           <ThemedText style={styles.referralCardSubtitle}>Share this code with friends to earn rewards</ThemedText>
 
           <View style={styles.codeContainer}>
-            <ThemedText style={styles.referralCode} numberOfLines={1} adjustsFontSizeToFit>{referralCode || 'Generating...'}</ThemedText>
+            <ThemedText style={styles.referralCode} numberOfLines={1} adjustsFontSizeToFit>
+              {referralCode || '—'}
+            </ThemedText>
             <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode} disabled={!referralCode}>
               <MaterialIcons name={copied ? "check" : "content-copy"} size={20} color="#fff" />
             </TouchableOpacity>
@@ -294,7 +277,7 @@ const handleShareLink = () => {
           <ThemedText style={styles.referralCardSubtitle}>Referral Link</ThemedText>
           <View style={styles.codeContainer}>
             <ThemedText style={[styles.referralCode, { fontSize: 14 }]} numberOfLines={2} adjustsFontSizeToFit>
-              {referralLink || 'Generating...'}
+              {referralLink || '—'}
             </ThemedText>
             <TouchableOpacity style={styles.copyButton} onPress={handleCopyLink} disabled={!referralLink}>
               <MaterialIcons name={linkCopied ? "check" : "link"} size={20} color="#fff" />
@@ -316,9 +299,7 @@ const handleShareLink = () => {
             <ThemedText style={styles.shareButtonText}>Share Referral Link</ThemedText>
           </TouchableOpacity>
 
-          {!!rewardSummary && (
-            <ThemedText style={styles.rewardSummary} numberOfLines={3}>{rewardSummary}</ThemedText>
-          )}
+          <ThemedText style={styles.rewardSummary} numberOfLines={3}>{rewardSummary}</ThemedText>
         </View>
 
         {/* Statistics Grid */}
@@ -434,8 +415,10 @@ const handleShareLink = () => {
               <ThemedText style={styles.stepNumberText}>3</ThemedText>
             </View>
             <View style={styles.stepContent}>
-              <ThemedText style={styles.stepTitle} numberOfLines={2}>Earn rewards</ThemedText>
-              <ThemedText style={styles.stepDescription} numberOfLines={2}>Get rewarded when they complete their first transaction</ThemedText>
+              <ThemedText style={styles.stepTitle} numberOfLines={2}>Earn ₦200</ThemedText>
+              <ThemedText style={styles.stepDescription} numberOfLines={2}>
+                You receive ₦{REFERRER_REWARD_AMOUNT.toLocaleString('en-NG')} when they create an account with your code
+              </ThemedText>
             </View>
           </View>
         </View>

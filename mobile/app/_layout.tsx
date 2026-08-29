@@ -13,7 +13,9 @@ import { TransactionsProvider } from '@/contexts/transactions-context';
 import { VendingSettingsProvider } from '@/contexts/vending-settings-context';
 import { supabase } from '@/lib/supabase';
 import { handleAppLink } from '@/utils/handle-app-link';
-import { registerForPushNotifications, setupNotificationListeners } from '@/utils/push-notifications';
+import { clearAppCache } from '@/utils/clear-app-cache';
+import { registerForPushNotifications, setupNotificationListeners, isPushNotificationsEnabled, preparePushNotificationEnvironment, getPushEnvironmentBlocker } from '@/utils/push-notifications';
+import { Platform } from 'react-native';
 import '@/utils/error-handler'; // Initialize error handler
 import { Alert, LogBox } from 'react-native';
 
@@ -62,11 +64,18 @@ export default function RootLayout() {
     hasShownPushSetupAlertRef.current = true;
     Alert.alert(
       'Android Notifications Setup',
-      'Push notifications do not work in Expo Go on Android. Build and install a development build (or production APK/AAB), then test again.',
+      'Push notifications do not work in Expo Go on Android. Install a NetPay development or production build on your phone, then run:\n\nnpm run start:dev\n\nOpen the installed NetPay app (not Expo Go) to connect to Metro.',
     );
   };
 
   useEffect(() => {
+    void preparePushNotificationEnvironment();
+
+    const environmentBlocker = getPushEnvironmentBlocker();
+    if (Platform.OS === 'android' && environmentBlocker) {
+      maybeShowPushSetupAlert(environmentBlocker);
+    }
+
     const subscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
 
     (async () => {
@@ -101,6 +110,12 @@ export default function RootLayout() {
         }
         
         if (session?.user) {
+          const pushEnabled = await isPushNotificationsEnabled();
+          if (!pushEnabled) {
+            console.log('Push notifications disabled in profile settings');
+            return;
+          }
+
           const result = await registerForPushNotifications();
           if (result.registered) {
             console.log('Push notifications registered successfully');
@@ -136,6 +151,12 @@ export default function RootLayout() {
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
+          const pushEnabled = await isPushNotificationsEnabled();
+          if (!pushEnabled) {
+            console.log('Push notifications disabled in profile settings');
+            return;
+          }
+
           const result = await registerForPushNotifications();
           if (result.registered) {
             console.log('Push notifications registered after sign in');
@@ -149,6 +170,7 @@ export default function RootLayout() {
             maybeShowPushSetupAlert(result.reason);
           }
         } else if (event === 'SIGNED_OUT') {
+          void clearAppCache();
           // Remove listeners when user signs out
           if (notificationListeners) {
             notificationListeners.remove();
@@ -210,6 +232,7 @@ export default function RootLayout() {
           <Stack.Screen name="terms-and-conditions" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="email-verification" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="open/verify-email" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="setup-pin" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="setup-biometric" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="forget-password" options={{ headerShown: false, presentation: 'card' }} />

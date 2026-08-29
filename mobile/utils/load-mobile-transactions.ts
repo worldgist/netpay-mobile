@@ -21,9 +21,47 @@ export type MobileTransaction = {
 const FUNDING_FEE_PERCENTAGE = 0.05;
 const MIN_FUNDING_FEE = 10;
 
+const PURCHASE_LEDGER_TYPES = new Set([
+  'airtime_purchase',
+  'data_purchase',
+  'electricity_purchase',
+  'cable_purchase',
+  'cable_tv',
+  'education_purchase',
+  'betting_purchase',
+  'purchase',
+]);
+
 function calculateFundingFee(amount: number) {
   const percentageFee = amount * FUNDING_FEE_PERCENTAGE;
   return Math.max(MIN_FUNDING_FEE, Math.round(percentageFee * 100) / 100);
+}
+
+function collectPurchaseReferences(transactions: MobileTransaction[]) {
+  const references = new Set<string>();
+  for (const txn of transactions) {
+    if (txn.reference) {
+      references.add(txn.reference);
+    }
+  }
+  return references;
+}
+
+function shouldHideWalletLedgerEntry(
+  txn: { transaction_type?: string | null; reference?: string | null },
+  purchaseReferences: Set<string>,
+) {
+  const transactionType = (txn.transaction_type || '').toLowerCase();
+  if (transactionType === 'credit' || transactionType === 'refund' || transactionType === 'funding_fee') {
+    return false;
+  }
+
+  const reference = txn.reference || '';
+  if (reference && purchaseReferences.has(reference)) {
+    return true;
+  }
+
+  return PURCHASE_LEDGER_TYPES.has(transactionType);
 }
 
 export async function loadMobileTransactions(userId: string): Promise<MobileTransaction[]> {
@@ -37,7 +75,7 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
         .limit(50),
       supabase
         .from('funding_transactions')
-        .select('id, amount, status, reference, bank_name, account_name, created_at')
+        .select('id, amount, status, reference, bank_name, account_name, account_number, created_at')
         .eq('user_id', userId)
         .eq('status', 'completed')
         .order('created_at', { ascending: false })
@@ -89,63 +127,6 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
   if (electricityRes.error) {
     console.error('Error fetching electricity transactions:', electricityRes.error);
   }
-
-  const walletTransactions: MobileTransaction[] = (walletRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
-    const tt = (txn.transaction_type || '').toLowerCase();
-    const isRefund = tt === 'refund';
-    const description = txn.description || '';
-    const isFlutterwaveFunding = description.toLowerCase().includes('flutterwave');
-    return {
-      id: txn.id,
-      category: 'wallet' as const,
-      type: tt === 'credit' || isRefund ? ('credit' as const) : ('debit' as const),
-      amount: Number(txn.amount) || 0,
-      status: 'Completed',
-      reference: txn.reference,
-      description,
-      serviceType: isRefund ? 'Refund' : tt === 'credit' ? 'Fund Wallet' : 'Wallet Transaction',
-      provider: isRefund ? null : tt === 'credit' ? (isFlutterwaveFunding ? 'Flutterwave' : 'NGN') : null,
-      createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-    };
-  });
-
-  const walletReferences = new Set(
-    walletTransactions.map((txn) => txn.reference).filter((reference): reference is string => Boolean(reference))
-  );
-
-  const fundingTransactions: MobileTransaction[] = (fundingRes.data || [])
-    .filter((txn) => txn.reference && !walletReferences.has(txn.reference))
-    .map((txn) => {
-      const createdDate = new Date(txn.created_at);
-      const grossAmount = Number(txn.amount) || 0;
-      const fundingFee = calculateFundingFee(grossAmount);
-      const netAmount = grossAmount - fundingFee;
-      const bankName = txn.bank_name || 'Flutterwave';
-
-      return {
-        id: txn.id,
-        category: 'wallet' as const,
-        type: 'credit' as const,
-        amount: netAmount,
-        status: 'Completed',
-        reference: txn.reference,
-        description: `Wallet funding via ${bankName} (₦${grossAmount.toLocaleString('en-NG')} received, ₦${fundingFee.toLocaleString('en-NG')} fee)`,
-        serviceType: 'Fund Wallet',
-        provider: 'Flutterwave',
-        createdAt: txn.created_at,
-        formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-        formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
-        extra: {
-          sourceTable: 'funding_transactions',
-          grossAmount,
-          fundingFee,
-          accountName: txn.account_name,
-        },
-      };
-    });
 
   const airtimeTransactions: MobileTransaction[] = (airtimeRes.data || []).map((txn) => {
     const createdDate = new Date(txn.created_at);
@@ -376,6 +357,84 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       extra: { account_number: txn.account_number, vending_provider: txn.vending_provider },
     };
   });
+
+  const purchaseReferences = collectPurchaseReferences([
+    ...airtimeTransactions,
+    ...dataTransactions,
+    ...electricityTransactions,
+    ...educationTransactions,
+    ...bettingTransactions,
+    ...transferSent,
+    ...transferReceived,
+  ]);
+
+  const walletTransactions: MobileTransaction[] = (walletRes.data || [])
+    .filter((txn) => !shouldHideWalletLedgerEntry(txn, purchaseReferences))
+    .map((txn) => {
+      const createdDate = new Date(txn.created_at);
+      const tt = (txn.transaction_type || '').toLowerCase();
+      const isRefund = tt === 'refund';
+      const isFundingFee = tt === 'funding_fee';
+      const description = txn.description || '';
+      const isFlutterwaveFunding = description.toLowerCase().includes('flutterwave');
+      return {
+        id: txn.id,
+        category: 'wallet' as const,
+        type: tt === 'credit' || isRefund ? ('credit' as const) : ('debit' as const),
+        amount: Number(txn.amount) || 0,
+        status: 'Completed',
+        reference: txn.reference,
+        description,
+        serviceType: isFundingFee
+          ? 'Funding Fee'
+          : isRefund
+            ? 'Refund'
+            : tt === 'credit'
+              ? 'Fund Wallet'
+              : 'Wallet Transaction',
+        provider: isRefund ? null : tt === 'credit' ? (isFlutterwaveFunding ? 'Flutterwave' : 'NGN') : null,
+        createdAt: txn.created_at,
+        formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
+        formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      };
+    });
+
+  const walletReferences = new Set(
+    walletTransactions.map((txn) => txn.reference).filter((reference): reference is string => Boolean(reference)),
+  );
+
+  const fundingTransactions: MobileTransaction[] = (fundingRes.data || [])
+    .filter((txn) => txn.reference && !walletReferences.has(txn.reference))
+    .map((txn) => {
+      const createdDate = new Date(txn.created_at);
+      const grossAmount = Number(txn.amount) || 0;
+      const fundingFee = calculateFundingFee(grossAmount);
+      const netAmount = grossAmount - fundingFee;
+      const bankName = txn.bank_name || 'Flutterwave';
+
+      return {
+        id: txn.id,
+        category: 'wallet' as const,
+        type: 'credit' as const,
+        amount: netAmount,
+        status: 'Completed',
+        reference: txn.reference,
+        description: `Wallet funding via ${bankName} (₦${grossAmount.toLocaleString('en-NG')} received, ₦${fundingFee.toLocaleString('en-NG')} fee)`,
+        serviceType: 'Fund Wallet',
+        provider: 'Flutterwave',
+        createdAt: txn.created_at,
+        formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
+        formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+        extra: {
+          sourceTable: 'funding_transactions',
+          grossAmount,
+          fundingFee,
+          accountName: txn.account_name,
+          accountNumber: txn.account_number,
+          bankName: bankName,
+        },
+      };
+    });
 
   return [
     ...walletTransactions,

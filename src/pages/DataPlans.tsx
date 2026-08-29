@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
+import { MOBILENIG_GATEWAY_FUNCTION, mobilenigActions } from "@/lib/mobilenig-gateway";
 import { Plus, Trash2, RefreshCw, Pencil, X, RotateCcw, DollarSign, Search, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -56,14 +57,14 @@ interface Network {
   network_id: string;
 }
 
-const NETWORK_TABS = ['Airtel', 'MTN', 'Glo', '9Mobile'] as const;
+const NETWORK_TABS = ['Airtel', 'MTN', 'Glo', 'T2'] as const;
 
 const normalizeNetworkTab = (network: string) => {
   const upper = network.toUpperCase().trim();
   if (upper.includes('MTN')) return 'MTN';
   if (upper.includes('AIRTEL')) return 'Airtel';
   if (upper.includes('GLO')) return 'Glo';
-  if (upper.includes('9MOBILE') || upper.includes('ETISALAT') || upper.includes('9 MOBILE')) return '9Mobile';
+  if (upper.includes('T2') || upper.includes('9MOBILE') || upper.includes('ETISALAT') || upper.includes('9 MOBILE')) return 'T2';
   return network;
 };
 
@@ -73,6 +74,7 @@ const formatVendorLabel = (provider?: string | null) => {
   if (normalized === 'ebills' || normalized === 'ebills.africa') return 'eBills Africa';
   if (normalized === 'smeplug') return 'SMEPlug';
   if (normalized === 'mobilenig') return 'MobileNig';
+  if (normalized === 'flutterwave') return 'Flutterwave';
   if (normalized === 'vtpass') return 'VTPass';
   if (normalized === 'anyone') return 'ANYONE';
   return provider;
@@ -105,6 +107,8 @@ const inferPlanType = (planName: string, explicitType?: string | null) => {
   return 'SME';
 };
 
+type DataVendingProvider = 'smeplug' | 'mobilenig' | 'ebills' | 'flutterwave';
+
 const DataPlans = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -131,7 +135,7 @@ const DataPlans = () => {
     mobilenig_code: "",
     is_active: true
   });
-  const [dataProvider, setDataProvider] = useState<'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills'>('smeplug');
+  const [dataProvider, setDataProvider] = useState<DataVendingProvider>('smeplug');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [filterNetwork, setFilterNetwork] = useState<string | null>(null);
   const [activeNetworkTab, setActiveNetworkTab] = useState<string>('all');
@@ -236,8 +240,8 @@ const DataPlans = () => {
 
       // Apply network filter if set
       const filterToUse = networkFilter || filterNetwork;
-      const filtered = filterToUse 
-        ? (data || []).filter((p: any) => p.network === filterToUse)
+      const filtered = filterToUse
+        ? (data || []).filter((p: any) => normalizeNetworkTab(p.network) === normalizeNetworkTab(filterToUse))
         : (data || []);
 
       const sortedData = filtered.sort((a: any, b: any) => {
@@ -303,9 +307,9 @@ const DataPlans = () => {
         }
         
         const normalizedProvider = provider === 'ebills.africa' ? 'ebills' : provider;
-        const validProviders = ['smeplug', 'anyone', 'vtpass', 'mobilenig', 'ebills'];
-        const selectedProvider = validProviders.includes(normalizedProvider)
-          ? normalizedProvider as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills'
+        const validProviders: DataVendingProvider[] = ['smeplug', 'mobilenig', 'ebills', 'flutterwave'];
+        const selectedProvider = validProviders.includes(normalizedProvider as DataVendingProvider)
+          ? normalizedProvider as DataVendingProvider
           : 'smeplug';
         console.log('Setting data provider to:', selectedProvider);
         setDataProvider(selectedProvider);
@@ -425,7 +429,7 @@ const DataPlans = () => {
     checkAdminAndFetch();
   }, [checkAdminAndFetch]);
 
-  const updateDataProvider = async (newProvider: 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills') => {
+  const updateDataProvider = async (newProvider: DataVendingProvider) => {
     if (dataProvider === newProvider) {
       return;
     }
@@ -438,7 +442,7 @@ const DataPlans = () => {
           setting_key: 'data_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Data vending provider: smeplug, vtpass, mobilenig, anyone, or ebills (eBills Africa)'
+          description: 'Data vending provider: smeplug, mobilenig, ebills, or flutterwave'
         }, {
           onConflict: 'setting_key'
         });
@@ -492,7 +496,7 @@ const DataPlans = () => {
       }
 
       const normalizedNetworkName = network.name.trim().toUpperCase();
-      const vendors = ['vtpass', 'smeplug', 'mobilenig'];
+      const vendors = ['smeplug', 'mobilenig'];
       let totalImported = 0;
       let totalUpdated = 0;
 
@@ -512,8 +516,8 @@ const DataPlans = () => {
             }
             requestBody = { network_id: network.network_id };
           } else if (vendor === 'mobilenig') {
-            functionName = 'fetch-mobilenig-data-plans';
-            requestBody = { network: normalizedNetworkName };
+            functionName = MOBILENIG_GATEWAY_FUNCTION;
+            requestBody = mobilenigActions.dataPlans(normalizedNetworkName);
           }
 
           const { data: { session } } = await supabase.auth.getSession();
@@ -730,28 +734,13 @@ const DataPlans = () => {
       let requestBody: any = {};
 
       switch (dataProvider) {
-        case 'vtpass':
-          functionName = 'fetch-vtpass-data-plans';
-          // VTpass can accept either network name or network_id
-          if (network.name && network.name.trim()) {
-            // Normalize network name to uppercase to match VTpass service map
-            // VTpass expects: MTN, AIRTEL, GLO, 9MOBILE
-            const normalizedNetworkName = network.name.trim().toUpperCase();
-            requestBody = { network: normalizedNetworkName };
-          } else if (network.network_id) {
-            // Fallback to network_id if name is not available
-            requestBody = { network_id: network.network_id };
-          } else {
-            throw new Error('Network name or network_id is required for VTpass. Please ensure the network is properly configured.');
-          }
-          break;
         case 'mobilenig':
-          functionName = 'fetch-mobilenig-data-plans';
+          functionName = MOBILENIG_GATEWAY_FUNCTION;
           if (!network.name || !network.name.trim()) {
             throw new Error('Network name is required for MobileNig. Please ensure the network is properly configured.');
           }
           const normalizedNetworkName = network.name.trim().toUpperCase();
-          requestBody = { network: normalizedNetworkName };
+          requestBody = mobilenigActions.dataPlans(normalizedNetworkName);
           break;
         case 'ebills.africa':
         case 'ebills':
@@ -761,13 +750,12 @@ const DataPlans = () => {
           }
           requestBody = { network: network.name.trim().toUpperCase() };
           break;
-        case 'anyone':
-          // TODO: Create fetch-anyone-data-plans function
-          functionName = 'fetch-smeplug-data-plans';
-          if (!network.network_id) {
-            throw new Error('Network ID is required for SMEPLUG. Please ensure the network has a valid network_id.');
+        case 'flutterwave':
+          functionName = 'fetch-ebills-data-plans';
+          if (!network.name || !network.name.trim()) {
+            throw new Error('Network name is required for Flutterwave data import.');
           }
-          requestBody = { network_id: network.network_id };
+          requestBody = { network: network.name.trim().toUpperCase() };
           break;
         case 'smeplug':
         default:
@@ -862,7 +850,7 @@ const DataPlans = () => {
         
         // Create AbortController for timeout (reduced to 30 seconds for VTpass)
         const controller = new AbortController();
-        const timeoutDuration = dataProvider === 'vtpass' ? 30000 : 60000; // 30s for VTpass, 60s for others
+        const timeoutDuration = 60000;
         timeoutId = setTimeout(() => {
           controller.abort();
           console.error('Request timeout after', timeoutDuration / 1000, 'seconds');
@@ -1067,6 +1055,8 @@ const DataPlans = () => {
 
         console.log(`Found ${plansArray.length} plans from ${dataProvider} for ${network.name}`);
 
+        const normalizedNetwork = normalizeNetworkTab(network.name);
+
         const normalizePrice = (value: any) => {
           if (value == null) return 0;
           const numeric = typeof value === 'number'
@@ -1120,7 +1110,7 @@ const DataPlans = () => {
 
             // Build plan object with vendor-specific codes
             const planObj: any = {
-              network: network.name,
+              network: normalizedNetwork,
               plan_name: typeof planName === 'string' ? planName.trim() || 'Unknown Plan' : 'Unknown Plan',
               price: priceValue,
               vendor_price: priceValue, // Store vendor price
@@ -1138,7 +1128,7 @@ const DataPlans = () => {
               planObj.smeplug_code = normalizedApiCode;
             } else if (dataProvider === 'mobilenig') {
               planObj.mobilenig_code = normalizedApiCode;
-            } else if (dataProvider === 'ebills') {
+            } else if (dataProvider === 'ebills' || dataProvider === 'flutterwave') {
               planObj.api_code = normalizedApiCode;
             }
 
@@ -1191,8 +1181,8 @@ const DataPlans = () => {
         // First, fetch existing plans for this network to check for matches
         const { data: existingPlans } = await supabase
           .from('data_plans')
-          .select('id, network, plan_name, vtpass_code, smeplug_code, mobilenig_code, api_code, provider')
-          .eq('network', network.name);
+          .select('id, network, plan_name, vtpass_code, smeplug_code, mobilenig_code, api_code, provider, vendor_price, user_price, validity, size, price')
+          .in('network', Array.from(new Set([network.name, normalizedNetwork])));
 
         const plansToUpsert: any[] = [];
         const plansToUpdate: Array<{ id: string; updates: any }> = [];
@@ -1202,7 +1192,9 @@ const DataPlans = () => {
           // Also try to match by size if available
           const matchingPlan = existingPlans?.find(
             (existing: any) => {
-              const networkMatch = existing.network === newPlan.network;
+              const networkMatch =
+                normalizeNetworkTab(existing.network) === normalizedNetwork ||
+                existing.network === network.name;
               const nameMatch = existing.plan_name.toLowerCase().trim() === newPlan.plan_name.toLowerCase().trim();
               
               // Try to match by price (within 5% tolerance for rounding differences)
@@ -1235,6 +1227,19 @@ const DataPlans = () => {
               if (!matchingPlan.mobilenig_code || matchingPlan.mobilenig_code !== newPlan.mobilenig_code) {
                 updates.mobilenig_code = newPlan.mobilenig_code;
               }
+            } else if ((dataProvider === 'ebills' || dataProvider === 'flutterwave') && newPlan.api_code) {
+              if (!matchingPlan.api_code || matchingPlan.api_code !== newPlan.api_code) {
+                updates.api_code = newPlan.api_code;
+              }
+              updates.provider = dataProvider;
+              updates.network = normalizedNetwork;
+            }
+
+            if (matchingPlan.provider !== dataProvider) {
+              updates.provider = dataProvider;
+            }
+            if (normalizeNetworkTab(matchingPlan.network) !== normalizedNetwork) {
+              updates.network = normalizedNetwork;
             }
 
             // Update price if vendor price is different
@@ -1369,20 +1374,19 @@ const DataPlans = () => {
 
         await fetchDataPlans();
         setIsDialogOpen(false);
-        // Filter to show only the fetched network
-        setFilterNetwork(network.name);
-        setActiveNetworkTab(network.name);
-        setActiveNetworkTab(network.name);
-        
+        setFilterNetwork(normalizedNetwork);
+        setActiveNetworkTab(normalizedNetwork);
+        setCurrentPage(1);
+
         const newCount = plansToUpsert.length;
         const updatedCount = plansToUpdate.length;
-        let successMessage = `Imported ${totalProcessed} data plans from ${network.name} via ${dataProvider.toUpperCase()}`;
+        let successMessage = `Imported ${totalProcessed} data plans from ${normalizedNetwork} via ${dataProvider === 'ebills' ? 'eBills Africa' : dataProvider.toUpperCase()}`;
         if (newCount > 0 && updatedCount > 0) {
           successMessage += ` (${newCount} new, ${updatedCount} updated with ${dataProvider} codes)`;
         } else if (updatedCount > 0) {
           successMessage += ` (Updated ${updatedCount} existing plans with ${dataProvider} codes)`;
         }
-        successMessage += `. Showing only ${network.name} plans.`;
+        successMessage += `. Showing ${normalizedNetwork} plans.`;
         
         toast({
           title: "Success",
@@ -1717,7 +1721,7 @@ const DataPlans = () => {
       'MTN': 'bg-yellow-500',
       'Airtel': 'bg-red-500',
       'Glo': 'bg-green-500',
-      '9Mobile': 'bg-emerald-600'
+      'T2': 'bg-emerald-600'
     };
     return colors[network] || 'bg-gray-500';
   };
@@ -1734,8 +1738,10 @@ const DataPlans = () => {
   const filteredPlans = useMemo(() => {
     let plans = [...dataPlans];
 
-    if (activeNetworkTab !== 'all') {
-      plans = plans.filter((plan) => normalizeNetworkTab(plan.network) === activeNetworkTab);
+    const activeTab = activeNetworkTab === 'all' ? 'all' : normalizeNetworkTab(activeNetworkTab);
+
+    if (activeTab !== 'all') {
+      plans = plans.filter((plan) => normalizeNetworkTab(plan.network) === activeTab);
     } else if (filterNetwork) {
       plans = plans.filter((plan) => normalizeNetworkTab(plan.network) === normalizeNetworkTab(filterNetwork));
     }
@@ -1779,6 +1785,7 @@ const DataPlans = () => {
     if (normalized === 'vtpass') return 'bg-blue-50 text-blue-700 border-blue-200';
     if (normalized === 'mobilenig') return 'bg-purple-50 text-purple-700 border-purple-200';
     if (normalized === 'ebills' || normalized === 'ebills.africa') return 'bg-orange-50 text-orange-700 border-orange-200';
+    if (normalized === 'flutterwave') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     return 'bg-gray-50 text-gray-700 border-gray-200';
   };
 
@@ -1833,7 +1840,7 @@ const DataPlans = () => {
                     <Select
                       value={dataProvider}
                       onValueChange={async (value) => {
-                        const provider = value as 'smeplug' | 'anyone' | 'vtpass' | 'mobilenig' | 'ebills';
+                        const provider = value as DataVendingProvider;
                         setDataProvider(provider);
                         await updateDataProvider(provider);
                       }}
@@ -1844,10 +1851,9 @@ const DataPlans = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="smeplug">SMEPLUG</SelectItem>
-                        <SelectItem value="anyone">ANYONE</SelectItem>
-                        <SelectItem value="vtpass">VTPASS</SelectItem>
                         <SelectItem value="mobilenig">MobileNig</SelectItem>
                         <SelectItem value="ebills">eBills Africa</SelectItem>
+                        <SelectItem value="flutterwave">Flutterwave</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1875,7 +1881,7 @@ const DataPlans = () => {
                           <SelectContent>
                             {networks.map((network) => (
                               <SelectItem key={network.id} value={network.id}>
-                                {network.name}
+                                {normalizeNetworkTab(network.name)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1909,10 +1915,10 @@ const DataPlans = () => {
                     {NETWORK_TABS.map((network) => (
                       <Button
                         key={network}
-                        variant={activeNetworkTab === network ? 'default' : 'outline'}
+                        variant={normalizeNetworkTab(activeNetworkTab) === network ? 'default' : 'outline'}
                         size="sm"
                         onClick={() => handleNetworkTabChange(network)}
-                        className={activeNetworkTab === network ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}
+                        className={normalizeNetworkTab(activeNetworkTab) === network ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}
                       >
                         {network}
                         <span className="ml-2 text-xs opacity-80">({networkCounts[network] || 0} plans)</span>

@@ -17,7 +17,8 @@
     "db:setup-users": "node scripts/setup-initial-users.js",
     "supabase:sync-secrets": "node scripts/sync-supabase-secrets.js",
     "supabase:sync-secrets:dry-run": "node scripts/sync-supabase-secrets.js --dry-run",
-    "supabase:deploy-functions": "supabase functions deploy"
+    "supabase:deploy-functions": "supabase functions deploy",
+    "email:template:apply": "node scripts/update-supabase-confirm-signup-template.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

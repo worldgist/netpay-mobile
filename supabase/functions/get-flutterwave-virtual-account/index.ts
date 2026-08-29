@@ -6,6 +6,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const FLUTTERWAVE_BANK_CODE = "FLW";
+const FLUTTERWAVE_BUSINESS_ID = "flutterwave";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -14,7 +17,7 @@ serve(async (req) => {
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
 
     const authHeader = req.headers.get("Authorization");
@@ -31,15 +34,40 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { email, name, phoneNumber, bvn } = await req.json();
+    const { data: existingAccount } = await supabase
+      .from("virtual_accounts")
+      .select("account_number, bank_name, account_name, bank_code, tracking_reference")
+      .eq("user_id", user.id)
+      .eq("provider", "flutterwave")
+      .eq("bank_code", FLUTTERWAVE_BANK_CODE)
+      .maybeSingle();
 
-    if (!email || !name || !phoneNumber || !bvn) {
+    if (existingAccount) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: existingAccount,
+          existing: true,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const { email, name, phoneNumber, bvn, nin, identityType, identityNumber } = await req.json();
+
+    if (!email || !name || !phoneNumber) {
       throw new Error("Missing required parameters");
     }
 
-    const normalizedBvn = String(bvn).replace(/\D/g, "");
-    if (normalizedBvn.length !== 11) {
-      throw new Error("BVN must be 11 digits");
+    const resolvedType = String(identityType || (nin ? "nin" : "bvn")).toLowerCase();
+    const identityValue = String(identityNumber || (resolvedType === "nin" ? nin : bvn) || "").replace(/\D/g, "");
+
+    if (identityValue.length !== 11) {
+      throw new Error("BVN/NIN must be 11 digits");
+    }
+
+    if (resolvedType !== "bvn" && resolvedType !== "nin") {
+      throw new Error("Identity type must be bvn or nin");
     }
 
     const secretKey = Deno.env.get("FLUTTERWAVE_SECRET_KEY");
@@ -62,7 +90,7 @@ serve(async (req) => {
       firstname,
       lastname,
       narration: "NetPay Wallet Funding",
-      bvn: normalizedBvn,
+      ...(resolvedType === "nin" ? { nin: identityValue } : { bvn: identityValue }),
     };
 
     console.log("Creating Flutterwave virtual account for:", {
@@ -94,20 +122,46 @@ serve(async (req) => {
     }
 
     const account = flutterwaveData.data;
+    const accountName = `${firstname} ${lastname}`.trim();
+    const bankName = account.bank_name || "Flutterwave";
+    const trackingReference = txRef;
+
+    const { error: upsertError } = await supabase.from("virtual_accounts").upsert(
+      {
+        user_id: user.id,
+        business_id: FLUTTERWAVE_BUSINESS_ID,
+        bank_code: FLUTTERWAVE_BANK_CODE,
+        bank_name: bankName,
+        account_number: account.account_number,
+        account_name: accountName,
+        tracking_reference: trackingReference,
+        bvn: resolvedType === "bvn" ? identityValue : null,
+        nin: resolvedType === "nin" ? identityValue : null,
+        provider: "flutterwave",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,bank_code" },
+    );
+
+    if (upsertError) {
+      console.error("Failed to store Flutterwave virtual account:", upsertError);
+      throw new Error("Virtual account created but could not be saved");
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
         data: {
           account_number: account.account_number,
-          bank_name: account.bank_name || "Flutterwave",
-          account_name: `${firstname} ${lastname}`.trim(),
-          bank_code: "FLW",
-          tracking_reference: account.order_ref || account.flw_ref || txRef,
+          bank_name: bankName,
+          account_name: accountName,
+          bank_code: FLUTTERWAVE_BANK_CODE,
+          tracking_reference: trackingReference,
         },
+        existing: false,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
   } catch (error) {
     console.error("Get Flutterwave virtual account error:", error);
     const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
@@ -119,7 +173,7 @@ serve(async (req) => {
       {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });

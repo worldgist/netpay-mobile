@@ -23,7 +23,10 @@ export function appDeepLink(path: string, query?: Record<string, string>): strin
 }
 
 export const authRedirectUrls = {
-  passwordReset: () => siteUrl("/reset-password"),
+  passwordReset: (email?: string) =>
+    email
+      ? siteUrl(`/reset-password?email=${encodeURIComponent(email)}`)
+      : siteUrl("/reset-password"),
   emailVerification: (email: string) =>
     siteUrl(`/open/verify-email?email=${encodeURIComponent(email)}`),
   signupWithReferral: (referralCode: string) =>

@@ -135,9 +135,14 @@ Deno.serve(async (req) => {
       console.log(`Paid ₦${referrerAmount} to referrer ${referral.referrer.email}`);
     }
 
-    // Process referred user payment
-    if ((paymentType === 'referred' || paymentType === 'both') && !referral.reward_paid && referral.referred_id) {
+    // Process referred user payment (disabled when referred_reward is zero)
+    if (
+      (paymentType === 'referred' || paymentType === 'both') &&
+      !referral.reward_paid &&
+      referral.referred_id
+    ) {
       const referredAmount = Number(settings.referred_reward);
+      if (referredAmount > 0) {
       const currentBalance = Number(referral.referred.balance);
       const newBalance = currentBalance + referredAmount;
 
@@ -185,6 +190,7 @@ Deno.serve(async (req) => {
       results.referredAmount = referredAmount;
 
       console.log(`Paid ₦${referredAmount} to referred user ${referral.referred.email}`);
+      }
     }
 
     return new Response(

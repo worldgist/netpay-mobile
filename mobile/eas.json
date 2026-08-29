@@ -16,6 +16,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "buildArtifactPaths": ["android/app/build/outputs/mapping/**"],
       "ios": {
         "simulator": false

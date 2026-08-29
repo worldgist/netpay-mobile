@@ -191,6 +191,7 @@ export const debitUserWallet = async ({
   const balanceAfter = startingBalance - debitAmount;
   const txReference =
     reference || `DEBIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
+  const ledgerReference = txReference;
 
   const transactionPayload: Record<string, unknown> = {
     user_id: userId,
@@ -198,7 +199,7 @@ export const debitUserWallet = async ({
     amount: debitAmount,
     balance_before: startingBalance,
     balance_after: balanceAfter,
-    reference: txReference,
+    reference: ledgerReference,
     description: description ?? null,
     performed_by: performedBy ?? userId,
   };
@@ -260,7 +261,7 @@ export const debitUserWallet = async ({
           notification.message,
           {
             type: transactionType,
-            reference: txReference,
+            reference: ledgerReference,
             amount: debitAmount,
           }
         );
@@ -273,7 +274,7 @@ export const debitUserWallet = async ({
   return {
     balanceBefore: startingBalance,
     balanceAfter,
-    reference: txReference,
+    reference: ledgerReference,
   };
 };
 
@@ -319,6 +320,30 @@ export const creditUserWallet = async ({
     throw new Error("Amount must be greater than zero");
   }
 
+  const txReference =
+    reference || `CREDIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
+
+  if (reference) {
+    const { data: existingLedger, error: existingError } = await supabase
+      .from("user_transactions")
+      .select("balance_before, balance_after, reference")
+      .eq("user_id", userId)
+      .eq("reference", reference)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (existingLedger) {
+      return {
+        balanceBefore: Number(existingLedger.balance_before) || 0,
+        balanceAfter: Number(existingLedger.balance_after) || 0,
+        reference: existingLedger.reference || reference,
+      };
+    }
+  }
+
   let startingBalance = balanceBefore ?? null;
 
   if (startingBalance === null || startingBalance === undefined) {
@@ -326,8 +351,7 @@ export const creditUserWallet = async ({
   }
 
   const balanceAfter = startingBalance + creditAmount;
-  const txReference =
-    reference || `CREDIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
+  const ledgerReference = txReference;
 
   const transactionPayload: Record<string, unknown> = {
     user_id: userId,
@@ -335,7 +359,7 @@ export const creditUserWallet = async ({
     amount: creditAmount,
     balance_before: startingBalance,
     balance_after: balanceAfter,
-    reference: txReference,
+    reference: ledgerReference,
     description: description ?? null,
     performed_by: performedBy ?? userId,
   };
@@ -347,6 +371,23 @@ export const creditUserWallet = async ({
   );
 
   if (transactionError) {
+    if (reference && transactionError.code === "23505") {
+      const { data: racedLedger } = await supabase
+        .from("user_transactions")
+        .select("balance_before, balance_after, reference")
+        .eq("user_id", userId)
+        .eq("reference", reference)
+        .maybeSingle();
+
+      if (racedLedger) {
+        return {
+          balanceBefore: Number(racedLedger.balance_before) || 0,
+          balanceAfter: Number(racedLedger.balance_after) || 0,
+          reference: racedLedger.reference || reference,
+        };
+      }
+    }
+
     console.error("Failed to record user transaction (credit):", transactionError.message, transactionError);
     throw new Error(
       `Failed to record wallet transaction after credit${
@@ -397,7 +438,7 @@ export const creditUserWallet = async ({
           notification.message,
           {
             type: transactionType,
-            reference: txReference,
+            reference: ledgerReference,
             amount: creditAmount,
           }
         );
@@ -410,7 +451,7 @@ export const creditUserWallet = async ({
   return {
     balanceBefore: startingBalance,
     balanceAfter,
-    reference: txReference,
+    reference: ledgerReference,
   };
 };
 

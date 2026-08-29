@@ -1,8 +1,11 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { createTransactionNotification } from '@/utils/notifications';
+
+export const PUSH_NOTIFICATIONS_ENABLED_KEY = '@netpay_notifications_enabled';
 
 // Check if running in Expo Go (where push notifications are limited)
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
@@ -106,6 +109,34 @@ const setupAndroidChannels = async (notifications: typeof import('expo-notificat
   }
 };
 
+/** Returns a user-facing reason when push cannot work in the current environment. */
+export function getPushEnvironmentBlocker(): string | null {
+  if (isAndroidExpoGo) {
+    return 'Android push notifications are not available in Expo Go. Install a development or production build of NetPay on your phone, then open the app from that build (not Expo Go).';
+  }
+  if (!isPhysicalDevice()) {
+    return 'Push notifications require a physical phone. Android emulators cannot receive remote push.';
+  }
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? undefined;
+  if (!projectId) {
+    return 'Missing EAS projectId for push tokens. Rebuild the app after verifying app.config.js extra.eas.projectId.';
+  }
+  return null;
+}
+
+/** Initialize handler + Android channels as early as possible (before token registration). */
+export async function preparePushNotificationEnvironment(): Promise<void> {
+  const notifications = initializeNotifications();
+  if (!notifications) {
+    return;
+  }
+
+  if (Platform.OS === 'android') {
+    await setupAndroidChannels(notifications);
+  }
+}
+
 /** Expo push does not work on emulators/simulators — must be a real device. */
 const isPhysicalDevice = () => Device.isDevice;
 
@@ -120,6 +151,40 @@ const isExpoPushTokenNetworkFailure = (err: unknown): boolean => {
     msg.includes('Could not connect to the server')
   );
 };
+
+export async function isPushNotificationsEnabled(): Promise<boolean> {
+  try {
+    const value = await AsyncStorage.getItem(PUSH_NOTIFICATIONS_ENABLED_KEY);
+    if (value === null) {
+      return true;
+    }
+    return JSON.parse(value) === true;
+  } catch (error) {
+    console.warn('Failed to read push notification preference:', error);
+    return true;
+  }
+}
+
+export async function setPushNotificationsEnabled(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(PUSH_NOTIFICATIONS_ENABLED_KEY, JSON.stringify(enabled));
+}
+
+export async function deactivatePushNotifications(): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('user_push_tokens')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('user_id', session.user.id)
+    .eq('is_active', true);
+
+  if (error) {
+    throw error;
+  }
+}
 
 const getDeviceIdentifier = async () => {
   const notifications = initializeNotifications();
@@ -150,35 +215,21 @@ export type PushRegistrationResult = {
 
 export const registerForPushNotifications = async (): Promise<PushRegistrationResult> => {
   try {
+    const environmentBlocker = getPushEnvironmentBlocker();
+    if (environmentBlocker) {
+      return { registered: false, reason: environmentBlocker };
+    }
+
     const notifications = initializeNotifications();
     
     if (!notifications) {
-      if (isAndroidExpoGo) {
-        return { 
-          registered: false, 
-          reason: 'Android push notifications are not available in Expo Go. Please use a development build.' 
-        };
-      }
       return { 
         registered: false, 
         reason: 'Push notifications are not available in this environment.' 
       };
     }
 
-    if (!isPhysicalDevice()) {
-      return {
-        registered: false,
-        reason:
-          'Push notifications require a physical phone. Android emulators and iOS simulators cannot receive remote push.',
-      };
-    }
-
-    // Set up Android notification channels BEFORE requesting permissions
-    // This is critical for Android - channels must exist before permission request
-    if (Platform.OS === 'android') {
-      console.log('Setting up Android notification channels before permission request...');
-      await setupAndroidChannels(notifications);
-    }
+    await preparePushNotificationEnvironment();
 
     // Request permissions - Android 13+ requires explicit permission
     console.log('Checking notification permissions...');

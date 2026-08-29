@@ -115,6 +115,8 @@ export function shouldProcessPayvesselEvent(payload: Record<string, unknown>): b
   // Legacy payloads without event — process when payment fields exist
   if (
     payload.virtualAccount ||
+    payload.reservedAccount ||
+    payload.reserved_account ||
     payload.order ||
     payload.transaction ||
     payload.account_number ||
@@ -131,14 +133,25 @@ export function extractPayvesselPaymentFields(payload: Record<string, unknown>) 
     ? payload.data
     : payload) as Record<string, unknown>;
 
-  const virtualAccount = (payload.virtualAccount || data.virtualAccount) as Record<string, unknown> | undefined;
+  const reservedAccount = (payload.reservedAccount ||
+    payload.reserved_account ||
+    data.reservedAccount ||
+    data.reserved_account) as Record<string, unknown> | undefined;
+  const virtualAccount = (payload.virtualAccount ||
+    payload.virtual_account ||
+    data.virtualAccount ||
+    data.virtual_account) as Record<string, unknown> | undefined;
   const order = (payload.order || data.order) as Record<string, unknown> | undefined;
   const transaction = (payload.transaction || data.transaction) as Record<string, unknown> | undefined;
   const sender = (payload.sender || data.sender) as Record<string, unknown> | undefined;
 
   const account_number =
     virtualAccount?.virtualAccountNumber ||
+    virtualAccount?.account_number ||
     virtualAccount?.accountNumber ||
+    reservedAccount?.accountNumber ||
+    reservedAccount?.account_number ||
+    reservedAccount?.virtualAccountNumber ||
     data.account_number ||
     data.accountNumber ||
     data.account ||

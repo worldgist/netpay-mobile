@@ -17,9 +17,21 @@ interface DropdownProps {
   onSelect: (id: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  loading?: boolean;
+  onOpen?: () => void;
+  emptyMessage?: string;
 }
 
-export function Dropdown({ options, selectedId, onSelect, placeholder = 'Select an option' }: DropdownProps) {
+export function Dropdown({
+  options,
+  selectedId,
+  onSelect,
+  placeholder = 'Select an option',
+  disabled = false,
+  loading = false,
+  onOpen,
+  emptyMessage = 'No options available',
+}: DropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectedOption = options.find(opt => opt.id === selectedId);
 
@@ -28,12 +40,19 @@ export function Dropdown({ options, selectedId, onSelect, placeholder = 'Select 
     setIsOpen(false);
   };
 
+  const handleOpen = () => {
+    if (disabled) return;
+    onOpen?.();
+    setIsOpen(true);
+  };
+
   return (
     <View style={styles.container}>
       <TouchableOpacity
-        style={styles.dropdown}
-        onPress={() => setIsOpen(true)}
-        activeOpacity={0.7}>
+        style={[styles.dropdown, disabled && styles.dropdownDisabled]}
+        onPress={handleOpen}
+        activeOpacity={0.7}
+        disabled={disabled}>
         <View style={styles.dropdownContent}>
           {selectedOption?.logo && (
             <View style={styles.dropdownLogoContainer}>
@@ -78,6 +97,13 @@ export function Dropdown({ options, selectedId, onSelect, placeholder = 'Select 
             <FlatList
               data={options}
               keyExtractor={(item) => item.id}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <ThemedText style={styles.emptyStateText}>
+                    {loading ? 'Loading plans...' : emptyMessage}
+                  </ThemedText>
+                </View>
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[
@@ -132,6 +158,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
     minHeight: 50,
+  },
+  dropdownDisabled: {
+    opacity: 0.5,
   },
   dropdownContent: {
     flex: 1,
@@ -228,6 +257,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FF7F00',
+  },
+  emptyState: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
   },
 });
 

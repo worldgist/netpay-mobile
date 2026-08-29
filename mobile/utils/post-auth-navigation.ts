@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { promptEnableNotifications, hasSeenNotificationPrompt } from '@/utils/notification-prompt';
 import { needsDeviceWelcomeSetup } from '@/utils/device-welcome';
+import { buildRouteHref } from '@/utils/router-href';
 import type { Href } from 'expo-router';
 
 /**
@@ -18,7 +19,7 @@ export async function navigateAfterAuthenticatedSession(router: { replace: (href
   }
 
   if (await needsDeviceWelcomeSetup(session.user.id)) {
-    router.replace({ pathname: '/setup-biometric', params: { from: 'new_device' } } as Href);
+    router.replace(buildRouteHref('/setup-biometric', { from: 'new_device' }));
     return;
   }
 

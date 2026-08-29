@@ -19,13 +19,22 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { registerForPushNotifications } from '@/utils/push-notifications';
+import { isPushNotificationsEnabled, registerForPushNotifications } from '@/utils/push-notifications';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useProfile } from '@/contexts/profile-context';
 import { useTransactions, type MobileTransaction } from '@/contexts/transactions-context';
 import { getWalletTransactionLabel, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
+import { buildTransactionDetailsHref } from '@/utils/transaction-navigation';
+import { FLIGHT_BOOKING_ENABLED } from '@/constants/features';
+import { writeCachedWalletBalance, readCachedWalletBalance } from '@/utils/wallet-balance-cache';
+import { clearAppCache } from '@/utils/clear-app-cache';
+import {
+  consumePendingFundingNotice,
+  registerFundingFinalizeHandlers,
+  setFundingCompleteHandler,
+} from '@/utils/verify-flutterwave-funding';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const HORIZONTAL_PADDING = 20;
@@ -41,10 +50,12 @@ const SERVICE_PAGES = [
   [
     { id: 'education', label: 'Education', icon: 'school' as const, route: '/education' },
     { id: 'betting', label: 'Betting', icon: 'casino' as const, route: '/betting' },
-    { id: 'flight', label: 'Flights', icon: 'flight' as const, route: '/flight-booking' },
+    ...(FLIGHT_BOOKING_ENABLED
+      ? [{ id: 'flight' as const, label: 'Flights', icon: 'flight' as const, route: '/flight-booking' as const }]
+      : []),
     { id: 'pay-bills', label: 'Pay Bills', icon: 'credit-card' as const, route: '/(tabs)/pay-bills' },
   ],
-] as const;
+];
 
 const NETWORK_LOGOS: Record<string, any> = {
   NGN: NGN_LOGO,
@@ -177,6 +188,12 @@ export default function HomeScreen() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
+          const pushEnabled = await isPushNotificationsEnabled();
+          if (!pushEnabled) {
+            console.log('Push notifications disabled in profile settings');
+            return;
+          }
+
           const result = await registerForPushNotifications();
           if (result.registered) {
             console.log('Push notifications registered from home screen');
@@ -234,6 +251,12 @@ export default function HomeScreen() {
         const userId = session.user.id;
         setUserId(userId);
 
+        const cachedBalance = await readCachedWalletBalance(userId);
+        if (cachedBalance !== null && isMounted.current) {
+          setBalance(cachedBalance);
+          setLoading(false);
+        }
+
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('balance, full_name')
@@ -243,7 +266,9 @@ export default function HomeScreen() {
         if (profileError) throw profileError;
 
         if (isMounted.current) {
-          setBalance(Number(profile?.balance) || 0);
+          const nextBalance = Number(profile?.balance) || 0;
+          setBalance(nextBalance);
+          void writeCachedWalletBalance(userId, nextBalance);
           const firstName = profile?.full_name?.split(' ')[0] || session.user.email?.split('@')[0] || 'User';
           setUserName(firstName);
         }
@@ -287,6 +312,53 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
+    registerFundingFinalizeHandlers({
+      refreshDashboard: async () => {
+        await fetchDashboardData({ refresh: true });
+      },
+      refreshTransactions: async () => {
+        await refreshTransactions();
+      },
+    });
+
+    const showFundingAlert = (notice: { credited: number; balanceAfter: number; alreadyProcessed: boolean }) => {
+      const credited = Number(notice.credited);
+      const balanceAfter = Number(notice.balanceAfter);
+
+      if (!isMounted.current || notice.alreadyProcessed || !Number.isFinite(credited) || credited <= 0) {
+        return;
+      }
+
+      const balanceLabel = Number.isFinite(balanceAfter)
+        ? `₦${balanceAfter.toLocaleString()}`
+        : 'your updated balance';
+
+      Alert.alert(
+        'Wallet Funded',
+        `₦${credited.toLocaleString()} has been added to your wallet. New balance: ${balanceLabel}.`,
+      );
+    };
+
+    setFundingCompleteHandler((notice) => {
+      void supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session?.user?.id || session.user.id !== notice.userId) {
+          return;
+        }
+        showFundingAlert(notice);
+      });
+    });
+
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      void consumePendingFundingNotice(session?.user?.id, showFundingAlert);
+    });
+
+    return () => {
+      registerFundingFinalizeHandlers({});
+      setFundingCompleteHandler(null);
+    };
+  }, [fetchDashboardData, refreshTransactions]);
+
+  useEffect(() => {
     if (!userId) {
       return;
     }
@@ -323,8 +395,10 @@ export default function HomeScreen() {
   }, [fetchDashboardData, userId]);
 
   const onRefresh = useCallback(() => {
-    fetchDashboardData({ refresh: true });
-    void refreshTransactions();
+    void clearAppCache().then(() => {
+      fetchDashboardData({ refresh: true });
+      void refreshTransactions();
+    });
   }, [fetchDashboardData, refreshTransactions]);
 
   const closeNotificationPanel = useCallback(() => {
@@ -501,32 +575,7 @@ export default function HomeScreen() {
   };
 
   const handleTransactionPress = (txn: MobileTransaction) => {
-    router.push({
-      pathname: '/transaction-details',
-      params: {
-        id: txn.id,
-        category: txn.category,
-        type: txn.type,
-        amount: txn.amount.toString(),
-        status: txn.status || '',
-        reference: txn.reference || '',
-        description: txn.description || '',
-        serviceType: txn.serviceType || '',
-        network: txn.provider || '',
-        date: txn.formattedDate,
-        time: txn.formattedTime,
-        meterType: txn.extra?.meterType || '',
-        token: txn.extra?.token || '',
-        meterNumber: txn.extra?.meter_number || '',
-        customerName: txn.extra?.customerName || '',
-        phoneNumber: txn.extra?.phone_number || '',
-        educationPin: txn.extra?.educationPin || '',
-        educationSerial: txn.extra?.educationSerial || '',
-        examType: txn.extra?.examType || '',
-        accountNumber: txn.extra?.account_number || '',
-        sourceTable: txn.extra?.sourceTable || '',
-      },
-    });
+    router.push(buildTransactionDetailsHref(txn));
   };
 
   const handleServiceScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -737,7 +786,9 @@ export default function HomeScreen() {
 
         <View style={styles.transactionsSection}>
           <View style={styles.sectionHeader}>
-            <ThemedText style={styles.sectionTitle}>Recent Transactions</ThemedText>
+            <ThemedText style={styles.sectionTitle} numberOfLines={1}>
+              Recent Transactions
+            </ThemedText>
             <TouchableOpacity
               style={styles.viewAllButton}
               onPress={() => router.push('/(tabs)/transactions')}
@@ -1039,8 +1090,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    gap: 12,
   },
   sectionTitle: {
+    flex: 1,
+    flexShrink: 1,
     fontSize: 17,
     fontWeight: 'bold',
     color: '#333',
@@ -1051,6 +1105,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   viewAllButton: {
+    flexShrink: 0,
     paddingHorizontal: 14,
     paddingVertical: 8,
     backgroundColor: '#FF7F00',

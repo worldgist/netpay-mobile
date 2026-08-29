@@ -32,6 +32,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
   ArrowDownLeft,
   ArrowUpRight,
   BookOpen,
@@ -42,6 +50,20 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
+
+function usePagination<T>(items: T[], pageSize: number, currentPage: number) {
+  const totalCount = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedItems = items.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+  const pageStart = totalCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalCount);
+
+  return { paginatedItems, totalCount, totalPages, safeCurrentPage, pageStart, pageEnd };
+}
 
 interface UserProfile {
   id: string;
@@ -86,6 +108,10 @@ export default function WalletManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [balanceFilter, setBalanceFilter] = useState("all");
+  const [walletsPage, setWalletsPage] = useState(1);
+  const [walletsPageSize, setWalletsPageSize] = useState(25);
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityPageSize, setActivityPageSize] = useState(25);
 
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
@@ -273,6 +299,13 @@ export default function WalletManagement() {
       );
     });
   }, [users, searchQuery, statusFilter, balanceFilter, getLedgerBalance]);
+
+  useEffect(() => {
+    setWalletsPage(1);
+  }, [searchQuery, statusFilter, balanceFilter]);
+
+  const walletsPagination = usePagination(filteredUsers, walletsPageSize, walletsPage);
+  const activityPagination = usePagination(recentActivity, activityPageSize, activityPage);
 
   const stats = useMemo(() => {
     const fundedWallets = users.filter((user) => getLedgerBalance(user) > 0).length;
@@ -491,7 +524,13 @@ export default function WalletManagement() {
                 <Card>
                   <CardHeader>
                     <CardTitle>User Wallets</CardTitle>
-                    <CardDescription>Search, credit, debit, and inspect individual wallet balances</CardDescription>
+                    <CardDescription>
+                      {loading
+                        ? "Loading wallets..."
+                        : walletsPagination.totalCount === 0
+                          ? "No wallets match your filters"
+                          : `Showing ${walletsPagination.pageStart}–${walletsPagination.pageEnd} of ${walletsPagination.totalCount} wallet${walletsPagination.totalCount !== 1 ? "s" : ""}`}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center mb-4">
@@ -553,7 +592,7 @@ export default function WalletManagement() {
                               </TableCell>
                             </TableRow>
                           ) : (
-                            filteredUsers.map((user) => {
+                            walletsPagination.paginatedItems.map((user) => {
                               const ledgerBalance = getLedgerBalance(user);
                               const hasDrift = !balancesMatch(ledgerBalance, user.balance);
                               return (
@@ -596,6 +635,83 @@ export default function WalletManagement() {
                         </TableBody>
                       </Table>
                     </div>
+
+                    {!loading && walletsPagination.totalCount > 0 && (
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                          <span>
+                            Page {walletsPagination.safeCurrentPage} of {walletsPagination.totalPages}
+                          </span>
+                          <Select
+                            value={String(walletsPageSize)}
+                            onValueChange={(value) => {
+                              setWalletsPageSize(Number(value));
+                              setWalletsPage(1);
+                            }}
+                          >
+                            <SelectTrigger className="w-[110px] h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="10">10 / page</SelectItem>
+                              <SelectItem value="25">25 / page</SelectItem>
+                              <SelectItem value="50">50 / page</SelectItem>
+                              <SelectItem value="100">100 / page</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {walletsPagination.totalPages > 1 && (
+                          <Pagination>
+                            <PaginationContent>
+                              <PaginationItem>
+                                <PaginationPrevious
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setWalletsPage((page) => Math.max(1, page - 1));
+                                  }}
+                                  className={walletsPagination.safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                              </PaginationItem>
+                              {Array.from({ length: Math.min(walletsPagination.totalPages, 7) }, (_, index) => {
+                                let pageNumber = index + 1;
+                                if (walletsPagination.totalPages > 7) {
+                                  if (walletsPagination.safeCurrentPage <= 4) pageNumber = index + 1;
+                                  else if (walletsPagination.safeCurrentPage >= walletsPagination.totalPages - 3) pageNumber = walletsPagination.totalPages - 6 + index;
+                                  else pageNumber = walletsPagination.safeCurrentPage - 3 + index;
+                                }
+                                return (
+                                  <PaginationItem key={pageNumber}>
+                                    <PaginationLink
+                                      href="#"
+                                      isActive={pageNumber === walletsPagination.safeCurrentPage}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setWalletsPage(pageNumber);
+                                      }}
+                                      className="cursor-pointer"
+                                    >
+                                      {pageNumber}
+                                    </PaginationLink>
+                                  </PaginationItem>
+                                );
+                              })}
+                              <PaginationItem>
+                                <PaginationNext
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setWalletsPage((page) => Math.min(walletsPagination.totalPages, page + 1));
+                                  }}
+                                  className={walletsPagination.safeCurrentPage >= walletsPagination.totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -604,7 +720,11 @@ export default function WalletManagement() {
                 <Card>
                   <CardHeader>
                     <CardTitle>Recent Wallet Activity</CardTitle>
-                    <CardDescription>Latest ledger entries across all user wallets</CardDescription>
+                    <CardDescription>
+                      {activityPagination.totalCount === 0
+                        ? "No recent activity"
+                        : `Showing ${activityPagination.pageStart}–${activityPagination.pageEnd} of ${activityPagination.totalCount} entr${activityPagination.totalCount !== 1 ? "ies" : "y"}`}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="rounded-md border overflow-x-auto">
@@ -627,7 +747,7 @@ export default function WalletManagement() {
                               </TableCell>
                             </TableRow>
                           ) : (
-                            recentActivity.map((tx) => (
+                            activityPagination.paginatedItems.map((tx) => (
                               <TableRow key={tx.id}>
                                 <TableCell className="text-sm whitespace-nowrap">
                                   {format(new Date(tx.created_at), "MMM d, HH:mm")}
@@ -650,6 +770,82 @@ export default function WalletManagement() {
                         </TableBody>
                       </Table>
                     </div>
+
+                    {activityPagination.totalCount > 0 && (
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                          <span>
+                            Page {activityPagination.safeCurrentPage} of {activityPagination.totalPages}
+                          </span>
+                          <Select
+                            value={String(activityPageSize)}
+                            onValueChange={(value) => {
+                              setActivityPageSize(Number(value));
+                              setActivityPage(1);
+                            }}
+                          >
+                            <SelectTrigger className="w-[110px] h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="10">10 / page</SelectItem>
+                              <SelectItem value="25">25 / page</SelectItem>
+                              <SelectItem value="50">50 / page</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {activityPagination.totalPages > 1 && (
+                          <Pagination>
+                            <PaginationContent>
+                              <PaginationItem>
+                                <PaginationPrevious
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setActivityPage((page) => Math.max(1, page - 1));
+                                  }}
+                                  className={activityPagination.safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                              </PaginationItem>
+                              {Array.from({ length: Math.min(activityPagination.totalPages, 7) }, (_, index) => {
+                                let pageNumber = index + 1;
+                                if (activityPagination.totalPages > 7) {
+                                  if (activityPagination.safeCurrentPage <= 4) pageNumber = index + 1;
+                                  else if (activityPagination.safeCurrentPage >= activityPagination.totalPages - 3) pageNumber = activityPagination.totalPages - 6 + index;
+                                  else pageNumber = activityPagination.safeCurrentPage - 3 + index;
+                                }
+                                return (
+                                  <PaginationItem key={pageNumber}>
+                                    <PaginationLink
+                                      href="#"
+                                      isActive={pageNumber === activityPagination.safeCurrentPage}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setActivityPage(pageNumber);
+                                      }}
+                                      className="cursor-pointer"
+                                    >
+                                      {pageNumber}
+                                    </PaginationLink>
+                                  </PaginationItem>
+                                );
+                              })}
+                              <PaginationItem>
+                                <PaginationNext
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setActivityPage((page) => Math.min(activityPagination.totalPages, page + 1));
+                                  }}
+                                  className={activityPagination.safeCurrentPage >= activityPagination.totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>

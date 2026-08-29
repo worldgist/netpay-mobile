@@ -58,9 +58,11 @@ type ProviderDetails = {
 
 const resolveAirtimeNetworkId = (
   provider: ProviderDetails,
-  vendingProvider: "smeplug" | "ebills",
+  vendingProvider: string,
 ): string | null => {
-  if (vendingProvider === "ebills") {
+  const normalizedProvider = vendingProvider.toLowerCase();
+
+  if (normalizedProvider === "ebills") {
     const fromApiCode = provider.apiCode?.trim().toLowerCase();
     if (fromApiCode && !/^\d+$/.test(fromApiCode)) {
       return fromApiCode;
@@ -69,6 +71,14 @@ const resolveAirtimeNetworkId = (
       return EBILLS_SERVICE_IDS[provider.network];
     }
     return null;
+  }
+
+  if (normalizedProvider === "mobilenig") {
+    return provider.apiCode?.trim().toUpperCase() || null;
+  }
+
+  if (normalizedProvider === "flutterwave") {
+    return provider.network || provider.apiCode?.trim() || null;
   }
 
   const smeplugId = provider.network ? SMEPLUG_NETWORK_IDS[provider.network] : null;
@@ -128,7 +138,7 @@ const PurchaseAirtime = () => {
   const [showInvalidPhoneModal, setShowInvalidPhoneModal] = useState(false);
   const [invalidPhoneMessage, setInvalidPhoneMessage] = useState("Please enter a valid 11-digit phone number.");
   const { providers: vendingSettings } = useVendingSettings();
-  const airtimeVendingProvider = vendingSettings.airtime === 'ebills' ? 'ebills' : 'smeplug';
+  const airtimeVendingProvider = vendingSettings.airtime || 'smeplug';
   const providerRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -180,9 +190,11 @@ const PurchaseAirtime = () => {
             displayName: getNetworkDisplayName(normalized),
             minAmount: Number(provider.min_amount) || 0,
             maxAmount: Number(provider.max_amount) || 0,
-            apiCode: provider.network_id
-              ? String(provider.network_id).trim()
-              : SMEPLUG_NETWORK_IDS[normalized] || '1',
+            apiCode: provider.item_code
+              ? String(provider.item_code).trim()
+              : provider.network_id
+                ? String(provider.network_id).trim()
+                : SMEPLUG_NETWORK_IDS[normalized] || '1',
             identifierLabel: provider.identifier_label || 'Phone Number',
             placeholder: provider.placeholder,
           } as ProviderDetails;
@@ -383,23 +395,17 @@ const PurchaseAirtime = () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      const purchaseFunction =
-        airtimeVendingProvider === 'ebills' ? 'purchase-ebills-airtime' : 'purchase-smeplug-airtime';
+      const purchaseFunction = 'purchase-airtime';
 
-      const purchaseBody =
-        airtimeVendingProvider === 'ebills'
-          ? {
-              phone_number: normalizePhoneNumber(phoneNumber),
-              amount: submissionAmount,
-              network_name: network.network,
-              service_id: normalizedNetworkId,
-            }
-          : {
-              phone_number: normalizePhoneNumber(phoneNumber),
-              amount: submissionAmount,
-              network_id: normalizedNetworkId,
-              network_name: network.network,
-            };
+      const purchaseBody = {
+        phone_number: normalizePhoneNumber(phoneNumber),
+        amount: submissionAmount,
+        network_id: normalizedNetworkId,
+        network_name: network.network,
+        service_id: normalizedNetworkId,
+        provider_id: network.id,
+        item_code: network.apiCode,
+      };
 
       const { data, error } = await supabase.functions.invoke(purchaseFunction, {
         body: purchaseBody,

@@ -6,12 +6,14 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { useWalletBalance } from '@/hooks/use-wallet-balance';
 
 type EducationService = {
   id: string;
@@ -63,8 +65,7 @@ export default function EducationScreen() {
   } | null>(null); // Store verified candidate details
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
-  const [balance, setBalance] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const { balance, setBalance, refreshBalance } = useWalletBalance();
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [fetchingPrice, setFetchingPrice] = useState(false);
@@ -207,7 +208,6 @@ export default function EducationScreen() {
   const fetchEducationServices = useCallback(async () => {
     try {
       if (isMounted.current) {
-        setLoading(true);
         setError(null);
       }
 
@@ -226,27 +226,13 @@ export default function EducationScreen() {
         setIsDemoUser(userEmail === 'demo@netppay.com');
       }
 
-      const userId = session.user.id;
-
-      const [profileRes, servicesRes] = await Promise.allSettled([
-        supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', userId)
-          .maybeSingle(),
+      const [servicesRes] = await Promise.allSettled([
         supabase
           .from('education_services')
           .select('id, exam_type, service_name, price, custom_price, original_price, api_code, service_id, vtpass_code, vending_provider, is_active, logo_url, metadata')
           .eq('is_active', true)
           .order('exam_type', { ascending: true }),
       ]);
-
-      let balanceValue = 0;
-      if (profileRes.status === 'fulfilled' && profileRes.value.data) {
-        balanceValue = Number(profileRes.value.data.balance) || 0;
-      } else if (profileRes.status === 'rejected' && profileRes.reason?.code !== 'PGRST116') {
-        throw profileRes.reason;
-      }
 
       let mappedServices: EducationService[] = [];
 
@@ -465,7 +451,6 @@ export default function EducationScreen() {
 
       if (isMounted.current) {
         setServices(finalServices);
-        setBalance(balanceValue);
         setSelectedServiceId(validSelection ? selectedServiceId : finalServices[0]?.id ?? null);
       }
     } catch (err) {
@@ -474,10 +459,6 @@ export default function EducationScreen() {
         setError(err instanceof Error ? err.message : 'Unable to load education services.');
         setServices(FALLBACK_SERVICES);
         setSelectedServiceId(FALLBACK_SERVICES[0]?.id ?? null);
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
       }
     }
   }, [router, selectedServiceId]);
@@ -862,15 +843,7 @@ export default function EducationScreen() {
       data = finalData;
 
       // Refresh balance
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('balance')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (profileData) {
-        setBalance(profileData.balance || 0);
-      }
+      await refreshBalance();
 
       // Extract PIN details from response
       const pins = data?.data?.pins || [];
@@ -878,17 +851,14 @@ export default function EducationScreen() {
       
       // Navigate to success screen with PIN details
       // Show total amount (purchase amount + charge fee) in success screen
-      router.push({
-        pathname: '/payment-success',
-        params: {
-          amount: totalAmount.toString(),
-          network: selectedServiceName,
-          recipient: selectedService.examType === 'JAMB' ? referenceNumber : '',
-          serviceType: `Education • ${selectedService.examType ?? ''}`,
-          reference,
-          pins: JSON.stringify(pins),
-        },
-      });
+      router.push(buildRouteHref('/payment-success', {
+        amount: totalAmount.toString(),
+        network: selectedServiceName,
+        recipient: selectedService.examType === 'JAMB' ? referenceNumber : '',
+        serviceType: `Education • ${selectedService.examType ?? ''}`,
+        reference,
+        pins: JSON.stringify(pins),
+      }));
     } catch (purchaseError: any) {
       console.error('Education purchase failed:', purchaseError);
       let message = 'Unable to complete education service purchase. Please try again.';
@@ -974,11 +944,7 @@ export default function EducationScreen() {
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
-              {loading ? (
-                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
-              ) : (
-                <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
-              )}
+              <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
             </View>
           </View>
 
@@ -1015,11 +981,7 @@ export default function EducationScreen() {
           {/* Service Selection */}
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Select Exam Type</ThemedText>
-            {loading ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <NetpayLoadingAnimation size={44} strokeWidth={3} />
-              </View>
-            ) : error ? (
+            {error ? (
               <View style={{ padding: 20, backgroundColor: '#FFE2E2', borderRadius: 12, marginTop: 12 }}>
                 <ThemedText style={{ color: '#8B1D1D', textAlign: 'center' }}>{error}</ThemedText>
               </View>

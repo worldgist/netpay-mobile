@@ -54,6 +54,9 @@ function normalizeVendingProvider(raw: string | undefined | null, key: (typeof V
   if (normalized === "sme-plug" || normalized === "sme_plug") {
     normalized = "smeplug";
   }
+  if (normalized === "flutter-wave" || normalized === "flutter_wave" || normalized === "flw") {
+    normalized = "flutterwave";
+  }
 
   return normalized || DEFAULTS[key];
 }

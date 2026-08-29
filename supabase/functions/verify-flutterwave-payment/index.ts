@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { processFlutterwaveFunding } from "../_shared/flutterwave-funding.ts";
+import {
+  getFlutterwaveCreditAmount,
+  getFlutterwaveFundingReference,
+  isSuccessfulFlutterwaveStatus,
+} from "../_shared/flutterwave-virtual-account.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,7 +66,7 @@ serve(async (req) => {
     const transaction = verifyData.data;
     const paymentStatus = String(transaction.status || "").toLowerCase();
 
-    if (paymentStatus !== "successful") {
+    if (!isSuccessfulFlutterwaveStatus(transaction.status)) {
       return new Response(
         JSON.stringify({
           success: false,
@@ -90,8 +95,14 @@ serve(async (req) => {
       throw new Error("Payment does not belong to this user");
     }
 
-    const grossAmount = Number(transaction.amount || transaction.charged_amount || 0);
-    const reference = transaction.tx_ref || txRef;
+    const grossAmount = getFlutterwaveCreditAmount(transaction);
+    const reference = String(transaction.tx_ref || txRef || "").trim()
+      || getFlutterwaveFundingReference(transaction)
+      || txRef;
+
+    if (!reference) {
+      throw new Error("Unable to determine payment reference");
+    }
 
     const result = await processFlutterwaveFunding({
       supabase,

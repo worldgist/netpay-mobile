@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download } from "lucide-react";
+import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
@@ -17,6 +17,15 @@ import { balancesMatch, fetchUserLedgerBalance } from "@/lib/ledger-balance";
 import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import {
   Dialog,
   DialogContent,
@@ -47,7 +56,16 @@ interface Transaction {
   created_at: string;
 }
 
+interface AdminUserDetails {
+  email_verified: boolean;
+  email_confirmed_at: string | null;
+  last_sign_in_at: string | null;
+  transaction_count: number;
+  roles: string[];
+}
+
 export default function Users() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [ledgerBalances, setLedgerBalances] = useState<Record<string, number>>({});
@@ -60,12 +78,59 @@ export default function Users() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [authorized, setAuthorized] = useState(false);
+  const [userDetails, setUserDetails] = useState<AdminUserDetails | null>(null);
+  const [loadingUserDetails, setLoadingUserDetails] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState("");
+  const [deletingUser, setDeletingUser] = useState(false);
+  const [verifyingUser, setVerifyingUser] = useState(false);
+  const [isResetPasswordDialogOpen, setIsResetPasswordDialogOpen] = useState(false);
+  const [resetPasswordReason, setResetPasswordReason] = useState("");
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [isSendResetLinkDialogOpen, setIsSendResetLinkDialogOpen] = useState(false);
+  const [resetLinkReason, setResetLinkReason] = useState("");
+  const [sendingResetLink, setSendingResetLink] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    const init = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
+
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", session.user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      if (!roles) {
+        toast({
+          title: "Access Denied",
+          description: "You don't have permission to access user management",
+          variant: "destructive",
+        });
+        navigate("/dashboard");
+        return;
+      }
+
+      setAuthorized(true);
+      await fetchUsers();
+    };
+
+    void init();
+  }, [navigate, toast]);
 
   const getLedgerBalance = (user: UserProfile) => ledgerBalances[user.id] ?? user.balance;
 
@@ -257,11 +322,225 @@ export default function Users() {
     window.URL.revokeObjectURL(url);
   };
 
+  const fetchAdminUserDetails = async (userId: string) => {
+    setLoadingUserDetails(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-get-user-details", {
+        body: { userId },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to load user details");
+      }
+
+      setUserDetails({
+        email_verified: Boolean(data.data.email_verified),
+        email_confirmed_at: data.data.auth?.email_confirmed_at ?? data.data.auth?.confirmed_at ?? null,
+        last_sign_in_at: data.data.auth?.last_sign_in_at ?? null,
+        transaction_count: Number(data.data.transaction_count || 0),
+        roles: Array.isArray(data.data.roles) ? data.data.roles : [],
+      });
+    } catch (error: any) {
+      console.error("Failed to load admin user details:", error);
+      setUserDetails(null);
+      toast({
+        title: "Warning",
+        description: error.message || "Could not load extended user details",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingUserDetails(false);
+    }
+  };
+
+  const handleVerifyUserEmail = async () => {
+    if (!selectedUser) return;
+
+    try {
+      setVerifyingUser(true);
+      const { data, error } = await supabase.functions.invoke("admin-verify-user", {
+        body: { userId: selectedUser.id },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to verify user email");
+      }
+
+      toast({
+        title: "Email Verified",
+        description: data.message || "User email has been verified successfully",
+      });
+
+      await fetchAdminUserDetails(selectedUser.id);
+    } catch (error: any) {
+      toast({
+        title: "Verification Failed",
+        description: error.message || "Could not verify user email",
+        variant: "destructive",
+      });
+    } finally {
+      setVerifyingUser(false);
+    }
+  };
+
+  const handleOpenDeleteDialog = () => {
+    setDeleteReason("");
+    setDeleteConfirmEmail("");
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleOpenResetPasswordDialog = () => {
+    setResetPasswordReason("");
+    setIsResetPasswordDialogOpen(true);
+  };
+
+  const handleOpenSendResetLinkDialog = () => {
+    setResetLinkReason("");
+    setIsSendResetLinkDialogOpen(true);
+  };
+
+  const handleSendPasswordResetLink = async () => {
+    if (!selectedUser) return;
+
+    try {
+      setSendingResetLink(true);
+      const { data, error } = await supabase.functions.invoke("admin-send-password-reset-link", {
+        body: {
+          userId: selectedUser.id,
+          reason: resetLinkReason.trim() || null,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to send password reset link");
+      }
+
+      toast({
+        title: "Reset Link Sent",
+        description: data.message || `Password reset link emailed to ${selectedUser.email}`,
+      });
+
+      setIsSendResetLinkDialogOpen(false);
+      setResetLinkReason("");
+    } catch (error: any) {
+      toast({
+        title: "Send Link Failed",
+        description: error.message || "Could not send password reset link",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingResetLink(false);
+    }
+  };
+
+  const handleResetUserPassword = async () => {
+    if (!selectedUser) return;
+
+    try {
+      setResettingPassword(true);
+      const { data, error } = await supabase.functions.invoke("admin-reset-user-password", {
+        body: {
+          userId: selectedUser.id,
+          reason: resetPasswordReason.trim() || null,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to reset user password");
+      }
+
+      toast({
+        title: "Password Reset",
+        description: data.message || `A new password was emailed to ${selectedUser.email}`,
+      });
+
+      setIsResetPasswordDialogOpen(false);
+      setResetPasswordReason("");
+    } catch (error: any) {
+      toast({
+        title: "Password Reset Failed",
+        description: error.message || "Could not reset user password",
+        variant: "destructive",
+      });
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return;
+
+    const expectedEmail = (selectedUser.email || "").trim().toLowerCase();
+    if (!expectedEmail || deleteConfirmEmail.trim().toLowerCase() !== expectedEmail) {
+      toast({
+        title: "Confirmation Required",
+        description: "Enter the user's email exactly to confirm deletion",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setDeletingUser(true);
+      const { data, error } = await supabase.functions.invoke("admin-delete-user", {
+        body: {
+          userId: selectedUser.id,
+          deletion_reason: deleteReason.trim() || "Deleted by admin from user management",
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to delete user");
+      }
+
+      toast({
+        title: "User Deleted",
+        description: "The user was removed from the app and archived in deleted account management",
+      });
+
+      setIsDeleteDialogOpen(false);
+      setIsViewDialogOpen(false);
+      setSelectedUser(null);
+      setUserDetails(null);
+      await fetchUsers();
+    } catch (error: any) {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Could not delete user",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingUser(false);
+    }
+  };
+
   const handleViewUser = async (user: UserProfile, openReconcile = false) => {
     setSelectedUser(user);
+    setUserDetails(null);
     await Promise.all([
       fetchUserTransactions(user.id),
       refreshUserLedgerBalance(user.id, user.balance),
+      fetchAdminUserDetails(user.id),
     ]);
     setIsViewDialogOpen(true);
     if (openReconcile) {
@@ -413,11 +692,31 @@ export default function Users() {
     }
   };
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return users;
+    return users.filter(
+      (user) =>
+        user.full_name?.toLowerCase().includes(query) ||
+        user.email?.toLowerCase().includes(query) ||
+        user.phone?.toLowerCase().includes(query) ||
+        user.id.toLowerCase().includes(query),
+    );
+  }, [users, searchQuery]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  const totalFilteredCount = filteredUsers.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedUsers = filteredUsers.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
   );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
 
   const userJoinStats = useMemo(() => {
     const now = new Date();
@@ -469,6 +768,19 @@ export default function Users() {
   const selectedUserLedgerBalance = selectedUser ? getLedgerBalance(selectedUser) : 0;
   const selectedUserHasBalanceDrift =
     selectedUser != null && !balancesMatch(selectedUserLedgerBalance, selectedUser.balance);
+
+  if (!authorized) {
+    return (
+      <SidebarProvider>
+        <div className="min-h-screen flex w-full bg-background">
+          <AppSidebar />
+          <main className="flex-1 flex items-center justify-center">
+            <p className="text-muted-foreground">Checking admin access…</p>
+          </main>
+        </div>
+      </SidebarProvider>
+    );
+  }
 
   return (
     <SidebarProvider>
@@ -544,7 +856,11 @@ export default function Users() {
             <Card>
               <CardHeader>
                 <CardTitle>All Users</CardTitle>
-                <CardDescription>Manage and monitor user accounts</CardDescription>
+                <CardDescription>
+                  {totalFilteredCount === 0
+                    ? "No users match your search"
+                    : `Showing ${pageStart}–${pageEnd} of ${totalFilteredCount} user${totalFilteredCount !== 1 ? "s" : ""}`}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -566,7 +882,7 @@ export default function Users() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredUsers.map((user) => (
+                      paginatedUsers.map((user) => (
                         <TableRow key={user.id}>
                           <TableCell className="font-medium">
                             {user.full_name || "N/A"}
@@ -608,6 +924,83 @@ export default function Users() {
                     )}
                   </TableBody>
                 </Table>
+
+                {totalFilteredCount > 0 && (
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span>
+                        Page {safeCurrentPage} of {totalPages}
+                      </span>
+                      <Select
+                        value={String(pageSize)}
+                        onValueChange={(value) => {
+                          setPageSize(Number(value));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <SelectTrigger className="w-[110px] h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10 / page</SelectItem>
+                          <SelectItem value="25">25 / page</SelectItem>
+                          <SelectItem value="50">50 / page</SelectItem>
+                          <SelectItem value="100">100 / page</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {totalPages > 1 && (
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.max(1, page - 1));
+                              }}
+                              className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                          {Array.from({ length: Math.min(totalPages, 7) }, (_, index) => {
+                            let pageNumber = index + 1;
+                            if (totalPages > 7) {
+                              if (safeCurrentPage <= 4) pageNumber = index + 1;
+                              else if (safeCurrentPage >= totalPages - 3) pageNumber = totalPages - 6 + index;
+                              else pageNumber = safeCurrentPage - 3 + index;
+                            }
+                            return (
+                              <PaginationItem key={pageNumber}>
+                                <PaginationLink
+                                  href="#"
+                                  isActive={pageNumber === safeCurrentPage}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage(pageNumber);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  {pageNumber}
+                                </PaginationLink>
+                              </PaginationItem>
+                            );
+                          })}
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.min(totalPages, page + 1));
+                              }}
+                              className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -662,6 +1055,46 @@ export default function Users() {
                     <Badge variant={selectedUser.status === "active" ? "default" : "destructive"}>
                       {selectedUser.status}
                     </Badge>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Email Verification</Label>
+                  <div className="mt-1">
+                    {loadingUserDetails ? (
+                      <Badge variant="secondary">Loading…</Badge>
+                    ) : (
+                      <Badge variant={userDetails?.email_verified ? "default" : "destructive"}>
+                        {userDetails?.email_verified ? "Verified" : "Not verified"}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Last Sign In</Label>
+                  <p className="font-medium">
+                    {userDetails?.last_sign_in_at
+                      ? new Date(userDetails.last_sign_in_at).toLocaleString()
+                      : loadingUserDetails
+                        ? "Loading…"
+                        : "Never"}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Total Transactions</Label>
+                  <p className="font-medium">
+                    {loadingUserDetails
+                      ? "Loading…"
+                      : userDetails?.transaction_count ?? selectedUserMetrics.count}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Roles</Label>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {(userDetails?.roles?.length ? userDetails.roles : ["user"]).map((role) => (
+                      <Badge key={role} variant="secondary">
+                        {role}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
                 <div>
@@ -850,6 +1283,42 @@ export default function Users() {
                     Suspend
                   </>
                 )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleOpenSendResetLinkDialog}
+                disabled={!selectedUser || sendingResetLink || !selectedUser.email}
+                className="flex-1"
+              >
+                <Link2 className="h-4 w-4 mr-2" />
+                Send Reset Link
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleOpenResetPasswordDialog}
+                disabled={!selectedUser || resettingPassword || !selectedUser.email}
+                className="flex-1"
+              >
+                <KeyRound className="h-4 w-4 mr-2" />
+                Reset Password
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleVerifyUserEmail}
+                disabled={!selectedUser || verifyingUser || loadingUserDetails || userDetails?.email_verified}
+                className="flex-1"
+              >
+                <MailCheck className="h-4 w-4 mr-2" />
+                {verifyingUser ? "Verifying…" : "Verify Email"}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleOpenDeleteDialog}
+                disabled={!selectedUser || deletingUser}
+                className="flex-1"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete User
               </Button>
             </div>
             <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
@@ -1090,6 +1559,132 @@ export default function Users() {
           }
         }}
       />
+
+      <Dialog open={isSendResetLinkDialogOpen} onOpenChange={setIsSendResetLinkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Password Reset Link</DialogTitle>
+            <DialogDescription>
+              Generate a secure deep link and email it to the user. The link opens NetPay so they can choose a new password.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-4">
+              <Alert>
+                <Link2 className="h-4 w-4" />
+                <AlertDescription>
+                  A reset link will be sent to <strong>{selectedUser.email}</strong>. It expires in 1 hour and opens the NetPay app on their phone.
+                </AlertDescription>
+              </Alert>
+              <div>
+                <Label htmlFor="reset-link-reason">Reason (optional, included in email)</Label>
+                <Textarea
+                  id="reset-link-reason"
+                  placeholder="Why is this reset link being sent?"
+                  value={resetLinkReason}
+                  onChange={(event) => setResetLinkReason(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsSendResetLinkDialogOpen(false)} disabled={sendingResetLink}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendPasswordResetLink} disabled={sendingResetLink || !selectedUser?.email}>
+              {sendingResetLink ? "Sending…" : "Send Reset Link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isResetPasswordDialogOpen} onOpenChange={setIsResetPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset User Password</DialogTitle>
+            <DialogDescription>
+              Generate a new temporary password and email it to the user so they can sign in again.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-4">
+              <Alert>
+                <KeyRound className="h-4 w-4" />
+                <AlertDescription>
+                  A new password will be sent to <strong>{selectedUser.email}</strong>. The user will be signed out of all devices.
+                </AlertDescription>
+              </Alert>
+              <div>
+                <Label htmlFor="reset-password-reason">Reason (optional, included in email)</Label>
+                <Textarea
+                  id="reset-password-reason"
+                  placeholder="Why is this password being reset?"
+                  value={resetPasswordReason}
+                  onChange={(event) => setResetPasswordReason(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsResetPasswordDialogOpen(false)} disabled={resettingPassword}>
+              Cancel
+            </Button>
+            <Button onClick={handleResetUserPassword} disabled={resettingPassword || !selectedUser?.email}>
+              {resettingPassword ? "Resetting…" : "Reset & Email Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User Account</DialogTitle>
+            <DialogDescription>
+              This permanently removes the user from the app and archives their account data in deleted account management.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-4">
+              <Alert variant="destructive">
+                <ShieldCheck className="h-4 w-4" />
+                <AlertDescription>
+                  You are about to delete <strong>{selectedUser.full_name || selectedUser.email}</strong>.
+                  This action cannot be undone.
+                </AlertDescription>
+              </Alert>
+              <div>
+                <Label htmlFor="delete-reason">Reason for deletion</Label>
+                <Textarea
+                  id="delete-reason"
+                  placeholder="Why is this account being deleted?"
+                  value={deleteReason}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="delete-confirm-email">
+                  Type <strong>{selectedUser.email}</strong> to confirm
+                </Label>
+                <Input
+                  id="delete-confirm-email"
+                  placeholder="Enter user email"
+                  value={deleteConfirmEmail}
+                  onChange={(event) => setDeleteConfirmEmail(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} disabled={deletingUser}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteUser} disabled={deletingUser || !selectedUser}>
+              {deletingUser ? "Deleting…" : "Delete Permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   );
 }

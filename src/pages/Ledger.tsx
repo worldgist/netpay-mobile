@@ -24,6 +24,14 @@ import {
 } from "@/lib/ledger-balance";
 import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
   ArrowDownLeft,
   ArrowUpRight,
   BookOpen,
@@ -96,6 +104,8 @@ export default function Ledger() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [reconcileUserId, setReconcileUserId] = useState<string | null>(null);
   const [reconcileDialogOpen, setReconcileDialogOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchLedgerSummary = useCallback(async () => {
     setLoadingSummary(true);
@@ -243,6 +253,20 @@ export default function Ledger() {
       );
     });
   }, [entries, searchQuery, directionFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, directionFilter, typeFilter, dateRange]);
+
+  const totalFilteredCount = filteredEntries.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedEntries = filteredEntries.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
 
   const stats = useMemo(() => {
     let totalCredits = 0;
@@ -510,8 +534,16 @@ export default function Ledger() {
               <CardHeader>
                 <CardTitle>Wallet Ledger</CardTitle>
                 <CardDescription>
-                  Immutable record of every wallet movement —{" "}
-                  <span className="font-medium text-foreground">balance after</span> is the authoritative user balance
+                  {loading
+                    ? "Loading ledger entries..."
+                    : totalFilteredCount === 0
+                      ? "No ledger entries found for this period"
+                      : `Showing ${pageStart}–${pageEnd} of ${totalFilteredCount} entr${totalFilteredCount !== 1 ? "ies" : "y"} — `}
+                  {!loading && totalFilteredCount > 0 && (
+                    <>
+                      <span className="font-medium text-foreground">balance after</span> is the authoritative user balance
+                    </>
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -616,7 +648,7 @@ export default function Ledger() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredEntries.map((entry) => {
+                        paginatedEntries.map((entry) => {
                           const isCredit = isCreditEntry(entry.transaction_type);
                           return (
                             <TableRow key={entry.id}>
@@ -664,6 +696,83 @@ export default function Ledger() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {!loading && totalFilteredCount > 0 && (
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span>
+                        Page {safeCurrentPage} of {totalPages}
+                      </span>
+                      <Select
+                        value={String(pageSize)}
+                        onValueChange={(value) => {
+                          setPageSize(Number(value));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <SelectTrigger className="w-[110px] h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10 / page</SelectItem>
+                          <SelectItem value="25">25 / page</SelectItem>
+                          <SelectItem value="50">50 / page</SelectItem>
+                          <SelectItem value="100">100 / page</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {totalPages > 1 && (
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.max(1, page - 1));
+                              }}
+                              className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                          {Array.from({ length: Math.min(totalPages, 7) }, (_, index) => {
+                            let pageNumber = index + 1;
+                            if (totalPages > 7) {
+                              if (safeCurrentPage <= 4) pageNumber = index + 1;
+                              else if (safeCurrentPage >= totalPages - 3) pageNumber = totalPages - 6 + index;
+                              else pageNumber = safeCurrentPage - 3 + index;
+                            }
+                            return (
+                              <PaginationItem key={pageNumber}>
+                                <PaginationLink
+                                  href="#"
+                                  isActive={pageNumber === safeCurrentPage}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage(pageNumber);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  {pageNumber}
+                                </PaginationLink>
+                              </PaginationItem>
+                            );
+                          })}
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.min(totalPages, page + 1));
+                              }}
+                              className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    )}
+                  </div>
+                )}
 
                 {!loading && filteredEntries.length >= 1000 && (
                   <p className="text-xs text-muted-foreground mt-3">

@@ -49,6 +49,44 @@ const toSmeplugPurchaseOption = (networkId: string, networkName: string) => {
   };
 };
 
+const toMobilenigPurchaseOption = (provider: {
+  id: string;
+  network_name: string;
+  api_code?: string | null;
+  min_amount?: number | null;
+  max_amount?: number | null;
+}) => ({
+  id: provider.id,
+  name: provider.network_name,
+  display_name: provider.network_name,
+  network_id: provider.api_code || provider.id,
+  min_amount: Number(provider.min_amount) || 50,
+  max_amount: Number(provider.max_amount) || 50000,
+  identifier_label: "Phone Number",
+  placeholder: "Phone Number",
+  item_code: provider.api_code || null,
+  vending_provider: "mobilenig",
+});
+
+const toFlutterwavePurchaseOption = (provider: {
+  id: string;
+  network_name: string;
+  api_code?: string | null;
+  min_amount?: number | null;
+  max_amount?: number | null;
+}) => ({
+  id: provider.id,
+  name: provider.network_name,
+  display_name: provider.network_name,
+  network_id: provider.network_name,
+  min_amount: Number(provider.min_amount) || 50,
+  max_amount: Number(provider.max_amount) || 50000,
+  identifier_label: "Phone Number",
+  placeholder: "Phone Number",
+  item_code: provider.api_code || null,
+  vending_provider: "flutterwave",
+});
+
 const toEbillsPurchaseOption = (network: typeof EBILLS_NETWORKS[number]) => ({
   ...network,
   identifier_label: "Phone Number",
@@ -56,6 +94,17 @@ const toEbillsPurchaseOption = (network: typeof EBILLS_NETWORKS[number]) => ({
   item_code: null,
   vending_provider: "ebills",
 });
+
+const fetchAirtimeProvidersFromDb = async (supabase: ReturnType<typeof createClient>) => {
+  const { data, error } = await supabase
+    .from("airtime_providers")
+    .select("id, network_name, api_code, min_amount, max_amount, is_active")
+    .eq("is_active", true)
+    .order("network_name", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+};
 
 const fetchSmeplugNetworks = async (secretKey: string) => {
   const response = await fetch("https://smeplug.ng/api/v1/networks", {
@@ -150,12 +199,56 @@ serve(async (req) => {
 
     const warnings: string[] = [];
     let options: ReturnType<typeof toSmeplugPurchaseOption>[] = [];
-    let source: "smeplug" | "ebills" | "fallback" = "fallback";
+    let source = "fallback";
 
     if (activeProvider === "ebills" || activeProvider === "ebills.africa") {
       options = EBILLS_NETWORKS.map(toEbillsPurchaseOption);
       source = "ebills";
       activeProvider = "ebills";
+    } else if (activeProvider === "mobilenig" || activeProvider === "mobile-nig") {
+      try {
+        const providers = await fetchAirtimeProvidersFromDb(supabase);
+        options = providers.length > 0
+          ? providers.map((provider) => toMobilenigPurchaseOption(provider))
+          : FALLBACK_OPTIONS.map((item) => toMobilenigPurchaseOption({
+            id: item.id,
+            network_name: item.name,
+            api_code: item.network_id,
+            min_amount: item.min_amount,
+            max_amount: item.max_amount,
+          }));
+        source = "mobilenig";
+        activeProvider = "mobilenig";
+      } catch (dbError) {
+        const message = dbError instanceof Error ? dbError.message : String(dbError);
+        warnings.push(`Could not load MobileNig airtime providers: ${message}`);
+        options = FALLBACK_OPTIONS.map((item) => toMobilenigPurchaseOption({
+          id: item.id,
+          network_name: item.name,
+          api_code: item.network_id,
+        }));
+        source = "fallback";
+      }
+    } else if (activeProvider === "flutterwave" || activeProvider === "flutter-wave" || activeProvider === "flw") {
+      try {
+        const providers = await fetchAirtimeProvidersFromDb(supabase);
+        options = providers.length > 0
+          ? providers.map((provider) => toFlutterwavePurchaseOption(provider))
+          : FALLBACK_OPTIONS.map((item) => toFlutterwavePurchaseOption({
+            id: item.id,
+            network_name: item.name,
+          }));
+        source = "flutterwave";
+        activeProvider = "flutterwave";
+      } catch (dbError) {
+        const message = dbError instanceof Error ? dbError.message : String(dbError);
+        warnings.push(`Could not load Flutterwave airtime providers: ${message}`);
+        options = FALLBACK_OPTIONS.map((item) => toFlutterwavePurchaseOption({
+          id: item.id,
+          network_name: item.name,
+        }));
+        source = "fallback";
+      }
     } else {
       const secretKey = Deno.env.get("SMEPLUG_SECRET_KEY");
       options = FALLBACK_OPTIONS.map((item) => toSmeplugPurchaseOption(item.network_id, item.name));

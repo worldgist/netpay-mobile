@@ -9,6 +9,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { checkSignupAvailability } from '@/utils/signup-availability';
 import { authRedirectUrls } from '@/constants/site';
+import { isExistingUnconfirmedSignup, sendVerificationCode } from '@/utils/email-verification';
+import { buildRouteHref } from '@/utils/router-href';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -194,11 +196,15 @@ export default function SignupScreen() {
         return;
       }
 
-      const { data: signUpData, error } = await supabase.auth.signUp({
+      const redirectTo = authRedirectUrls.emailVerification(trimmedEmail);
+      let signUpData: Awaited<ReturnType<typeof supabase.auth.signUp>>['data'] | null = null;
+      let signUpError: Awaited<ReturnType<typeof supabase.auth.signUp>>['error'] | null = null;
+
+      ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
         options: {
-          emailRedirectTo: authRedirectUrls.emailVerification(trimmedEmail),
+          emailRedirectTo: redirectTo,
           data: {
             first_name: trimmedFirstName,
             last_name: trimmedLastName,
@@ -206,11 +212,56 @@ export default function SignupScreen() {
             referral_code: trimmedReferral || null,
           },
         },
-      });
+      }));
 
-      if (error) {
+      if (signUpError && /redirect|invalid.*url/i.test(signUpError.message)) {
+        ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: trimmedEmail,
+          password,
+          options: {
+            data: {
+              first_name: trimmedFirstName,
+              last_name: trimmedLastName,
+              phone: sanitizedPhone || null,
+              referral_code: trimmedReferral || null,
+            },
+          },
+        }));
+      }
+
+      if (signUpError) {
         setLoading(false);
-        Alert.alert('Sign Up Failed', error.message || 'We could not create your account.');
+        Alert.alert('Sign Up Failed', signUpError.message || 'We could not create your account.');
+        return;
+      }
+
+      if (signUpData?.session) {
+        setLoading(false);
+        router.replace('/setup-pin');
+        return;
+      }
+
+      if (isExistingUnconfirmedSignup(signUpData?.user)) {
+        const delivery = await sendVerificationCode(trimmedEmail);
+        setLoading(false);
+
+        if (!delivery.sent) {
+          Alert.alert(
+            'Account Already Exists',
+            delivery.error ||
+              'This email is already registered but not verified. Tap Resend Code on the next screen to receive a new code.',
+          );
+        } else {
+          Alert.alert(
+            'Verify Your Email',
+            'This email is already registered but not verified. We sent a new verification code to your inbox.',
+          );
+        }
+
+        router.push(buildRouteHref('/email-verification', {
+          email: trimmedEmail,
+          sent: delivery.sent ? '1' : '0',
+        }));
         return;
       }
 
@@ -244,8 +295,11 @@ export default function SignupScreen() {
       }
 
       setLoading(false);
-      Alert.alert('Verify Your Email', 'We have sent a verification code to your email address. Enter it to complete your registration.');
-      router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
+      Alert.alert(
+        'Verify Your Email',
+        'We sent a 6-digit code and a verify link to your email. Enter the code in the app or tap the link to verify instantly.',
+      );
+      router.push(buildRouteHref('/email-verification', { email: trimmedEmail, sent: '1' }));
     } catch (err) {
       setLoading(false);
       Alert.alert('Sign Up Error', err instanceof Error ? err.message : 'An unexpected error occurred.');

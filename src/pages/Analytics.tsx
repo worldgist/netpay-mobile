@@ -337,6 +337,155 @@ export default function Analytics() {
                   </CardContent>
                 </Card>
               </TabsContent>
+
+              <TabsContent value="revenue" className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                      <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        ₦{stats.totalRevenue.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Platform fees + funding fees (all time)
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">7-Day Revenue</CardTitle>
+                      <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        ₦{revenueData.reduce((sum, d) => sum + (d.revenue || 0), 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">Last 7 days combined</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Revenue Trends</CardTitle>
+                    <CardDescription>Daily revenue over the last 7 days</CardDescription>
+                  </CardHeader>
+                  <CardContent className="h-[360px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={revenueData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis tickFormatter={(v) => `₦${Number(v).toLocaleString()}`} />
+                        <Tooltip formatter={(value: number) => [`₦${Number(value).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`, 'Revenue']} />
+                        <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="users" className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">{stats.activeUsers.toLocaleString()}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Registered accounts</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">New Users (7 days)</CardTitle>
+                      <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {userGrowthData.reduce((sum, d) => sum + (d.users || 0), 0).toLocaleString()}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">Sign-ups in the last week</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>User Growth</CardTitle>
+                    <CardDescription>New registrations per day (last 7 days)</CardDescription>
+                  </CardHeader>
+                  <CardContent className="h-[360px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={userGrowthData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip formatter={(value: number) => [value, 'New users']} />
+                        <Bar dataKey="users" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="performance" className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Transactions (30d)</CardTitle>
+                      <Activity className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">{stats.transactionVolume.toLocaleString()}</div>
+                      <p className="text-xs text-muted-foreground mt-1">Last 30 days</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Transactions (7d)</CardTitle>
+                      <Activity className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">
+                        {transactionVolumeData.reduce((sum, d) => sum + (d.transactions || 0), 0).toLocaleString()}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">Last 7 days</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Growth Rate</CardTitle>
+                      <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-3xl font-bold">{stats.growthRate}%</div>
+                      <p className="text-xs text-primary mt-1">Estimated month-over-month</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Transaction Volume</CardTitle>
+                    <CardDescription>Daily transaction count (last 7 days)</CardDescription>
+                  </CardHeader>
+                  <CardContent className="h-[360px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={transactionVolumeData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip formatter={(value: number) => [value, 'Transactions']} />
+                        <Line type="monotone" dataKey="transactions" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={{ r: 4 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </TabsContent>
             </Tabs>
           </div>
         </main>

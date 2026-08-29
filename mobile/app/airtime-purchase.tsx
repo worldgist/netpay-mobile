@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ImageSourcePropType, Modal } from 'react-native';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
 import { suppressHandledNetworkError } from '@/utils/error-handler';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
+import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import * as Clipboard from 'expo-clipboard';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
@@ -65,6 +66,7 @@ const EBILLS_SERVICE_IDS: Record<string, string> = {
 type ProviderDetails = {
   id: string;
   network: string;
+  networkName: string;
   displayName: string;
   minAmount: number;
   maxAmount: number;
@@ -74,11 +76,23 @@ type ProviderDetails = {
   logo?: ImageSourcePropType;
 };
 
+const isFlutterwaveAirtimeProvider = (vendingProvider: string) =>
+  vendingProvider.toLowerCase() === 'flutterwave';
+
+const FALLBACK_PROVIDERS: ProviderDetails[] = [
+  { id: 'fallback-mtn', network: 'MTN', networkName: 'MTN', displayName: 'MTN', minAmount: 50, maxAmount: 50000, apiCode: '1', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.MTN },
+  { id: 'fallback-airtel', network: 'AIRTEL', networkName: 'Airtel', displayName: 'Airtel', minAmount: 50, maxAmount: 50000, apiCode: '2', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.AIRTEL },
+  { id: 'fallback-t2', network: 'T2', networkName: '9Mobile', displayName: 'T2', minAmount: 50, maxAmount: 50000, apiCode: '3', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.T2 },
+  { id: 'fallback-glo', network: 'GLO', networkName: 'Glo', displayName: 'Glo', minAmount: 50, maxAmount: 50000, apiCode: '4', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.GLO },
+];
+
 const resolveAirtimeNetworkId = (
   provider: ProviderDetails,
-  vendingProvider: 'smeplug' | 'ebills',
+  vendingProvider: string,
 ): string | null => {
-  if (vendingProvider === 'ebills') {
+  const normalizedProvider = vendingProvider.toLowerCase();
+
+  if (normalizedProvider === 'ebills') {
     const fromApiCode = provider.apiCode?.trim().toLowerCase();
     if (fromApiCode && !/^\d+$/.test(fromApiCode)) {
       return fromApiCode;
@@ -87,6 +101,14 @@ const resolveAirtimeNetworkId = (
       return EBILLS_SERVICE_IDS[provider.network];
     }
     return null;
+  }
+
+  if (normalizedProvider === 'mobilenig') {
+    return provider.apiCode?.trim().toUpperCase() || null;
+  }
+
+  if (normalizedProvider === 'flutterwave') {
+    return provider.networkName || provider.displayName || provider.network || null;
   }
 
   const smeplugId = provider.network ? SMEPLUG_NETWORK_IDS[provider.network] : null;
@@ -135,13 +157,12 @@ const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
 
 export default function AirtimePurchaseScreen() {
   const router = useRouter();
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(FALLBACK_PROVIDERS[0]?.id ?? null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [amount, setAmount] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [balance, setBalance] = useState(0);
-  const [providers, setProviders] = useState<ProviderDetails[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { balance, refreshBalance } = useWalletBalance();
+  const [providers, setProviders] = useState<ProviderDetails[]>(FALLBACK_PROVIDERS);
   const [error, setError] = useState<string | null>(null);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
@@ -149,7 +170,7 @@ export default function AirtimePurchaseScreen() {
   const [invalidPhoneMessage, setInvalidPhoneMessage] = useState('Please enter a valid 11-digit phone number (e.g. 08012345678).');
   const [isDemoUser, setIsDemoUser] = useState(false);
   const { providers: vendingSettings } = useVendingSettings();
-  const airtimeVendingProvider = vendingSettings.airtime === 'ebills' ? 'ebills' : 'smeplug';
+  const airtimeVendingProvider = vendingSettings.airtime || 'smeplug';
 
   const isMounted = useRef(true);
   const providerRef = useRef<string | null>(null);
@@ -198,7 +219,6 @@ export default function AirtimePurchaseScreen() {
   const fetchProviders = useCallback(async () => {
     try {
       if (isMounted.current) {
-        setLoading(true);
         setError(null);
       }
 
@@ -211,26 +231,12 @@ export default function AirtimePurchaseScreen() {
         return;
       }
 
-      // Check if user is demo user
       const userEmail = session.user.email;
       if (isMounted.current) {
         setIsDemoUser(userEmail === 'demo@netppay.com');
       }
 
-      const userId = session.user.id;
-
-      const [profileRes, providersRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', userId)
-          .single(),
-        supabase.functions.invoke('fetch-airtime-purchase-options'),
-      ]);
-
-      if (profileRes.error && profileRes.error.code !== 'PGRST116') {
-        throw profileRes.error;
-      }
+      const providersRes = await supabase.functions.invoke('fetch-airtime-purchase-options');
 
       if (providersRes.error) {
         throw providersRes.error;
@@ -240,22 +246,36 @@ export default function AirtimePurchaseScreen() {
         throw new Error(providersRes.data?.error || 'Unable to load airtime providers.');
       }
 
-      const balanceValue = profileRes.data ? Number(profileRes.data.balance) : 0;
+      const activeVendingProvider = airtimeVendingProvider;
+      const usingFlutterwave = isFlutterwaveAirtimeProvider(activeVendingProvider);
 
       const mappedProviders: ProviderDetails[] = (providersRes.data?.data || [])
         .map((provider) => {
-          const normalized = normalizeNetwork(provider.name || provider.display_name);
+          const rawName = String(provider.display_name || provider.name || provider.network_id || '').trim();
+          const normalized = normalizeNetwork(rawName);
           if (!normalized) return null;
-          const displayName = getNetworkDisplayName(normalized);
+
+          const apiCode = provider.item_code
+            ? String(provider.item_code).trim()
+            : provider.network_id
+              ? String(provider.network_id).trim()
+              : SMEPLUG_NETWORK_IDS[normalized] || '1';
+
+          if (usingFlutterwave && (!apiCode || !provider.id)) {
+            return null;
+          }
+
+          const networkName = rawName || getNetworkDisplayName(normalized);
+          const displayName = rawName || getNetworkDisplayName(normalized);
+
           return {
             id: provider.id,
             network: normalized,
+            networkName,
             displayName,
             minAmount: Number(provider.min_amount) || 0,
             maxAmount: Number(provider.max_amount) || 0,
-            apiCode: provider.network_id
-              ? String(provider.network_id).trim()
-              : SMEPLUG_NETWORK_IDS[normalized] || '1',
+            apiCode,
             identifierLabel: provider.identifier_label || 'Phone Number',
             placeholder: provider.placeholder,
             logo: NETWORK_LOGOS[normalized] || DEFAULT_NETWORK_LOGO,
@@ -271,18 +291,19 @@ export default function AirtimePurchaseScreen() {
             return acc;
           }
 
-          // Prefer the entry with wider limits if duplicated imports exist.
-          const shouldReplace =
-            provider.maxAmount > existing.maxAmount ||
-            (provider.maxAmount === existing.maxAmount && provider.minAmount < existing.minAmount);
+          const shouldReplace = usingFlutterwave
+            ? (provider.apiCode.includes('|') && !existing.apiCode.includes('|')) ||
+              provider.maxAmount > existing.maxAmount ||
+              (provider.maxAmount === existing.maxAmount && provider.minAmount < existing.minAmount)
+            : provider.maxAmount > existing.maxAmount ||
+              (provider.maxAmount === existing.maxAmount && provider.minAmount < existing.minAmount);
 
           if (shouldReplace) {
             acc.set(provider.network, provider);
           }
 
           return acc;
-        }, new Map<string, ProviderDetails>())
-        .values()
+        }, new Map<string, ProviderDetails>()).values()
       );
 
       const order: Record<string, number> = { MTN: 0, AIRTEL: 1, T2: 2, GLO: 3 };
@@ -300,7 +321,6 @@ export default function AirtimePurchaseScreen() {
           : sortedProviders[0]?.id ?? null;
 
       if (isMounted.current) {
-        setBalance(balanceValue);
         setProviders(sortedProviders);
         setSelectedProvider(effectiveProvider);
       }
@@ -308,16 +328,9 @@ export default function AirtimePurchaseScreen() {
       console.error('Failed to fetch airtime providers:', err);
       if (isMounted.current) {
         setError(err instanceof Error ? err.message : 'Unable to load airtime providers.');
-        setProviders([]);
-        setSelectedProvider(null);
-        setBalance(0);
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
       }
     }
-  }, [router]);
+  }, [router, airtimeVendingProvider]);
 
   useFocusEffect(
     useCallback(() => {
@@ -387,6 +400,17 @@ export default function AirtimePurchaseScreen() {
         return;
       }
 
+      if (
+        isFlutterwaveAirtimeProvider(airtimeVendingProvider) &&
+        !currentSelectedProviderDetails.apiCode.includes('|')
+      ) {
+        Alert.alert(
+          'Airtime Purchase',
+          'This network is missing Flutterwave bill codes. Please refresh and try again, or contact support.',
+        );
+        return;
+      }
+
     const sanitizedPhoneNumber = normalizePhoneNumber(phoneNumber);
     const submissionAmount = Number.parseFloat(amount.replace(/,/g, '').trim());
 
@@ -398,23 +422,21 @@ export default function AirtimePurchaseScreen() {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
 
-      const purchaseFunction =
-        airtimeVendingProvider === 'ebills' ? 'purchase-ebills-airtime' : 'purchase-smeplug-airtime';
+      const purchaseFunction = 'purchase-airtime';
 
-      const purchaseBody =
-        airtimeVendingProvider === 'ebills'
-          ? {
-              phone_number: sanitizedPhoneNumber,
-              amount: submissionAmount,
-              network_name: currentSelectedProviderDetails.network,
-              service_id: normalizedNetworkId,
-            }
-          : {
-              phone_number: sanitizedPhoneNumber,
-              amount: submissionAmount,
-              network_id: normalizedNetworkId,
-              network_name: currentSelectedProviderDetails.network,
-            };
+      const purchaseNetworkName = isFlutterwaveAirtimeProvider(airtimeVendingProvider)
+        ? currentSelectedProviderDetails.networkName || currentSelectedProviderDetails.displayName
+        : currentSelectedProviderDetails.network;
+
+      const purchaseBody = {
+        phone_number: sanitizedPhoneNumber,
+        amount: submissionAmount,
+        network_id: normalizedNetworkId,
+        network_name: purchaseNetworkName,
+        service_id: normalizedNetworkId,
+        provider_id: currentSelectedProviderDetails.id,
+        item_code: currentSelectedProviderDetails.apiCode,
+      };
 
       const { data, error } = await supabase.functions.invoke(purchaseFunction, {
         body: purchaseBody,
@@ -474,21 +496,20 @@ export default function AirtimePurchaseScreen() {
 
       setShowConfirmModal(false);
 
+      await refreshBalance();
+
       const reference = data?.data?.reference || '';
 
       const currentAmountValue = Number.isNaN(Number.parseFloat(amount.replace(/,/g, ''))) ? 0 : Number.parseFloat(amount.replace(/,/g, ''));
       const currentSelectedProviderName = currentSelectedProviderDetails?.displayName || '';
       
-      router.push({
-        pathname: '/payment-success',
-        params: {
-          amount: currentAmountValue.toString(),
-          network: currentSelectedProviderName,
-          recipient: phoneNumber,
-          serviceType: 'Airtime VTU',
-          reference,
-        },
-      });
+      router.push(buildRouteHref('/payment-success', {
+        amount: currentAmountValue.toString(),
+        network: currentSelectedProviderName,
+        recipient: phoneNumber,
+        serviceType: 'Airtime VTU',
+        reference,
+      }));
     } catch (purchaseError: any) {
       console.error('Airtime purchase failed:', purchaseError);
       let message = 'Unable to complete airtime purchase. Please try again.';
@@ -557,7 +578,7 @@ export default function AirtimePurchaseScreen() {
 
       Alert.alert('Airtime Purchase', message);
     }
-  }, [amount, phoneNumber, router, selectedProvider, providers]);
+  }, [amount, phoneNumber, router, selectedProvider, providers, airtimeVendingProvider, refreshBalance]);
 
   const selectedProviderDetails = useMemo(() => {
     return selectedProvider ? providers.find((provider) => provider.id === selectedProvider) : undefined;
@@ -590,7 +611,6 @@ export default function AirtimePurchaseScreen() {
     : 'Select a network to view limits';
 
   const isContinueDisabled =
-    loading ||
     !selectedProviderDetails ||
     !amount.trim() ||
     Number.isNaN(parsedAmount) ||
@@ -618,15 +638,11 @@ export default function AirtimePurchaseScreen() {
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
-              {loading ? (
-                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
-              ) : (
-                <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
-              )}
+              <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
             </View>
           </View>
 
-          {error && !loading && (
+          {error && (
             <View style={styles.errorBanner}>
               <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
               <ThemedText style={styles.errorText}>{error}</ThemedText>
@@ -703,13 +719,9 @@ export default function AirtimePurchaseScreen() {
               </View>
             ) : (
               <View style={styles.networkPlaceholder}>
-                {loading ? (
-                  <NetpayLoadingAnimation size={36} strokeWidth={3} />
-                ) : (
-                  <ThemedText style={styles.emptyPlansText}>
-                    No airtime providers available. Please try again later.
-                  </ThemedText>
-                )}
+                <ThemedText style={styles.emptyPlansText}>
+                  No airtime providers available. Please try again later.
+                </ThemedText>
               </View>
             )}
           </View>

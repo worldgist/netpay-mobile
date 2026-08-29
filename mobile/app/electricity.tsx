@@ -5,6 +5,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { Dropdown } from '@/components/dropdown';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
@@ -1085,23 +1086,20 @@ export default function ElectricityScreen() {
         console.error('Failed to fetch balance, but continuing with success flow:', balanceError);
       }
 
-      router.push({
-        pathname: '/payment-success',
-        params: {
-          amount: purchaseAmount.toString(),
-          network: serviceName || providerName,
-          recipient: sanitizedMeter,
-          token: purchaseToken || '',
-          meterType,
-          customerName: customerName,
-          reference,
-          serviceType: `Electricity • ${meterType.toUpperCase()}`,
-          mobileNigReference: mobileNigReference,
-          receiptNumber: receiptNumber,
-          transactionId: transactionId,
-          walletBalance: walletBalance,
-        },
-      });
+      router.push(buildRouteHref('/payment-success', {
+        amount: purchaseAmount.toString(),
+        network: serviceName || providerName,
+        recipient: sanitizedMeter,
+        token: purchaseToken || '',
+        meterType,
+        customerName: customerName,
+        reference,
+        serviceType: `Electricity • ${meterType.toUpperCase()}`,
+        mobileNigReference: mobileNigReference,
+        receiptNumber: receiptNumber,
+        transactionId: transactionId,
+        walletBalance: walletBalance,
+      }));
       
       setTransactionReference(transactionId);
       setTransactionStatus('Approved');

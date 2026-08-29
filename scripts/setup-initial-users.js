@@ -74,7 +74,7 @@ const BUILTIN_USERS = [
     phone: '08105393046',
     balance: 17406,
     pin: null,
-    role: 'user',
+    role: 'admin',
   },
   {
     email: 'netpay0147@gmail.com',

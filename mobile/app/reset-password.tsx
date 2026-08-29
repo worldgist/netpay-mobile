@@ -30,7 +30,15 @@ const CODE_LENGTH = 8;
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ email?: string; mode?: string }>();
+  const params = useLocalSearchParams<{
+    email?: string;
+    mode?: string;
+    access_token?: string;
+    refresh_token?: string;
+    token_hash?: string;
+    type?: string;
+    code?: string;
+  }>();
   const isAuthenticatedPasswordUpdate = params.mode === 'authenticated';
   const [email] = useState(typeof params.email === 'string' ? params.email : '');
   const [token, setToken] = useState(Array(CODE_LENGTH).fill(''));
@@ -46,7 +54,75 @@ export default function ResetPasswordScreen() {
   const [resending, setResending] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [codeVerified, setCodeVerified] = useState(isAuthenticatedPasswordUpdate);
+  const [linkVerifying, setLinkVerifying] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+
+  useEffect(() => {
+    if (codeVerified || isAuthenticatedPasswordUpdate) {
+      return;
+    }
+
+    const accessToken = typeof params.access_token === 'string' ? params.access_token : undefined;
+    const refreshToken = typeof params.refresh_token === 'string' ? params.refresh_token : undefined;
+    const tokenHash = typeof params.token_hash === 'string' ? params.token_hash : undefined;
+    const linkType = typeof params.type === 'string' ? params.type : undefined;
+    const authCode = typeof params.code === 'string' ? params.code : undefined;
+
+    if (!accessToken && !refreshToken && !tokenHash && !authCode) {
+      return;
+    }
+
+    void (async () => {
+      setLinkVerifying(true);
+      try {
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (!error) {
+            setCodeVerified(true);
+          }
+          return;
+        }
+
+        if (authCode) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
+          if (!error && data.session) {
+            setCodeVerified(true);
+          }
+          return;
+        }
+
+        if (tokenHash) {
+          const otpTypes = linkType === 'recovery'
+            ? (['recovery', 'email'] as const)
+            : (['email', 'recovery'] as const);
+
+          for (const otpType of otpTypes) {
+            const { data, error } = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: otpType,
+            });
+            if (!error && data.session) {
+              setCodeVerified(true);
+              return;
+            }
+          }
+        }
+      } finally {
+        setLinkVerifying(false);
+      }
+    })();
+  }, [
+    codeVerified,
+    isAuthenticatedPasswordUpdate,
+    params.access_token,
+    params.refresh_token,
+    params.token_hash,
+    params.type,
+    params.code,
+  ]);
 
   useEffect(() => {
     if (!codeVerified) {
@@ -156,7 +232,7 @@ export default function ResetPasswordScreen() {
 
     try {
       setResending(true);
-      const redirectTo = authRedirectUrls.passwordReset();
+      const redirectTo = authRedirectUrls.passwordReset(email);
       let { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
 
       if (error && isPasswordResetNetworkError(error)) {
@@ -301,11 +377,13 @@ export default function ResetPasswordScreen() {
         <ThemedView style={styles.card}>
           <View style={styles.header}>
             <ThemedText style={styles.subtitle}>
-              {codeVerified
+              {linkVerifying
+                ? 'Opening your secure reset link…'
+                : codeVerified
                 ? 'Choose a new password that is different from the previous one.'
                 : email
-                ? `Enter the ${CODE_LENGTH}-digit code sent to ${email} to verify your identity.`
-                : `Enter the ${CODE_LENGTH}-digit code sent to your email.`}
+                ? `Enter the ${CODE_LENGTH}-digit code sent to ${email}, or tap the reset link in your email.`
+                : `Enter the ${CODE_LENGTH}-digit code sent to your email, or tap the reset link in your email.`}
             </ThemedText>
           </View>
 
@@ -331,17 +409,17 @@ export default function ResetPasswordScreen() {
                       returnKeyType="next"
                       textContentType="oneTimeCode"
                       selectTextOnFocus
-                      editable={!verifying}
+                      editable={!verifying && !linkVerifying}
                     />
                   </View>
                 ))}
               </View>
 
               <TouchableOpacity
-                style={[styles.verifyButton, verifying && { opacity: 0.7 }]}
+                style={[styles.verifyButton, (verifying || linkVerifying) && { opacity: 0.7 }]}
                 onPress={handleVerifyCode}
-                disabled={verifying}>
-                {verifying ? (
+                disabled={verifying || linkVerifying}>
+                {verifying || linkVerifying ? (
                   <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
                 ) : (
                   <ThemedText style={styles.verifyButtonText}>Verify Code</ThemedText>

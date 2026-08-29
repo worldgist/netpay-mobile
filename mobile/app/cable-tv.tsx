@@ -5,6 +5,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
@@ -18,6 +19,11 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
+import { useWalletBalance } from '@/hooks/use-wallet-balance';
+import {
+  readCachedCablePackages,
+  writeCachedCablePackages,
+} from '@/utils/cable-packages-cache';
 import * as Clipboard from 'expo-clipboard';
 
 const PROVIDER_LOGOS: Record<string, any> = {
@@ -46,24 +52,66 @@ type CablePlan = {
   price: number;
 };
 
+function getCableFetchConfig(vendingProvider: string, providerName: string) {
+  if (vendingProvider === 'vtpass') {
+    return { functionName: 'fetch-vtpass-cable-packages', requestBody: { provider: providerName } };
+  }
+  if (vendingProvider === 'mobilenig') {
+    return { functionName: 'fetch-mobilenig-cable-packages', requestBody: { provider: providerName } };
+  }
+  if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
+    return { functionName: 'fetch-ebills-cable-packages', requestBody: { provider: providerName } };
+  }
+  if (vendingProvider === 'flutterwave') {
+    return { functionName: 'fetch-ebills-cable-packages', requestBody: { provider: providerName } };
+  }
+  return { functionName: 'fetch-vtpass-cable-packages', requestBody: { provider: providerName } };
+}
+
+function mapCablePackagesFromApi(providerName: string, data: any[]): CablePlan[] {
+  const rawPackages: CablePlan[] = data.map((pkg: any) => {
+    const packageName = pkg.package_name || pkg.name || pkg.variation_name || pkg.variation_code || 'Unknown Package';
+    const price = pkg.price || pkg.variation_amount || pkg.custom_price || 0;
+    const id = pkg.api_code || pkg.variation_id || `${providerName}-${packageName}`;
+    return { id, packageName, price };
+  });
+
+  const seenIds = new Set<string>();
+  const seenPackageNames = new Set<string>();
+
+  return rawPackages.filter((pkg) => {
+    const normalizedName = (pkg.packageName || '').toLowerCase().trim();
+
+    if (pkg.id && seenIds.has(pkg.id)) {
+      return false;
+    }
+
+    if (providerName === 'DSTV' && normalizedName && seenPackageNames.has(normalizedName)) {
+      return false;
+    }
+
+    if (pkg.id) seenIds.add(pkg.id);
+    if (normalizedName) seenPackageNames.add(normalizedName);
+    return true;
+  });
+}
+
 export default function CableTVScreen() {
   const router = useRouter();
   const isMounted = useRef(true);
   const { providers: vendingSettings } = useVendingSettings();
   const cableVendingProvider = vendingSettings.cable;
-  const [providers, setProviders] = useState<CableProvider[]>([]);
+  const { balance } = useWalletBalance();
+  const [providers, setProviders] = useState<CableProvider[]>(STATIC_PROVIDERS);
   const [plansByProvider, setPlansByProvider] = useState<Record<string, CablePlan[]>>({});
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(STATIC_PROVIDERS[0]?.name ?? null);
   const [smartCardNumber, setSmartCardNumber] = useState('');
   const [packagePlan, setPackagePlan] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [refreshingPlans, setRefreshingPlans] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
-  const [balance, setBalance] = useState<number | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
   const [showServiceUnavailableModal, setShowServiceUnavailableModal] = useState(false);
   const [showInvalidCardModal, setShowInvalidCardModal] = useState(false);
   const [invalidCardMessage, setInvalidCardMessage] = useState('');
@@ -71,21 +119,94 @@ export default function CableTVScreen() {
   const [showTryAgainLaterModal, setShowTryAgainLaterModal] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const plansFetchRef = useRef<string | null>(null);
 
-  const fetchPackagesForAllProviders = async () => {
+  const fetchPackagesForProvider = useCallback(async (providerName: string) => {
+    const vendingProvider = cableVendingProvider || 'mobilenig';
+
+    if (plansFetchRef.current === providerName) {
+      return;
+    }
+
+    plansFetchRef.current = providerName;
+    setPlansLoading(true);
+
     try {
-      if (isMounted.current) {
-        setRefreshingPlans(true);
-      }
-      
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
 
       const session = sessionData.session;
       if (!session) {
-        if (isMounted.current) {
-          setRefreshingPlans(false);
+        return;
+      }
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL is not configured');
+      }
+
+      const { functionName, requestBody } = getCableFetchConfig(vendingProvider, providerName);
+      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const responseData = await response.json();
+      let packages: CablePlan[] = [];
+
+      if (response.ok && responseData?.success && responseData?.data?.length > 0) {
+        packages = mapCablePackagesFromApi(providerName, responseData.data);
+      } else {
+        const errorMessage = responseData?.error || responseData?.message || 'Unknown error';
+        if (
+          !errorMessage.includes('SSL certificate') &&
+          !errorMessage.includes('invalid peer certificate') &&
+          !errorMessage.includes('certificate has expired')
+        ) {
+          console.warn(`No packages found for ${providerName}:`, errorMessage);
         }
+      }
+
+      if (isMounted.current) {
+        setPlansByProvider((prev) => {
+          const next = { ...prev, [providerName]: packages };
+          void writeCachedCablePackages(vendingProvider, next);
+          return next;
+        });
+      }
+    } catch (error: any) {
+      console.error(`Error fetching packages for ${providerName}:`, error);
+    } finally {
+      if (plansFetchRef.current === providerName) {
+        plansFetchRef.current = null;
+      }
+      if (isMounted.current) {
+        setPlansLoading(false);
+      }
+    }
+  }, [cableVendingProvider]);
+
+  const handlePackageDropdownOpen = useCallback(() => {
+    if (!selectedProvider) return;
+    void fetchPackagesForProvider(selectedProvider);
+  }, [selectedProvider, fetchPackagesForProvider]);
+
+  const fetchPackagesForAllProviders = async () => {
+    const vendingProvider = cableVendingProvider || 'mobilenig';
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
         return;
       }
 
@@ -95,7 +216,6 @@ export default function CableTVScreen() {
       }
 
       // Use live vending provider from admin settings (updates instantly via realtime)
-      const vendingProvider = cableVendingProvider || 'mobilenig';
       console.log('Cable TV vending provider (fetchPackagesForAllProviders):', vendingProvider);
 
       // Fetch packages for each static provider from API
@@ -216,8 +336,8 @@ export default function CableTVScreen() {
 
       if (isMounted.current) {
         setPlansByProvider(grouped);
-        setRefreshingPlans(false);
       }
+      await writeCachedCablePackages(vendingProvider, grouped);
     } catch (error: any) {
       // Ignore database errors about missing tables - we're fetching from API now
       const errorMessage = error?.message || String(error);
@@ -229,136 +349,70 @@ export default function CableTVScreen() {
           !(typeof errorMessage === 'string' && errorMessage.includes('Could not find the table'))) {
         console.error('Error fetching packages for all providers:', error);
       }
-      
-      if (isMounted.current) {
-        setPlansByProvider({});
-        setRefreshingPlans(false);
-      }
     }
   };
 
+  const hydratePackagesFromCache = useCallback(async () => {
+    const vendingProvider = cableVendingProvider || 'mobilenig';
+    const cached = await readCachedCablePackages(vendingProvider);
+    if (cached && isMounted.current) {
+      setPlansByProvider(cached);
+    }
+  }, [cableVendingProvider]);
+
   const loadData = useCallback(async () => {
-      try {
-        if (isMounted.current) {
-          setLoading(true);
-          setFetchError(null);
-          setBalanceLoading(true);
-        }
-
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-
-        const session = sessionData.session;
-        if (!session) {
-          if (isMounted.current) {
-            setLoading(false);
-            setBalanceLoading(false);
-          }
-          router.replace('/auth/login');
-          return;
-        }
-
-        // Check if user is demo user
-        const userEmail = session.user.email;
-        if (isMounted.current) {
-          setIsDemoUser(userEmail === 'demo@netppay.com');
-        }
-
-        const userId = session.user.id;
-
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', userId)
-          .single();
-
-        if (profileError) throw profileError;
-
-        const userBalance = Number(profile?.balance) || 0;
-        if (isMounted.current) {
-          setBalance(userBalance);
-          setBalanceLoading(false);
-        }
-
-        // Set static providers immediately (not fetched from API)
-        if (isMounted.current) {
-          setProviders(STATIC_PROVIDERS);
-          setSelectedProvider((current) => {
-            // Only set if not already set
-            if (!current && STATIC_PROVIDERS.length > 0) {
-              return STATIC_PROVIDERS[0].name;
-            }
-            return current;
-          });
-          // Hide main loading screen - show providers immediately
-          setLoading(false);
-        }
-
-        // Fetch packages from API in the background (non-blocking)
-        fetchPackagesForAllProviders().catch((error) => {
-          console.error('Background package fetch failed:', error);
-          // Don't show error to user - packages will just be empty
-        });
-      } catch (error: any) {
-        if (isMounted.current) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          const errorCode = error?.code || '';
-          
-          // Ignore database errors about missing cable_tv_plans table
-          if (errorMessage.includes('cable_tv_plans') || 
-              errorCode === 'PGRST205' || 
-              (typeof errorMessage === 'string' && errorMessage.includes('Could not find the table'))) {
-            // Silently ignore - this is expected since we're fetching from API now
-            // Still set providers and try to fetch packages
-            setProviders(STATIC_PROVIDERS);
-            setSelectedProvider((current) => {
-              // Only set if not already set
-              if (!current && STATIC_PROVIDERS.length > 0) {
-                return STATIC_PROVIDERS[0].name;
-              }
-              return current;
-            });
-            setLoading(false);
-            setBalanceLoading(false);
-            // Try to fetch packages anyway
-            fetchPackagesForAllProviders().catch(() => {
-              // Silently fail - packages will be empty
-            });
-            return;
-          }
-          
-          // Only log non-ignored errors
-          console.error('Failed to load cable data:', error);
-          
-          // Check for network errors
-          const isNetworkError = errorMessage.includes('Network request failed') ||
-                                errorMessage.includes('network') ||
-                                errorMessage.includes('fetch') ||
-                                errorMessage.includes('Failed to fetch') ||
-                                errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
-                                errorMessage.includes('ERR_NETWORK_CHANGED') ||
-                                errorMessage.includes('TypeError') ||
-                                error?.code === 'NETWORK_ERROR' ||
-                                error?.name === 'TypeError';
-          
-          setFetchError(isNetworkError 
-            ? 'Network connection failed. Please check your internet connection.'
-            : errorMessage || 'Unable to load cable TV data'
-          );
-          setPlansByProvider({});
-          // Keep providers static even on error
-          if (isMounted.current) {
-            setProviders(STATIC_PROVIDERS);
-          }
-        }
-      } finally {
-        if (isMounted.current) {
-          setLoading(false);
-          setRefreshingPlans(false);
-          setBalanceLoading(false);
-        }
+    try {
+      if (isMounted.current) {
+        setFetchError(null);
       }
-    }, [router]);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
+      }
+
+      const userEmail = session.user.email;
+      if (isMounted.current) {
+        setIsDemoUser(userEmail === 'demo@netppay.com');
+      }
+    } catch (error: any) {
+      if (!isMounted.current) return;
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorCode = error?.code || '';
+
+      if (
+        errorMessage.includes('cable_tv_plans') ||
+        errorCode === 'PGRST205' ||
+        (typeof errorMessage === 'string' && errorMessage.includes('Could not find the table'))
+      ) {
+        return;
+      }
+
+      console.error('Failed to load cable data:', error);
+
+      const isNetworkError =
+        errorMessage.includes('Network request failed') ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('fetch') ||
+        errorMessage.includes('Failed to fetch') ||
+        errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
+        errorMessage.includes('ERR_NETWORK_CHANGED') ||
+        errorMessage.includes('TypeError') ||
+        error?.code === 'NETWORK_ERROR' ||
+        error?.name === 'TypeError';
+
+      setFetchError(
+        isNetworkError
+          ? 'Network connection failed. Please check your internet connection.'
+          : errorMessage || 'Unable to load cable TV data',
+      );
+    }
+  }, [router]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -369,13 +423,8 @@ export default function CableTVScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (loading) {
-      return;
-    }
-    fetchPackagesForAllProviders().catch((error) => {
-      console.error('Cable packages refresh after provider change failed:', error);
-    });
-  }, [cableVendingProvider]);
+    void hydratePackagesFromCache();
+  }, [hydratePackagesFromCache]);
 
   const fetchPackagesFromAPI = async () => {
     try {
@@ -491,8 +540,8 @@ export default function CableTVScreen() {
   };
 
   useEffect(() => {
-    // reset plan when provider changes
     setPackagePlan('');
+    plansFetchRef.current = null;
   }, [selectedProvider]);
 
   const currentPlans: CablePlan[] = useMemo(() => {
@@ -500,7 +549,7 @@ export default function CableTVScreen() {
     return plansByProvider[selectedProvider] || [];
   }, [selectedProvider, plansByProvider]);
 
-  const availableBalance = balance ?? 0;
+  const availableBalance = balance;
 
   const handleVerifySmartCard = async () => {
     if (!selectedProvider) {
@@ -860,17 +909,14 @@ export default function CableTVScreen() {
       // Success - navigate to success screen
       const reference = responseData?.data?.reference || '';
       
-      router.push({
-        pathname: '/payment-success',
-        params: {
-          amount: totalAmount.toString(), // Total amount including charge fee
-          network: selectedProvider,
-          recipient: smartCardNumber,
-          serviceType: `Cable TV • ${selectedPlan.packageName}`,
-          reference,
-          chargeFee: chargeFee.toString(), // Include charge fee for display
-        },
-      });
+      router.push(buildRouteHref('/payment-success', {
+        amount: totalAmount.toString(),
+        network: selectedProvider,
+        recipient: smartCardNumber,
+        serviceType: `Cable TV • ${selectedPlan.packageName}`,
+        reference,
+        chargeFee: chargeFee.toString(),
+      }));
     } catch (purchaseError: any) {
       console.error('Cable TV purchase failed:', purchaseError);
       setIsProcessing(false);
@@ -958,26 +1004,17 @@ export default function CableTVScreen() {
           <View style={styles.placeholder} />
         </View>
 
-        {loading ? (
-          <View style={styles.loaderContainer}>
-            <NetpayLoadingAnimation message="Loading cable packages…" />
-          </View>
-        ) : (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator
-            bounces>
-            <View style={styles.balanceCard}>
-              <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
-              <View style={styles.balanceAmountContainer}>
-                {balanceLoading ? (
-                  <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
-                ) : (
-                  <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
-                )}
-              </View>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator
+          bounces>
+          <View style={styles.balanceCard}>
+            <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
+            <View style={styles.balanceAmountContainer}>
+              <ThemedText style={styles.balanceAmount}>₦{availableBalance.toFixed(2)}</ThemedText>
             </View>
+          </View>
 
             {fetchError ? (
               <View style={styles.errorBanner}>
@@ -1126,15 +1163,7 @@ export default function CableTVScreen() {
             </View>
 
             <View style={styles.section}>
-              <View style={styles.inputLabelRow}>
-                <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
-                {refreshingPlans && (
-                  <View style={styles.loadingIndicatorRow}>
-                    <NetpayLoadingAnimation size={22} strokeWidth={2} />
-                    <ThemedText style={styles.loadingText}>Loading packages...</ThemedText>
-                  </View>
-                )}
-              </View>
+              <ThemedText style={styles.inputLabel}>Select Package Plan</ThemedText>
               <Dropdown
                 options={currentPlans.map((plan) => ({
                   id: plan.id,
@@ -1143,21 +1172,17 @@ export default function CableTVScreen() {
                 }))}
                 selectedId={packagePlan}
                 onSelect={setPackagePlan}
-                placeholder={
-                  refreshingPlans 
-                    ? 'Loading packages...' 
-                    : currentPlans.length 
-                    ? 'Select a package plan' 
-                    : 'No plans available'
-                }
-                disabled={currentPlans.length === 0 || refreshingPlans}
+                onOpen={handlePackageDropdownOpen}
+                loading={plansLoading}
+                placeholder="Select a package plan"
+                emptyMessage="No plans available for this provider"
+                disabled={!selectedProvider}
               />
             </View>
           </ScrollView>
-        )}
 
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.continueButton} onPress={handleContinue} disabled={loading || balanceLoading}>
+          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
             <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
           </TouchableOpacity>
         </View>

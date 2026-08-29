@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-import { debitUserWallet, getUserLedgerBalance, creditUserWallet } from "../_shared/wallet.ts";
+import { getUserLedgerBalance, creditUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 import {
   extractPayvesselPaymentFields,
@@ -184,12 +184,16 @@ serve(async (req) => {
 
     // Validate required fields with detailed error messages
     if (!account_number) {
+      const nestedData =
+        payload.data && typeof payload.data === "object" ? payload.data : payload;
       console.error('Missing account_number in webhook payload');
       console.error('Payload structure:', {
+        event: extracted.event,
         hasVirtualAccount: !!payload.virtualAccount,
         virtualAccountKeys: payload.virtualAccount ? Object.keys(payload.virtualAccount) : [],
-        hasData: !!data,
-        dataKeys: data ? Object.keys(data) : []
+        hasReservedAccount: !!payload.reservedAccount,
+        hasData: !!payload.data,
+        dataKeys: nestedData && typeof nestedData === "object" ? Object.keys(nestedData) : [],
       });
       return new Response(
         JSON.stringify({ 
@@ -363,6 +367,27 @@ serve(async (req) => {
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
+    }
+
+    const fundingReference = reference || transaction_reference;
+    if (fundingReference) {
+      const { data: existingLedger } = await supabaseClient
+        .from('user_transactions')
+        .select('id')
+        .eq('user_id', virtualAccount.user_id)
+        .eq('reference', fundingReference)
+        .maybeSingle();
+
+      if (existingLedger) {
+        console.log('Funding ledger already recorded for reference:', fundingReference);
+        return new Response(
+          JSON.stringify({
+            message: 'Transaction already processed',
+            existing_reference: fundingReference,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
     }
 
     // Authoritative balance from ledger (latest balance_after)

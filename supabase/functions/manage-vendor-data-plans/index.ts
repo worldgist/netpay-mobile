@@ -341,8 +341,8 @@ async function handleImport(supabase: any, body: any) {
   let requestBody: any = {};
 
   if (vendor === 'mobilenig') {
-    fetchFunction = 'fetch-mobilenig-data-plans';
-    requestBody = { network };
+    fetchFunction = 'fetch-mobilenig-cable-packages';
+    requestBody = { action: 'data-plans', network };
   } else if (vendor === 'vtpass') {
     fetchFunction = 'fetch-vtpass-data-plans';
     requestBody = { network };

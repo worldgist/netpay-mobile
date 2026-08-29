@@ -19,6 +19,27 @@ export default function AppLinkRedirect() {
     searchParams.forEach((value, key) => {
       query[key] = value;
     });
+
+    // Supabase appends session tokens in the URL hash after email confirmation.
+    // Custom scheme links cannot carry a hash, so promote hash params into the query string.
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      for (const key of [
+        "access_token",
+        "refresh_token",
+        "type",
+        "token_hash",
+        "code",
+        "error",
+        "error_description",
+      ]) {
+        const value = hashParams.get(key);
+        if (value) {
+          query[key] = value;
+        }
+      }
+    }
+
     return appDeepLink(path, query);
   }, [pathname, searchParams]);
 

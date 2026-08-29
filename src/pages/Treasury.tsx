@@ -21,6 +21,7 @@ import {
   type VendingProviders,
 } from "@/lib/vending-settings";
 import { parseLedgerSummary, type LedgerBalanceMismatch } from "@/lib/ledger-balance";
+import { MOBILENIG_GATEWAY_FUNCTION, mobilenigActions } from "@/lib/mobilenig-gateway";
 import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
 import { format } from "date-fns";
 import {
@@ -51,6 +52,22 @@ interface VendorWallet {
   detailPath: string;
   subtitle?: string;
   role: string;
+  health?: MobilenigHealthSummary;
+}
+
+interface MobilenigHealthSummary {
+  apiReachable: boolean;
+  credentialsConfigured: boolean;
+  servicesOnline: number;
+  servicesTotal: number;
+  overall: "healthy" | "degraded" | "down" | "unknown";
+  services: Array<{
+    id: string;
+    label: string;
+    online: boolean;
+    status: string;
+  }>;
+  message?: string;
 }
 
 interface TreasuryTransaction {
@@ -118,24 +135,25 @@ const PROVIDER_OPTIONS: Record<ServiceKey, { value: string; label: string }[]> =
   airtime: [
     { value: "smeplug", label: "SMEPLUG" },
     { value: "ebills", label: "eBills Africa" },
+    { value: "mobilenig", label: "MobileNig" },
+    { value: "flutterwave", label: "Flutterwave" },
   ],
   data: [
     { value: "smeplug", label: "SMEPLUG" },
-    { value: "vtpass", label: "VTPass" },
     { value: "mobilenig", label: "MobileNig" },
-    { value: "anyone", label: "ANYONE" },
     { value: "ebills", label: "eBills Africa" },
+    { value: "flutterwave", label: "Flutterwave" },
   ],
   cable: [
     { value: "mobilenig", label: "MobileNig" },
-    { value: "vtpass", label: "VTPass" },
     { value: "ebills", label: "eBills Africa" },
-    { value: "anyone", label: "ANYONE" },
+    { value: "flutterwave", label: "Flutterwave" },
   ],
   electricity: [
     { value: "vtpass", label: "VTPass" },
     { value: "mobilenig", label: "MobileNig" },
     { value: "ebills", label: "eBills Africa" },
+    { value: "flutterwave", label: "Flutterwave" },
   ],
   betting: [{ value: "ebills", label: "eBills Africa" }],
 };
@@ -172,6 +190,7 @@ function formatVendorLabel(provider: string): string {
   if (normalized === "mobilenig") return "MobileNig";
   if (normalized === "vtpass") return "VTPass";
   if (normalized === "anyone") return "ANYONE";
+  if (normalized === "flutterwave") return "Flutterwave";
   return provider || "N/A";
 }
 
@@ -441,7 +460,7 @@ export default function Treasury() {
     const [smeplugRes, ebillsRes, mobilenigRes, payvesselRes, flutterwaveRes] = await Promise.all([
       supabase.functions.invoke("fetch-smeplug-balance"),
       supabase.functions.invoke("fetch-ebills-balance"),
-      supabase.functions.invoke("fetch-mobilenig-balance"),
+      supabase.functions.invoke(MOBILENIG_GATEWAY_FUNCTION, { body: mobilenigActions.balance }),
       supabase.functions.invoke("fetch-payvessel-balance"),
       supabase.functions.invoke("fetch-flutterwave-balance"),
     ]);
@@ -473,12 +492,16 @@ export default function Treasury() {
 
     if (mobilenigRes.data?.success && mobilenigRes.data.balance) {
       const amount = Number(mobilenigRes.data.balance.amount) || 0;
+      const health = mobilenigRes.data.health as MobilenigHealthSummary | undefined;
+      const balanceStatus = walletStatusForBalance(amount, threshold);
+      const healthDown = health?.overall === "down";
       nextWallets[2] = {
         ...nextWallets[2],
         balance: amount,
         currency: mobilenigRes.data.balance.currency || "NGN",
-        status: walletStatusForBalance(amount, threshold),
+        status: healthDown ? "error" : balanceStatus,
         subtitle: mobilenigRes.data.account?.businessName,
+        health,
       };
     } else if (
       mobilenigRes.data?.error?.toLowerCase?.().includes("not configured") ||
@@ -654,12 +677,18 @@ export default function Treasury() {
       const functionByVendor: Record<Exclude<VendorKey, "ebills" | "flutterwave">, string> = {
         smeplug: "fetch-smeplug-wallet-history",
         payvessel: "fetch-payvessel-transactions",
-        mobilenig: "fetch-mobilenig-wallet-history",
+        mobilenig: MOBILENIG_GATEWAY_FUNCTION,
       };
 
-      const payload = vendorTransIdSearch.trim()
-        ? { trans_id: vendorTransIdSearch.trim() }
-        : { page: vendorPage, per_page: 15 };
+      const payload = selectedVendor === "mobilenig"
+        ? mobilenigActions.walletHistory(
+            vendorTransIdSearch.trim()
+              ? { trans_id: vendorTransIdSearch.trim() }
+              : { page: vendorPage, per_page: 15 },
+          )
+        : vendorTransIdSearch.trim()
+          ? { trans_id: vendorTransIdSearch.trim() }
+          : { page: vendorPage, per_page: 15 };
 
       const { data, error } = await supabase.functions.invoke(functionByVendor[selectedVendor], {
         body: payload,
@@ -925,6 +954,33 @@ export default function Treasury() {
     }
   };
 
+  const getMobilenigHealthBadge = (health?: MobilenigHealthSummary) => {
+    if (!health) {
+      return <Badge variant="outline">Health Unknown</Badge>;
+    }
+
+    switch (health.overall) {
+      case "healthy":
+        return (
+          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+            {health.servicesTotal > 0
+              ? `${health.servicesOnline}/${health.servicesTotal} Online`
+              : "API Online"}
+          </Badge>
+        );
+      case "degraded":
+        return (
+          <Badge className="bg-amber-100 text-amber-900 border-amber-200">
+            {health.servicesOnline}/{health.servicesTotal} Online
+          </Badge>
+        );
+      case "down":
+        return <Badge variant="destructive">Services Down</Badge>;
+      default:
+        return <Badge variant="outline">Health Unknown</Badge>;
+    }
+  };
+
   const overviewCards = (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <Card>
@@ -1049,7 +1105,10 @@ export default function Treasury() {
                 <CardTitle className="text-lg">{wallet.label}</CardTitle>
                 <CardDescription>{wallet.subtitle || wallet.role}</CardDescription>
               </div>
-              {getWalletStatusBadge(wallet.status)}
+              <div className="flex flex-col items-end gap-2">
+                {getWalletStatusBadge(wallet.status)}
+                {wallet.key === "mobilenig" && getMobilenigHealthBadge(wallet.health)}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1071,6 +1130,34 @@ export default function Treasury() {
             <p className="text-xs text-muted-foreground">
               Alert below {formatNaira(lowBalanceThreshold)}
             </p>
+            {wallet.key === "mobilenig" && wallet.health && wallet.health.services.length > 0 && (
+              <div className="rounded-md border bg-muted/30 p-2 space-y-1">
+                <p className="text-xs font-medium text-foreground">Service health</p>
+                {wallet.health.services.slice(0, 4).map((service) => (
+                  <div key={`${service.id}-${service.label}`} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground truncate">{service.label}</span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        service.online
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-red-200 bg-red-50 text-red-800"
+                      }
+                    >
+                      {service.online ? "Online" : "Offline"}
+                    </Badge>
+                  </div>
+                ))}
+                {wallet.health.services.length > 4 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    +{wallet.health.services.length - 4} more services monitored
+                  </p>
+                )}
+              </div>
+            )}
+            {wallet.key === "mobilenig" && wallet.health?.message && wallet.health.overall === "unknown" && (
+              <p className="text-xs text-muted-foreground">{wallet.health.message}</p>
+            )}
             <Button asChild variant="outline" size="sm" className="w-full">
               <Link to={wallet.detailPath}>Manage {wallet.label}</Link>
             </Button>

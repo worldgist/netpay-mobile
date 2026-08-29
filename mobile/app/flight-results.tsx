@@ -4,6 +4,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   formatFlightCurrency,
@@ -161,21 +162,18 @@ export default function FlightResultsScreen() {
   }, [departureDate, fromCode, toCode]);
 
   const openDetails = (flight: FlightOffer) => {
-    router.push({
-      pathname: '/flight-details',
-      params: {
-        flightId: flight.id,
-        fromCode,
-        fromCity,
-        fromName: params.fromName || getAirport(fromCode).name,
-        toCode,
-        toCity,
-        toName: params.toName || getAirport(toCode).name,
-        departureDate: departureDate.toISOString(),
-        passengers,
-        flightClass: params.flightClass || 'economy',
-      },
-    });
+    router.push(buildRouteHref('/flight-details', {
+      flightId: flight.id,
+      fromCode,
+      fromCity,
+      fromName: params.fromName || getAirport(fromCode).name,
+      toCode,
+      toCity,
+      toName: params.toName || getAirport(toCode).name,
+      departureDate: departureDate.toISOString(),
+      passengers,
+      flightClass: params.flightClass || 'economy',
+    }));
   };
 
   return (

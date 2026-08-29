@@ -1,5 +1,39 @@
 project_id = "xrpuvnhmdmpgelfxpdcx"
 
+[auth]
+site_url = "https://netppay.com"
+additional_redirect_urls = [
+  "https://netppay.com/**",
+  "https://www.netppay.com/**",
+  "netpay://**",
+  "http://127.0.0.1:3000/**",
+  "http://localhost:3000/**",
+]
+
+[auth.email]
+enable_confirmations = true
+otp_length = 6
+otp_expiry = 600
+
+[auth.email.template.confirmation]
+subject = "Your NetPay verification code"
+content_path = "./supabase/templates/confirm-signup.html"
+
+[functions.admin-get-user-details]
+verify_jwt = true
+
+[functions.admin-verify-user]
+verify_jwt = true
+
+[functions.admin-delete-user]
+verify_jwt = true
+
+[functions.admin-reset-user-password]
+verify_jwt = true
+
+[functions.admin-send-password-reset-link]
+verify_jwt = true
+
 [functions.payvessel-webhook]
 verify_jwt = false
 
@@ -19,6 +53,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.fetch-payvessel-transactions]
+verify_jwt = true
+
+[functions.sync-flutterwave-funding]
 verify_jwt = true
 
 [functions.fetch-flutterwave-balance]
@@ -79,6 +116,27 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.purchase-smeplug-data]
+verify_jwt = true
+
+[functions.purchase-airtime]
+verify_jwt = true
+
+[functions.purchase-mobilenig-airtime]
+verify_jwt = true
+
+[functions.purchase-mobilenig-data]
+verify_jwt = true
+
+[functions.purchase-flutterwave-airtime]
+verify_jwt = true
+
+[functions.purchase-flutterwave-data]
+verify_jwt = true
+
+[functions.purchase-flutterwave-cable]
+verify_jwt = true
+
+[functions.purchase-flutterwave-electricity]
 verify_jwt = true
 
 [functions.validate-cable-customer]

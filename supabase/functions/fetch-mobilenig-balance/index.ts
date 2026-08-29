@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   getMobilenigBalance,
+  getMobilenigHealthSummary,
   getMobilenigPublicKey,
   getMobilenigUniqueAccountDetails,
 } from "../_shared/mobilenig-api.ts";
@@ -64,14 +65,27 @@ serve(async (req) => {
       );
     }
 
-    const [balanceResult, accountResult] = await Promise.allSettled([
+    const [balanceResult, accountResult, healthResult] = await Promise.allSettled([
       getMobilenigBalance(),
       getMobilenigUniqueAccountDetails(),
+      getMobilenigHealthSummary(),
     ]);
 
     if (balanceResult.status === "rejected") {
       throw balanceResult.reason;
     }
+
+    const health = healthResult.status === "fulfilled"
+      ? healthResult.value
+      : {
+        apiReachable: false,
+        credentialsConfigured: true,
+        servicesOnline: 0,
+        servicesTotal: 0,
+        overall: "unknown" as const,
+        services: [],
+        message: healthResult.reason instanceof Error ? healthResult.reason.message : "Health check failed",
+      };
 
     const account = accountResult.status === "fulfilled"
       ? accountResult.value
@@ -90,6 +104,7 @@ serve(async (req) => {
           currency: balanceResult.value.currency,
         },
         account,
+        health,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

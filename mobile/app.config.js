@@ -8,6 +8,7 @@ module.exports = {
   name: 'Netpay',
   slug: 'netpay',
   version: '1.0.0',
+  platforms: ['ios', 'android'],
   orientation: 'portrait',
   icon: './assets/images/logo-icon-1024.png',
   splash: {
@@ -72,12 +73,8 @@ module.exports = {
     ],
   },
   notification: {
-    icon: './assets/images/logo.png',
+    icon: './assets/images/notification-icon.png',
     color: '#FF7F00',
-  },
-  web: {
-    output: 'static',
-    favicon: './assets/images/logo-icon-1024.png',
   },
   plugins: [
     'expo-router',
@@ -104,11 +101,11 @@ module.exports = {
     [
       'expo-notifications',
       {
-        icon: './assets/images/logo.png',
+        icon: './assets/images/notification-icon.png',
         color: '#FF7F00',
         mode: 'production',
         android: {
-          icon: './assets/images/logo.png',
+          icon: './assets/images/notification-icon.png',
           color: '#FF7F00',
           enableVibration: true,
         },

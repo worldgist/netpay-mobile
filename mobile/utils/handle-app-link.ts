@@ -1,6 +1,13 @@
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { NETPAY_SITE_URL } from '@/constants/site';
+import {
+  isSuccessfulFundingStatus,
+  returnToAppAfterFunding,
+} from '@/utils/verify-flutterwave-funding';
+import { shouldHandleFundingCallback } from '@/utils/funding-callback-guard';
+import { parseAuthLinkParams } from '@/utils/parse-auth-link-params';
+import { buildRouteHref } from '@/utils/router-href';
 
 const PAY_ROUTES: Record<string, string> = {
   data_purchase: '/data-purchase',
@@ -43,36 +50,29 @@ export function handleAppLink(url: string): void {
   const parsed = Linking.parse(url);
   const query = parsed.queryParams ?? {};
   const path = resolvePath(parsed, url);
-
-  let accessToken: string | undefined;
-  let refreshToken: string | undefined;
-  let type: string | undefined;
-
-  if (typeof query.access_token === 'string') accessToken = query.access_token;
-  if (typeof query.refresh_token === 'string') refreshToken = query.refresh_token;
-  if (typeof query.type === 'string') type = query.type;
-
-  if (url.includes('#')) {
-    try {
-      const hashPart = url.split('#')[1];
-      if (hashPart) {
-        const hashParams = new URLSearchParams(hashPart);
-        accessToken = accessToken || hashParams.get('access_token') || undefined;
-        refreshToken = refreshToken || hashParams.get('refresh_token') || undefined;
-        type = type || hashParams.get('type') || undefined;
-      }
-    } catch {
-      // ignore hash parse errors
-    }
-  }
+  const authParams = parseAuthLinkParams(url, query);
+  const {
+    email: authEmail,
+    accessToken,
+    refreshToken,
+    tokenHash,
+    type,
+    code,
+  } = authParams;
 
   if (path === 'add-money-callback' || path.startsWith('add-money-callback')) {
     const txRef = typeof query.tx_ref === 'string' ? query.tx_ref : '';
-    const status = typeof query.status === 'string' ? query.status : '';
-    router.replace({
-      pathname: '/add-money-callback',
-      params: txRef ? { tx_ref: txRef, status } : { status },
-    });
+    const status = typeof query.status === 'string' ? query.status : 'successful';
+    void (async () => {
+      if (!txRef || !(await shouldHandleFundingCallback(txRef))) {
+        return;
+      }
+      if (!isSuccessfulFundingStatus(status)) {
+        router.replace('/add-money');
+        return;
+      }
+      returnToAppAfterFunding(txRef, status);
+    })();
     return;
   }
 
@@ -87,19 +87,40 @@ export function handleAppLink(url: string): void {
 
   if (path === 'open/signup' || path.startsWith('open/signup')) {
     const ref = typeof query.ref === 'string' ? query.ref : '';
-    router.push({
-      pathname: '/auth/signup',
-      params: ref ? { ref } : {},
-    });
+    router.push(buildRouteHref('/auth/signup', ref ? { ref } : undefined));
     return;
   }
 
-  if (path === 'open/verify-email' || path.startsWith('open/verify-email')) {
-    const email = typeof query.email === 'string' ? query.email : '';
-    router.push({
-      pathname: '/email-verification',
-      params: email ? { email } : {},
-    });
+  if (path === 'open/verify-email' || path.startsWith('open/verify-email') || path === 'email-verification') {
+    const email = authEmail || (typeof query.email === 'string' ? query.email : '');
+
+    if (accessToken || refreshToken || tokenHash || code) {
+      void (async () => {
+        const { completeEmailVerificationFromLink } = await import('@/utils/email-verification');
+        const { data, error } = await completeEmailVerificationFromLink({
+          accessToken,
+          refreshToken,
+          tokenHash,
+          type,
+          code,
+        });
+        if (!error && data.session) {
+          router.replace('/setup-pin');
+          return;
+        }
+        router.push(buildRouteHref('/email-verification', {
+          ...(email ? { email } : {}),
+          ...(accessToken ? { access_token: accessToken } : {}),
+          ...(refreshToken ? { refresh_token: refreshToken } : {}),
+          ...(tokenHash ? { token_hash: tokenHash } : {}),
+          ...(type ? { type } : {}),
+          ...(code ? { code } : {}),
+        }));
+      })();
+      return;
+    }
+
+    router.push(buildRouteHref('/email-verification', email ? { email } : undefined));
     return;
   }
 
@@ -110,12 +131,22 @@ export function handleAppLink(url: string): void {
 
   if (path === 'reset-password' || path.includes('reset-password')) {
     const params: Record<string, string> = {};
+    const email = authEmail || (typeof query.email === 'string' ? query.email : '');
+    if (email) params.email = email;
     if (accessToken) params.access_token = accessToken;
     if (refreshToken) params.refresh_token = refreshToken;
     if (type) params.type = type;
-    router.push({
-      pathname: '/reset-password',
-      params,
-    });
+    if (tokenHash) params.token_hash = tokenHash;
+    if (code) params.code = code;
+
+    if (accessToken || refreshToken || tokenHash || code) {
+      void (async () => {
+        router.push(buildRouteHref('/reset-password', params));
+      })();
+      return;
+    }
+
+    router.push(buildRouteHref('/reset-password', Object.keys(params).length ? params : undefined));
+    return;
   }
 }

@@ -163,7 +163,7 @@ serve(async (req) => {
       const providerValue = typeof providerSetting.setting_value === 'string' 
         ? providerSetting.setting_value 
         : (providerSetting.setting_value as any)?.provider;
-      if (providerValue && ['smeplug', 'vtpass', 'anyone', 'ebills', 'ebills.africa'].includes(providerValue.toLowerCase())) {
+      if (providerValue && ['smeplug', 'ebills', 'ebills.africa', 'mobilenig', 'flutterwave'].includes(providerValue.toLowerCase())) {
         preferredProvider = providerValue.toLowerCase();
       }
     }
@@ -189,14 +189,13 @@ serve(async (req) => {
     }
 
     // Determine which provider to use based on preference and plan availability
-    const providers = preferredProvider === 'anyone' 
-      ? ['smeplug', 'vtpass', 'ebills'] 
-      : [preferredProvider];
+    const providers = [preferredProvider];
 
     const providerFunctionMap: Record<string, string> = {
-      vtpass: 'purchase-vtpass-data',
       smeplug: 'purchase-smeplug-data',
       ebills: 'purchase-ebills-data',
+      mobilenig: 'purchase-mobilenig-data',
+      flutterwave: 'purchase-flutterwave-data',
     };
 
     // Try each provider in order

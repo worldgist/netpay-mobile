@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FLIGHT_BOOKING_ENABLED } from '@/constants/features';
 
 const SERVICE_CONFIG = [
   { id: 'airtime', name: 'Airtime', icon: 'phone' as const, route: '/airtime-purchase' },
@@ -20,7 +21,9 @@ const SERVICE_CONFIG = [
   { id: 'data', name: 'Data', icon: 'wifi' as const, route: '/data-purchase' },
   { id: 'education', name: 'Education', icon: 'school' as const, route: '/education' },
   { id: 'electricity', name: 'Electricity', icon: 'flash-on' as const, route: '/electricity' },
-  { id: 'flight', name: 'Book Flights', icon: 'flight' as const, route: '/flight-booking' },
+  ...(FLIGHT_BOOKING_ENABLED
+    ? [{ id: 'flight' as const, name: 'Book Flights', icon: 'flight' as const, route: '/flight-booking' as const }]
+    : []),
   { id: 'betting', name: 'Betting', icon: 'casino' as const, route: '/betting' },
 ] as const;
 

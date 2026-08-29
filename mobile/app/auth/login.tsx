@@ -25,6 +25,7 @@ import {
   isPendingBiometricReenrollment,
 } from '@/utils/pending-biometric-reenrollment';
 import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
+import { buildRouteHref } from '@/utils/router-href';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
@@ -130,7 +131,7 @@ export default function LoginScreen() {
         
         if (message.toLowerCase().includes('email not confirmed')) {
           Alert.alert('Email Not Verified', 'Please verify your email to continue. We will redirect you to the verification screen.');
-          router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
+          router.push(buildRouteHref('/email-verification', { email: trimmedEmail }));
           return;
         }
 
@@ -142,7 +143,7 @@ export default function LoginScreen() {
 
       if (!data.session) {
         Alert.alert('Sign In', 'No active session was returned. Please verify your email and try again.');
-        router.push({ pathname: '/email-verification', params: { email: trimmedEmail } });
+        router.push(buildRouteHref('/email-verification', { email: trimmedEmail }));
         return;
       }
 

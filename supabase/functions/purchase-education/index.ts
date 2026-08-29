@@ -2,6 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import {
+  extractEducationInstructions,
+  sendEducationPinEmail,
+} from "../_shared/education-pin-email.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -371,6 +375,29 @@ serve(async (req) => {
         }
       );
 
+      if (profile.email) {
+        const emailResult = await sendEducationPinEmail({
+          email: profile.email,
+          fullName: profile.full_name,
+          examType: examTypeUpper,
+          pin: demoPin,
+          serial: demoSerial,
+          pins: demoPins,
+          instructions: 'This is a demo purchase. Use the PIN above for testing only.',
+          phoneNumber: phone_number || undefined,
+          amount: totalAmount,
+          purchaseAmount,
+          chargeFee,
+          reference,
+          purchasedAt: new Date().toISOString(),
+          balanceBefore: debitResult.balanceBefore,
+          balanceAfter: debitResult.balanceAfter,
+        });
+        if (!emailResult.success) {
+          console.error('Failed to send demo education PIN email:', emailResult.error);
+        }
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -614,35 +641,27 @@ serve(async (req) => {
           }
         );
 
-        // Send email with PDF receipt (non-blocking)
+        // Send email with PIN details and PDF receipt (non-blocking)
         if (profile.email && pinData.pin) {
-          try {
-            const supabaseService = createClient(
-              Deno.env.get('SUPABASE_URL') ?? '',
-              Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-            );
-            
-            await supabaseService.functions.invoke('send-purchase-email', {
-              body: {
-                type: 'education',
-                email: profile.email,
-                fullName: profile.full_name,
-                examType: exam_type.toUpperCase(),
-                pin: pinData.pin,
-                serial: pinData.serial,
-                phoneNumber: phone_number || undefined,
-                amount: totalAmount,
-                purchaseAmount: purchaseAmountNum,
-                chargeFee: chargeFeeNum,
-                reference: apiReference,
-                purchasedAt: new Date().toISOString(),
-                balanceBefore: debitResult.balanceBefore,
-                balanceAfter: debitResult.balanceAfter,
-              },
-            });
-          } catch (emailError) {
-            console.error('Failed to send email receipt:', emailError);
-            // Don't fail the transaction if email fails
+          const emailResult = await sendEducationPinEmail({
+            email: profile.email,
+            fullName: profile.full_name,
+            examType: exam_type.toUpperCase(),
+            pin: pinData.pin,
+            serial: pinData.serial,
+            pins: pinData.pins,
+            instructions: extractEducationInstructions(data),
+            phoneNumber: phone_number || undefined,
+            amount: totalAmount,
+            purchaseAmount: purchaseAmountNum,
+            chargeFee: chargeFeeNum,
+            reference: apiReference,
+            purchasedAt: new Date().toISOString(),
+            balanceBefore: debitResult.balanceBefore,
+            balanceAfter: debitResult.balanceAfter,
+          });
+          if (!emailResult.success) {
+            console.error('Failed to send education PIN email:', emailResult.error);
           }
         }
 

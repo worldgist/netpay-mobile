@@ -12,6 +12,7 @@ import {
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
+import { buildRouteHref } from '@/utils/router-href';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -39,7 +40,7 @@ export default function ForgetPasswordScreen() {
     try {
       setLoading(true);
 
-      const redirectTo = authRedirectUrls.passwordReset();
+      const redirectTo = authRedirectUrls.passwordReset(trimmedEmail);
       let { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
         redirectTo,
       });
@@ -60,10 +61,7 @@ export default function ForgetPasswordScreen() {
       }
 
       // Navigate to reset-password screen with email
-      router.push({
-        pathname: '/reset-password',
-        params: { email: trimmedEmail },
-      });
+      router.push(buildRouteHref('/reset-password', { email: trimmedEmail }));
     } catch (err) {
       setLoading(false);
       console.error('Error in handleSendResetCode:', err);

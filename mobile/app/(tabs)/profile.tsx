@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type ComponentProps } from 'react';
 
-import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl, Modal } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, Alert, RefreshControl, Modal, Linking, Platform } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 
@@ -14,11 +14,17 @@ import { supabase } from '@/lib/supabase';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
+import { clearAppCache } from '@/utils/clear-app-cache';
 
 import { useProfile } from '@/contexts/profile-context';
+
+import {
+  deactivatePushNotifications,
+  isPushNotificationsEnabled,
+  registerForPushNotifications,
+  setPushNotificationsEnabled,
+} from '@/utils/push-notifications';
 
 
 
@@ -130,10 +136,6 @@ function ProfileMenuRow({
 
 
 
-const NOTIFICATIONS_ENABLED_KEY = '@netpay_notifications_enabled';
-
-
-
 export default function ProfileScreen() {
 
   const router = useRouter();
@@ -182,23 +184,27 @@ export default function ProfileScreen() {
 
   useEffect(() => {
 
-    AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY)
+    const loadNotificationPreference = async () => {
 
-      .then((value) => {
+      try {
 
-        if (value !== null) {
+        const enabled = await isPushNotificationsEnabled();
 
-          setNotificationsEnabled(JSON.parse(value));
+        if (isMounted.current) {
+
+          setNotificationsEnabled(enabled);
 
         }
 
-      })
-
-      .catch((error) => {
+      } catch (error) {
 
         console.error('Failed to load notifications preference:', error);
 
-      });
+      }
+
+    };
+
+    loadNotificationPreference();
 
   }, []);
 
@@ -342,6 +348,11 @@ export default function ProfileScreen() {
 
 
 
+  const handleRefresh = useCallback(async () => {
+    await clearAppCache();
+    await refresh();
+  }, [refresh]);
+
   const handleLogout = useCallback(() => {
 
     Alert.alert(
@@ -361,11 +372,9 @@ export default function ProfileScreen() {
           style: 'destructive',
 
           onPress: async () => {
-
             try {
-
+              await clearAppCache();
               await supabase.auth.signOut();
-
               router.replace('/auth/login');
 
             } catch (error) {
@@ -394,7 +403,7 @@ export default function ProfileScreen() {
 
     async (enabled: boolean) => {
 
-      if (!isMounted.current) return;
+      if (!userId || notificationsUpdating || !isMounted.current) return;
 
 
 
@@ -408,7 +417,67 @@ export default function ProfileScreen() {
 
       try {
 
-        await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, JSON.stringify(enabled));
+        if (enabled) {
+
+          const result = await registerForPushNotifications();
+
+          if (!result.registered) {
+
+            if (isMounted.current) {
+
+              setNotificationsEnabled(previousValue);
+
+              const permissionDenied = (result.reason || '').toLowerCase().includes('permission');
+
+              if (permissionDenied) {
+
+                Alert.alert(
+
+                  'Notifications',
+
+                  result.reason || 'Notification permission was not granted.',
+
+                  [
+
+                    { text: 'Cancel', style: 'cancel' },
+
+                    { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+
+                  ],
+
+                );
+
+              } else {
+
+                setFeedbackModal({
+
+                  visible: true,
+
+                  variant: 'error',
+
+                  title: 'Notifications',
+
+                  message: result.reason || 'Could not enable push notifications right now.',
+
+                });
+
+              }
+
+            }
+
+            return;
+
+          }
+
+        } else {
+
+          await deactivatePushNotifications();
+
+        }
+
+
+
+        await setPushNotificationsEnabled(enabled);
 
 
 
@@ -424,9 +493,9 @@ export default function ProfileScreen() {
 
             message: enabled
 
-              ? 'Notifications have been enabled successfully. You will receive updates and alerts when they are available.'
+              ? 'Push notifications are enabled. You will receive transaction updates and alerts on this device.'
 
-              : 'Notifications have been turned off. You can turn them back on anytime from this screen.',
+              : 'Push notifications are turned off for this device. You can enable them again anytime from this screen.',
 
           });
 
@@ -466,7 +535,7 @@ export default function ProfileScreen() {
 
     },
 
-    [notificationsEnabled]
+    [userId, notificationsEnabled, notificationsUpdating]
 
   );
 
@@ -512,7 +581,7 @@ export default function ProfileScreen() {
 
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 96 }]}
 
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#FF7F00" />}>
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}>
 
         <View style={styles.profileCard}>
 

@@ -4,6 +4,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useFocusEffect } from '@react-navigation/native';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
@@ -251,18 +252,15 @@ export default function TransferScreen() {
       setDescription('');
       setRecipientDetails(null);
 
-      router.push({
-        pathname: '/transfer-success',
-        params: {
-          amount: amountValue.toString(),
-          recipientEmail: data.data?.recipientEmail || '',
-          recipientName: data.data?.recipientName || '',
-          reference: data.data?.reference || '',
-          description: transferDescription,
-          transferFee: data.data?.transferFee?.toString() || transferFee.toString(),
-          totalAmount: data.data?.totalAmount?.toString() || totalAmount.toString(),
-        },
-      });
+      router.push(buildRouteHref('/transfer-success', {
+        amount: amountValue.toString(),
+        recipientEmail: data.data?.recipientEmail || '',
+        recipientName: data.data?.recipientName || '',
+        reference: data.data?.reference || '',
+        description: transferDescription,
+        transferFee: data.data?.transferFee?.toString() || transferFee.toString(),
+        totalAmount: data.data?.totalAmount?.toString() || totalAmount.toString(),
+      }));
     } catch (err: any) {
       console.error('Transfer error:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);

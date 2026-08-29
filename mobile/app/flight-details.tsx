@@ -4,6 +4,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   formatDuration,
@@ -74,21 +75,18 @@ export default function FlightDetailsScreen() {
   }
 
   const handleContinue = () => {
-    router.push({
-      pathname: '/flight-traveller-info',
-      params: {
-        flightId: params.flightId || flight.id,
-        fromCode,
-        fromCity,
-        fromName,
-        toCode,
-        toCity,
-        toName,
-        departureDate: departureDate.toISOString(),
-        passengers,
-        flightClass: params.flightClass || 'economy',
-      },
-    });
+    router.push(buildRouteHref('/flight-traveller-info', {
+      flightId: params.flightId || flight.id,
+      fromCode,
+      fromCity,
+      fromName,
+      toCode,
+      toCity,
+      toName,
+      departureDate: departureDate.toISOString(),
+      passengers,
+      flightClass: params.flightClass || 'economy',
+    }));
   };
 
   return (
@@ -104,16 +102,13 @@ export default function FlightDetailsScreen() {
         <TouchableOpacity
           style={styles.fareRulesButton}
           onPress={() =>
-            router.push({
-              pathname: '/flight-fare-rules',
-              params: {
-                flightId: params.flightId || flight.id,
-                fromCode,
-                toCode,
-                departureDate: departureDate.toISOString(),
-                flightClass: params.flightClass || 'economy',
-              },
-            })
+            router.push(buildRouteHref('/flight-fare-rules', {
+              flightId: params.flightId || flight.id,
+              fromCode,
+              toCode,
+              departureDate: departureDate.toISOString(),
+              flightClass: params.flightClass || 'economy',
+            }))
           }
           activeOpacity={0.85}>
           <MaterialIcons name="info-outline" size={16} color={ORANGE} />

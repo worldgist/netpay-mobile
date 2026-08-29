@@ -1,4 +1,4 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert, Share } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -9,9 +9,10 @@ import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
-import { NGN_LOGO, FUND_WALLET_LABEL, isFundWalletTransaction } from '@/utils/transaction-display';
+import { NGN_LOGO, FUND_WALLET_LABEL, getWalletTransactionLabel, isFundWalletTransaction } from '@/utils/transaction-display';
 
 type DetailTransaction = {
   id: string;
@@ -43,6 +44,16 @@ type DetailTransaction = {
     educationInstructions?: string;
     examType?: string;
     pins?: { Serial?: string; Pin?: string }[];
+    account_number?: string;
+    vending_provider?: string;
+    transactionType?: string;
+    sourceTable?: string;
+    grossAmount?: number;
+    fundingFee?: number;
+    netAmount?: number;
+    bankName?: string;
+    accountName?: string;
+    accountNumber?: string;
   };
 };
 
@@ -203,8 +214,289 @@ const getTransactionLogo = (serviceType?: string | null, provider?: string | nul
   return NETWORK_LOGOS[key] || null;
 };
 
+const toTitle = (value?: string | null) =>
+  value ? value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) : '';
+
+const formatCurrencyPlain = (amount: number) =>
+  `N${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const getStatusLabel = (status: string) => {
+  const normalized = status.toLowerCase();
+  if (normalized.includes('success')) return 'Success';
+  if (normalized.includes('complete')) return 'Completed';
+  if (normalized.includes('pending')) return 'Pending';
+  if (normalized.includes('fail') || normalized.includes('cancel')) return toTitle(status);
+  return toTitle(status) || 'Completed';
+};
+
+const getTransactionTitle = (txnCategory: string, txn: DetailTransaction) => {
+  if (txnCategory === 'wallet') {
+    if ((txn.metadata?.transactionType || '').toLowerCase() === 'funding_fee') {
+      return 'Funding Fee';
+    }
+    return getWalletTransactionLabel({ ...txn, category: txnCategory });
+  }
+
+  switch (txnCategory) {
+    case 'airtime':
+      return 'Airtime Purchase';
+    case 'data':
+      return 'Data Bundle';
+    case 'electricity':
+      return `${txn.provider || 'Electricity'} Purchase`;
+    case 'education':
+      return `${txn.provider || 'Education'} Purchase`;
+    case 'betting':
+      return `${txn.provider || 'Betting'} Purchase`;
+    case 'transfer_sent':
+      return 'Transfer Sent';
+    case 'transfer_received':
+      return 'Transfer Received';
+    default:
+      return txn.serviceType || 'Transaction';
+  }
+};
+
+const getDetailTheme = (txnCategory: string, txn: DetailTransaction) => {
+  if (
+    isFundWalletTransaction({
+      category: txnCategory,
+      serviceType: txn.serviceType,
+      description: txn.description,
+      provider: txn.provider,
+      type: txn.type,
+    })
+  ) {
+    return { accentColor: '#4CAF50', iconBackground: '#E8F5E9', statusBackground: '#E8F5E9', statusColor: '#4CAF50' };
+  }
+  if (txnCategory === 'transfer_sent') {
+    return { accentColor: '#9C27B0', iconBackground: '#F3E5F5', statusBackground: '#F3E5F5', statusColor: '#9C27B0' };
+  }
+  if (txnCategory === 'airtime') {
+    return { accentColor: '#FFC107', iconBackground: '#FFF8E1', statusBackground: '#E8F5E9', statusColor: '#4CAF50' };
+  }
+  if (txn.type === 'credit') {
+    return { accentColor: '#4CAF50', iconBackground: '#E8F5E9', statusBackground: '#E8F5E9', statusColor: '#4CAF50' };
+  }
+  return { accentColor: '#FF7F00', iconBackground: '#FFF3E8', statusBackground: '#E8F5E9', statusColor: '#4CAF50' };
+};
+
+const FUNDING_FEE_PERCENTAGE = 0.05;
+const MIN_FUNDING_FEE = 10;
+
+const calculateFundingFee = (grossAmount: number) => {
+  const percentageFee = grossAmount * FUNDING_FEE_PERCENTAGE;
+  return Math.max(MIN_FUNDING_FEE, Math.round(percentageFee * 100) / 100);
+};
+
+const formatWalletEntryType = (transactionType?: string | null) => {
+  switch ((transactionType || '').toLowerCase()) {
+    case 'credit':
+      return 'Credit';
+    case 'debit':
+      return 'Debit';
+    case 'refund':
+      return 'Refund';
+    case 'funding_fee':
+      return 'Funding Fee';
+    case 'purchase':
+      return 'Purchase';
+    default:
+      return transactionType ? toTitle(transactionType) : 'Wallet';
+  }
+};
+
+const getWalletPaymentMethod = (detail: DetailTransaction) => {
+  const description = (detail.description || '').toLowerCase();
+  if (detail.metadata?.bankName) {
+    return 'Bank Transfer';
+  }
+  if (description.includes('flutterwave')) {
+    return 'Flutterwave';
+  }
+  if (description.includes('payvessel') || description.includes('bank transfer')) {
+    return 'Bank Transfer';
+  }
+  if (detail.metadata?.sourceTable === 'funding_transactions') {
+    return 'Bank Transfer';
+  }
+  return 'Wallet';
+};
+
+const buildFundingWalletDetail = (
+  data: {
+    id: string;
+    amount: number | string;
+    status?: string | null;
+    reference?: string | null;
+    bank_name?: string | null;
+    account_name?: string | null;
+    account_number?: string | null;
+    created_at: string;
+  },
+  overrides?: Partial<DetailTransaction>,
+): DetailTransaction => {
+  const grossAmount = Number(data.amount) || 0;
+  const fundingFee = calculateFundingFee(grossAmount);
+  const netAmount = grossAmount - fundingFee;
+  const bankName = data.bank_name || 'Bank Transfer';
+
+  return {
+    id: data.id,
+    type: 'credit',
+    amount: netAmount,
+    status: data.status || 'Completed',
+    reference: data.reference,
+    description: `Wallet funding via ${bankName}`,
+    serviceType: FUND_WALLET_LABEL,
+    provider: bankName,
+    recipient: data.account_name || '',
+    sender: bankName,
+    phoneNumber: '',
+    planName: '',
+    planValidity: '',
+    balanceBefore: null,
+    balanceAfter: null,
+    createdAt: data.created_at,
+    formattedDate: formatDate(data.created_at),
+    formattedTime: formatTime(data.created_at),
+    metadata: {
+      sourceTable: 'funding_transactions',
+      transactionType: 'credit',
+      grossAmount,
+      fundingFee,
+      netAmount,
+      bankName,
+      accountName: data.account_name || '',
+      accountNumber: data.account_number || '',
+    },
+    ...overrides,
+  };
+};
+
+const buildUserWalletDetail = (data: {
+  id: string;
+  amount: number | string;
+  transaction_type?: string | null;
+  description?: string | null;
+  reference?: string | null;
+  created_at: string;
+  balance_before?: number | null;
+  balance_after?: number | null;
+}): DetailTransaction => {
+  const tt = (data.transaction_type || '').toLowerCase();
+  const isRefund = tt === 'refund';
+  const isFundingFee = tt === 'funding_fee';
+  const description = data.description || '';
+  const isFlutterwaveFunding = description.toLowerCase().includes('flutterwave');
+  const ledgerType: 'credit' | 'debit' = tt === 'credit' || isRefund ? 'credit' : 'debit';
+  const provider = isRefund ? '' : tt === 'credit' ? (isFlutterwaveFunding ? 'Flutterwave' : '') : '';
+  const serviceType = isFundingFee
+    ? 'Funding Fee'
+    : isRefund
+      ? 'Refund'
+      : getWalletTransactionLabel({
+          category: 'wallet',
+          description,
+          provider,
+          type: ledgerType,
+        });
+
+  return {
+    id: data.id,
+    type: ledgerType,
+    amount: Number(data.amount) || 0,
+    status: 'Completed',
+    reference: data.reference,
+    description,
+    serviceType,
+    provider,
+    recipient: '',
+    sender: '',
+    phoneNumber: '',
+    planName: '',
+    planValidity: '',
+    balanceBefore: data.balance_before ?? null,
+    balanceAfter: data.balance_after ?? null,
+    createdAt: data.created_at,
+    formattedDate: formatDate(data.created_at),
+    formattedTime: formatTime(data.created_at),
+    metadata: {
+      transactionType: tt || (isRefund ? 'refund' : ledgerType),
+    },
+  };
+};
+
+const enrichWalletDetailFromFunding = async (
+  userId: string,
+  detail: DetailTransaction,
+): Promise<DetailTransaction> => {
+  if (!detail.reference || detail.metadata?.sourceTable === 'funding_transactions') {
+    return detail;
+  }
+
+  const { data } = await supabase
+    .from('funding_transactions')
+    .select('id, amount, status, reference, bank_name, account_name, account_number, created_at')
+    .eq('user_id', userId)
+    .eq('reference', detail.reference)
+    .maybeSingle();
+
+  if (!data) {
+    return detail;
+  }
+
+  const fundingDetail = buildFundingWalletDetail(data, {
+    id: detail.id,
+    reference: detail.reference,
+    balanceBefore: detail.balanceBefore ?? null,
+    balanceAfter: detail.balanceAfter ?? null,
+    createdAt: detail.createdAt,
+    formattedDate: detail.formattedDate,
+    formattedTime: detail.formattedTime,
+  });
+
+  return {
+    ...fundingDetail,
+    metadata: {
+      ...fundingDetail.metadata,
+      transactionType: detail.metadata?.transactionType || 'credit',
+    },
+  };
+};
+
+type DetailRowProps = {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string;
+  value: string;
+  onCopy?: () => void;
+  multiline?: boolean;
+};
+
+function DetailRow({ icon, label, value, onCopy, multiline }: DetailRowProps) {
+  return (
+    <View style={styles.detailRow}>
+      <View style={styles.detailIconCircle}>
+        <MaterialIcons name={icon} size={18} color="#FF7F00" />
+      </View>
+      <ThemedText style={styles.detailLabel}>{label}</ThemedText>
+      <View style={styles.detailValueWrap}>
+        <ThemedText style={styles.detailValue} numberOfLines={multiline ? 3 : 1}>
+          {value}
+        </ThemedText>
+        {onCopy ? (
+          <TouchableOpacity onPress={onCopy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function TransactionDetailsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams();
 
   const category = (params.category as string) || 'wallet';
@@ -294,112 +586,68 @@ function TransactionDetailsScreen() {
         if (sourceTable === 'funding_transactions') {
           const { data, error } = await supabase
             .from('funding_transactions')
-            .select('id, amount, status, reference, bank_name, account_name, created_at, user_id')
+            .select('id, amount, status, reference, bank_name, account_name, account_number, created_at, user_id')
             .eq('id', initialTransaction.id)
             .eq('user_id', userId)
             .maybeSingle();
 
           if (error) throw error;
           if (data) {
-            const grossAmount = Number(data.amount) || 0;
-            const fundingFee = Math.max(10, Math.round(grossAmount * 0.05 * 100) / 100);
-            const netAmount = grossAmount - fundingFee;
-            detail = {
-              id: data.id,
-              type: 'credit',
-              amount: netAmount,
-              status: data.status || 'Completed',
-              reference: data.reference,
-              description: `Wallet funding via ${data.bank_name || 'Flutterwave'}`,
-              serviceType: FUND_WALLET_LABEL,
-              provider: 'Flutterwave',
-              recipient: data.account_name || '',
-              sender: data.bank_name || 'Flutterwave',
-              createdAt: data.created_at,
-              formattedDate: formatDate(data.created_at),
-              formattedTime: formatTime(data.created_at),
-              phoneNumber: '',
-              planName: '',
-              planValidity: '',
-              balanceBefore: null,
-              balanceAfter: null,
-              metadata: { grossAmount, fundingFee },
-            };
+            detail = buildFundingWalletDetail(data);
           }
         }
 
         if (!detail) {
-        const { data, error } = await supabase
-          .from('user_transactions')
-          .select('id, amount, transaction_type, description, reference, created_at, balance_before, balance_after, user_id')
-          .eq('id', initialTransaction.id)
-          .eq('user_id', userId)
-          .maybeSingle();
+          const { data, error } = await supabase
+            .from('user_transactions')
+            .select('id, amount, transaction_type, description, reference, created_at, balance_before, balance_after, user_id')
+            .eq('id', initialTransaction.id)
+            .eq('user_id', userId)
+            .maybeSingle();
 
-        if (error) throw error;
-        if (data) {
-          const tt = (data.transaction_type || '').toLowerCase();
-          const isRefund = tt === 'refund';
-          const description = data.description || '';
-          const isFlutterwaveFunding = description.toLowerCase().includes('flutterwave');
-          detail = {
-            id: data.id,
-            type: tt === 'credit' || isRefund ? ('credit' as const) : ('debit' as const),
-            amount: Number(data.amount) || 0,
-            status: 'Completed',
-            reference: data.reference,
-            description,
-            serviceType: isRefund ? 'Refund' : tt === 'credit' ? FUND_WALLET_LABEL : 'Wallet Transaction',
-            provider: isRefund ? '' : tt === 'credit' ? (isFlutterwaveFunding ? 'Flutterwave' : 'NGN') : '',
-            recipient: '',
-            sender: '',
-            createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
-            phoneNumber: '',
-            planName: '',
-            planValidity: '',
-            balanceBefore: data.balance_before,
-            balanceAfter: data.balance_after,
-            metadata: (data as any)?.metadata || {},
-          };
-        }
+          if (error) throw error;
+          if (data) {
+            const builtDetail = buildUserWalletDetail(data);
+            const tt = (data.transaction_type || '').toLowerCase();
+            const shouldLookupFunding =
+              builtDetail.type === 'credit' &&
+              tt !== 'funding_fee' &&
+              tt !== 'refund' &&
+              !tt.includes('fee');
+            detail = shouldLookupFunding
+              ? await enrichWalletDetailFromFunding(userId, builtDetail)
+              : builtDetail;
+          }
         }
 
         if (!detail) {
           const { data, error } = await supabase
             .from('funding_transactions')
-            .select('id, amount, status, reference, bank_name, account_name, created_at, user_id')
+            .select('id, amount, status, reference, bank_name, account_name, account_number, created_at, user_id')
             .eq('id', initialTransaction.id)
             .eq('user_id', userId)
             .maybeSingle();
 
           if (error) throw error;
           if (data) {
-            const grossAmount = Number(data.amount) || 0;
-            const fundingFee = Math.max(10, Math.round(grossAmount * 0.05 * 100) / 100);
-            const netAmount = grossAmount - fundingFee;
-            detail = {
-              id: data.id,
-              type: 'credit',
-              amount: netAmount,
-              status: data.status || 'Completed',
-              reference: data.reference,
-              description: `Wallet funding via ${data.bank_name || 'Flutterwave'}`,
-              serviceType: FUND_WALLET_LABEL,
-              provider: 'Flutterwave',
-              recipient: data.account_name || '',
-              sender: data.bank_name || 'Flutterwave',
-              createdAt: data.created_at,
-              formattedDate: formatDate(data.created_at),
-              formattedTime: formatTime(data.created_at),
-              phoneNumber: '',
-              planName: '',
-              planValidity: '',
-              balanceBefore: null,
-              balanceAfter: null,
-              metadata: { grossAmount, fundingFee },
-            };
+            detail = buildFundingWalletDetail(data);
+          }
+        }
+
+        if (!detail && initialTransaction.reference) {
+          const { data, error } = await supabase
+            .from('funding_transactions')
+            .select('id, amount, status, reference, bank_name, account_name, account_number, created_at, user_id')
+            .eq('user_id', userId)
+            .eq('reference', initialTransaction.reference)
+            .maybeSingle();
+
+          if (error) throw error;
+          if (data) {
+            detail = buildFundingWalletDetail(data, {
+              id: initialTransaction.id,
+              reference: initialTransaction.reference,
+            });
           }
         }
       } else if (category === 'airtime') {
@@ -744,7 +992,7 @@ function TransactionDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [category, initialTransaction.id, params.sourceTable, router]);
+  }, [category, initialTransaction.id, initialTransaction.reference, params.sourceTable, router]);
 
   useEffect(() => {
     fetchTransactionDetails();
@@ -914,12 +1162,66 @@ function TransactionDetailsScreen() {
             </div>
 
             <div class="amount-section">
-              <div class="amount-label">${transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}</div>
+              <div class="amount-label">${showFundWalletLogo ? 'Amount Added' : isFundingFeeTxn ? 'Amount Debited' : transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}</div>
               <div class="amount-value">${transaction.type === 'credit' ? '+' : '-'}${formatCurrency(transaction.amount)}</div>
               <div class="status-badge">${transaction.status}</div>
             </div>
 
             <div class="transaction-info">
+              ${category === 'wallet' ? `
+              ${transaction.metadata?.transactionType ? `
+              <div class="info-row">
+                <span class="info-label">Entry Type</span>
+                <span class="info-value">${formatWalletEntryType(transaction.metadata.transactionType)}</span>
+              </div>
+              ` : ''}
+              <div class="info-row">
+                <span class="info-label">Payment Method</span>
+                <span class="info-value">${getWalletPaymentMethod(transaction)}</span>
+              </div>
+              ${transaction.metadata?.bankName ? `
+              <div class="info-row">
+                <span class="info-label">Bank Name</span>
+                <span class="info-value">${transaction.metadata.bankName}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.accountName ? `
+              <div class="info-row">
+                <span class="info-label">Account Name</span>
+                <span class="info-value">${transaction.metadata.accountName}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.accountNumber ? `
+              <div class="info-row">
+                <span class="info-label">Account Number</span>
+                <span class="info-value">${transaction.metadata.accountNumber}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.grossAmount != null ? `
+              <div class="info-row">
+                <span class="info-label">Gross Amount</span>
+                <span class="info-value">${formatCurrency(transaction.metadata.grossAmount)}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.fundingFee != null ? `
+              <div class="info-row">
+                <span class="info-label">Funding Fee</span>
+                <span class="info-value">${formatCurrency(transaction.metadata.fundingFee)}</span>
+              </div>
+              ` : ''}
+              ${transaction.metadata?.netAmount != null ? `
+              <div class="info-row">
+                <span class="info-label">Net Credit</span>
+                <span class="info-value">${formatCurrency(transaction.metadata.netAmount)}</span>
+              </div>
+              ` : ''}
+              ${transaction.description ? `
+              <div class="info-row">
+                <span class="info-label">Details</span>
+                <span class="info-value">${transaction.description}</span>
+              </div>
+              ` : ''}
+              ` : `
               <div class="info-row">
                 <span class="info-label">Transaction Type</span>
                 <span class="info-value">${getLedgerTypeLabel(category, transaction.serviceType, transaction.type).toUpperCase()}</span>
@@ -936,6 +1238,7 @@ function TransactionDetailsScreen() {
                 <span class="info-value">${transaction.provider}</span>
               </div>
               ` : ''}
+              `}
               ${transaction.metadata?.examType ? `
               <div class="info-row">
                 <span class="info-label">Exam</span>
@@ -1096,14 +1399,88 @@ function TransactionDetailsScreen() {
     }
   };
 
+  const walletPaymentMethod = category === 'wallet' ? getWalletPaymentMethod(transaction) : '';
+  const isFundingFeeTxn = (transaction.metadata?.transactionType || '').toLowerCase() === 'funding_fee';
+  const amountLabel = showFundWalletLogo
+    ? 'Amount Added'
+    : isFundingFeeTxn
+      ? 'Amount Debited'
+      : transaction.type === 'credit'
+        ? 'Amount Received'
+        : 'Amount Sent';
+
+  const buildShareMessage = () => {
+    const sign = transaction.type === 'credit' ? '+' : '-';
+    const lines = [
+      getTransactionTitle(category, transaction),
+      `${amountLabel}: ${sign}${formatCurrencyPlain(transaction.amount)}`,
+      `Status: ${getStatusLabel(transaction.status)}`,
+      `Date: ${transaction.formattedDate} • ${transaction.formattedTime}`,
+      `Reference: ${transaction.reference || 'N/A'}`,
+      `Transaction ID: ${transaction.id}`,
+    ];
+
+    if (category === 'wallet') {
+      if (transaction.metadata?.transactionType) {
+        lines.splice(3, 0, `Entry Type: ${formatWalletEntryType(transaction.metadata.transactionType)}`);
+      }
+      if (walletPaymentMethod) lines.push(`Payment Method: ${walletPaymentMethod}`);
+      if (transaction.metadata?.bankName) lines.push(`Bank Name: ${transaction.metadata.bankName}`);
+      if (transaction.metadata?.accountName) lines.push(`Account Name: ${transaction.metadata.accountName}`);
+      if (transaction.metadata?.accountNumber) lines.push(`Account Number: ${transaction.metadata.accountNumber}`);
+      if (transaction.metadata?.grossAmount != null) {
+        lines.push(`Gross Amount: ${formatCurrencyPlain(transaction.metadata.grossAmount)}`);
+      }
+      if (transaction.metadata?.fundingFee != null) {
+        lines.push(`Funding Fee: ${formatCurrencyPlain(transaction.metadata.fundingFee)}`);
+      }
+      if (transaction.metadata?.netAmount != null) {
+        lines.push(`Net Credit: ${formatCurrencyPlain(transaction.metadata.netAmount)}`);
+      }
+      if (transaction.description) lines.push(`Details: ${transaction.description}`);
+    }
+
+    return lines.join('\n');
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({ message: buildShareMessage() });
+    } catch (error) {
+      console.error('Error sharing transaction:', error);
+    }
+  };
+
+  const theme = getDetailTheme(category, transaction);
+  const transactionTitle = getTransactionTitle(category, transaction);
+  const statusLabel = getStatusLabel(transaction.status);
+  const isFailed =
+    transaction.status.toLowerCase().includes('fail') ||
+    transaction.status.toLowerCase().includes('cancel');
+  const summarySubtitle =
+    category === 'wallet'
+      ? transaction.metadata?.accountName ||
+        transaction.metadata?.bankName ||
+        transaction.metadata?.accountNumber ||
+        transaction.sender ||
+        transaction.recipient ||
+        ''
+      : transaction.recipient ||
+        transaction.phoneNumber ||
+        transaction.sender ||
+        transaction.description ||
+        '';
+
   return (
     <ThemedView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={22} color="#000" />
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerSideButton}>
+          <MaterialIcons name="arrow-back" size={24} color="#1A2B4A" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>Transaction Details</ThemedText>
-        <View style={styles.placeholder} />
+        <TouchableOpacity onPress={handleShare} style={styles.headerSideButton}>
+          <MaterialIcons name="share" size={22} color="#1A2B4A" />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -1116,372 +1493,287 @@ function TransactionDetailsScreen() {
           <ThemedText style={styles.errorText}>{error}</ThemedText>
         </View>
       ) : (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          <View style={styles.amountCard}>
-            <View style={[styles.iconContainer, { backgroundColor: showFundWalletLogo ? '#ECFDF3' : transaction.type === 'credit' ? '#E8F5E9' : '#FFEBEE' }]}>
-              {showFundWalletLogo || transactionLogo ? (
-                <Image
-                  source={showFundWalletLogo ? NGN_LOGO : transactionLogo!}
-                  style={styles.transactionLogo}
-                  contentFit="contain"
-                />
-              ) : (
-                <MaterialIcons 
-                  name={getTypeIcon(transaction.type) as any} 
-                  size={26} 
-                  color={getTypeColor(transaction.type)} 
-                />
-              )}
-            </View>
-            <ThemedText style={styles.amountLabel}>
-              {showFundWalletLogo
-                ? 'Amount Added'
-                : transaction.type === 'credit'
-                  ? 'Amount Received'
-                  : 'Amount Sent'}
-            </ThemedText>
-            <View style={styles.amountValueContainer}>
-              <ThemedText style={[styles.amountValue, { color: getTypeColor(transaction.type) }]}>
-                {transaction.type === 'credit' ? '+' : '-'}₦{transaction.amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </ThemedText>
-            </View>
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transaction.status) + '20' }]}>
-              <ThemedText style={[styles.statusText, { color: getStatusColor(transaction.status) }]}>
-                {transaction.status}
-              </ThemedText>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}>
+          <View style={styles.summaryCard}>
+            <View style={[styles.summaryAccent, { backgroundColor: theme.accentColor }]} />
+            <MaterialIcons
+              name="check-circle"
+              size={120}
+              color="#4CAF50"
+              style={styles.summaryWatermark}
+            />
+            <View style={styles.summaryBody}>
+              <View style={styles.summaryLeft}>
+                <View style={[styles.summaryIconBox, { backgroundColor: theme.iconBackground }]}>
+                  {showFundWalletLogo || transactionLogo ? (
+                    <Image
+                      source={showFundWalletLogo ? NGN_LOGO : transactionLogo!}
+                      style={styles.summaryLogo}
+                      contentFit="contain"
+                    />
+                  ) : (
+                    <MaterialIcons
+                      name={getTypeIcon(transaction.type) as keyof typeof MaterialIcons.glyphMap}
+                      size={24}
+                      color={theme.accentColor}
+                    />
+                  )}
+                </View>
+                <View style={styles.summaryTextBlock}>
+                  <ThemedText style={styles.summaryTitle}>{transactionTitle}</ThemedText>
+                  {summarySubtitle ? (
+                    <ThemedText style={styles.summarySubtitle} numberOfLines={1}>
+                      {summarySubtitle}
+                    </ThemedText>
+                  ) : null}
+                  <View
+                    style={[
+                      styles.summaryStatusBadge,
+                      {
+                        backgroundColor: isFailed ? '#FFEBEE' : theme.statusBackground,
+                      },
+                    ]}>
+                    <MaterialIcons
+                      name={isFailed ? 'error-outline' : 'check-circle'}
+                      size={14}
+                      color={isFailed ? '#F44336' : theme.statusColor}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.summaryStatusText,
+                        { color: isFailed ? '#F44336' : theme.statusColor },
+                      ]}>
+                      {statusLabel}
+                    </ThemedText>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.summaryAmountBlock}>
+                <ThemedText style={styles.summaryAmountLabel}>{amountLabel}</ThemedText>
+                <ThemedText
+                  style={[
+                    styles.summaryAmountValue,
+                    { color: transaction.type === 'credit' ? '#4CAF50' : '#F44336' },
+                  ]}>
+                  {transaction.type === 'credit' ? '+' : '-'}
+                  {formatCurrencyPlain(transaction.amount)}
+                </ThemedText>
+              </View>
             </View>
           </View>
 
-          {/* Transaction Information */}
-          <View style={styles.infoSection}>
-            <ThemedText style={styles.sectionTitle}>Transaction Information</ThemedText>
-            
-            {/* Transaction Type */}
-            <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Transaction Type</ThemedText>
-              <ThemedText style={styles.infoValue} numberOfLines={1}>
-                {getLedgerTypeLabel(category, transaction.serviceType, transaction.type)}
-              </ThemedText>
-            </View>
-
-            {/* Date */}
-            <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Date</ThemedText>
-              <ThemedText style={styles.infoValue}>{transaction.formattedDate}</ThemedText>
-            </View>
-
-            {/* Time */}
-            <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Time</ThemedText>
-              <ThemedText style={styles.infoValue}>{transaction.formattedTime}</ThemedText>
-            </View>
-
-            {/* Reference Number */}
-            <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Reference Number</ThemedText>
-              <TouchableOpacity 
-                style={styles.copyRow}
-                onPress={() => handleCopy(transaction.reference || 'N/A', 'Reference number')}>
-                <ThemedText style={styles.infoValue} numberOfLines={1}>
-                  {transaction.reference || 'N/A'}
-                </ThemedText>
-                <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Description */}
-            {transaction.description && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Description</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.description}</ThemedText>
-              </View>
-            )}
-
-            {/* Service Type */}
-            {transaction.serviceType && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Service Type</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.serviceType}</ThemedText>
-              </View>
-            )}
-
-            {/* Network/Provider */}
-            {transaction.provider && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Provider</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.provider}</ThemedText>
-              </View>
-            )}
-
-            {/* Account ID / User ID (for betting transactions) */}
-            {transaction.metadata?.account_number && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Account ID / User ID</ThemedText>
-                <TouchableOpacity 
-                  style={styles.copyRow}
-                  onPress={() => handleCopy(transaction.metadata?.account_number || '', 'Account ID')}>
-                  <ThemedText style={styles.infoValue} numberOfLines={1}>
-                    {transaction.metadata.account_number}
-                  </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Vending Provider (for betting transactions) */}
-            {transaction.metadata?.vending_provider && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Vending Provider</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.metadata.vending_provider.toUpperCase()}</ThemedText>
-              </View>
-            )}
-
-            {/* Exam Type */}
-            {transaction.metadata?.examType && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Exam</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.metadata.examType}</ThemedText>
-              </View>
-            )}
-
-            {/* Customer Name */}
-            {transaction.metadata?.customerName && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Customer</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.metadata.customerName}</ThemedText>
-              </View>
-            )}
-
-            {/* Electricity Address */}
-            {transaction.metadata?.customerAddress && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Address</ThemedText>
-                <TouchableOpacity
-                  style={styles.copyRow}
-                  onPress={() => handleCopy(transaction.metadata?.customerAddress || '', 'Address')}>
-                  <ThemedText style={styles.infoValue} numberOfLines={2}>
-                    {transaction.metadata.customerAddress}
-                  </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Meter Type */}
-            {transaction.metadata?.meterType && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Meter Type</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.metadata.meterType.toUpperCase()}</ThemedText>
-              </View>
-            )}
-
-            {/* Electricity Token - Prominently Displayed */}
-            {transaction.metadata?.token && (
-              <View style={[styles.infoRow, { 
-                backgroundColor: '#FFF5E6', 
-                borderWidth: 2, 
-                borderColor: '#FF7F00', 
-                borderRadius: 8, 
-                padding: 16, 
-                marginVertical: 8,
-                flexDirection: 'column',
-                alignItems: 'stretch'
-              }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <ThemedText style={{ 
-                    color: '#FF7F00', 
-                    fontWeight: '600', 
-                    fontSize: 12, 
-                    textTransform: 'uppercase', 
-                    letterSpacing: 0.5 
-                  }}>
-                    Electricity Token
-                  </ThemedText>
-                  <TouchableOpacity
-                    onPress={() => handleCopy(transaction.metadata?.token || '', 'Token')}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                  >
-                    <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
-                    <ThemedText style={{ color: '#FF7F00', fontSize: 12, fontWeight: '600' }}>Copy</ThemedText>
-                  </TouchableOpacity>
-                </View>
-                <ThemedText style={{ 
-                  fontFamily: 'monospace', 
-                  fontSize: 17, 
-                  fontWeight: 'bold', 
-                  textAlign: 'center', 
-                  letterSpacing: 2,
-                  color: '#333',
-                  marginBottom: 8
-                }} numberOfLines={0}>
-                  {transaction.metadata?.token}
-                </ThemedText>
-                <ThemedText style={{ 
-                  fontSize: 11, 
-                  color: '#666', 
-                  textAlign: 'center', 
-                  fontStyle: 'italic' 
-                }}>
-                  Keep this token safe. You will need it to recharge your meter.
-                </ThemedText>
-              </View>
-            )}
- 
-            {/* Education PIN Details */}
-            {transaction.metadata?.pins && Array.isArray(transaction.metadata.pins) && transaction.metadata.pins.length > 0 && (
-              <View style={[styles.infoRow, { flexDirection: 'column', alignItems: 'stretch', paddingVertical: 16 }]}>
-                <ThemedText style={[styles.infoLabel, { marginBottom: 12, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: '#4CAF50', fontWeight: '600' }]}>
-                  PIN Details
-                </ThemedText>
-                <View style={{ backgroundColor: '#E8F5E9', borderWidth: 2, borderColor: '#4CAF50', borderRadius: 8, padding: 16 }}>
-                  {transaction.metadata.pins.map((pinData: any, index: number) => (
-                    <View key={index} style={{ marginBottom: index < transaction.metadata.pins.length - 1 ? 16 : 0, paddingBottom: index < transaction.metadata.pins.length - 1 ? 16 : 0, borderBottomWidth: index < transaction.metadata.pins.length - 1 ? 1 : 0, borderBottomColor: '#C8E6C9' }}>
-                      {pinData.Serial && (
-                        <View style={{ marginBottom: 8 }}>
-                          <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Serial Number</ThemedText>
-                          <TouchableOpacity
-                            style={styles.copyRow}
-                            onPress={() => handleCopy(pinData.Serial || '', 'Serial number')}>
-                          <ThemedText style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: '600', color: '#333' }} numberOfLines={1}>
-                              {pinData.Serial}
-                            </ThemedText>
-                            <MaterialIcons name="content-copy" size={16} color="#FF7F00" style={styles.copyIcon} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                      {pinData.Pin && (
-                        <View>
-                          <ThemedText style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>PIN</ThemedText>
-                          <TouchableOpacity
-                            style={styles.copyRow}
-                            onPress={() => handleCopy(pinData.Pin || '', 'PIN')}>
-                          <ThemedText style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold', color: '#1B5E20', letterSpacing: 1 }} numberOfLines={0}>
-                              {pinData.Pin}
-                            </ThemedText>
-                            <MaterialIcons name="content-copy" size={16} color="#FF7F00" style={styles.copyIcon} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                </View>
-                <ThemedText style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 12, fontStyle: 'italic' }}>
-                  Keep this PIN safe. You will need it for your exam registration.
-                </ThemedText>
-              </View>
-            )}
-            
-            {/* Fallback: Show single PIN if pins array not available */}
-            {(!transaction.metadata?.pins || !Array.isArray(transaction.metadata.pins) || transaction.metadata.pins.length === 0) && transaction.metadata?.educationPin && (
+          <ThemedText style={styles.sectionHeading}>Transaction Information</ThemedText>
+          <View style={styles.detailsCard}>
+            <DetailRow
+              icon="credit-card"
+              label="Transaction ID"
+              value={transaction.id}
+              onCopy={() => handleCopy(transaction.id, 'Transaction ID')}
+            />
+            <DetailRow
+              icon="tag"
+              label="Reference Number"
+              value={transaction.reference || 'N/A'}
+              onCopy={() => handleCopy(transaction.reference || 'N/A', 'Reference number')}
+            />
+            <DetailRow
+              icon="event"
+              label="Date & Time"
+              value={`${transaction.formattedDate} • ${transaction.formattedTime}`}
+            />
+            {category === 'wallet' ? (
               <>
-                <View style={styles.infoRow}>
-                  <ThemedText style={styles.infoLabel}>PIN</ThemedText>
-                  <TouchableOpacity
-                    style={styles.copyRow}
-                    onPress={() => handleCopy(transaction.metadata?.educationPin || '', 'PIN')}>
-                    <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
-                      {transaction.metadata?.educationPin}
-                    </ThemedText>
-                    <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                  </TouchableOpacity>
-                </View>
-                {transaction.metadata?.educationSerial && (
-                  <View style={styles.infoRow}>
-                    <ThemedText style={styles.infoLabel}>Serial Number</ThemedText>
-                    <TouchableOpacity
-                      style={styles.copyRow}
-                      onPress={() => handleCopy(transaction.metadata?.educationSerial || '', 'Serial number')}>
-                      <ThemedText style={[styles.infoValue, styles.monospaceValue]} numberOfLines={1}>
-                        {transaction.metadata?.educationSerial}
-                      </ThemedText>
-                      <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <DetailRow icon="info" label="Status" value={statusLabel} />
+                {transaction.metadata?.transactionType ? (
+                  <DetailRow
+                    icon="swap-horiz"
+                    label="Entry Type"
+                    value={formatWalletEntryType(transaction.metadata.transactionType)}
+                  />
+                ) : null}
+                <DetailRow icon="payments" label="Payment Method" value={walletPaymentMethod} />
+                {transaction.metadata?.bankName ? (
+                  <DetailRow icon="account-balance" label="Bank Name" value={transaction.metadata.bankName} />
+                ) : null}
+                {transaction.metadata?.accountName ? (
+                  <DetailRow
+                    icon="person"
+                    label="Account Name"
+                    value={transaction.metadata.accountName}
+                  />
+                ) : null}
+                {transaction.metadata?.accountNumber ? (
+                  <DetailRow
+                    icon="account-box"
+                    label="Account Number"
+                    value={transaction.metadata.accountNumber}
+                    onCopy={() => handleCopy(transaction.metadata?.accountNumber || '', 'Account number')}
+                  />
+                ) : null}
+                {transaction.metadata?.grossAmount != null ? (
+                  <DetailRow
+                    icon="attach-money"
+                    label="Gross Amount"
+                    value={formatCurrencyPlain(transaction.metadata.grossAmount)}
+                  />
+                ) : null}
+                {transaction.metadata?.fundingFee != null ? (
+                  <DetailRow
+                    icon="receipt-long"
+                    label="Funding Fee"
+                    value={formatCurrencyPlain(transaction.metadata.fundingFee)}
+                  />
+                ) : null}
+                {transaction.metadata?.netAmount != null ? (
+                  <DetailRow
+                    icon="account-balance-wallet"
+                    label="Net Credit"
+                    value={formatCurrencyPlain(transaction.metadata.netAmount)}
+                  />
+                ) : null}
+                {transaction.description ? (
+                  <DetailRow icon="description" label="Details" value={transaction.description} multiline />
+                ) : null}
+              </>
+            ) : (
+              <>
+            {transaction.provider ? (
+              <DetailRow icon="cell-tower" label="Provider" value={transaction.provider} />
+            ) : null}
+            {transaction.recipient ? (
+              <DetailRow
+                icon="person"
+                label="Recipient"
+                value={transaction.recipient}
+                onCopy={() => handleCopy(transaction.recipient || '', 'Recipient')}
+              />
+            ) : null}
+            {transaction.sender ? (
+              <DetailRow icon="person-outline" label="Sender" value={transaction.sender} />
+            ) : null}
+            {transaction.phoneNumber ? (
+              <DetailRow
+                icon="phone"
+                label="Phone Number"
+                value={transaction.phoneNumber}
+                onCopy={() => handleCopy(transaction.phoneNumber || '', 'Phone number')}
+              />
+            ) : null}
               </>
             )}
+            {transaction.planName ? (
+              <DetailRow
+                icon="data-usage"
+                label="Plan"
+                value={`${transaction.planName}${transaction.planValidity ? ` • ${transaction.planValidity}` : ''}`}
+              />
+            ) : null}
+            {transaction.metadata?.examType ? (
+              <DetailRow icon="school" label="Exam" value={transaction.metadata.examType} />
+            ) : null}
+            {transaction.metadata?.customerName ? (
+              <DetailRow icon="badge" label="Customer" value={transaction.metadata.customerName} />
+            ) : null}
+            {transaction.metadata?.customerAddress ? (
+              <DetailRow
+                icon="home"
+                label="Address"
+                value={transaction.metadata.customerAddress}
+                onCopy={() => handleCopy(transaction.metadata?.customerAddress || '', 'Address')}
+                multiline
+              />
+            ) : null}
+            {transaction.metadata?.meterType ? (
+              <DetailRow
+                icon="bolt"
+                label="Meter Type"
+                value={transaction.metadata.meterType.toUpperCase()}
+              />
+            ) : null}
+            {transaction.metadata?.account_number ? (
+              <DetailRow
+                icon="account-circle"
+                label="Account ID / User ID"
+                value={transaction.metadata.account_number}
+                onCopy={() => handleCopy(transaction.metadata?.account_number || '', 'Account ID')}
+              />
+            ) : null}
+            {transaction.metadata?.vending_provider ? (
+              <DetailRow
+                icon="store"
+                label="Vending Provider"
+                value={transaction.metadata.vending_provider.toUpperCase()}
+              />
+            ) : null}
+          </View>
 
-            {/* Recipient */}
-            {transaction.recipient && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Recipient</ThemedText>
-                <TouchableOpacity 
-                  style={styles.copyRow}
-                  onPress={() => handleCopy(transaction.recipient || '', 'Recipient')}>
-                  <ThemedText style={styles.infoValue} numberOfLines={1}>
-                    {transaction.recipient}
-                  </ThemedText>
-                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
+          {transaction.metadata?.token ? (
+            <View style={styles.highlightCard}>
+              <View style={styles.highlightHeader}>
+                <ThemedText style={styles.highlightTitle}>Electricity Token</ThemedText>
+                <TouchableOpacity onPress={() => handleCopy(transaction.metadata?.token || '', 'Token')}>
+                  <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
                 </TouchableOpacity>
               </View>
-            )}
-
-            {/* Sender */}
-            {transaction.sender && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Sender</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.sender}</ThemedText>
-              </View>
-            )}
-
-            {/* Phone Number */}
-            {transaction.phoneNumber && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Phone Number</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.phoneNumber}</ThemedText>
-              </View>
-            )}
-
-            {/* Plan Name */}
-            {transaction.planName && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Plan</ThemedText>
-                <ThemedText style={styles.infoValue}>{transaction.planName}{transaction.planValidity ? ` • ${transaction.planValidity}` : ''}</ThemedText>
-              </View>
-            )}
-
-            {/* Balance Before */}
-            {transaction.balanceBefore != null && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Balance Before</ThemedText>
-                <ThemedText style={styles.infoValue}>{formatCurrency(transaction.balanceBefore)}</ThemedText>
-              </View>
-            )}
-
-            {/* Balance After */}
-            {transaction.balanceAfter != null && (
-              <View style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>Balance After</ThemedText>
-                <ThemedText style={styles.infoValue}>{formatCurrency(transaction.balanceAfter)}</ThemedText>
-              </View>
-            )}
-          </View>
-
-          {/* Transaction ID */}
-          <View style={styles.infoSection}>
-            <View style={styles.infoRow}>
-              <ThemedText style={styles.infoLabel}>Transaction ID</ThemedText>
-              <TouchableOpacity 
-                style={styles.copyRow}
-                onPress={() => handleCopy(transaction.id, 'Transaction ID')}>
-                <ThemedText style={styles.infoValue} numberOfLines={1}>
-                  {transaction.id}
-                </ThemedText>
-                <MaterialIcons name="content-copy" size={18} color="#FF7F00" style={styles.copyIcon} />
-              </TouchableOpacity>
+              <ThemedText style={styles.highlightValue}>{transaction.metadata.token}</ThemedText>
+              <ThemedText style={styles.highlightHint}>
+                Keep this token safe. You will need it to recharge your meter.
+              </ThemedText>
             </View>
-          </View>
+          ) : null}
 
-          {/* Print Receipt Button */}
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={styles.printButton}
-              onPress={handlePrintReceipt}
-              activeOpacity={0.8}>
-              <MaterialIcons name="print" size={20} color="#fff" style={styles.printIcon} />
-              <ThemedText style={styles.printButtonText}>Print Receipt</ThemedText>
-            </TouchableOpacity>
-          </View>
+          {transaction.metadata?.pins && Array.isArray(transaction.metadata.pins) && transaction.metadata.pins.length > 0 ? (
+            <View style={styles.highlightCardGreen}>
+              <ThemedText style={styles.highlightTitleGreen}>PIN Details</ThemedText>
+              {transaction.metadata.pins.map((pinData: { Pin?: string; Serial?: string }, index: number) => (
+                <View key={`${pinData.Pin || 'pin'}-${index}`} style={styles.pinBlock}>
+                  {pinData.Serial ? (
+                    <DetailRow
+                      icon="confirmation-number"
+                      label="Serial Number"
+                      value={pinData.Serial}
+                      onCopy={() => handleCopy(pinData.Serial || '', 'Serial number')}
+                    />
+                  ) : null}
+                  {pinData.Pin ? (
+                    <DetailRow
+                      icon="vpn-key"
+                      label="PIN"
+                      value={pinData.Pin}
+                      onCopy={() => handleCopy(pinData.Pin || '', 'PIN')}
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {(!transaction.metadata?.pins || transaction.metadata.pins.length === 0) && transaction.metadata?.educationPin ? (
+            <View style={styles.detailsCard}>
+              <DetailRow
+                icon="vpn-key"
+                label="PIN"
+                value={transaction.metadata.educationPin}
+                onCopy={() => handleCopy(transaction.metadata?.educationPin || '', 'PIN')}
+              />
+              {transaction.metadata.educationSerial ? (
+                <DetailRow
+                  icon="confirmation-number"
+                  label="Serial Number"
+                  value={transaction.metadata.educationSerial}
+                  onCopy={() => handleCopy(transaction.metadata?.educationSerial || '', 'Serial number')}
+                />
+              ) : null}
+            </View>
+          ) : null}
+
+          <TouchableOpacity style={styles.printButton} onPress={handlePrintReceipt} activeOpacity={0.85}>
+            <MaterialIcons name="print" size={20} color="#fff" />
+            <ThemedText style={styles.printButtonText}>Print Receipt</ThemedText>
+          </TouchableOpacity>
         </ScrollView>
       )}
     </ThemedView>
@@ -1493,44 +1785,41 @@ export default TransactionDetailsScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#F5F7FA',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingBottom: 16,
   },
-  backButton: {
+  headerSideButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  placeholder: {
-    width: 40,
+    fontWeight: '700',
+    color: '#1A2B4A',
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
     padding: 20,
   },
   errorText: {
@@ -1538,140 +1827,227 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
   },
-  amountCard: {
-    backgroundColor: '#F5F5F5',
+  summaryCard: {
+    backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 24,
-    marginHorizontal: 20,
     marginBottom: 16,
-    alignItems: 'center',
-    minHeight: 170,
-    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: { elevation: 3 },
+    }),
   },
-  iconContainer: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+  summaryAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+  },
+  summaryWatermark: {
+    position: 'absolute',
+    right: -10,
+    bottom: -20,
+    opacity: 0.08,
+  },
+  summaryBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    padding: 16,
+    paddingLeft: 18,
+  },
+  summaryLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginRight: 12,
+  },
+  summaryIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
-    padding: 10,
+    padding: 8,
+    marginRight: 12,
   },
-  transactionLogo: {
+  summaryLogo: {
     width: '100%',
     height: '100%',
   },
-  amountLabel: {
+  summaryTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A2B4A',
+    marginBottom: 4,
+  },
+  summarySubtitle: {
     fontSize: 13,
-    color: '#666',
-    marginBottom: 12,
-    fontWeight: '500',
+    color: '#9E9E9E',
+    marginBottom: 8,
   },
-  amountValueContainer: {
-    minHeight: 50,
-    justifyContent: 'center',
+  summaryStatusBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
-    width: '100%',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
   },
-  amountValue: {
-    fontSize: 34,
-    fontWeight: 'bold',
-    lineHeight: 40,
-    textAlign: 'center',
-  },
-  statusBadge: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusText: {
+  summaryStatusText: {
     fontSize: 12,
     fontWeight: '600',
   },
-  infoSection: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 12,
+  summaryAmountBlock: {
+    alignItems: 'flex-end',
+    flexShrink: 0,
   },
-  sectionTitle: {
+  summaryAmountLabel: {
+    fontSize: 12,
+    color: '#9E9E9E',
+    marginBottom: 4,
+  },
+  summaryAmountValue: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  sectionHeading: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#1A2B4A',
     marginBottom: 12,
   },
-  infoRow: {
+  detailsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 4,
+    marginBottom: 16,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F0F0F0',
+  },
+  detailIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF3E8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  detailLabel: {
+    width: 108,
+    fontSize: 13,
+    color: '#666',
+  },
+  detailValueWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    minWidth: 0,
+  },
+  detailValue: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1A2B4A',
+    textAlign: 'right',
+  },
+  highlightCard: {
+    backgroundColor: '#FFF5E6',
+    borderWidth: 1,
+    borderColor: '#FFD4A8',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  highlightHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    marginBottom: 12,
   },
-  infoRowMultiline: {
-    alignItems: 'flex-start',
-  },
-  infoLabel: {
+  highlightTitle: {
     fontSize: 13,
-    color: '#666',
-    flex: 1,
-  },
-  infoValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    textAlign: 'right',
-  },
-  infoValueMultiline: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    textAlign: 'right',
-    lineHeight: 20,
-  },
-  monospaceValue: {
-    fontFamily: Platform.select({
-      ios: 'Menlo',
-      android: 'monospace',
-      default: 'Courier New',
-    }),
+    fontWeight: '700',
+    color: '#FF7F00',
+    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  copyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'flex-end',
+  highlightValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A2B4A',
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    letterSpacing: 1,
+    marginBottom: 8,
   },
-  copyRowMultiline: {
-    alignItems: 'flex-start',
+  highlightHint: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
   },
-  copyIcon: {
-    marginLeft: 8,
+  highlightCardGreen: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
   },
-  buttonContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 24,
+  highlightTitleGreen: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E7D32',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  pinBlock: {
+    marginBottom: 8,
   },
   printButton: {
     backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 16,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  printIcon: {
-    marginRight: 8,
+    gap: 8,
+    marginTop: 8,
   },
   printButtonText: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#fff',
   },
 });

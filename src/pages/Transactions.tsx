@@ -14,6 +14,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { formatNaira } from "@/lib/currency";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Transaction {
   id: string;
@@ -43,6 +52,8 @@ export default function Transactions() {
   const [processingPending, setProcessingPending] = useState(false);
   const [updatingNullTokens, setUpdatingNullTokens] = useState(false);
   const [recoveringTransactions, setRecoveringTransactions] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const { toast } = useToast();
 
   const fetchTransactions = async () => {
@@ -79,16 +90,30 @@ export default function Transactions() {
     fetchTransactions();
   }, [dateRange, statusFilter]);
 
-  const filteredTransactions = transactions.filter(txn => {
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, dateRange]);
+
+  const filteredTransactions = useMemo(() => {
     const searchLower = searchQuery.toLowerCase();
-    return (
+    return transactions.filter((txn) =>
       txn.reference?.toLowerCase().includes(searchLower) ||
       txn.user?.toLowerCase().includes(searchLower) ||
       txn.email?.toLowerCase().includes(searchLower) ||
       txn.type?.toLowerCase().includes(searchLower) ||
       txn.description?.toLowerCase().includes(searchLower)
     );
-  });
+  }, [transactions, searchQuery]);
+
+  const totalFilteredCount = filteredTransactions.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTransactions = filteredTransactions.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
 
   const transactionStats = useMemo(() => {
     const now = new Date();
@@ -447,7 +472,11 @@ export default function Transactions() {
                   <CardHeader>
                     <CardTitle>Transaction History</CardTitle>
                     <CardDescription>
-                      {loading ? "Loading transactions..." : `Showing ${filteredTransactions.length} transaction${filteredTransactions.length !== 1 ? 's' : ''}`}
+                      {loading
+                        ? "Loading transactions..."
+                        : totalFilteredCount === 0
+                          ? "No transactions match your filters"
+                          : `Showing ${pageStart}–${pageEnd} of ${totalFilteredCount} transaction${totalFilteredCount !== 1 ? 's' : ''}`}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -473,7 +502,7 @@ export default function Transactions() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {filteredTransactions.map((txn) => (
+                          {paginatedTransactions.map((txn) => (
                             <TableRow key={txn.id}>
                               <TableCell className="font-mono text-xs">{txn.reference}</TableCell>
                               <TableCell>
@@ -510,6 +539,83 @@ export default function Transactions() {
                           ))}
                         </TableBody>
                       </Table>
+                    )}
+
+                    {!loading && totalFilteredCount > 0 && (
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                          <span>
+                            Page {safeCurrentPage} of {totalPages}
+                          </span>
+                          <Select
+                            value={String(pageSize)}
+                            onValueChange={(value) => {
+                              setPageSize(Number(value));
+                              setCurrentPage(1);
+                            }}
+                          >
+                            <SelectTrigger className="w-[110px] h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="10">10 / page</SelectItem>
+                              <SelectItem value="25">25 / page</SelectItem>
+                              <SelectItem value="50">50 / page</SelectItem>
+                              <SelectItem value="100">100 / page</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {totalPages > 1 && (
+                          <Pagination>
+                            <PaginationContent>
+                              <PaginationItem>
+                                <PaginationPrevious
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage((page) => Math.max(1, page - 1));
+                                  }}
+                                  className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                              </PaginationItem>
+                              {Array.from({ length: Math.min(totalPages, 7) }, (_, index) => {
+                                let pageNumber = index + 1;
+                                if (totalPages > 7) {
+                                  if (safeCurrentPage <= 4) pageNumber = index + 1;
+                                  else if (safeCurrentPage >= totalPages - 3) pageNumber = totalPages - 6 + index;
+                                  else pageNumber = safeCurrentPage - 3 + index;
+                                }
+                                return (
+                                  <PaginationItem key={pageNumber}>
+                                    <PaginationLink
+                                      href="#"
+                                      isActive={pageNumber === safeCurrentPage}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setCurrentPage(pageNumber);
+                                      }}
+                                      className="cursor-pointer"
+                                    >
+                                      {pageNumber}
+                                    </PaginationLink>
+                                  </PaginationItem>
+                                );
+                              })}
+                              <PaginationItem>
+                                <PaginationNext
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage((page) => Math.min(totalPages, page + 1));
+                                  }}
+                                  className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
+                        )}
+                      </div>
                     )}
                   </CardContent>
                 </Card>

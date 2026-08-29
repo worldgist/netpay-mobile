@@ -8,7 +8,7 @@ const LOGO = require('@/assets/images/logo.png');
 export type NetpayLoadingAnimationProps = {
   /**
    * Outer ring diameter in dp.
-   * Omit to match reference layout: ~28% of screen width (capped for large devices).
+   * Omit for default compact layout (~15% of screen width, Moniepoint-style).
    */
   size?: number;
   /** Optional caption under the ring */
@@ -22,7 +22,7 @@ export type NetpayLoadingAnimationProps = {
 
 /**
  * NetPay logo centered with a smooth infinite rotating progress ring.
- * Default size follows a full-screen loader layout: ring ≈ 28% of window width, logo ≈ 45% of ring.
+ * Default size is compact (~56–64dp) similar to Moniepoint-style loaders.
  */
 export function NetpayLoadingAnimation({
   size: sizeProp,
@@ -35,15 +35,14 @@ export function NetpayLoadingAnimation({
 
   const size = useMemo(() => {
     if (sizeProp != null && sizeProp > 0) return sizeProp;
-    // Reference: ring diameter ~25–30% of screen width
-    return Math.round(Math.min(360, Math.max(104, windowWidth * 0.28)));
+    return Math.round(Math.min(64, Math.max(52, windowWidth * 0.15)));
   }, [sizeProp, windowWidth]);
 
   const spin = useRef(new Animated.Value(0)).current;
-  const border = strokeWidth ?? Math.max(4, Math.round(size * 0.05));
-  const logoSize = Math.round(size * 0.45);
+  const border = strokeWidth ?? Math.max(2, Math.round(size * 0.04));
+  const logoSize = Math.round(size * 0.38);
   const onBrand = variant === 'onBrand';
-  const messageFontSize = Math.round(Math.min(24, Math.max(17, size * 0.18)));
+  const messageFontSize = Math.round(Math.min(16, Math.max(14, size * 0.24)));
   const messageLineHeight = Math.round(messageFontSize * 1.35);
 
   useEffect(() => {
@@ -111,7 +110,7 @@ export function NetpayLoadingAnimation({
             {
               fontSize: messageFontSize,
               lineHeight: messageLineHeight,
-              marginTop: Math.round(size * 0.2),
+              marginTop: Math.round(size * 0.28),
             },
           ]}
           numberOfLines={2}

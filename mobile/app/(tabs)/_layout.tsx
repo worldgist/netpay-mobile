@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
@@ -36,6 +37,12 @@ export default function TabLayout() {
           paddingBottom: insets.bottom,
           paddingTop: 8,
         },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginTop: 2,
+        },
+        tabBarAllowFontScaling: false,
       }}>
       <Tabs.Screen
         name="index"
@@ -66,6 +73,21 @@ export default function TabLayout() {
         name="transactions"
         options={{
           title: 'Transactions',
+          tabBarLabel: ({ color, focused }) => (
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+              style={{
+                color,
+                fontSize: 11,
+                fontWeight: focused ? '700' : '600',
+                textAlign: 'center',
+                width: '100%',
+              }}>
+              Transactions
+            </Text>
+          ),
           tabBarIcon: ({ color, size }) => (
             <MaterialIcons name="swap-horiz" size={size || 24} color={color} />
           ),

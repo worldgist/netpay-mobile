@@ -5,6 +5,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
+import DeletedAccounts from "./pages/DeletedAccounts";
 import Transactions from "./pages/Transactions";
 import Analytics from "./pages/Analytics";
 import Notifications from "./pages/Notifications";
@@ -98,6 +99,7 @@ const App = () => (
         <Route path="/mobilenig" element={<MobileNig />} />
         <Route path="/flutterwave" element={<Flutterwave />} />
         <Route path="/users" element={<Users />} />
+        <Route path="/deleted-accounts" element={<DeletedAccounts />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/referrals" element={<Referrals />} />

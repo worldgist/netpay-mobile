@@ -16,6 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProfile } from '@/contexts/profile-context';
 import { getFlightById, generateBookingReference, formatFlightCurrency, formatDuration, formatPhoneDisplay } from '@/utils/flight-data';
@@ -250,30 +251,27 @@ export default function FlightTravellerInfoScreen() {
 
   const confirmBooking = () => {
     setShowPreviewModal(false);
-    router.replace({
-      pathname: '/flight-booking-success',
-      params: {
-        flightId: params.flightId || flight?.id || '',
-        fromCode: params.fromCode || 'ABV',
-        fromCity: params.fromCity || '',
-        fromName: params.fromName || '',
-        toCode: params.toCode || 'LOS',
-        toCity: params.toCity || '',
-        toName: params.toName || '',
-        departureDate: params.departureDate || new Date().toISOString(),
-        passengers,
-        flightClass: params.flightClass || 'economy',
-        title,
-        firstName: firstName.trim(),
-        middleName: middleName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim(),
-        phoneCode,
-        phoneNumber: phoneNumber.trim(),
-        bookingReference: generateBookingReference(),
-        bookingDate: new Date().toISOString(),
-      },
-    });
+    router.replace(buildRouteHref('/flight-booking-success', {
+      flightId: params.flightId || flight?.id || '',
+      fromCode: params.fromCode || 'ABV',
+      fromCity: params.fromCity || '',
+      fromName: params.fromName || '',
+      toCode: params.toCode || 'LOS',
+      toCity: params.toCity || '',
+      toName: params.toName || '',
+      departureDate: params.departureDate || new Date().toISOString(),
+      passengers,
+      flightClass: params.flightClass || 'economy',
+      title,
+      firstName: firstName.trim(),
+      middleName: middleName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+      phoneCode,
+      phoneNumber: phoneNumber.trim(),
+      bookingReference: generateBookingReference(),
+      bookingDate: new Date().toISOString(),
+    }));
   };
 
   return (

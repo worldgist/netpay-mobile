@@ -153,6 +153,8 @@ const PurchaseCableTv = () => {
           apiFunctionName = 'fetch-vtpass-cable-packages';
         } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
           apiFunctionName = 'fetch-ebills-cable-packages';
+        } else if (vendingProvider === 'flutterwave') {
+          apiFunctionName = 'fetch-ebills-cable-packages';
         }
 
         // If using a supported API provider, try fetching packages directly from API first

@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import BottomNav from "@/components/BottomNav";
 import { Phone, Tv, Wifi, GraduationCap, Zap, DicesIcon, Plane } from "lucide-react";
+import { FLIGHT_BOOKING_ENABLED } from "@/config/features";
 
 export default function PayBills() {
   const navigate = useNavigate();
@@ -11,7 +12,9 @@ export default function PayBills() {
     { id: "data", name: "Data", icon: Wifi, path: "/user/purchase-data" },
     { id: "education", name: "Education", icon: GraduationCap, path: "/user/purchase-education" },
     { id: "electricity", name: "Electricity", icon: Zap, path: "/user/purchase-electricity" },
-    { id: "flight", name: "Flights", icon: Plane, path: "/user/flight-booking" },
+    ...(FLIGHT_BOOKING_ENABLED
+      ? [{ id: "flight", name: "Flights", icon: Plane, path: "/user/flight-booking" }]
+      : []),
     { id: "betting", name: "Betting", icon: DicesIcon, path: "/user/purchase-betting" },
   ];
 

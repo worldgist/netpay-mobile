@@ -5,9 +5,10 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InvalidAccountModal } from '@/components/invalid-account-modal';
@@ -64,8 +65,7 @@ export default function BettingScreen() {
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [accountId, setAccountId] = useState('');
   const [amount, setAmount] = useState('');
-  const [balance, setBalance] = useState<number>(0);
-  const [balanceLoading, setBalanceLoading] = useState<boolean>(true);
+  const { balance, refreshBalance } = useWalletBalance();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [customerName, setCustomerName] = useState<string>('');
@@ -86,57 +86,6 @@ export default function BettingScreen() {
     };
   }, []);
 
-  const fetchBalance = useCallback(async () => {
-    try {
-      if (isMounted.current) {
-        setBalanceLoading(true);
-      }
-
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-
-      const session = sessionData.session;
-      if (!session) {
-        if (isMounted.current) {
-          setBalance(0);
-          setBalanceLoading(false);
-        }
-        router.replace('/auth/login');
-        return;
-      }
-
-      const userId = session.user.id;
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('balance')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw profileError;
-      }
-
-      if (isMounted.current) {
-        setBalance(Number(profile?.balance) || 0);
-      }
-    } catch (error) {
-      console.error('Failed to load wallet balance:', error);
-      if (isMounted.current) {
-        setBalance(0);
-      }
-    } finally {
-      if (isMounted.current) {
-        setBalanceLoading(false);
-      }
-    }
-  }, [router]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchBalance();
-    }, [fetchBalance])
-  );
-
   const handleContinue = async () => {
     Keyboard.dismiss();
 
@@ -151,10 +100,6 @@ export default function BettingScreen() {
     const purchaseAmount = parseFloat(amount);
     if (isNaN(purchaseAmount) || purchaseAmount <= 0) {
       Alert.alert('Error', 'Please enter a valid amount');
-      return;
-    }
-    if (balanceLoading) {
-      Alert.alert('Balance Loading', 'Please wait while we retrieve your wallet balance.');
       return;
     }
 
@@ -503,22 +448,19 @@ export default function BettingScreen() {
         amountCharged,
       });
 
-      await fetchBalance();
+      await refreshBalance();
 
       setShowConfirmModal(false);
       setPurchasing(false);
 
-      router.push({
-        pathname: '/payment-success',
-        params: {
-          amount: amountCharged.toString(),
-          network: providerName,
-          recipient: sanitizedAccountId,
-          reference: reference,
-          serviceType: `Betting • ${providerName}`,
-          customerName: purchaseCustomerName,
-        },
-      });
+      router.push(buildRouteHref('/payment-success', {
+        amount: amountCharged.toString(),
+        network: providerName,
+        recipient: sanitizedAccountId,
+        reference: reference,
+        serviceType: `Betting • ${providerName}`,
+        customerName: purchaseCustomerName,
+      }));
     } catch (purchaseError: any) {
       console.error('Betting purchase failed:', purchaseError);
       console.error('Error details:', {
@@ -619,7 +561,7 @@ export default function BettingScreen() {
       // Ensure purchasing state is reset even if there's an unexpected error
       setPurchasing(false);
     }
-  }, [amount, accountId, customerName, isProduction, selectedProvider, router, fetchBalance]);
+  }, [amount, accountId, customerName, isProduction, selectedProvider, router, refreshBalance]);
 
   return (
     <ThemedView style={styles.container}>
@@ -643,11 +585,7 @@ export default function BettingScreen() {
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
-              {balanceLoading ? (
-                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
-              ) : (
-                <ThemedText style={styles.balanceAmount}>₦{balance.toFixed(2)}</ThemedText>
-              )}
+              <ThemedText style={styles.balanceAmount}>₦{balance.toFixed(2)}</ThemedText>
             </View>
           </View>
 

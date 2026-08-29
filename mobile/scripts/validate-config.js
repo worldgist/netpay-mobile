@@ -58,6 +58,38 @@ function validateExpoObject(expo, label) {
     }
   }
 
+  const googleServicesPath = path.join(projectRoot, 'google-services.json');
+  if (fs.existsSync(googleServicesPath)) {
+    try {
+      const googleServices = JSON.parse(fs.readFileSync(googleServicesPath, 'utf8'));
+      const client = googleServices?.client?.[0];
+      const packageName = client?.client_info?.android_client_info?.package_name;
+      const apiKey = client?.api_key?.[0]?.current_key;
+
+      if (!packageName) {
+        warnings.push('google-services.json is missing android package_name');
+      } else if (expo?.android?.package && packageName !== expo.android.package) {
+        warnings.push(
+          `google-services.json package (${packageName}) does not match app.config.js android.package (${expo.android.package})`,
+        );
+      }
+
+      if (!apiKey || String(apiKey).trim().length === 0) {
+        errors.push(
+          'google-services.json has an empty Firebase API key. Re-download it from Firebase Console > Project settings > Your apps > com.netpay.mobile > google-services.json',
+        );
+      } else {
+        console.log('✓ google-services.json looks valid');
+      }
+    } catch (e) {
+      errors.push(`Invalid google-services.json: ${e.message}`);
+    }
+  } else {
+    warnings.push(
+      'google-services.json not found. Android push requires this file at mobile/google-services.json (download from Firebase Console).',
+    );
+  }
+
   console.log(`✓ Project name: ${expo?.name || 'N/A'}`);
   console.log(`✓ Project slug: ${expo?.slug || 'N/A'}`);
   console.log(`✓ Version: ${expo?.version || 'N/A'}`);

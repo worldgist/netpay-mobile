@@ -5,6 +5,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
@@ -12,6 +13,7 @@ import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
+import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import * as Clipboard from 'expo-clipboard';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
@@ -151,19 +153,25 @@ type NetworkOption = {
   logo?: ImageSourcePropType;
 };
 
+const DEFAULT_NETWORKS: NetworkOption[] = SUPPORTED_DATA_NETWORKS.map((networkId) => ({
+  id: networkId,
+  name: getNetworkDisplayName(networkId),
+  logo: NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
+}));
+
 export default function DataPurchaseScreen() {
   const router = useRouter();
-  const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
+  const [selectedNetwork, setSelectedNetwork] = useState<string | null>('MTN');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [dataPlan, setDataPlan] = useState('');
   const [selectedPlanCache, setSelectedPlanCache] = useState<DataPlan | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [balance, setBalance] = useState(0);
-  const [networks, setNetworks] = useState<NetworkOption[]>([]);
+  const { balance, refreshBalance } = useWalletBalance();
+  const [networks, setNetworks] = useState<NetworkOption[]>(DEFAULT_NETWORKS);
   const [plansByNetwork, setPlansByNetwork] = useState<Record<string, DataPlan[]>>({});
 const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [plansRefreshing, setPlansRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
@@ -192,7 +200,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const fetchDataPlans = useCallback(async () => {
     try {
       if (isMounted.current) {
-        setLoading(true);
+        setPlansRefreshing(true);
         setError(null);
       }
 
@@ -236,15 +244,10 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         plansQuery = plansQuery.eq('provider', resolvedProvider);
       }
 
-      const [profileRes, plansRes, networksRes] = await Promise.all([
-        supabase.from('profiles').select('balance').eq('id', userId).single(),
+      const [plansRes, networksRes] = await Promise.all([
         plansQuery,
         networksPromise,
       ]);
-
-      if (profileRes.error && profileRes.error.code !== 'PGRST116') {
-        throw profileRes.error;
-      }
 
       let plansData: any[] = plansRes.data || [];
       if (plansRes.error) {
@@ -417,8 +420,6 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         }
       }
 
-      const balanceValue = profileRes.data ? Number(profileRes.data.balance) : 0;
-
       const grouped: Record<string, DataPlan[]> = {};
       plansData.forEach((plan) => {
         const normalized = normalizeNetwork(plan.network);
@@ -468,7 +469,6 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           : '';
 
       if (isMounted.current) {
-        setBalance(balanceValue);
         setPlansByNetwork(grouped);
         setNetworks(networkList);
         setSelectedNetwork(effectiveNetwork);
@@ -486,16 +486,10 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       console.error('Failed to fetch data plans:', err);
       if (isMounted.current) {
         setError(err instanceof Error ? err.message : 'Unable to load data plans.');
-        setPlansByNetwork({});
-        setNetworks([]);
-        setSelectedNetwork(null);
-        setDataPlan('');
-        setSelectedPlanCache(null);
-        setBalance(0);
       }
     } finally {
       if (isMounted.current) {
-        setLoading(false);
+        setPlansRefreshing(false);
       }
     }
   }, [router, dataProvider]);
@@ -616,7 +610,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       : selectedPlan.planName
     : '';
 
-  const planPlaceholder = loading
+  const planPlaceholder = plansRefreshing
     ? 'Loading data plans...'
     : dropdownOptions.length
       ? 'Select a data plan'
@@ -624,7 +618,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         ? `No data plans for ${selectedNetworkName}`
         : 'Select a network first';
 
-  const isContinueDisabled = loading || !selectedNetwork || !selectedPlan;
+  const isContinueDisabled = !selectedNetwork || !selectedPlan;
 
   const handleConfirmPayment = useCallback(async () => {
     console.log('[ConfirmPayment] handler invoked', {
@@ -830,16 +824,13 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       // Navigate to success screen - user is debited and transaction is recorded
       // If pending, transaction will be updated to success when vendor confirms
       const navigateToSuccess = () => {
-        router.push({
-          pathname: '/payment-success',
-          params: {
-            amount: getEffectivePrice(selectedPlan).toString(),
-            network: selectedNetworkName,
-            recipient: sanitizedPhoneNumber,
-            serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
-            reference,
-          },
-        });
+        router.push(buildRouteHref('/payment-success', {
+          amount: getEffectivePrice(selectedPlan).toString(),
+          network: selectedNetworkName,
+          recipient: sanitizedPhoneNumber,
+          serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
+          reference,
+        }));
       };
 
       // If transaction is pending, show info but still navigate to success
@@ -950,15 +941,11 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           <View style={styles.balanceCard}>
             <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
             <View style={styles.balanceAmountContainer}>
-              {loading ? (
-                <NetpayLoadingAnimation size={32} variant="onBrand" strokeWidth={2.5} />
-              ) : (
-                <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
-              )}
+              <ThemedText style={styles.balanceAmount}>{formatCurrency(balance)}</ThemedText>
             </View>
           </View>
 
-          {error && !loading && (
+          {error && (
             <View style={styles.errorBanner}>
               <MaterialIcons name="error-outline" size={20} color="#d32f2f" style={styles.errorIcon} />
               <ThemedText style={styles.errorText}>{error}</ThemedText>
@@ -1033,13 +1020,9 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
               </View>
             ) : (
               <View style={styles.networkPlaceholder}>
-                {loading ? (
-                  <NetpayLoadingAnimation size={36} strokeWidth={3} />
-                ) : (
-                  <ThemedText style={styles.emptyPlansText}>
-                    No networks available. Please try again later.
-                  </ThemedText>
-                )}
+                <ThemedText style={styles.emptyPlansText}>
+                  No networks available. Please try again later.
+                </ThemedText>
               </View>
             )}
           </View>
@@ -1062,24 +1045,17 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           {/* Data Plan Selection */}
           <View style={styles.section}>
             <ThemedText style={styles.inputLabel}>Select Data Plan</ThemedText>
-            {loading ? (
-              <View style={styles.loadingPlansContainer}>
-                <NetpayLoadingAnimation size={40} strokeWidth={3} />
-              </View>
-            ) : (
-              <>
-                <Dropdown
-                  options={dropdownOptions}
-                  selectedId={dataPlan || null}
-                  onSelect={handleSelectPlan}
-                  placeholder={planPlaceholder}
-                />
-                {!dropdownOptions.length && selectedNetwork && !loading && (
-                  <ThemedText style={styles.emptyPlansText}>
-                    No data plans available for {selectedNetworkName}. Please choose a different network.
-                  </ThemedText>
-                )}
-              </>
+            <Dropdown
+              options={dropdownOptions}
+              selectedId={dataPlan || null}
+              onSelect={handleSelectPlan}
+              placeholder={planPlaceholder}
+              disabled={plansRefreshing && !dropdownOptions.length}
+            />
+            {!dropdownOptions.length && selectedNetwork && !plansRefreshing && (
+              <ThemedText style={styles.emptyPlansText}>
+                No data plans available for {selectedNetworkName}. Please choose a different network.
+              </ThemedText>
             )}
           </View>
         </ScrollView>

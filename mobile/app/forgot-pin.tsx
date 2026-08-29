@@ -15,6 +15,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '@/lib/supabase';
@@ -359,10 +360,7 @@ export default function ForgotPinScreen() {
       <TouchableOpacity
         style={styles.secondaryLink}
         onPress={() =>
-          router.push({
-            pathname: '/forget-password',
-            params: email.trim() ? { email: email.trim().toLowerCase() } : {},
-          })
+          router.push(buildRouteHref('/forget-password', email.trim() ? { email: email.trim().toLowerCase() } : undefined))
         }
         activeOpacity={0.7}
       >

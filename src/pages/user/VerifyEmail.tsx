@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2, Mail, ArrowLeft } from "lucide-react";
 
-const CODE_LENGTH = 8;
+const CODE_LENGTH = 6;
 
 export default function VerifyEmail() {
   const navigate = useNavigate();

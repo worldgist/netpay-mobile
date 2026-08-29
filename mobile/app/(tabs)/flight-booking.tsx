@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PAY_BILLS_TAB: Href = '/(tabs)/pay-bills';
@@ -154,22 +155,19 @@ export default function FlightBookingScreen() {
       return;
     }
 
-    router.push({
-      pathname: '/flight-results',
-      params: {
-        fromCode: fromAirport.code,
-        fromCity: fromAirport.city,
-        fromName: fromAirport.name,
-        toCode: toAirport.code,
-        toCity: toAirport.city,
-        toName: toAirport.name,
-        departureDate: departureDate.toISOString(),
-        returnDate: tripType === 'round_trip' ? returnDate.toISOString() : '',
-        tripType,
-        flightClass,
-        passengers: selectedPassengers.label,
-      },
-    });
+    router.push(buildRouteHref('/flight-results', {
+      fromCode: fromAirport.code,
+      fromCity: fromAirport.city,
+      fromName: fromAirport.name,
+      toCode: toAirport.code,
+      toCity: toAirport.city,
+      toName: toAirport.name,
+      departureDate: departureDate.toISOString(),
+      returnDate: tripType === 'round_trip' ? returnDate.toISOString() : '',
+      tripType,
+      flightClass,
+      passengers: selectedPassengers.label,
+    }));
   }, [
     departureDate,
     flightClass,

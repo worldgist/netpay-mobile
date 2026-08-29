@@ -2,12 +2,13 @@ import { StyleSheet } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useEffect } from 'react';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase, isSupabaseInitialized } from '@/lib/supabase';
 import { isPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 import { needsDeviceWelcomeSetup } from '@/utils/device-welcome';
+import { buildRouteHref } from '@/utils/router-href';
 
 const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 const EMAIL_KEY = 'supabase_email';
@@ -87,7 +88,7 @@ export default function SplashScreen() {
               data: { session },
             } = await supabase.auth.getSession();
             if (session?.user?.id && (await needsDeviceWelcomeSetup(session.user.id))) {
-              router.replace({ pathname: '/setup-biometric', params: { from: 'new_device' } } as Href);
+              router.replace(buildRouteHref('/setup-biometric', { from: 'new_device' }));
               return;
             }
             router.replace('/(tabs)');

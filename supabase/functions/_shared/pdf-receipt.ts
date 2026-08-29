@@ -29,6 +29,7 @@ export interface EducationReceiptData extends BaseReceiptData {
   examType: string;
   pin: string;
   serial?: string;
+  pins?: Array<{ Pin: string; Serial?: string }>;
   phoneNumber?: string;
   chargeFee?: number;
   purchaseAmount?: number;
@@ -244,6 +245,13 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Uint8Array>
       yPosition -= 20;
     }
   } else if (data.type === "education") {
+    const pinEntries = (Array.isArray(data.pins) && data.pins.length > 0
+      ? data.pins
+      : data.pin
+        ? [{ Pin: data.pin, Serial: data.serial }]
+        : []
+    ).filter((entry) => entry.Pin?.trim());
+
     // Education-specific details
     page.drawText(`Exam Type: ${data.examType.toUpperCase()}`, {
       x: 50,
@@ -256,36 +264,10 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Uint8Array>
 
     yPosition -= 10;
 
-    // PIN (highlighted)
-    page.drawRectangle({
-      x: 50,
-      y: yPosition - 30,
-      width: width - 100,
-      height: 40,
-      color: rgb(1, 0.9, 0.8),
-      borderColor: orange,
-      borderWidth: 2,
-    });
+    for (let index = 0; index < pinEntries.length; index++) {
+      const entry = pinEntries[index];
+      const pinLabel = pinEntries.length > 1 ? `PIN ${index + 1}:` : "PIN:";
 
-    page.drawText("PIN:", {
-      x: 60,
-      y: yPosition - 10,
-      size: 10,
-      font: boldFont,
-      color: darkGray,
-    });
-
-    page.drawText(data.pin, {
-      x: 60,
-      y: yPosition - 25,
-      size: 16,
-      font: boldFont,
-      color: orange,
-    });
-
-    yPosition -= 50;
-
-    if (data.serial) {
       page.drawRectangle({
         x: 50,
         y: yPosition - 30,
@@ -296,7 +278,7 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Uint8Array>
         borderWidth: 2,
       });
 
-      page.drawText("SERIAL NUMBER:", {
+      page.drawText(pinLabel, {
         x: 60,
         y: yPosition - 10,
         size: 10,
@@ -304,15 +286,45 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Uint8Array>
         color: darkGray,
       });
 
-      page.drawText(data.serial, {
+      page.drawText(entry.Pin, {
         x: 60,
         y: yPosition - 25,
-        size: 14,
+        size: 16,
         font: boldFont,
         color: orange,
       });
 
       yPosition -= 50;
+
+      if (entry.Serial) {
+        page.drawRectangle({
+          x: 50,
+          y: yPosition - 30,
+          width: width - 100,
+          height: 40,
+          color: rgb(1, 0.9, 0.8),
+          borderColor: orange,
+          borderWidth: 2,
+        });
+
+        page.drawText(pinEntries.length > 1 ? `SERIAL ${index + 1}:` : "SERIAL NUMBER:", {
+          x: 60,
+          y: yPosition - 10,
+          size: 10,
+          font: boldFont,
+          color: darkGray,
+        });
+
+        page.drawText(entry.Serial, {
+          x: 60,
+          y: yPosition - 25,
+          size: 14,
+          font: boldFont,
+          color: orange,
+        });
+
+        yPosition -= 50;
+      }
     }
 
     if (data.phoneNumber) {

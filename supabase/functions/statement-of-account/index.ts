@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts, PDFPage } from "https://esm.sh/pdf-lib@1.17.1";
-import { getResendFromAddress, sendResendEmail } from "../_shared/resend.ts";
+import { getResendFromAddress, parseResendErrorMessage, ResendApiError, sendResendEmail } from "../_shared/resend.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +18,28 @@ interface TransactionData {
   reference: string;
   category: string;
 }
+
+interface StatementSummary {
+  totalCredits: number;
+  totalDebits: number;
+  netAmount: number;
+  transactionCount: number;
+  openingBalance: number;
+  closingBalance: number;
+}
+
+interface StatementPdfResult {
+  pdfBytes: Uint8Array;
+  summary: StatementSummary;
+}
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 /**
  * Sanitizes text for PDF rendering by replacing unsupported Unicode characters
@@ -218,25 +240,36 @@ async function fetchAllTransactions(
 
     supabase
       .from("funding_transactions")
-      .select("id, amount, status, reference, description, created_at, payment_method")
+      .select("id, amount, status, reference, bank_name, created_at")
       .eq("user_id", userId)
+      .eq("status", "completed")
       .gte("created_at", startDate.toISOString())
       .lte("created_at", endDate.toISOString())
       .order("created_at", { ascending: true }),
   ]);
 
   // Combine and format all transactions
+  const walletReferences = new Set(
+    (userTxns.data || [])
+      .map((txn: any) => txn.reference)
+      .filter((reference: string | null | undefined): reference is string => Boolean(reference)),
+  );
+
   const combined: TransactionData[] = [
-    ...(userTxns.data || []).map((txn: any) => ({
-      id: txn.id,
-      date: txn.created_at,
-      description: txn.description || txn.transaction_type,
-      type: txn.transaction_type === "credit" ? "credit" : "debit",
-      amount: txn.amount,
-      balanceAfter: txn.balance_after || 0,
-      reference: txn.reference || "",
-      category: "Wallet",
-    })),
+    ...(userTxns.data || []).map((txn: any) => {
+      const tt = (txn.transaction_type || "").toLowerCase();
+      const isRefund = tt === "refund";
+      return {
+        id: txn.id,
+        date: txn.created_at,
+        description: txn.description || txn.transaction_type,
+        type: tt === "credit" || isRefund ? "credit" : "debit",
+        amount: txn.amount,
+        balanceAfter: txn.balance_after || 0,
+        reference: txn.reference || "",
+        category: "Wallet",
+      };
+    }),
     ...(airtimeTxns.data || []).map((txn: any) => ({
       id: txn.id,
       date: txn.created_at,
@@ -307,10 +340,12 @@ async function fetchAllTransactions(
       reference: txn.reference || "",
       category: "Transfer",
     })),
-    ...(fundingTxns.data || []).map((txn: any) => ({
+    ...(fundingTxns.data || [])
+      .filter((txn: any) => txn.reference && !walletReferences.has(txn.reference))
+      .map((txn: any) => ({
       id: txn.id,
       date: txn.created_at,
-      description: `Account Funding - ${txn.payment_method || "Payment"}`,
+      description: `Account Funding - ${txn.bank_name || "Bank Transfer"}`,
       type: "credit",
       amount: txn.amount,
       balanceAfter: 0,
@@ -348,6 +383,98 @@ async function getOpeningBalance(supabase: any, userId: string, startDate: Date)
   return profile?.balance || 0;
 }
 
+async function buildStatementData(
+  supabase: any,
+  userId: string,
+  startDate: Date,
+  endDate: Date,
+): Promise<{ summary: StatementSummary; transactions: TransactionData[] }> {
+  const [transactions, openingBalance] = await Promise.all([
+    fetchAllTransactions(supabase, userId, startDate, endDate),
+    getOpeningBalance(supabase, userId, startDate),
+  ]);
+
+  let runningBalance = openingBalance;
+  const transactionsWithBalance = transactions.map((txn) => {
+    if (txn.type === "credit") {
+      runningBalance += txn.amount;
+    } else {
+      runningBalance -= txn.amount;
+    }
+    return { ...txn, balanceAfter: runningBalance };
+  });
+
+  const totalCredits = transactions
+    .filter((t) => t.type === "credit")
+    .reduce((sum, t) => sum + t.amount, 0);
+  const totalDebits = transactions
+    .filter((t) => t.type === "debit")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  return {
+    summary: {
+      totalCredits,
+      totalDebits,
+      netAmount: totalCredits - totalDebits,
+      transactionCount: transactions.length,
+      openingBalance,
+      closingBalance: runningBalance,
+    },
+    transactions: transactionsWithBalance,
+  };
+}
+
+function buildTransactionsEmailTable(transactions: TransactionData[]): string {
+  if (transactions.length === 0) {
+    return `
+      <p style="margin: 0; color: #667085; font-size: 14px;">No transactions were recorded for this period.</p>
+    `;
+  }
+
+  const rows = [...transactions].reverse().map((txn) => {
+    const amountPrefix = txn.type === "credit" ? "+" : "-";
+    const amountColor = txn.type === "credit" ? "#10B981" : "#EF4444";
+    return `
+      <tr>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #eef2f6; color: #667085; font-size: 13px; white-space: nowrap;">${escapeHtml(formatDate(txn.date))}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #eef2f6; color: #1A2B4A; font-size: 13px;">${escapeHtml(txn.description)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #eef2f6; color: ${amountColor}; font-size: 13px; text-align: right; white-space: nowrap; font-weight: 600;">${amountPrefix}${formatCurrency(txn.amount)}</td>
+        <td style="padding: 10px 8px; border-bottom: 1px solid #eef2f6; color: #667085; font-size: 13px; text-align: right; white-space: nowrap;">${formatCurrency(txn.balanceAfter)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <div style="overflow-x: auto; margin: 24px 0;">
+      <p style="margin: 0 0 12px 0; color: #333333; font-size: 14px; font-weight: 700;">Transactions</p>
+      <table style="width: 100%; border-collapse: collapse; min-width: 480px;">
+        <thead>
+          <tr style="background-color: #f9fafb;">
+            <th style="padding: 10px 8px; text-align: left; color: #667085; font-size: 12px; font-weight: 600; border-bottom: 1px solid #eef2f6;">Date</th>
+            <th style="padding: 10px 8px; text-align: left; color: #667085; font-size: 12px; font-weight: 600; border-bottom: 1px solid #eef2f6;">Description</th>
+            <th style="padding: 10px 8px; text-align: right; color: #667085; font-size: 12px; font-weight: 600; border-bottom: 1px solid #eef2f6;">Amount</th>
+            <th style="padding: 10px 8px; text-align: right; color: #667085; font-size: 12px; font-weight: 600; border-bottom: 1px solid #eef2f6;">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildTransactionsEmailText(transactions: TransactionData[]): string {
+  if (transactions.length === 0) {
+    return "No transactions were recorded for this period.";
+  }
+
+  return [...transactions].reverse().map((txn, index) => {
+    const amountPrefix = txn.type === "credit" ? "+" : "-";
+    return `${index + 1}. ${formatDate(txn.date)} - ${txn.description} - ${amountPrefix}${formatCurrency(txn.amount)} - Balance: ${formatCurrency(txn.balanceAfter)}`;
+  }).join("\n");
+}
+
 /**
  * Generates a comprehensive statement PDF
  */
@@ -359,7 +486,7 @@ async function generateStatementPDF(
   userPhone: string,
   startDate: Date,
   endDate: Date
-): Promise<Uint8Array> {
+): Promise<StatementPdfResult> {
   try {
     console.log("generateStatementPDF: Fetching transactions and opening balance...");
     const [transactions, openingBalance] = await Promise.all([
@@ -398,12 +525,15 @@ async function generateStatementPDF(
     const margin = 50;
     const contentWidth = width - margin * 2;
 
-    // Try to fetch and embed logo
+    // Try to fetch and embed logo (with timeout so PDF generation cannot hang)
     let logoImage: any = null;
     try {
       const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netppay.com/logo.png";
       console.log("Fetching logo from:", LOGO_URL);
-      const logoResponse = await fetch(LOGO_URL);
+      const logoController = new AbortController();
+      const logoTimeout = setTimeout(() => logoController.abort(), 4000);
+      const logoResponse = await fetch(LOGO_URL, { signal: logoController.signal });
+      clearTimeout(logoTimeout);
       if (logoResponse.ok) {
         const logoBytes = await logoResponse.arrayBuffer();
         const logoUint8Array = new Uint8Array(logoBytes);
@@ -932,7 +1062,17 @@ async function generateStatementPDF(
     console.log("generateStatementPDF: Saving PDF document...");
     const pdfBytes = await pdfDoc.save();
     console.log("generateStatementPDF: PDF saved, size:", pdfBytes.length);
-    return pdfBytes;
+    return {
+      pdfBytes,
+      summary: {
+        totalCredits,
+        totalDebits,
+        netAmount: totalCredits - totalDebits,
+        transactionCount: transactions.length,
+        openingBalance,
+        closingBalance,
+      },
+    };
   } catch (error) {
     console.error("Error in generateStatementPDF:", error);
     console.error("Error type:", typeof error);
@@ -943,20 +1083,32 @@ async function generateStatementPDF(
   }
 }
 
-/**
- * Sends email with PDF attachment using RESEND API
- */
-async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: string, startDate: Date, endDate: Date): Promise<void> {
-  const FROM_ADDRESS = getResendFromAddress();
+function buildStatementEmailHtml(
+  userName: string,
+  formattedStartDate: string,
+  formattedEndDate: string,
+  summary?: StatementSummary,
+  transactions: TransactionData[] = [],
+  attachmentNote?: string,
+) {
   const LOGO_URL = Deno.env.get("NETPAY_LOGO_URL") || "https://netppay.com/logo.png";
+  const safeName = escapeHtml(userName || "Valued Customer");
 
-  // Convert Uint8Array to base64
-  const base64 = btoa(String.fromCharCode(...pdfBuffer));
+  const summaryBlock = summary ? `
+            <div style="background-color: #fff7f0; border: 1px solid rgba(255,127,0,0.25); border-radius: 12px; padding: 18px; margin: 24px 0;">
+              <p style="margin: 0 0 12px 0; color: #333333; font-size: 14px; font-weight: 700;">Statement Summary</p>
+              <p style="margin: 0 0 6px 0; color: #555555; font-size: 14px;">Total Credits: <strong>${formatCurrency(summary.totalCredits)}</strong></p>
+              <p style="margin: 0 0 6px 0; color: #555555; font-size: 14px;">Total Debits: <strong>${formatCurrency(summary.totalDebits)}</strong></p>
+              <p style="margin: 0 0 6px 0; color: #555555; font-size: 14px;">Net Amount: <strong>${formatCurrency(summary.netAmount)}</strong></p>
+              <p style="margin: 0; color: #555555; font-size: 14px;">Transactions: <strong>${summary.transactionCount}</strong></p>
+            </div>
+  ` : "";
 
-  const formattedStartDate = startDate.toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
-  const formattedEndDate = endDate.toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
+  const attachmentMessage = attachmentNote
+    ? `<p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">${escapeHtml(attachmentNote)}</p>`
+    : `<p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">Your statement is attached as a PDF document for your records. Please review it carefully and contact our support team if you notice any discrepancies or have any questions.</p>`;
 
-  const emailHtml = `
+  return `
     <!DOCTYPE html>
     <html>
       <head>
@@ -965,50 +1117,30 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
       </head>
       <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f5f5f5;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-          <!-- Header -->
           <div style="background: linear-gradient(135deg, #ff7f00 0%, #ff9f3f 100%); padding: 40px 32px; text-align: center;">
             <img src="${LOGO_URL}" alt="NetPay Logo" style="height: 60px; width: auto; margin-bottom: 16px;" />
             <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">Statement</h1>
           </div>
 
-          <!-- Content -->
           <div style="padding: 40px 32px;">
             <p style="margin: 0 0 20px 0; color: #333333; font-size: 16px; line-height: 1.6;">
-              Dear ${userName || "Valued Customer"},
+              Dear ${safeName},
             </p>
 
             <p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">
-              Thank you for being a valued NetPay customer. As requested, please find attached your Statement for the period from <strong>${formattedStartDate}</strong> to <strong>${formattedEndDate}</strong>.
+              Thank you for being a valued NetPay customer. As requested, here is your statement for the period from <strong>${formattedStartDate}</strong> to <strong>${formattedEndDate}</strong>.
             </p>
 
-            <p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">
-              This statement provides a comprehensive overview of all your transactions during this period, including:
-            </p>
-
-            <ul style="margin: 0 0 20px 0; padding-left: 24px; color: #555555; font-size: 15px; line-height: 1.8;">
-              <li style="margin-bottom: 8px;">Account credits and debits</li>
-              <li style="margin-bottom: 8px;">Airtime and data purchases</li>
-              <li style="margin-bottom: 8px;">Utility bill payments (electricity, cable TV)</li>
-              <li style="margin-bottom: 8px;">Education payments</li>
-              <li style="margin-bottom: 8px;">Betting transactions</li>
-              <li style="margin-bottom: 8px;">Money transfers</li>
-              <li style="margin-bottom: 8px;">Account funding transactions</li>
-            </ul>
-
-            <p style="margin: 0 0 20px 0; color: #555555; font-size: 15px; line-height: 1.7;">
-              Your statement is attached as a PDF document for your records. Please review it carefully and contact our support team if you notice any discrepancies or have any questions.
-            </p>
+            ${summaryBlock}
+            ${buildTransactionsEmailTable(transactions)}
+            ${attachmentMessage}
 
             <div style="background-color: #fff7f0; border-left: 4px solid #ff7f00; padding: 16px; margin: 24px 0; border-radius: 4px;">
               <p style="margin: 0; color: #333333; font-size: 14px; line-height: 1.6;">
                 <strong>Need Assistance?</strong><br />
-                Our support team is available 24/7 to help you. You can reach us at <a href="mailto:support@netppay.com" style="color: #ff7f00; text-decoration: none;">support@netppay.com</a> or through the app's support section.
+                Our support team is available to help you at <a href="mailto:support@netppay.com" style="color: #ff7f00; text-decoration: none;">support@netppay.com</a>.
               </p>
             </div>
-
-            <p style="margin: 24px 0 0 0; color: #555555; font-size: 15px; line-height: 1.7;">
-              We appreciate your continued trust in NetPay for all your bill payment needs.
-            </p>
 
             <p style="margin: 20px 0 0 0; color: #555555; font-size: 15px; line-height: 1.7;">
               Best regards,<br />
@@ -1016,11 +1148,7 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
             </p>
           </div>
 
-          <!-- Footer -->
           <div style="background-color: #f9f9f9; padding: 24px 32px; text-align: center; border-top: 1px solid #eeeeee;">
-            <p style="margin: 0 0 8px 0; color: #888888; font-size: 12px;">
-              This is an automated email. Please do not reply directly to this message.
-            </p>
             <p style="margin: 0; color: #888888; font-size: 12px;">
               © ${new Date().getFullYear()} NetPay. All rights reserved.
             </p>
@@ -1029,42 +1157,55 @@ async function sendStatementEmail(to: string, pdfBuffer: Uint8Array, userName: s
       </body>
     </html>
   `;
+}
 
-  const emailText = `
-Dear ${userName || "Valued Customer"},
-
-Thank you for being a valued NetPay customer. As requested, please find attached your Statement for the period from ${formattedStartDate} to ${formattedEndDate}.
-
-This statement provides a comprehensive overview of all your transactions during this period, including account credits and debits, airtime and data purchases, utility bill payments, education payments, betting transactions, money transfers, and account funding transactions.
-
-Your statement is attached as a PDF document for your records. Please review it carefully and contact our support team if you notice any discrepancies or have any questions.
-
-Need Assistance?
-Our support team is available 24/7 to help you. You can reach us at support@netppay.com or through the app's support section.
-
-We appreciate your continued trust in NetPay for all your bill payment needs.
-
-Best regards,
-The NetPay Team
-
----
-This is an automated email. Please do not reply directly to this message.
-© ${new Date().getFullYear()} NetPay. All rights reserved.
-  `;
+/**
+ * Sends statement summary email quickly (no PDF attachment — use Download PDF in app).
+ */
+async function sendStatementSummaryEmail(
+  to: string,
+  userName: string,
+  startDate: Date,
+  endDate: Date,
+  summary: StatementSummary,
+  transactions: TransactionData[],
+): Promise<void> {
+  const FROM_ADDRESS = getResendFromAddress();
+  const formattedStartDate = startDate.toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
+  const formattedEndDate = endDate.toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
+  const subject = `Your NetPay Statement - ${formattedStartDate} to ${formattedEndDate}`;
+  const emailHtml = buildStatementEmailHtml(
+    userName,
+    formattedStartDate,
+    formattedEndDate,
+    summary,
+    transactions,
+    "For a printable PDF copy, open the NetPay app, go to Statement, and tap Download PDF.",
+  );
+  const emailText = [
+    `Dear ${userName || "Valued Customer"},`,
+    "",
+    `Your NetPay statement for ${formattedStartDate} to ${formattedEndDate}:`,
+    `Total Credits: ${formatCurrency(summary.totalCredits)}`,
+    `Total Debits: ${formatCurrency(summary.totalDebits)}`,
+    `Net Amount: ${formatCurrency(summary.netAmount)}`,
+    `Transactions: ${summary.transactionCount}`,
+    "",
+    buildTransactionsEmailText(transactions),
+    "",
+    "For a printable PDF copy, use Download PDF in the NetPay app.",
+    "",
+    "Best regards,",
+    "The NetPay Team",
+  ].join("\n");
 
   await sendResendEmail({
     from: FROM_ADDRESS,
     to: [to],
-    subject: `Your NetPay Statement - ${formattedStartDate} to ${formattedEndDate}`,
+    subject,
     text: emailText,
     html: emailHtml,
     tags: [{ name: "notification_type", value: "statement" }],
-    attachments: [
-      {
-        filename: `netpay-statement-${startDate.toISOString().split('T')[0]}-to-${endDate.toISOString().split('T')[0]}.pdf`,
-        content: base64,
-      },
-    ],
   });
 }
 
@@ -1164,6 +1305,9 @@ serve(async (req) => {
       emailAddress = emailParam;
     }
 
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+
     console.log("Date range:", {
       start: startDate.toISOString(),
       end: endDate.toISOString(),
@@ -1188,9 +1332,35 @@ serve(async (req) => {
     
     console.log("User info:", { userName, userEmail });
 
-    // Generate PDF
+    // Send email or return PDF
+    if (sendEmail && userEmail) {
+      console.log("Sending statement summary email to:", userEmail);
+      try {
+        const { summary, transactions } = await buildStatementData(supabase, user.id, startDate, endDate);
+        await sendStatementSummaryEmail(userEmail, userName, startDate, endDate, summary, transactions);
+      } catch (emailError) {
+        console.error("Failed to send statement email:", emailError);
+        let message = "Failed to send email. Please try again.";
+        if (emailError instanceof ResendApiError) {
+          message = parseResendErrorMessage(emailError.details);
+        } else if (emailError instanceof Error && emailError.message) {
+          message = emailError.message;
+        }
+        return new Response(
+          JSON.stringify({ success: false, error: message }),
+          { status: 502, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      console.log("Email sent successfully");
+      return new Response(
+        JSON.stringify({ success: true, message: "Statement sent to email" }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Generate PDF for download
     console.log("Starting PDF generation...");
-    const pdfBytes = await generateStatementPDF(
+    const { pdfBytes } = await generateStatementPDF(
       supabase,
       user.id,
       userName,
@@ -1201,27 +1371,15 @@ serve(async (req) => {
     );
     console.log("PDF generated successfully, size:", pdfBytes.length);
 
-    // Send email or return PDF
-    if (sendEmail && userEmail) {
-      console.log("Sending email...");
-      await sendStatementEmail(userEmail, pdfBytes, userName, startDate, endDate);
-      console.log("Email sent successfully");
-      return new Response(
-        JSON.stringify({ success: true, message: "Statement sent to email" }),
-        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-      );
-    } else {
-      // Return PDF
-      console.log("Returning PDF response");
-      return new Response(pdfBytes, {
-        status: 200,
-        headers: {
-          ...CORS_HEADERS,
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="statement-${user.id}-${Date.now()}.pdf"`,
-        },
-      });
-    }
+    console.log("Returning PDF response");
+    return new Response(pdfBytes, {
+      status: 200,
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="statement-${user.id}-${Date.now()}.pdf"`,
+      },
+    });
   } catch (error) {
     console.error("Error generating statement:", error);
     console.error("Error type:", typeof error);

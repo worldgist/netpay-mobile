@@ -40,6 +40,9 @@ export function normalizeVendingProvider(raw: unknown): string {
   if (normalized === 'sme-plug' || normalized === 'sme_plug') {
     normalized = 'smeplug';
   }
+  if (normalized === 'flutter-wave' || normalized === 'flutter_wave' || normalized === 'flw') {
+    normalized = 'flutterwave';
+  }
 
   return normalized;
 }

@@ -3,111 +3,124 @@ import * as Sharing from 'expo-sharing';
 import { Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
 
+type StatementRequestBody = {
+  start: string;
+  end: string;
+  send_email: boolean;
+  email?: string;
+};
+
+function getSupabaseConfig() {
+  const supabaseUrl =
+    process.env.EXPO_PUBLIC_SUPABASE_URL ||
+    (supabase as unknown as { supabaseUrl?: string }).supabaseUrl;
+  const anonKey =
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+    (supabase as unknown as { supabaseKey?: string }).supabaseKey;
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Supabase is not configured');
+  }
+
+  return { supabaseUrl, anonKey };
+}
+
+async function getAccessToken() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('Please sign in to continue');
+  }
+  return session.access_token;
+}
+
+function getStatementFunctionUrl() {
+  const { supabaseUrl } = getSupabaseConfig();
+  return `${supabaseUrl}/functions/v1/statement-of-account`;
+}
+
+async function buildStatementHeaders() {
+  const { anonKey } = getSupabaseConfig();
+  const accessToken = await getAccessToken();
+
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    apikey: anonKey,
+    'Content-Type': 'application/json',
+  };
+}
+
+function parseStatementErrorBody(status: number, responseText: string): string {
+  let errorMessage = `Failed to process statement (${status})`;
+
+  if (!responseText) {
+    return errorMessage;
+  }
+
+  try {
+    const errorData = JSON.parse(responseText);
+    errorMessage = errorData.error || errorData.message || errorMessage;
+  } catch {
+    errorMessage = responseText.slice(0, 240);
+  }
+
+  return errorMessage;
+}
+
+const STATEMENT_REQUEST_TIMEOUT_MS = 60_000;
+
+async function postStatementRequest(body: StatementRequestBody) {
+  const headers = await buildStatementHeaders();
+  const functionUrl = getStatementFunctionUrl();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), STATEMENT_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(functionUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Statement request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Downloads a PDF statement from the Supabase Edge Function and shares it
- * @param userId - The user ID (not required, will use authenticated user)
- * @param startDate - Start date for the statement
- * @param endDate - End date for the statement
- * @returns Promise that resolves when the download/share is complete
  */
 export async function downloadStatementPDF(
   userId: string,
   startDate: Date,
-  endDate: Date
+  endDate: Date,
 ): Promise<void> {
   try {
-    // Get session for authentication
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      throw new Error('Please sign in to download statement');
-    }
-
-    // Get Supabase URL from environment
-    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-    if (!supabaseUrl) {
-      throw new Error('Supabase URL is not configured');
-    }
-
-    // Call edge function directly with fetch to handle PDF response
-    const functionUrl = `${supabaseUrl}/functions/v1/statement-of-account`;
-    
-    console.log('Calling statement function:', {
-      url: functionUrl,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      hasToken: !!session.access_token,
+    const response = await postStatementRequest({
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      send_email: false,
     });
-    
-    const response = await fetch(functionUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        start: startDate.toISOString(),
-        end: endDate.toISOString(),
-        send_email: false,
-      }),
-    });
-    
-    console.log('Response status:', response.status, response.statusText);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
-      let errorMessage = 'Failed to generate statement';
-      let errorDetails: any = null;
-      
-      try {
-        const contentType = response.headers.get('content-type');
-        if (contentType?.includes('application/json')) {
-          const errorData = await response.json();
-          // Prioritize the 'error' field as it contains user-friendly message
-          errorMessage = errorData.error || errorData.message || errorMessage;
-          errorDetails = errorData.details || errorData;
-          
-          // If we have details with a message, use it if errorMessage is generic
-          if (errorDetails?.message && errorMessage === 'Failed to generate statement') {
-            errorMessage = errorDetails.message;
-          }
-        } else {
-          const errorText = await response.text();
-          if (errorText) {
-            try {
-              const errorJson = JSON.parse(errorText);
-              errorMessage = errorJson.error || errorJson.message || errorMessage;
-              errorDetails = errorJson.details || errorJson;
-            } catch {
-              errorMessage = errorText || errorMessage;
-            }
-          }
-        }
-      } catch (parseError) {
-        console.error('Error parsing error response:', parseError);
-        errorMessage = `Server error (${response.status}): ${response.statusText}`;
-      }
-      
-      console.error('Statement generation failed:', {
+      const responseText = await response.text();
+      console.error('Statement PDF error:', {
         status: response.status,
-        statusText: response.statusText,
-        error: errorMessage,
-        details: errorDetails,
+        body: responseText.slice(0, 500),
       });
-      
-      // Use the most descriptive error message available
-      throw new Error(errorMessage);
+      throw new Error(parseStatementErrorBody(response.status, responseText));
     }
 
-    // Get PDF as array buffer
     const arrayBuffer = await response.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    
-    const fileUri = FileSystem.cacheDirectory + `statement-${userId}-${Date.now()}.pdf`;
-    
-    // Convert to base64 string
+    const fileUri = `${FileSystem.cacheDirectory}statement-${userId}-${Date.now()}.pdf`;
     const base64 = btoa(String.fromCharCode(...uint8Array));
-    
-    // Write file with base64 encoding using legacy API
+
     await FileSystem.writeAsStringAsync(fileUri, base64, {
       encoding: FileSystem.EncodingType.Base64,
     });
@@ -127,70 +140,39 @@ export async function downloadStatementPDF(
 }
 
 /**
- * Sends a PDF statement to the user's email via Supabase Edge Function
- * @param userId - The user ID (not required, will use authenticated user)
- * @param userEmail - The user's email address
- * @param startDate - Start date for the statement
- * @param endDate - End date for the statement
- * @returns Promise that resolves when the email is sent
+ * Sends a PDF statement to the user's email via the statement-of-account edge function
  */
 export async function sendStatementEmail(
-  userId: string,
+  _userId: string,
   userEmail: string,
   startDate: Date,
-  endDate: Date
-): Promise<void> {
-  try {
-    // Get session for authentication
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      throw new Error('Please sign in to send statement');
-    }
+  endDate: Date,
+): Promise<string> {
+  const response = await postStatementRequest({
+    start: startDate.toISOString(),
+    end: endDate.toISOString(),
+    send_email: true,
+    email: userEmail,
+  });
 
-    // Get Supabase URL from environment
-    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-    if (!supabaseUrl) {
-      throw new Error('Supabase URL is not configured');
-    }
+  const responseText = await response.text();
 
-    // Call edge function
-    const { data, error } = await supabase.functions.invoke('statement-of-account', {
-      body: {
-        start: startDate.toISOString(),
-        end: endDate.toISOString(),
-        send_email: true,
-        email: userEmail,
-      },
+  if (!response.ok) {
+    console.error('Statement email error:', {
+      status: response.status,
+      body: responseText.slice(0, 500),
     });
-
-    if (error) {
-      console.error('Edge function error:', error);
-      console.error('Error details:', {
-        name: error.name,
-        message: error.message,
-        context: error.context,
-      });
-      
-      // Try to extract more details from the error
-      let errorMessage = error.message || 'Failed to send statement';
-      if (error.context) {
-        try {
-          const context = typeof error.context === 'string' ? JSON.parse(error.context) : error.context;
-          if (context.message) {
-            errorMessage = context.message;
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-      
-      throw new Error(errorMessage);
-    }
-
-    const result = typeof data === 'string' ? JSON.parse(data) : data;
-    Alert.alert('Success', result?.message || 'Statement sent to your email!');
-  } catch (err) {
-    console.error('Email error:', err);
-    throw err;
+    throw new Error(parseStatementErrorBody(response.status, responseText));
   }
+
+  if (responseText) {
+    try {
+      const result = JSON.parse(responseText) as { message?: string };
+      return result.message || 'Statement sent to your email!';
+    } catch {
+      return responseText;
+    }
+  }
+
+  return 'Statement sent to your email!';
 }

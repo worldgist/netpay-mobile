@@ -181,6 +181,11 @@ serve(async (req) => {
         return 'smeplug';
       }
       
+      // Handle Flutterwave variations
+      if (normalized === 'flutterwave' || normalized === 'flutter-wave' || normalized === 'flw') {
+        return 'flutterwave';
+      }
+      
       // Return as-is if no normalization needed
       return normalized;
     };
@@ -780,19 +785,61 @@ serve(async (req) => {
       }
     }
 
+    // If using Flutterwave, route to Flutterwave handler
+    if (vendingProvider === 'flutterwave') {
+      const functionUrl = `${supabaseUrl}/functions/v1/purchase-flutterwave-electricity`;
+
+      try {
+        const flutterwaveResponse = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            meter_number,
+            provider,
+            meter_type,
+            amount,
+            customer_name,
+            customer_address,
+            minimum_vend,
+          }),
+        });
+
+        const flutterwaveResult = await flutterwaveResponse.json();
+        return new Response(
+          JSON.stringify(flutterwaveResult),
+          {
+            status: flutterwaveResponse.status,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          },
+        );
+      } catch (flutterwaveError) {
+        console.error('Error forwarding to Flutterwave electricity function:', flutterwaveError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Failed to process Flutterwave electricity purchase. Please try again.',
+          }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
     // If no matching provider, return error with all supported providers
     console.error(`Unsupported electricity vending provider: ${vendingProvider} (normalized from: ${rawVendingProvider}). Admin must set a valid provider.`, {
       rawProvider: rawVendingProvider,
       normalizedProvider: vendingProvider,
-      supportedProviders: ['mobilenig', 'ebills'],
+      supportedProviders: ['mobilenig', 'ebills', 'flutterwave'],
     });
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: `Unsupported electricity vending provider: ${vendingProvider}. Supported providers: mobilenig, ebills. Please contact administrator to configure a valid provider.`,
+        error: `Unsupported electricity vending provider: ${vendingProvider}. Supported providers: mobilenig, ebills, flutterwave. Please contact administrator to configure a valid provider.`,
         vending_provider: vendingProvider,
         raw_vending_provider: rawVendingProvider,
-        supported_providers: ['mobilenig', 'ebills']
+        supported_providers: ['mobilenig', 'ebills', 'flutterwave']
       }),
       { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
     );

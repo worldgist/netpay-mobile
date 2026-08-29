@@ -39,6 +39,7 @@ type EducationEmailPayload = {
   examType: string;
   pin: string;
   serial?: string;
+  pins?: Array<{ Pin: string; Serial?: string }>;
   instructions?: string;
   amount?: number;
   reference?: string;
@@ -223,6 +224,7 @@ const buildEducationEmail = (payload: EducationEmailPayload) => {
     examType,
     pin,
     serial,
+    pins,
     instructions,
     amount,
     reference,
@@ -230,9 +232,40 @@ const buildEducationEmail = (payload: EducationEmailPayload) => {
     purchasedAt,
   } = payload;
 
+  const pinEntries = (Array.isArray(pins) && pins.length > 0
+    ? pins
+    : pin
+      ? [{ Pin: pin, Serial: serial }]
+      : []
+  ).filter((entry) => entry.Pin?.trim());
+
   const friendlyAmount = formatCurrency(amount);
   const timestamp = formatTimestamp(purchasedAt);
   const subject = `${examType.toUpperCase()} PIN Details`;
+
+  const pinBlocksHtml = pinEntries.map((entry, index) => {
+    const label = pinEntries.length > 1 ? `PIN ${index + 1}` : "PIN";
+    return `
+          <div style="border-radius: 16px; background: linear-gradient(135deg, #ff9f3f, #ff7f00); padding: 22px; margin-bottom: ${entry.Serial ? "16px" : "24px"}; box-shadow: 0 18px 38px rgba(255,127,0,0.28);">
+            <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,255,255,0.92); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600;">${label}</p>
+            <p style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: 0.28em;">${escapeHtml(entry.Pin)}</p>
+          </div>
+          ${entry.Serial ? `
+            <div style="border-radius: 16px; background: rgba(255,255,255,0.78); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(255,127,0,0.18); box-shadow: inset 0 0 0 1px rgba(255,127,0,0.08);">
+              <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,127,0,0.75); letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600;">${pinEntries.length > 1 ? `Serial ${index + 1}` : "Serial Number"}</p>
+              <p style="margin: 0; font-size: 22px; font-weight: 600; color: #7c2d12; letter-spacing: 0.18em;">${escapeHtml(entry.Serial)}</p>
+            </div>
+          ` : ""}
+    `;
+  }).join("");
+
+  const pinLinesText = pinEntries.map((entry, index) => {
+    const lines = [`${pinEntries.length > 1 ? `PIN ${index + 1}` : "PIN"}: ${entry.Pin}`];
+    if (entry.Serial) {
+      lines.push(`${pinEntries.length > 1 ? `Serial ${index + 1}` : "Serial"}: ${entry.Serial}`);
+    }
+    return lines.join("\n");
+  }).join("\n");
 
   const html = `
     <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f2933; background-color: #fff3e5; padding: 32px;">
@@ -244,17 +277,7 @@ const buildEducationEmail = (payload: EducationEmailPayload) => {
         </div>
 
         <div style="padding: 32px;">
-          <div style="border-radius: 16px; background: linear-gradient(135deg, #ff9f3f, #ff7f00); padding: 22px; margin-bottom: 24px; box-shadow: 0 18px 38px rgba(255,127,0,0.28);">
-            <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,255,255,0.92); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600;">PIN</p>
-            <p style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: 0.28em;">${escapeHtml(pin)}</p>
-          </div>
-
-          ${serial ? `
-            <div style="border-radius: 16px; background: rgba(255,255,255,0.78); padding: 20px; margin-bottom: 24px; border: 1px solid rgba(255,127,0,0.18); box-shadow: inset 0 0 0 1px rgba(255,127,0,0.08);">
-              <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,127,0,0.75); letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600;">Serial Number</p>
-              <p style="margin: 0; font-size: 22px; font-weight: 600; color: #7c2d12; letter-spacing: 0.18em;">${escapeHtml(serial)}</p>
-            </div>
-          ` : ""}
+          ${pinBlocksHtml}
 
           <div style="background: rgba(255,255,255,0.78); border-radius: 16px; padding: 20px 22px; margin-bottom: 24px; border: 1px solid rgba(255,127,0,0.18);">
             <p style="margin: 0 0 12px; font-size: 13px; color: rgba(90,60,24,0.75); text-transform: uppercase; letter-spacing: 0.16em; font-weight: 600;">Purchase Summary</p>
@@ -311,8 +334,8 @@ const buildEducationEmail = (payload: EducationEmailPayload) => {
   const text = `
 ${examType.toUpperCase()} PIN Details
 
-PIN: ${pin}
-${serial ? `Serial: ${serial}\n` : ""}${friendlyAmount ? `Amount: ${friendlyAmount}\n` : ""}${phoneNumber ? `Phone Number: ${phoneNumber}\n` : ""}${reference ? `Reference: ${reference}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}${instructions ? `Instructions: ${instructions}\n` : ""}
+${pinLinesText}
+${friendlyAmount ? `Amount: ${friendlyAmount}\n` : ""}${phoneNumber ? `Phone Number: ${phoneNumber}\n` : ""}${reference ? `Reference: ${reference}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}${instructions ? `Instructions: ${instructions}\n` : ""}
 
 Thank you for using NetPay.
   `.trim();
@@ -417,8 +440,13 @@ const buildEmailContent = (payload: PurchaseEmailPayload) => {
   }
 
   if (payload.type === "education") {
-    if (!payload.pin || !payload.examType) {
-      throw new Error("pin and examType are required for education notifications");
+    if (!payload.examType) {
+      throw new Error("examType is required for education notifications");
+    }
+    const hasPin = Boolean(payload.pin) ||
+      (Array.isArray(payload.pins) && payload.pins.some((entry) => entry.Pin?.trim()));
+    if (!hasPin) {
+      throw new Error("pin is required for education notifications");
     }
     return buildEducationEmail(payload);
   }
@@ -468,13 +496,22 @@ const parseRequest = async (req: Request): Promise<PurchaseEmailPayload> => {
   }
 
   if (type === "education") {
+    const rawPins = Array.isArray(body?.pins) ? body.pins : [];
+    const pins = rawPins
+      .map((entry: { Pin?: string; pin?: string; Serial?: string; serial?: string }) => ({
+        Pin: normalizeString(entry?.Pin ?? entry?.pin),
+        Serial: normalizeString(entry?.Serial ?? entry?.serial),
+      }))
+      .filter((entry: { Pin: string }) => entry.Pin);
+
     return {
       type,
       email,
       fullName: normalizeString(body?.fullName ?? body?.name),
       examType: normalizeString(body?.examType),
-      pin: normalizeString(body?.pin),
-      serial: normalizeString(body?.serial),
+      pin: normalizeString(body?.pin) || pins[0]?.Pin || "",
+      serial: normalizeString(body?.serial) || pins[0]?.Serial,
+      pins: pins.length > 0 ? pins : undefined,
       instructions: normalizeString(body?.instructions),
       amount: typeof body?.amount === "number" ? body.amount : Number(body?.amount),
       reference: normalizeString(body?.reference),
@@ -552,6 +589,7 @@ serve(async (req) => {
         examType: payload.examType,
         pin: payload.pin,
         serial: payload.serial,
+        pins: payload.pins,
         phoneNumber: payload.phoneNumber,
         chargeFee: payload.chargeFee,
         purchaseAmount: payload.purchaseAmount,
