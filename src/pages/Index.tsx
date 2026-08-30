@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { LandingHeader } from "@/components/LandingHeader";
 import {
   Phone,
   CreditCard,
@@ -103,48 +104,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground">
-      {/* Header */}
-      <header className="border-b border-orange-300/50 bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 text-white sticky top-0 z-50 shadow-lg">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between transition-smooth">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <img
-                src="/logo.png"
-                alt="NetPay"
-                className="w-10 h-10 rounded-lg border border-white/40 shadow-elegant"
-                loading="lazy"
-              />
-              <span className="text-2xl font-bold tracking-tight">
-                <span className="text-white">NET</span>
-                <span className="text-orange-200">PAY</span>
-              </span>
-            </div>
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-white/80">
-              <button onClick={() => navigate("/")} className="hover:text-white transition-colors">
-                Home
-              </button>
-              <button onClick={() => navigate("/about")} className="hover:text-white transition-colors">
-                About Us
-              </button>
-              <button onClick={() => navigate("/contact-us")} className="hover:text-white transition-colors">
-                Contact Us
-              </button>
-              <button onClick={() => navigate("/faq")} className="hover:text-white transition-colors">
-                FAQ
-              </button>
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={() => navigate("/open/signup")}
-              size="lg"
-              className="bg-white text-orange-600 hover:bg-white/90 shadow-elegant px-6"
-            >
-              Get Started
-            </Button>
-          </div>
-        </div>
-      </header>
+      <LandingHeader />
 
       {/* Hero */}
       <section className="container mx-auto px-4 py-16 md:py-24">

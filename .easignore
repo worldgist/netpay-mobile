@@ -1,4 +1,6 @@
-# Logs
+# EAS uploads from the git root. Ignore generated native trees and caches
+# so Windows Gradle lock files are not copied into the build tarball.
+
 logs
 *.log
 npm-debug.log*
@@ -10,13 +12,13 @@ lerna-debug.log*
 node_modules
 mobile/node_modules
 mobile/.expo
-mobile/android
-mobile/ios
-**/.gradle
 mobile/.env
 mobile/.expo-shared
 mobile/.cache
 mobile/.DS_Store
+mobile/android
+mobile/ios
+**/.gradle
 dist
 dist-ssr
 *.local
@@ -25,7 +27,6 @@ supabase/.temp
 data/users-export.json
 data/users-seed.json
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea

@@ -1,0 +1,30 @@
+# Used instead of .gitignore when uploading to EAS.
+# Keep generated native trees and Gradle caches off the builder.
+
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+*.pem
+.env*.local
+fcm-service-account.json
+*-firebase-adminsdk-*.json
+google-services.json
+*.tsbuildinfo
+app-example
+/ios
+/android
+**/.gradle

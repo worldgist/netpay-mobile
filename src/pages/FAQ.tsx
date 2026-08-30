@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { useContentPage } from "@/hooks/useContentPage";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { LandingHeader } from "@/components/LandingHeader";
 
 const FAQ = () => {
   const { content, loading, error } = useContentPage('faq');
@@ -29,6 +30,7 @@ const FAQ = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <LandingHeader />
       <section className="container mx-auto px-4 py-16 md:py-24 space-y-10">
         <div className="max-w-3xl space-y-6">
           <span className="text-brand font-semibold uppercase tracking-[0.35em] text-xs md:text-sm">

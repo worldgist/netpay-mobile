@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Mail, Phone, MapPin, Clock, Send } from "lucide-react";
+import { LandingHeader } from "@/components/LandingHeader";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -153,6 +154,7 @@ const ContactLanding = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/40 to-white">
+      <LandingHeader />
       <div className="container mx-auto px-4 py-16 space-y-12">
         <section className="max-w-4xl mx-auto text-center space-y-6">
           <h1 className="text-4xl md:text-5xl font-bold text-slate-900">We’re here for you</h1>
