@@ -430,6 +430,40 @@ serve(async (req) => {
       );
     }
 
+    // Validate JAMB fields before debiting wallet
+    if (exam_type.toUpperCase() === 'JAMB') {
+      if (!billers_code) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'JAMB Profile Code (confirmationCode) is required',
+          }),
+          { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!phone_number) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Phone number is required for JAMB purchase. Please verify your profile code first.',
+          }),
+          { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const productCode = (api_code || 'UTME').toUpperCase();
+      if (productCode !== 'UTME' && productCode !== 'DE') {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Invalid service type. Must be UTME or DE',
+          }),
+          { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Debit user wallet first
     let debitResult;
     try {
@@ -461,41 +495,9 @@ serve(async (req) => {
 
       // Handle JAMB purchase with new format
       if (exam_type.toUpperCase() === 'JAMB') {
-        // JAMB requires: confirmationCode, phoneNumber, productCode
-        if (!billers_code) {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'JAMB Profile Code (confirmationCode) is required',
-            }),
-            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-          );
-        }
-        
-        if (!phone_number) {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'Phone number is required for JAMB purchase. Please verify your profile code first.',
-            }),
-            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        // productCode is the service type (UTME or DE) from api_code or default to UTME
         const productCode = (api_code || 'UTME').toUpperCase();
-        if (productCode !== 'UTME' && productCode !== 'DE') {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: 'Invalid service type. Must be UTME or DE',
-            }),
-            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        requestBody.confirmationCode = billers_code.trim();
-        requestBody.phoneNumber = phone_number.trim();
+        requestBody.confirmationCode = billers_code!.trim();
+        requestBody.phoneNumber = phone_number!.trim();
         requestBody.productCode = productCode;
         requestBody.quantity = 1; // JAMB always uses quantity 1
       } else {

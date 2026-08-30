@@ -1,13 +1,31 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Tabs, useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
+import { hasCompletedOnboarding } from '@/utils/onboarding';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  useEffect(() => {
+    let active = true;
+
+    const guardTabs = async () => {
+      const completed = await hasCompletedOnboarding();
+      if (!active || completed) return;
+      router.replace('/onboarding');
+    };
+
+    void guardTabs();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   return (
     <Tabs

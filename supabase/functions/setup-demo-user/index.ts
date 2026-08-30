@@ -1,14 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  DEMO_USER_EMAIL,
+  seedDemoVirtualAccountAndFunding,
+} from "../_shared/demo-user.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEMO_USER_EMAIL = "demo@netppay.com";
 const DEMO_PHONE = "08012345678";
-const DEMO_VIRTUAL_ACCOUNT = "1234567890";
 const DEMO_BALANCE = 50000.00;
 
 // Demo phone numbers for different networks
@@ -96,6 +98,8 @@ serve(async (req) => {
         full_name: "Demo User",
         balance: DEMO_BALANCE,
         status: "active",
+        pin_enabled: true,
+        biometric_enabled: true,
       }, {
         onConflict: "id",
       });
@@ -104,25 +108,8 @@ serve(async (req) => {
       throw profileError;
     }
 
-    // 2. Create virtual account
-    // Use PalmPay bank code (999991) which is the default in the mobile app
-    const { error: virtualAccountError } = await supabase
-      .from("virtual_accounts")
-      .upsert({
-        user_id: demoUserId,
-        business_id: "DEMO_BUSINESS",
-        bank_code: "999991", // PalmPay - matches DEFAULT_BANK_CODE in mobile app
-        bank_name: "PalmPay",
-        account_number: DEMO_VIRTUAL_ACCOUNT,
-        account_name: "DEMO USER",
-        tracking_reference: `DEMO-${demoUserId}`,
-      }, {
-        onConflict: "user_id,bank_code",
-      });
-
-    if (virtualAccountError) {
-      console.warn("Virtual account error (may already exist):", virtualAccountError);
-    }
+    // 2. Flutterwave demo virtual account + funding history
+    const walletSeed = await seedDemoVirtualAccountAndFunding(supabase, demoUserId);
 
     // 3. Create demo user_transactions (general transaction history)
     const transactions = [
@@ -257,25 +244,7 @@ serve(async (req) => {
     
     console.log(`Created ${insertedTransactions?.length || 0} user transactions`);
 
-    // 4. Create demo funding transaction
-    const { error: fundingError } = await supabase
-      .from("funding_transactions")
-      .upsert({
-        user_id: demoUserId,
-        amount: DEMO_BALANCE,
-        status: "completed",
-        reference: "DEMO-FUNDING-001",
-        created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      }, {
-        onConflict: "reference",
-        ignoreDuplicates: true,
-      });
-
-    if (fundingError) {
-      console.warn("Funding transaction error (may already exist):", fundingError);
-    }
-
-    // 5. Create demo airtime transactions
+    // 4. Create demo airtime transactions
     const airtimeTransactions = [
       {
         user_id: demoUserId,
@@ -584,7 +553,7 @@ serve(async (req) => {
         message: "Demo user setup completed successfully",
         demo_user_id: demoUserId,
         demo_email: DEMO_USER_EMAIL,
-        virtual_account: DEMO_VIRTUAL_ACCOUNT,
+        virtual_account: walletSeed.virtual_account,
         initial_balance: DEMO_BALANCE,
         final_balance: finalBalance,
         transactions_created: {
@@ -594,7 +563,7 @@ serve(async (req) => {
           electricity_transactions: insertedElectricity?.length || 0,
           cable_tv_transactions: insertedCableTv?.length || 0,
           transfer_transactions: insertedTransfers?.length || 0,
-          funding_transactions: 1,
+          funding_transactions: walletSeed.funding_records,
         },
       }),
       { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },

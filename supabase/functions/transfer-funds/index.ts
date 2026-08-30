@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { getUserLedgerBalance } from "../_shared/wallet.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -234,7 +235,7 @@ serve(async (req) => {
 
     const { data: senderProfile, error: senderProfileError } = await supabase
       .from("profiles")
-      .select("balance, created_at")
+      .select("created_at")
       .eq("id", sender.id)
       .single();
 
@@ -242,7 +243,7 @@ serve(async (req) => {
       throw new Error("Unable to fetch sender profile");
     }
 
-    const senderBalanceBefore = Number(senderProfile.balance) || 0;
+    const senderBalanceBefore = await getUserLedgerBalance(supabase, sender.id);
     if (senderBalanceBefore < totalAmount) {
       throw new Error(
         `Insufficient balance. You need ₦${totalAmount.toFixed(2)} (₦${amountValue.toFixed(2)} + ₦${transferFee.toFixed(2)} fee)`,
@@ -343,7 +344,7 @@ serve(async (req) => {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return new Response(
       JSON.stringify({ success: false, error: message }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

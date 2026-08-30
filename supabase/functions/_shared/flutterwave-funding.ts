@@ -20,6 +20,8 @@ type ProcessFundingOptions = {
   accountName?: string;
   apiResponse?: unknown;
   sendNotification?: boolean;
+  /** Demo / review flows: credit the full gross amount with no processing fee. */
+  waiveFee?: boolean;
 };
 
 export type ProcessFundingResult = {
@@ -188,6 +190,8 @@ async function backfillFundingLedger(
   netCreditAmount: number,
   fundingFee: number,
 ) {
+  const feeLabel = fundingFee > 0 ? `₦${fundingFee} fee` : "₦0 fee";
+
   const { data: existingLedger } = await supabase
     .from("user_transactions")
     .select("id")
@@ -214,7 +218,7 @@ async function backfillFundingLedger(
     balance_before: balanceBefore,
     balance_after: balanceAfter,
     transaction_type: "credit",
-    description: `Wallet funding via Flutterwave (₦${creditAmount} received, ₦${fundingFee} fee)`,
+    description: `Wallet funding via Flutterwave (₦${creditAmount} received, ${feeLabel})`,
     reference,
     performed_by: userId,
   });
@@ -245,14 +249,16 @@ export async function processFlutterwaveFunding({
   accountName = "Card/Bank Payment",
   apiResponse,
   sendNotification = true,
+  waiveFee = false,
 }: ProcessFundingOptions): Promise<ProcessFundingResult> {
   const creditAmount = Number(grossAmount);
   if (!userId || !reference || !Number.isFinite(creditAmount) || creditAmount <= 0) {
     throw new Error("Invalid funding parameters");
   }
 
-  const fundingFee = calculateFundingFee(creditAmount);
-  const netCreditAmount = creditAmount - fundingFee;
+  const fundingFee = waiveFee ? 0 : calculateFundingFee(creditAmount);
+  const netCreditAmount = waiveFee ? creditAmount : creditAmount - fundingFee;
+  const feeLabel = waiveFee ? "₦0 demo fee" : `₦${fundingFee} fee`;
 
   const referenceCandidates = [reference];
   const apiResponseData = (apiResponse && typeof apiResponse === "object")
@@ -314,13 +320,15 @@ export async function processFlutterwaveFunding({
       userId,
       amount: netCreditAmount,
       transactionType: "credit",
-      description: `Wallet funding via Flutterwave (₦${creditAmount} received, ₦${fundingFee} fee)`,
+      description: `Wallet funding via Flutterwave (₦${creditAmount} received, ${feeLabel})`,
       reference: ledgerReference,
       performedBy: userId,
       notification: sendNotification
         ? {
           title: "Wallet Funded Successfully",
-          message: `₦${creditAmount.toFixed(2)} added to your wallet. Net credit: ₦${netCreditAmount.toFixed(2)}.`,
+          message: waiveFee
+            ? `₦${creditAmount.toLocaleString("en-NG")} added to your wallet.`
+            : `₦${creditAmount.toFixed(2)} added to your wallet. Net credit: ₦${netCreditAmount.toFixed(2)}.`,
         }
         : undefined,
     });

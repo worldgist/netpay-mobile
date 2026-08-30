@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isDemoUserEmail } from "../_shared/demo-user.ts";
+import { processFlutterwaveFunding } from "../_shared/flutterwave-funding.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +62,48 @@ serve(async (req) => {
     const fullName = profile?.full_name || email.split("@")[0] || "User";
     const phoneDigits = String(profile?.phone || "").replace(/\D/g, "");
     const phonenumber = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits || "08000000000";
+
+    if (isDemoUserEmail(user.email)) {
+      const txRef = `DEMO-FLW-CARD-${Date.now()}`;
+
+      await supabase.from("funding_transactions").insert({
+        user_id: user.id,
+        amount: paymentAmount,
+        status: "pending",
+        reference: txRef,
+        bank_name: "Flutterwave",
+        account_name: fullName,
+        api_response: { demo: true, source: "demo_card_checkout_pending" },
+        updated_at: new Date().toISOString(),
+      });
+
+      const demoResult = await processFlutterwaveFunding({
+        supabase,
+        userId: user.id,
+        grossAmount: paymentAmount,
+        reference: txRef,
+        bankName: "Flutterwave",
+        accountName: fullName,
+        apiResponse: { demo: true, source: "demo_card_checkout", method: "card_ussd" },
+        waiveFee: true,
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          demo: true,
+          data: {
+            txRef,
+            amount: paymentAmount,
+            credited: paymentAmount,
+            balance: demoResult.finalBalance,
+            message: `Demo card/USSD payment successful. ₦${paymentAmount.toLocaleString()} added to your wallet.`,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const txRef = `netpay-fund-${user.id.replace(/-/g, "").slice(0, 12)}-${Date.now()}`;
 
     const flutterwaveResponse = await fetch("https://api.flutterwave.com/v3/payments", {

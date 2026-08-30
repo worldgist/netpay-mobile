@@ -10,6 +10,8 @@ import { supabase } from '@/lib/supabase';
 import { getSessionOrRedirect } from '@/utils/session';
 import { downloadStatementPDF, sendStatementEmail } from '@/utils/statement';
 
+const DEMO_USER_EMAIL = 'demo@netppay.com';
+
 type StatementTransaction = {
   id: string;
   date: string;
@@ -76,6 +78,7 @@ export default function StatementOfAccountScreen() {
   const insets = useSafeAreaInsets();
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('');
+  const [isDemoUser, setIsDemoUser] = useState(false);
   const [transactions, setTransactions] = useState<StatementTransaction[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -91,6 +94,7 @@ export default function StatementOfAccountScreen() {
   const [showEndPicker, setShowEndPicker] = useState(false);
 
   const isMounted = useRef(true);
+  const demoSetupAttempted = useRef(false);
 
   const fetchTransactions = useCallback(async (isRefresh = false) => {
     try {
@@ -104,8 +108,11 @@ export default function StatementOfAccountScreen() {
       }
 
       const currentUserId = session.user.id;
+      const currentUserEmail = session.user.email || '';
+      const demoUser = currentUserEmail.trim().toLowerCase() === DEMO_USER_EMAIL;
       setUserId(currentUserId);
-      setUserEmail(session.user.email || '');
+      setUserEmail(currentUserEmail);
+      setIsDemoUser(demoUser);
 
       const rangeStart = startOfDay(startDate).toISOString();
       const rangeEnd = endOfDay(endDate).toISOString();
@@ -295,6 +302,25 @@ export default function StatementOfAccountScreen() {
       if (isMounted.current) {
         setTransactions(combined);
       }
+
+      if (
+        demoUser &&
+        combined.length === 0 &&
+        !demoSetupAttempted.current &&
+        isMounted.current
+      ) {
+        demoSetupAttempted.current = true;
+        try {
+          const { error: setupError } = await supabase.functions.invoke('setup-demo-user', {
+            body: {},
+          });
+          if (!setupError && isMounted.current) {
+            await fetchTransactions(isRefresh);
+          }
+        } catch (setupError) {
+          console.warn('Demo statement setup error (non-critical):', setupError);
+        }
+      }
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
       if (isMounted.current) {
@@ -384,6 +410,24 @@ export default function StatementOfAccountScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" />}
         showsVerticalScrollIndicator={false}>
+        {isDemoUser ? (
+          <View style={styles.demoUserCard}>
+            <View style={styles.demoUserHeader}>
+              <MaterialIcons name="info" size={22} color="#FF7F00" />
+              <ThemedText style={styles.demoUserTitle}>Demo Statement</ThemedText>
+            </View>
+            <View style={styles.demoUserContent}>
+              <ThemedText style={styles.demoUserText}>
+                You are viewing a sample statement for the demo account ({DEMO_USER_EMAIL}). Transaction history
+                includes funding, airtime, data, bills, and transfers for testing.
+              </ThemedText>
+              <ThemedText style={styles.demoUserText}>
+                Use Download PDF or Send to Email to preview statement delivery during Apple review.
+              </ThemedText>
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.dateRangeContainer}>
           <ThemedText style={styles.sectionTitle}>Date Range</ThemedText>
           <View style={styles.dateRow}>
@@ -522,6 +566,34 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 8,
+  },
+  demoUserCard: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: '#FFE082',
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  demoUserTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 8,
+  },
+  demoUserText: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 20,
   },
   dateRangeContainer: {
     marginBottom: 24,

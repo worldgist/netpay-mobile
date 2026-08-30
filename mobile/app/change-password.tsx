@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,6 +20,9 @@ import { supabase } from '@/lib/supabase';
 import { disableBiometricLoginForCurrentUser } from '@/utils/disable-biometric-after-password-change';
 import { markPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 
+const DEMO_USER_EMAIL = 'demo@netppay.com';
+const DEMO_USER_PASSWORD = 'Demo@1234';
+
 export default function ChangePasswordScreen() {
   const router = useRouter();
   const [step, setStep] = useState<'current' | 'new'>('current');
@@ -32,6 +35,21 @@ export default function ChangePasswordScreen() {
   const [updating, setUpdating] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showIncorrectPasswordModal, setShowIncorrectPasswordModal] = useState(false);
+  const [isDemoUser, setIsDemoUser] = useState(false);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user?.email?.trim().toLowerCase() === DEMO_USER_EMAIL) {
+        setIsDemoUser(true);
+      }
+    };
+
+    loadUser();
+  }, []);
 
   const handleVerifyCurrentPassword = async () => {
     if (!oldPassword) {
@@ -156,6 +174,23 @@ export default function ChangePasswordScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isDemoUser ? (
+          <View style={styles.demoUserCard}>
+            <View style={styles.demoUserHeader}>
+              <MaterialIcons name="info" size={22} color="#FF7F00" />
+              <ThemedText style={styles.demoUserTitle}>Demo Account Information</ThemedText>
+            </View>
+            <View style={styles.demoUserContent}>
+              <ThemedText style={styles.demoUserText}>
+                You are using the demo account ({DEMO_USER_EMAIL}). Password changes work normally for testing.
+              </ThemedText>
+              <ThemedText style={styles.demoUserText}>
+                Current demo password: {DEMO_USER_PASSWORD}
+              </ThemedText>
+            </View>
+          </View>
+        ) : null}
+
         <ThemedView style={styles.card}>
           <View style={styles.header}>
             <ThemedText style={styles.subtitle}>
@@ -166,22 +201,32 @@ export default function ChangePasswordScreen() {
           </View>
 
           {step === 'current' ? (
-            <View style={styles.inputContainer}>
-              <MaterialIcons name="lock" size={20} color="#666" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Current password"
-                placeholderTextColor="#999"
-                value={oldPassword}
-                onChangeText={setOldPassword}
-                secureTextEntry={!showOldPassword}
-                autoCapitalize="none"
-                editable={!updating}
-              />
-              <TouchableOpacity onPress={() => setShowOldPassword(!showOldPassword)} style={styles.eyeIcon}>
-                <MaterialIcons name={showOldPassword ? 'visibility' : 'visibility-off'} size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
+            <>
+              {isDemoUser ? (
+                <View style={styles.demoPasswordHint}>
+                  <MaterialIcons name="info" size={16} color="#FF7F00" />
+                  <ThemedText style={styles.demoPasswordHintText}>
+                    Demo account current password: {DEMO_USER_PASSWORD}
+                  </ThemedText>
+                </View>
+              ) : null}
+              <View style={styles.inputContainer}>
+                <MaterialIcons name="lock" size={20} color="#666" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Current password"
+                  placeholderTextColor="#999"
+                  value={oldPassword}
+                  onChangeText={setOldPassword}
+                  secureTextEntry={!showOldPassword}
+                  autoCapitalize="none"
+                  editable={!updating}
+                />
+                <TouchableOpacity onPress={() => setShowOldPassword(!showOldPassword)} style={styles.eyeIcon}>
+                  <MaterialIcons name={showOldPassword ? 'visibility' : 'visibility-off'} size={20} color="#666" />
+                </TouchableOpacity>
+              </View>
+            </>
           ) : (
             <>
               <View style={styles.inputContainer}>
@@ -326,6 +371,55 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 32,
     justifyContent: 'center',
+  },
+  demoUserCard: {
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#FFE082',
+  },
+  demoUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  demoUserTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E65100',
+    flex: 1,
+  },
+  demoUserContent: {
+    gap: 8,
+  },
+  demoUserText: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 20,
+  },
+  demoPasswordHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF3E8',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FFD9B3',
+  },
+  demoPasswordHintText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#E65100',
+    lineHeight: 18,
   },
   card: {
     width: '100%',

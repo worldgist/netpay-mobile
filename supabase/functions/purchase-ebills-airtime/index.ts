@@ -10,7 +10,7 @@ import {
   generateEBillsAirtimeRequestId,
   EBillsAirtimeError,
 } from "../_shared/ebills-api.ts";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -43,12 +43,11 @@ serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' }),
@@ -118,16 +117,6 @@ serve(async (req) => {
       );
     }
 
-    if (!validateEBillsAirtimePhoneForNetwork(sanitizedPhone, ebillsServiceId)) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Network does not match the phone number. Please check the selected network.',
-        }),
-        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('balance, email')
@@ -141,7 +130,19 @@ serve(async (req) => {
       );
     }
 
-    const balanceBefore = Number(profile.balance) || 0;
+    const isDemoUser = profile.email === 'demo@netppay.com';
+
+    if (!isDemoUser && !validateEBillsAirtimePhoneForNetwork(sanitizedPhone, ebillsServiceId)) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Network does not match the phone number. Please check the selected network.',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const balanceBefore = await getUserLedgerBalance(supabase, user.id);
 
     if (balanceBefore < purchaseAmount) {
       return new Response(
@@ -172,7 +173,52 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netppay.com';
+    const displayNetwork = network_name || ebillsServiceId;
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      try {
+        await creditUserWallet({
+          supabase,
+          userId: user.id,
+          amount: purchaseAmount,
+          transactionType: 'refund',
+          description: `Airtime purchase refunded — ${reason}`,
+          reference: `${requestId}-${refSuffix}`,
+          performedBy: user.id,
+        });
+      } catch (refundError) {
+        console.error('CRITICAL: eBills airtime refund failed; manual reconciliation required.', {
+          refundError,
+          userId: user.id,
+          requestId,
+          amount: purchaseAmount,
+          reason,
+        });
+      }
+    };
+
+    const recordAirtimeTransaction = async (params: {
+      reference: string;
+      status: string;
+      balanceBeforeValue: number;
+      balanceAfterValue: number;
+      apiResponse?: unknown;
+      amount?: number;
+    }) => {
+      await supabase.from('airtime_transactions').insert({
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: displayNetwork,
+        service_id: ebillsServiceId,
+        amount: params.amount ?? purchaseAmount,
+        balance_before: params.balanceBeforeValue,
+        balance_after: params.balanceAfterValue,
+        status: params.status,
+        reference: params.reference,
+        api_response: params.apiResponse ?? null,
+        performed_by: user.id,
+      });
+    };
 
     if (isDemoUser) {
       const debitResult = await debitUserWallet({
@@ -180,7 +226,7 @@ serve(async (req) => {
         userId: user.id,
         amount: purchaseAmount,
         transactionType: 'airtime_purchase',
-        description: `Airtime purchase (eBills Demo) - ${network_name || ebillsServiceId}`,
+        description: `Airtime purchase (eBills Demo) - ${displayNetwork}`,
         reference: requestId,
         performedBy: user.id,
         balanceBefore,
@@ -190,17 +236,11 @@ serve(async (req) => {
         },
       });
 
-      await supabase.from('airtime_transactions').insert({
-        user_id: user.id,
-        phone_number: sanitizedPhone,
-        network: network_name || ebillsServiceId,
-        service_id: ebillsServiceId,
-        amount: purchaseAmount,
-        balance_before: debitResult.balanceBefore,
-        balance_after: debitResult.balanceAfter,
-        status: 'success',
+      await recordAirtimeTransaction({
         reference: requestId,
-        performed_by: user.id,
+        status: 'success',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
       });
 
       return new Response(
@@ -210,7 +250,7 @@ serve(async (req) => {
             reference: requestId,
             amount: purchaseAmount,
             phone_number: sanitizedPhone,
-            network: network_name || ebillsServiceId,
+            network: displayNetwork,
             balance_before: debitResult.balanceBefore,
             balance_after: debitResult.balanceAfter,
             vendor: 'ebills',
@@ -221,14 +261,69 @@ serve(async (req) => {
       );
     }
 
-    const ebillsToken = await getEBillsToken();
-    const purchaseResult = await purchaseEBillsAirtime(
-      ebillsToken,
-      requestId,
-      sanitizedPhone,
-      ebillsServiceId,
-      purchaseAmount,
-    );
+    // Debit wallet BEFORE calling eBills so vendor success never leaves the user uncharged.
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+    try {
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: purchaseAmount,
+        transactionType: 'airtime_purchase',
+        description: `Airtime purchase (pending eBills) - ${displayNetwork}`,
+        reference: requestId,
+        performedBy: user.id,
+        balanceBefore,
+      });
+    } catch (debitError) {
+      console.error('Debit failed before eBills airtime purchase:', debitError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitError instanceof Error
+            ? debitError.message
+            : 'Could not debit wallet for airtime purchase',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsAirtime>>;
+    try {
+      const ebillsToken = await getEBillsToken();
+      purchaseResult = await purchaseEBillsAirtime(
+        ebillsToken,
+        requestId,
+        sanitizedPhone,
+        ebillsServiceId,
+        purchaseAmount,
+      );
+    } catch (vendorError) {
+      console.error('eBills airtime vendor call failed after debit:', vendorError);
+      await refundWallet(
+        vendorError instanceof Error ? vendorError.message : 'provider request failed',
+        'VENDOR-FAIL',
+      );
+      await recordAirtimeTransaction({
+        reference: requestId,
+        status: 'failed',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceBefore,
+        apiResponse: vendorError instanceof EBillsAirtimeError
+          ? { code: vendorError.code, message: vendorError.message }
+          : { message: vendorError instanceof Error ? vendorError.message : 'Vendor failed' },
+      });
+
+      const message = vendorError instanceof EBillsAirtimeError
+        ? vendorError.message
+        : vendorError instanceof Error
+          ? vendorError.message
+          : 'Airtime purchase failed';
+
+      return new Response(
+        JSON.stringify({ success: false, error: message }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const orderData = purchaseResult.data || {};
     const reference = String(orderData.request_id || requestId);
@@ -244,67 +339,47 @@ serve(async (req) => {
       orderData.status === 'refunded' ||
       purchaseResult.message === 'ORDER REFUNDED';
 
-    if (isRefunded) {
-      await supabase.from('airtime_transactions').insert({
-        user_id: user.id,
-        phone_number: sanitizedPhone,
-        network: network_name || ebillsServiceId,
-        service_id: ebillsServiceId,
-        amount: 0,
-        balance_before: balanceBefore,
-        balance_after: balanceBefore,
-        status: 'refunded',
+    if (isRefunded || (!isProcessing && !isCompleted)) {
+      await refundWallet(
+        isRefunded ? 'provider refunded order' : 'provider rejected order',
+        'REF',
+      );
+      await recordAirtimeTransaction({
         reference,
-        api_response: purchaseResult,
-        performed_by: user.id,
+        status: isRefunded ? 'refunded' : 'failed',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceBefore,
+        amount: isRefunded ? 0 : purchaseAmount,
+        apiResponse: purchaseResult,
       });
 
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Airtime purchase was refunded by the provider. Your wallet was not charged.',
+          error: isRefunded
+            ? 'Airtime purchase was refunded by the provider. Your wallet has been credited back.'
+            : 'Airtime purchase failed at the provider. Your wallet has been credited back.',
           data: {
             reference,
             order_id: orderId,
-            status: 'refunded',
+            status: isRefunded ? 'refunded' : 'failed',
             api_response: orderData,
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceBefore,
           },
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
-    let transactionStatus = 'pending';
-    if (isCompleted) transactionStatus = 'success';
-    else if (isProcessing) transactionStatus = 'processing';
+    const transactionStatus = isCompleted ? 'success' : 'processing';
 
-    const debitResult = await debitUserWallet({
-      supabase,
-      userId: user.id,
-      amount: purchaseAmount,
-      transactionType: 'airtime_purchase',
-      description: `Airtime purchase (eBills) - ${network_name || ebillsServiceId}`,
+    await recordAirtimeTransaction({
       reference,
-      performedBy: user.id,
-      balanceBefore,
-      notification: {
-        title: isCompleted ? 'Airtime purchase successful' : 'Airtime purchase processing',
-        message: `₦${purchaseAmount} airtime purchased for ${sanitizedPhone}. Reference: ${reference}.`,
-      },
-    });
-
-    await supabase.from('airtime_transactions').insert({
-      user_id: user.id,
-      phone_number: sanitizedPhone,
-      network: network_name || ebillsServiceId,
-      service_id: ebillsServiceId,
-      amount: purchaseAmount,
-      balance_before: debitResult.balanceBefore,
-      balance_after: debitResult.balanceAfter,
       status: transactionStatus,
-      reference,
-      api_response: purchaseResult,
-      performed_by: user.id,
+      balanceBeforeValue: debitResult.balanceBefore,
+      balanceAfterValue: debitResult.balanceAfter,
+      apiResponse: purchaseResult,
     });
 
     const notificationTitle = isCompleted
@@ -325,7 +400,7 @@ serve(async (req) => {
         order_id: orderId,
         amount: purchaseAmount,
         phone_number: sanitizedPhone,
-        network: network_name || ebillsServiceId,
+        network: displayNetwork,
         status: transactionStatus,
       }
     );
@@ -338,7 +413,7 @@ serve(async (req) => {
           order_id: orderId,
           amount: purchaseAmount,
           phone_number: sanitizedPhone,
-          network: network_name || ebillsServiceId,
+          network: displayNetwork,
           balance_before: debitResult.balanceBefore,
           balance_after: debitResult.balanceAfter,
           vendor: 'ebills',

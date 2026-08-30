@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw, BarChart3, Wallet, ArrowDownLeft, TrendingUp, ArrowUp, ArrowDown, Inbox } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
@@ -34,6 +34,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 
 interface UserProfile {
   id: string;
@@ -62,6 +71,35 @@ interface AdminUserDetails {
   last_sign_in_at: string | null;
   transaction_count: number;
   roles: string[];
+}
+
+function getUserInitials(fullName: string | null, email: string | null): string {
+  if (fullName?.trim()) {
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  if (email?.trim()) {
+    return email.trim().slice(0, 2).toUpperCase();
+  }
+  return "U";
+}
+
+function UserDetailField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <div className="font-semibold text-foreground">{children}</div>
+    </div>
+  );
 }
 
 export default function Users() {
@@ -842,10 +880,372 @@ export default function Users() {
           <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <div className="flex h-16 items-center gap-4 px-6">
               <SidebarTrigger />
-              <h1 className="text-2xl font-bold">Users Management</h1>
+              <h1 className="text-2xl font-bold">
+                {isViewDialogOpen && selectedUser ? "User Details" : "Users Management"}
+              </h1>
             </div>
           </header>
 
+          {isViewDialogOpen && selectedUser ? (
+            <div className="p-6 space-y-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-3">
+                  <Breadcrumb>
+                    <BreadcrumbList>
+                      <BreadcrumbItem>
+                        <BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <BreadcrumbLink
+                          href="#"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setIsViewDialogOpen(false);
+                          }}
+                        >
+                          Users
+                        </BreadcrumbLink>
+                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage>User Details</BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </BreadcrumbList>
+                  </Breadcrumb>
+                  <h2 className="text-3xl font-bold tracking-tight">User Details</h2>
+                </div>
+                <Button
+                  variant="outline"
+                  className="shrink-0 border-brand text-brand hover:bg-brand/5 hover:text-brand"
+                  onClick={() => setIsViewDialogOpen(false)}
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Users
+                </Button>
+              </div>
+
+              {selectedUserHasBalanceDrift && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <span>
+                      Profile cache ({formatNaira(selectedUser.balance)}) differs from ledger (
+                      {formatNaira(selectedUserLedgerBalance)}). Cache should auto-sync on the next ledger entry or admin view.
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2 shrink-0"
+                      onClick={() => setReconcileDialogOpen(true)}
+                    >
+                      View balance detail
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>User Information</CardTitle>
+                  <CardDescription>
+                    Complete user information and transaction history
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col gap-8 xl:flex-row xl:items-start">
+                    <Avatar className="h-24 w-24 shrink-0 border-4 border-muted">
+                      <AvatarFallback className="bg-muted text-2xl font-semibold text-muted-foreground">
+                        {getUserInitials(selectedUser.full_name, selectedUser.email)}
+                      </AvatarFallback>
+                    </Avatar>
+
+                    <div className="flex-1 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="space-y-5">
+                        <UserDetailField label="Full Name">
+                          {selectedUser.full_name || "N/A"}
+                        </UserDetailField>
+                        <UserDetailField label="Email">
+                          <span className="inline-flex flex-wrap items-center gap-2 break-all">
+                            {selectedUser.email || "N/A"}
+                            {!loadingUserDetails && userDetails?.email_verified && (
+                              <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
+                                Verified
+                              </Badge>
+                            )}
+                          </span>
+                        </UserDetailField>
+                        <UserDetailField label="Email Verification">
+                          {loadingUserDetails ? (
+                            <span className="text-muted-foreground font-normal">Loading…</span>
+                          ) : userDetails?.email_verified ? (
+                            <span className="text-green-600">Verified</span>
+                          ) : (
+                            <span className="text-red-600">Not verified</span>
+                          )}
+                        </UserDetailField>
+                      </div>
+
+                      <div className="space-y-5">
+                        <UserDetailField label="Phone">
+                          {selectedUser.phone || "N/A"}
+                        </UserDetailField>
+                        <UserDetailField label="Last Sign In">
+                          {userDetails?.last_sign_in_at
+                            ? new Date(userDetails.last_sign_in_at).toLocaleString()
+                            : loadingUserDetails
+                              ? "Loading…"
+                              : "Never"}
+                        </UserDetailField>
+                        <UserDetailField label="Ledger Balance">
+                          <span className="text-lg">₦{selectedUserLedgerBalance.toFixed(2)}</span>
+                          {selectedUserHasBalanceDrift && (
+                            <p className="text-xs font-normal text-amber-600 mt-1">
+                              Profile cache: ₦{selectedUser.balance.toFixed(2)}
+                            </p>
+                          )}
+                        </UserDetailField>
+                      </div>
+
+                      <div className="space-y-5">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge
+                            className={
+                              selectedUser.status === "active"
+                                ? "bg-brand/15 text-brand hover:bg-brand/15 border-brand/30"
+                                : "bg-red-100 text-red-700 hover:bg-red-100 border-red-200"
+                            }
+                          >
+                            {selectedUser.status}
+                          </Badge>
+                          {(userDetails?.roles?.length ? userDetails.roles : ["user"]).map((role) => (
+                            <Badge
+                              key={role}
+                              className="bg-purple-100 text-purple-700 hover:bg-purple-100 border-purple-200 capitalize"
+                            >
+                              {role}
+                            </Badge>
+                          ))}
+                        </div>
+                        <UserDetailField label="Total Transactions">
+                          {loadingUserDetails
+                            ? "Loading…"
+                            : userDetails?.transaction_count ?? selectedUserMetrics.count}
+                        </UserDetailField>
+                        <UserDetailField label="Joined">
+                          {new Date(selectedUser.created_at).toLocaleDateString()}
+                        </UserDetailField>
+                        <UserDetailField label="Joined Time">
+                          {new Date(selectedUser.created_at).toLocaleTimeString()}
+                        </UserDetailField>
+                        <UserDetailField label="User ID">
+                          <span className="font-mono text-xs font-normal break-all text-muted-foreground">
+                            {selectedUser.id}
+                          </span>
+                        </UserDetailField>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Recent Tx Count</CardTitle>
+                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-2xl font-bold">{selectedUserMetrics.count}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Credits (Recent)</CardTitle>
+                    <Wallet className="h-4 w-4 text-green-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-2xl font-bold text-green-600">₦{selectedUserMetrics.credits.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Debits (Recent)</CardTitle>
+                    <ArrowDownLeft className="h-4 w-4 text-red-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-2xl font-bold text-red-600">₦{selectedUserMetrics.debits.toFixed(2)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Net Flow (Recent)</CardTitle>
+                    <TrendingUp className={`h-4 w-4 ${selectedUserMetrics.net >= 0 ? "text-green-600" : "text-red-600"}`} />
+                  </CardHeader>
+                  <CardContent>
+                    <p className={`text-2xl font-bold ${selectedUserMetrics.net >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      ₦{selectedUserMetrics.net.toFixed(2)}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Transactions</CardTitle>
+                  <CardDescription>Last 100 wallet transactions for this user</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {userTransactions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+                        <Inbox className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                      <p className="text-lg font-semibold">No transactions yet</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        This user has no wallet transactions to display.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {userTransactions.map((tx) => (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between gap-4 rounded-lg border p-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge
+                                variant={
+                                  tx.transaction_type === "credit"
+                                    ? "default"
+                                    : tx.transaction_type === "debit"
+                                    ? "destructive"
+                                    : "secondary"
+                                }
+                              >
+                                {tx.transaction_type}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground">
+                                {new Date(tx.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            {tx.description && (
+                              <p className="mt-1 text-sm">{tx.description}</p>
+                            )}
+                            {tx.reference && (
+                              <p className="mt-1 break-all text-xs text-muted-foreground">
+                                Ref: {tx.reference}
+                              </p>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p
+                              className={`font-semibold ${
+                                tx.transaction_type === "credit"
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                              }`}
+                            >
+                              {tx.transaction_type === "credit" ? "+" : "-"}₦
+                              {tx.amount.toFixed(2)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Balance: ₦{tx.balance_after.toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Button
+                    className="h-12 bg-brand text-white hover:bg-brand/90"
+                    onClick={() => handleCreditUser(selectedUser)}
+                  >
+                    <ArrowUp className="h-4 w-4 mr-2" />
+                    Credit User
+                  </Button>
+                  <Button
+                    className="h-12 bg-red-700 text-white hover:bg-red-800"
+                    onClick={() => handleDebitUser(selectedUser)}
+                  >
+                    <ArrowDown className="h-4 w-4 mr-2" />
+                    Debit User
+                  </Button>
+                  <Button
+                    className="h-12 bg-brand text-white hover:bg-brand/90"
+                    onClick={() => handleSuspendUser(selectedUser)}
+                  >
+                    {selectedUser.status === "suspended" ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Activate
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="h-4 w-4 mr-2" />
+                        Suspend
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" onClick={handleOpenStatementPreview} disabled={!selectedUser}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </Button>
+                  <Button variant="outline" onClick={handleOpenStatementPreview} disabled={!selectedUser}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleOpenSendResetLinkDialog}
+                    disabled={sendingResetLink || !selectedUser.email}
+                  >
+                    <Link2 className="h-4 w-4 mr-2" />
+                    Send Reset Link
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleOpenResetPasswordDialog}
+                    disabled={resettingPassword || !selectedUser.email}
+                  >
+                    <KeyRound className="h-4 w-4 mr-2" />
+                    Reset Password
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleVerifyUserEmail}
+                    disabled={verifyingUser || loadingUserDetails || userDetails?.email_verified}
+                  >
+                    <MailCheck className="h-4 w-4 mr-2" />
+                    {verifyingUser ? "Verifying…" : "Verify Email"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="ml-auto border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={handleOpenDeleteDialog}
+                    disabled={deletingUser}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete User
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 border-t pt-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <span>© 2026 NetPay. All rights reserved.</span>
+                <span>Version 1.0.0</span>
+              </div>
+            </div>
+          ) : (
           <div className="p-6 space-y-6">
             <div className="flex items-center justify-between">
               <div className="relative flex-1 max-w-sm">
@@ -1056,328 +1456,9 @@ export default function Users() {
               </CardContent>
             </Card>
           </div>
+          )}
         </main>
       </div>
-
-      {/* Full-screen user details view */}
-      {isViewDialogOpen && selectedUser && (
-        <div className="fixed inset-0 z-40 flex flex-col bg-background">
-          <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <div className="flex h-16 items-center justify-between gap-4 px-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsViewDialogOpen(false)}
-                  aria-label="Back to users list"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <div className="min-w-0">
-                  <h1 className="truncate text-xl font-bold">User Details</h1>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {selectedUser.full_name || selectedUser.email || selectedUser.id}
-                  </p>
-                </div>
-              </div>
-              <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
-                Close
-              </Button>
-            </div>
-          </header>
-
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-7xl space-y-6 p-6">
-              <p className="text-sm text-muted-foreground">
-                Complete user information and transaction history
-              </p>
-
-              {selectedUserHasBalanceDrift && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <span>
-                      Profile cache ({formatNaira(selectedUser.balance)}) differs from ledger (
-                      {formatNaira(selectedUserLedgerBalance)}). Cache should auto-sync on the next ledger entry or admin view.
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="gap-2 shrink-0"
-                      onClick={() => setReconcileDialogOpen(true)}
-                    >
-                      View balance detail
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                <div>
-                  <Label className="text-muted-foreground">Full Name</Label>
-                  <p className="font-medium">{selectedUser.full_name || "N/A"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Email</Label>
-                  <p className="font-medium break-all">{selectedUser.email || "N/A"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Phone</Label>
-                  <p className="font-medium">{selectedUser.phone || "N/A"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Status</Label>
-                  <div className="mt-1">
-                    <Badge variant={selectedUser.status === "active" ? "default" : "destructive"}>
-                      {selectedUser.status}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Email Verification</Label>
-                  <div className="mt-1">
-                    {loadingUserDetails ? (
-                      <Badge variant="secondary">Loading…</Badge>
-                    ) : (
-                      <Badge variant={userDetails?.email_verified ? "default" : "destructive"}>
-                        {userDetails?.email_verified ? "Verified" : "Not verified"}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Last Sign In</Label>
-                  <p className="font-medium">
-                    {userDetails?.last_sign_in_at
-                      ? new Date(userDetails.last_sign_in_at).toLocaleString()
-                      : loadingUserDetails
-                        ? "Loading…"
-                        : "Never"}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Total Transactions</Label>
-                  <p className="font-medium">
-                    {loadingUserDetails
-                      ? "Loading…"
-                      : userDetails?.transaction_count ?? selectedUserMetrics.count}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Roles</Label>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    {(userDetails?.roles?.length ? userDetails.roles : ["user"]).map((role) => (
-                      <Badge key={role} variant="secondary">
-                        {role}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Ledger Balance</Label>
-                  <p className="font-semibold text-lg">₦{selectedUserLedgerBalance.toFixed(2)}</p>
-                  {selectedUserHasBalanceDrift && (
-                    <p className="text-xs text-amber-600 mt-1">
-                      Profile cache: ₦{selectedUser.balance.toFixed(2)}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Joined</Label>
-                  <p className="font-medium">
-                    {new Date(selectedUser.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Joined Time</Label>
-                  <p className="font-medium">
-                    {new Date(selectedUser.created_at).toLocaleTimeString()}
-                  </p>
-                </div>
-                <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
-                  <Label className="text-muted-foreground">User ID</Label>
-                  <p className="font-mono text-xs break-all">{selectedUser.id}</p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Recent Tx Count</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-xl font-bold">{selectedUserMetrics.count}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Credits (Recent)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-xl font-bold text-green-600">₦{selectedUserMetrics.credits.toFixed(2)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Debits (Recent)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-xl font-bold text-red-600">₦{selectedUserMetrics.debits.toFixed(2)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Net Flow (Recent)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className={`text-xl font-bold ${selectedUserMetrics.net >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      ₦{selectedUserMetrics.net.toFixed(2)}
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent Transactions</CardTitle>
-                  <CardDescription>Last 100 wallet transactions for this user</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {userTransactions.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">No transactions yet</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {userTransactions.map((tx) => (
-                        <div
-                          key={tx.id}
-                          className="flex items-center justify-between gap-4 p-3 border rounded-lg"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge
-                                variant={
-                                  tx.transaction_type === "credit"
-                                    ? "default"
-                                    : tx.transaction_type === "debit"
-                                    ? "destructive"
-                                    : "secondary"
-                                }
-                              >
-                                {tx.transaction_type}
-                              </Badge>
-                              <span className="text-sm text-muted-foreground">
-                                {new Date(tx.created_at).toLocaleString()}
-                              </span>
-                            </div>
-                            {tx.description && (
-                              <p className="text-sm mt-1">{tx.description}</p>
-                            )}
-                            {tx.reference && (
-                              <p className="text-xs text-muted-foreground mt-1 break-all">
-                                Ref: {tx.reference}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p
-                              className={`font-semibold ${
-                                tx.transaction_type === "credit"
-                                  ? "text-green-600"
-                                  : "text-red-600"
-                              }`}
-                            >
-                              {tx.transaction_type === "credit" ? "+" : "-"}₦
-                              {tx.amount.toFixed(2)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Balance: ₦{tx.balance_after.toFixed(2)}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          <footer className="sticky bottom-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-4">
-            <div className="mx-auto flex w-full max-w-7xl flex-wrap gap-2">
-              <Button variant="outline" onClick={handleOpenStatementPreview} disabled={!selectedUser}>
-                <Printer className="h-4 w-4 mr-2" />
-                Print
-              </Button>
-              <Button variant="outline" onClick={handleOpenStatementPreview} disabled={!selectedUser}>
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-              <Button
-                variant="default"
-                onClick={() => handleCreditUser(selectedUser)}
-              >
-                <DollarSign className="h-4 w-4 mr-2" />
-                Credit User
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => handleDebitUser(selectedUser)}
-              >
-                <DollarSign className="h-4 w-4 mr-2" />
-                Debit User
-              </Button>
-              <Button
-                variant={selectedUser.status === "suspended" ? "default" : "destructive"}
-                onClick={() => handleSuspendUser(selectedUser)}
-              >
-                {selectedUser.status === "suspended" ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Activate
-                  </>
-                ) : (
-                  <>
-                    <Ban className="h-4 w-4 mr-2" />
-                    Suspend
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleOpenSendResetLinkDialog}
-                disabled={sendingResetLink || !selectedUser.email}
-              >
-                <Link2 className="h-4 w-4 mr-2" />
-                Send Reset Link
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleOpenResetPasswordDialog}
-                disabled={resettingPassword || !selectedUser.email}
-              >
-                <KeyRound className="h-4 w-4 mr-2" />
-                Reset Password
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleVerifyUserEmail}
-                disabled={verifyingUser || loadingUserDetails || userDetails?.email_verified}
-              >
-                <MailCheck className="h-4 w-4 mr-2" />
-                {verifyingUser ? "Verifying…" : "Verify Email"}
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleOpenDeleteDialog}
-                disabled={deletingUser}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete User
-              </Button>
-            </div>
-          </footer>
-        </div>
-      )}
 
       <Dialog open={isStatementPreviewOpen} onOpenChange={setIsStatementPreviewOpen}>
         <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">

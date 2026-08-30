@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { refundPurchaseWallet } from "../_shared/purchase-refund.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -243,6 +244,64 @@ serve(async (req) => {
         ? request_id.trim()
         : generateRequestId();
 
+    const reference = vtpassRequestId;
+
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+    try {
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        transactionType: "data_purchase",
+        description: `VTpass data purchase (pending vendor) - ${dataPlan.plan_name} for ${sanitizedPhone}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+      });
+    } catch (debitError) {
+      console.error("Debit failed before VTpass data purchase:", debitError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitError instanceof Error
+            ? debitError.message
+            : "Could not debit wallet for data purchase",
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      await refundPurchaseWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        purchaseReference: reference,
+        productLabel: "VTpass data purchase",
+        reason,
+        refSuffix,
+        performedBy: user.id,
+      });
+    };
+
+    const recordVtpassFailure = async (apiPayload: unknown, status: string) => {
+      await supabase.from("data_transactions").insert({
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: dataPlan.network || serviceId,
+        plan_name: dataPlan.plan_name,
+        plan_validity: dataPlan.validity || "N/A",
+        amount: userChargedAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceBefore,
+        status,
+        reference,
+        api_response: apiPayload ?? null,
+        performed_by: user.id,
+        provider: "vtpass",
+      });
+    };
+
     const baseUrl = VTPASS_MODE === "sandbox"
       ? "https://sandbox.vtpass.com"
       : "https://vtpass.com";
@@ -282,13 +341,15 @@ serve(async (req) => {
     const payText = await payResponse.text();
     if (!payResponse.ok) {
       console.error("VTpass pay API error:", payResponse.status, payText);
+      await refundWallet(`VTpass API error: ${payResponse.status}`, "VENDOR-FAIL");
+      await recordVtpassFailure({ details: payText }, "failed");
       return new Response(
         JSON.stringify({
           success: false,
-          error: `VTpass API error: ${payResponse.status}`,
+          error: `VTpass API error: ${payResponse.status}. Your wallet has been credited back.`,
           details: payText,
         }),
-        { status: payResponse.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 
@@ -297,9 +358,14 @@ serve(async (req) => {
       payJson = JSON.parse(payText);
     } catch (error) {
       console.error("Unable to parse VTpass response:", payText, error);
+      await refundWallet("invalid provider response", "PARSE-FAIL");
+      await recordVtpassFailure({ raw: payText }, "failed");
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid response from VTpass" }),
-        { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        JSON.stringify({
+          success: false,
+          error: "Invalid response from VTpass. Your wallet has been credited back.",
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 
@@ -312,10 +378,12 @@ serve(async (req) => {
     if (responseCode && responseCode !== "000") {
       const errorMessage = responseDescription || payJson?.error || `VTpass API error: ${responseCode}`;
       console.error("VTpass API error response:", { code: responseCode, description: responseDescription, fullResponse: payJson });
+      await refundWallet(errorMessage, "REF");
+      await recordVtpassFailure(payJson, "failed");
       return new Response(
         JSON.stringify({
           success: false,
-          error: errorMessage,
+          error: `${errorMessage}. Your wallet has been credited back.`,
           details: {
             code: responseCode,
             response_description: responseDescription,
@@ -368,10 +436,12 @@ serve(async (req) => {
     }
 
     if (!transaction) {
+      await refundWallet("provider did not return transaction details", "NO-TXN");
+      await recordVtpassFailure(payJson, "failed");
       return new Response(
         JSON.stringify({
           success: false,
-          error: "VTpass did not return transaction details",
+          error: "VTpass did not return transaction details. Your wallet has been credited back.",
           details: {
             response_code: responseCode,
             response_description: responseDescription,
@@ -382,46 +452,25 @@ serve(async (req) => {
       );
     }
 
-    const reference = vtpassRequestId;
     const statusLower = status?.toLowerCase() || "";
     const isDeliveredStatus = statusLower === "delivered" || statusLower === "success";
     const isPendingStatus = statusLower === "pending" || statusLower === "processing" || statusLower === "queued";
     const isFailedStatus = !isDeliveredStatus && !isPendingStatus && statusLower;
-    
-    // Only proceed with debit if transaction is delivered, pending, or processing
-    // If VTpass returns a failed status, don't debit the user
+
     if (isFailedStatus) {
+      await refundWallet(`transaction failed with status: ${status || "unknown"}`, "REF");
+      await recordVtpassFailure(transaction, "failed");
       return new Response(
         JSON.stringify({
           success: false,
-          error: `Transaction failed with status: ${status || "unknown"}`,
+          error: `Transaction failed with status: ${status || "unknown"}. Your wallet has been credited back.`,
           details: transaction,
         }),
         { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
-    
-    // Determine transaction status based on VTpass response
-    // If pending/processing, record as pending. If delivered, record as success
+
     const transactionStatus = isDeliveredStatus ? "success" : "pending";
-    
-    // Debit wallet with the amount user is charged (custom_price or original_price)
-    // This is the full amount the user pays, which includes admin markup
-    // User is debited regardless of pending/delivered status
-    const debitResult = await debitUserWallet({
-      supabase,
-      userId: user.id,
-      amount: userChargedAmount, // Charge user the admin-set price
-      transactionType: "data_purchase",
-      description: `VTpass data purchase - ${dataPlan.plan_name} for ${sanitizedPhone}`,
-      reference,
-      performedBy: user.id,
-      balanceBefore,
-      notification: {
-        title: isDeliveredStatus ? "Data purchase successful" : "Data purchase processing",
-        message: `₦${userChargedAmount.toFixed(2)} VTpass data bundle (${dataPlan.plan_name}) ${isDeliveredStatus ? 'purchased' : 'being processed'} for ${sanitizedPhone}. Reference: ${reference}.`,
-      },
-    });
 
     // Record transaction with admin revenue tracking - CRITICAL: This must succeed
     // Status is based on VTpass response: pending if still processing, success if delivered

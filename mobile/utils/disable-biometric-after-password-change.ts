@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { setBiometricLoginEnabled } from '@/utils/biometric-login-preference';
 
 /** Turn off server-side biometric login until the user re-enables it in Profile. */
 export async function disableBiometricLoginForCurrentUser(): Promise<{ ok: boolean; error?: string }> {
@@ -19,6 +20,8 @@ export async function disableBiometricLoginForCurrentUser(): Promise<{ ok: boole
   if (error) {
     return { ok: false, error: error.message };
   }
+
+  await setBiometricLoginEnabled(false);
 
   return { ok: true };
 }

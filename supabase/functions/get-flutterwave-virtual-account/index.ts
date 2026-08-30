@@ -53,21 +53,28 @@ serve(async (req) => {
       );
     }
 
-    const { email, name, phoneNumber, bvn, nin, identityType, identityNumber } = await req.json();
+    const { data: savedNinRow } = await supabase
+      .from("user_nin")
+      .select("nin")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const body = await req.json().catch(() => ({}));
+    const { email, name, phoneNumber, bvn, nin, identityType, identityNumber } = body;
 
     if (!email || !name || !phoneNumber) {
       throw new Error("Missing required parameters");
     }
 
-    const resolvedType = String(identityType || (nin ? "nin" : "bvn")).toLowerCase();
-    const identityValue = String(identityNumber || (resolvedType === "nin" ? nin : bvn) || "").replace(/\D/g, "");
+    const resolvedType = String(identityType || (nin ? "nin" : "nin")).toLowerCase();
+    let identityValue = String(identityNumber || nin || savedNinRow?.nin || bvn || "").replace(/\D/g, "");
 
     if (identityValue.length !== 11) {
-      throw new Error("BVN/NIN must be 11 digits");
+      throw new Error("NIN must be 11 digits");
     }
 
-    if (resolvedType !== "bvn" && resolvedType !== "nin") {
-      throw new Error("Identity type must be bvn or nin");
+    if (resolvedType !== "nin") {
+      throw new Error("Only NIN is supported for virtual account creation");
     }
 
     const secretKey = Deno.env.get("FLUTTERWAVE_SECRET_KEY");
@@ -90,7 +97,7 @@ serve(async (req) => {
       firstname,
       lastname,
       narration: "NetPay Wallet Funding",
-      ...(resolvedType === "nin" ? { nin: identityValue } : { bvn: identityValue }),
+      nin: identityValue,
     };
 
     console.log("Creating Flutterwave virtual account for:", {
@@ -135,8 +142,8 @@ serve(async (req) => {
         account_number: account.account_number,
         account_name: accountName,
         tracking_reference: trackingReference,
-        bvn: resolvedType === "bvn" ? identityValue : null,
-        nin: resolvedType === "nin" ? identityValue : null,
+        nin: identityValue,
+        bvn: null,
         provider: "flutterwave",
         updated_at: new Date().toISOString(),
       },
@@ -146,6 +153,21 @@ serve(async (req) => {
     if (upsertError) {
       console.error("Failed to store Flutterwave virtual account:", upsertError);
       throw new Error("Virtual account created but could not be saved");
+    }
+
+    const { error: ninUpsertError } = await supabase.from("user_nin").upsert(
+      {
+        user_id: user.id,
+        nin: identityValue,
+        provider: "flutterwave",
+        verified_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+
+    if (ninUpsertError) {
+      console.warn("Virtual account saved but failed to store user NIN:", ninUpsertError);
     }
 
     return new Response(

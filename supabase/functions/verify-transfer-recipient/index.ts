@@ -65,14 +65,14 @@ serve(async (req) => {
     if (recipientError || !recipient) {
       return new Response(
         JSON.stringify({ success: false, error: "Recipient not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     if (recipient.id === senderData.user.id) {
       return new Response(
         JSON.stringify({ success: false, error: "You cannot transfer to yourself" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -94,7 +94,7 @@ serve(async (req) => {
         success: false,
         error: error instanceof Error ? error.message : "Unexpected error",
       }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

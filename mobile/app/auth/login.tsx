@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -26,14 +26,33 @@ import {
 } from '@/utils/pending-biometric-reenrollment';
 import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
 import { buildRouteHref } from '@/utils/router-href';
+import {
+  isBiometricLoginEnabledLocally,
+  setBiometricLoginEnabled,
+} from '@/utils/biometric-login-preference';
+import { hasCompletedOnboarding } from '@/utils/onboarding';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
 const EMAIL_KEY = 'supabase_email';
-const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 
 const DEFAULT_BIOMETRIC_NOT_ENABLED_MESSAGE =
   'Biometric login is not enabled for this account yet. Sign in with your email and password, then open Profile and enable biometric login.';
+
+const INVALID_CREDENTIALS_TITLE = 'Invalid email or password';
+const INVALID_CREDENTIALS_MESSAGE =
+  'The email or password you entered is incorrect. Please check your details and try again.';
+
+function isInvalidCredentialsError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('invalid login credentials') ||
+    normalized.includes('invalid email or password') ||
+    normalized.includes('invalid credentials') ||
+    normalized.includes('wrong password') ||
+    normalized.includes('incorrect email or password')
+  );
+}
 
 function isBiometricNotEnabledMessage(msg: string): boolean {
   const s = msg.toLowerCase();
@@ -54,6 +73,11 @@ export default function LoginScreen() {
   const [showBiometricLogin, setShowBiometricLogin] = useState(false);
   const [biometricNotEnabledModalVisible, setBiometricNotEnabledModalVisible] = useState(false);
   const [biometricNotEnabledModalMessage, setBiometricNotEnabledModalMessage] = useState('');
+  const [invalidCredentialsModalVisible, setInvalidCredentialsModalVisible] = useState(false);
+  const autoBiometricAttemptedRef = useRef(false);
+  const handleBiometricRef = useRef<(options?: { silentCancel?: boolean }) => Promise<void>>(
+    async () => {}
+  );
 
   const openBiometricNotEnabledModal = (message: string) => {
     const trimmed = message.trim();
@@ -68,19 +92,57 @@ export default function LoginScreen() {
     setBiometricNotEnabledModalMessage('');
   };
 
+  const openInvalidCredentialsModal = () => {
+    setInvalidCredentialsModalVisible(true);
+  };
+
+  const closeInvalidCredentialsModal = () => {
+    setInvalidCredentialsModalVisible(false);
+  };
+
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
+        const completedOnboarding = await hasCompletedOnboarding();
+        if (!active) return;
+        if (!completedOnboarding) {
+          router.replace('/onboarding');
+          return;
+        }
+
         const pending = await isPendingBiometricReenrollment();
-        if (active) {
-          setShowBiometricLogin(!pending);
+        const storedEmailRaw = await SecureStore.getItemAsync(EMAIL_KEY);
+        const storedEmail = storedEmailRaw?.trim().toLowerCase() || '';
+        const biometricEnabledLocally = await isBiometricLoginEnabledLocally();
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
+
+        if (!active) return;
+
+        if (storedEmail) {
+          setEmail(storedEmail);
+        }
+
+        const canOfferBiometric = !pending && storedEmail.length > 0;
+        setShowBiometricLogin(canOfferBiometric);
+
+        const shouldAutoPrompt =
+          canOfferBiometric && biometricEnabledLocally && enrolled && !autoBiometricAttemptedRef.current;
+
+        if (shouldAutoPrompt) {
+          autoBiometricAttemptedRef.current = true;
+          requestAnimationFrame(() => {
+            if (active) {
+              void handleBiometricRef.current({ silentCancel: true });
+            }
+          });
         }
       })();
       return () => {
         active = false;
       };
-    }, [])
+    }, [router])
   );
 
   const handleSignIn = async () => {
@@ -135,6 +197,11 @@ export default function LoginScreen() {
           return;
         }
 
+        if (isInvalidCredentialsError(message)) {
+          openInvalidCredentialsModal();
+          return;
+        }
+
         Alert.alert('Sign In Failed', message);
         return;
       }
@@ -149,6 +216,22 @@ export default function LoginScreen() {
 
       await clearPendingBiometricReenrollment();
 
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('biometric_enabled')
+        .eq('id', data.session.user.id)
+        .maybeSingle();
+
+      const isDemoUser = data?.user?.email === 'demo@netppay.com';
+      if (isDemoUser) {
+        await supabase
+          .from('profiles')
+          .update({ biometric_enabled: true, updated_at: new Date().toISOString() })
+          .eq('id', data.session.user.id);
+      }
+
+      await setBiometricLoginEnabled(isDemoUser || Boolean(profileRow?.biometric_enabled));
+
       try {
         await SecureStore.setItemAsync(
           SESSION_KEY,
@@ -158,15 +241,12 @@ export default function LoginScreen() {
           })
         );
         await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
-        await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
       } catch (storageError) {
         console.warn('Unable to persist Supabase session for biometrics:', storageError);
       }
 
-      // Check if user is demo user and setup demo mode
-      if (data?.user?.email === 'demo@netppay.com') {
+      if (isDemoUser) {
         try {
-          // Setup demo user data if needed - wait for completion
           const { data: setupData, error: setupError } = await supabase.functions.invoke('setup-demo-user', {
             body: {},
           });
@@ -174,23 +254,26 @@ export default function LoginScreen() {
             console.warn('Demo setup error (non-critical):', setupError);
           } else {
             console.log('Demo setup completed:', setupData);
-            // Small delay to ensure transactions are committed
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise((resolve) => setTimeout(resolve, 500));
           }
         } catch (demoError) {
           console.warn('Demo setup error (non-critical):', demoError);
-          // Continue anyway - demo user can still use the app
         }
       }
 
       await navigateAfterAuthenticatedSession(router);
     } catch (err) {
       setLoading(false);
-      Alert.alert('Sign In Error', err instanceof Error ? err.message : 'An unexpected error occurred.');
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      if (isInvalidCredentialsError(message)) {
+        openInvalidCredentialsModal();
+        return;
+      }
+      Alert.alert('Sign In Error', message);
     }
   };
 
-  const handleBiometric = async () => {
+  const handleBiometric = async (options?: { silentCancel?: boolean }) => {
     try {
       if (!isSupabaseInitialized()) {
         const configStatus = getSupabaseConfigStatus();
@@ -231,7 +314,9 @@ export default function LoginScreen() {
       });
 
       if (!result.success) {
-        Alert.alert('Biometric Login', result.error || 'Biometric authentication was cancelled.');
+        if (!options?.silentCancel) {
+          Alert.alert('Biometric Login', result.error || 'Biometric authentication was cancelled.');
+        }
         setBiometricLoading(false);
         return;
       }
@@ -381,7 +466,7 @@ export default function LoginScreen() {
           })
         );
         await SecureStore.setItemAsync(EMAIL_KEY, storedEmail);
-        await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
+        await setBiometricLoginEnabled(true);
       } catch (storageError) {
         console.warn('Unable to persist session after biometric login:', storageError);
       }
@@ -399,6 +484,8 @@ export default function LoginScreen() {
       );
     }
   };
+
+  handleBiometricRef.current = handleBiometric;
 
   return (
     <KeyboardAvoidingView
@@ -471,11 +558,11 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Biometric — hidden until user signs in with password or re-enables biometrics in Profile after a password change */}
+          {/* Biometric — shown for returning users; auto-prompts when enabled on this device */}
           {showBiometricLogin ? (
             <TouchableOpacity
               style={[styles.biometricButton, (loading || biometricLoading) && { opacity: 0.7 }]}
-              onPress={handleBiometric}
+              onPress={() => handleBiometric()}
               disabled={loading || biometricLoading}>
               {biometricLoading ? (
                 <View style={styles.biometricIcon}>
@@ -520,6 +607,28 @@ export default function LoginScreen() {
               onPress={closeBiometricNotEnabledModal}
               activeOpacity={0.85}>
               <ThemedText style={styles.biometricModalButtonText}>OK</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={invalidCredentialsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeInvalidCredentialsModal}>
+        <View style={styles.biometricModalOverlay}>
+          <View style={styles.biometricModalCard}>
+            <View style={styles.invalidCredentialsIconCircle}>
+              <MaterialIcons name="lock-outline" size={36} color="#D32F2F" />
+            </View>
+            <ThemedText style={styles.biometricModalTitle}>{INVALID_CREDENTIALS_TITLE}</ThemedText>
+            <ThemedText style={styles.biometricModalMessage}>{INVALID_CREDENTIALS_MESSAGE}</ThemedText>
+            <TouchableOpacity
+              style={styles.biometricModalButton}
+              onPress={closeInvalidCredentialsModal}
+              activeOpacity={0.85}>
+              <ThemedText style={styles.biometricModalButtonText}>Try Again</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -666,6 +775,15 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     backgroundColor: '#FFF3E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  invalidCredentialsIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#FFEBEE',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,

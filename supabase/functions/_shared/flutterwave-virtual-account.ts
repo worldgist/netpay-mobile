@@ -27,6 +27,13 @@ export function getFlutterwaveCreditAmount(data: FlutterwaveChargeData): number 
   return Number(data.amount || data.charged_amount || 0);
 }
 
+export function getTransactionCustomerEmail(transaction: FlutterwaveChargeData): string {
+  const customer = (transaction.customer || {}) as Record<string, unknown>;
+  return String(customer.email || transaction.customer_email || "")
+    .trim()
+    .toLowerCase();
+}
+
 export async function findVirtualAccountUserId(
   supabase: SupabaseClient,
   options: {
@@ -161,8 +168,8 @@ export async function resolveFlutterwaveChargeUserId(
 
   return findVirtualAccountUserId(supabase, {
     txRef,
-    customerEmail: String(customer.email || "").trim(),
-    accountNumber: account.nuban || data.account_number || metaData.originatoraccountnumber,
+    customerEmail: getTransactionCustomerEmail(data),
+    accountNumber: account.nuban || account.account_number || data.account_number || metaData.originatoraccountnumber,
     accountId: data.account_id,
   });
 }
@@ -188,7 +195,8 @@ export async function processFlutterwaveChargeData(
     return { processed: false as const, reason: "checkout_handled_by_verify_endpoint" as const };
   }
 
-  const userId = await resolveFlutterwaveChargeUserId(supabase, data, payload);
+  const knownUserId = typeof payload?.knownUserId === "string" ? payload.knownUserId : null;
+  const userId = knownUserId ?? await resolveFlutterwaveChargeUserId(supabase, data, payload);
   if (!userId) {
     throw new Error("Unable to resolve user for Flutterwave payment");
   }
@@ -257,58 +265,249 @@ export async function fetchFlutterwaveTransactions(
   return Array.isArray(body.data) ? body.data as FlutterwaveChargeData[] : [];
 }
 
+export async function fetchAllFlutterwaveTransactions(
+  secretKey: string,
+  params: Record<string, string>,
+  maxPages = 5,
+) {
+  const merged: FlutterwaveChargeData[] = [];
+  const seenIds = new Set<string>();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const rows = await fetchFlutterwaveTransactions(secretKey, {
+      ...params,
+      page: String(page),
+    });
+
+    if (rows.length === 0) {
+      break;
+    }
+
+    for (const row of rows) {
+      const id = String(row.id ?? getFlutterwaveFundingReference(row) ?? "");
+      if (id && seenIds.has(id)) {
+        continue;
+      }
+      if (id) {
+        seenIds.add(id);
+      }
+      merged.push(row);
+    }
+
+    if (rows.length < 20) {
+      break;
+    }
+  }
+
+  return merged;
+}
+
+async function tryFetchAllFlutterwaveTransactions(
+  secretKey: string,
+  params: Record<string, string>,
+  maxPages: number,
+  label: string,
+): Promise<FlutterwaveChargeData[]> {
+  try {
+    return await fetchAllFlutterwaveTransactions(secretKey, params, maxPages);
+  } catch (error) {
+    console.warn(`Flutterwave transaction fetch failed (${label}):`, error);
+    return [];
+  }
+}
+
+export function isVirtualAccountCreationEvent(
+  transaction: FlutterwaveChargeData,
+  virtualAccount: { tracking_reference?: string | null },
+): boolean {
+  const amount = getFlutterwaveCreditAmount(transaction);
+  if (amount <= 0) {
+    return true;
+  }
+
+  const narration = String(transaction.narration || transaction.meta || "").toLowerCase();
+  if (
+    narration.includes("virtual account created") ||
+    narration.includes("account creation") ||
+    narration.includes("va creation")
+  ) {
+    return true;
+  }
+
+  const paymentEntity = String(transaction.payment_entity || "").toLowerCase();
+  if (paymentEntity === "card" || transaction.card) {
+    return true;
+  }
+
+  return false;
+}
+
 export function transactionMatchesVirtualAccount(
   transaction: FlutterwaveChargeData,
   virtualAccountNumber: string,
 ): boolean {
   const account = (transaction.account || {}) as Record<string, unknown>;
-  const txnAccountNumber = normalizeAccountNumber(account.nuban || transaction.account_number);
+  const metaData = (transaction.meta_data || {}) as Record<string, unknown>;
   const expected = normalizeAccountNumber(virtualAccountNumber);
 
-  if (!expected || !txnAccountNumber) {
+  if (!expected) {
     return false;
   }
 
-  return txnAccountNumber === expected;
+  const candidates = [
+    account.nuban,
+    account.account_number,
+    transaction.account_number,
+    metaData.originatoraccountnumber,
+    metaData.account_number,
+  ];
+
+  for (const raw of candidates) {
+    const txnAccountNumber = normalizeAccountNumber(raw);
+    if (!txnAccountNumber) {
+      continue;
+    }
+
+    if (txnAccountNumber === expected) {
+      return true;
+    }
+
+    const withoutLeadingZeros = txnAccountNumber.replace(/^0+/, "");
+    const expectedWithoutZeros = expected.replace(/^0+/, "");
+    if (withoutLeadingZeros && withoutLeadingZeros === expectedWithoutZeros) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function transactionBelongsToUserVirtualAccount(
+  transaction: FlutterwaveChargeData,
+  virtualAccount: { account_number: string; tracking_reference?: string | null },
+  customerEmail?: string,
+): boolean {
+  if (!isVirtualAccountFundingTransaction(transaction, virtualAccount)) {
+    return false;
+  }
+
+  if (transactionMatchesVirtualAccount(transaction, virtualAccount.account_number)) {
+    return true;
+  }
+
+  const txnEmail = getTransactionCustomerEmail(transaction);
+  const normalizedEmail = String(customerEmail || "").trim().toLowerCase();
+  return Boolean(txnEmail && normalizedEmail && txnEmail === normalizedEmail);
 }
 
 export function isVirtualAccountFundingTransaction(
   transaction: FlutterwaveChargeData,
   virtualAccount: { account_number: string; tracking_reference?: string | null },
 ): boolean {
-  if (!transactionMatchesVirtualAccount(transaction, virtualAccount.account_number)) {
+  if (isVirtualAccountCreationEvent(transaction, virtualAccount)) {
     return false;
   }
 
-  const txRef = String(transaction.tx_ref || "").trim();
-  const trackingRef = String(virtualAccount.tracking_reference || "").trim();
-  if (trackingRef && txRef === trackingRef) {
+  if (isFlutterwaveCheckoutFunding(transaction)) {
+    return false;
+  }
+
+  const paymentType = String(transaction.payment_type || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const allowedPaymentTypes = new Set(["bank_transfer", "account", "ussd", "banktransfer"]);
+  const isBankFundingType = !paymentType || allowedPaymentTypes.has(paymentType) || paymentType.includes("bank");
+  const accountMatched = transactionMatchesVirtualAccount(transaction, virtualAccount.account_number);
+  const amount = getFlutterwaveCreditAmount(transaction);
+
+  if (!accountMatched && !isBankFundingType) {
+    return false;
+  }
+
+  if (!accountMatched && isBankFundingType && amount <= 0) {
     return false;
   }
 
   const paymentEntity = String(transaction.payment_entity || "").toLowerCase();
-  if (paymentEntity === "card") {
-    return false;
-  }
-
-  if (transaction.card) {
-    return false;
-  }
-
-  const paymentType = String(transaction.payment_type || "").toLowerCase().replace(/\s+/g, "_");
-  const allowedPaymentTypes = new Set(["bank_transfer", "account", "ussd"]);
-  if (!allowedPaymentTypes.has(paymentType)) {
+  if (paymentEntity === "card" || transaction.card) {
     return false;
   }
 
   const narration = String(transaction.narration || transaction.meta || "").toLowerCase();
   if (
     narration.includes("card transaction") ||
-    narration.includes("card payment") ||
-    narration.includes("virtual account created")
+    narration.includes("card payment")
   ) {
     return false;
   }
 
   return true;
+}
+
+export async function fetchVirtualAccountFundingCandidates(
+  secretKey: string,
+  options: {
+    virtualAccount: { account_number: string; tracking_reference?: string | null };
+    customerEmail?: string;
+    fromDate: string;
+    toDate: string;
+    maxPages?: number;
+  },
+): Promise<FlutterwaveChargeData[]> {
+  const baseQuery = {
+    from: options.fromDate,
+    to: options.toDate,
+    status: "successful",
+    currency: "NGN",
+  };
+  const maxPages = options.maxPages ?? 5;
+  const customerEmail = String(options.customerEmail || "").trim().toLowerCase();
+  const seenReferences = new Set<string>();
+  const merged: FlutterwaveChargeData[] = [];
+
+  const addRows = (rows: FlutterwaveChargeData[]) => {
+    for (const row of rows) {
+      const reference = getFlutterwaveFundingReference(row);
+      if (!reference || seenReferences.has(reference)) {
+        continue;
+      }
+      seenReferences.add(reference);
+      merged.push(row);
+    }
+  };
+
+  const addMatchingRows = (rows: FlutterwaveChargeData[]) => {
+    for (const row of rows) {
+      if (!transactionBelongsToUserVirtualAccount(row, options.virtualAccount, customerEmail)) {
+        continue;
+      }
+
+      const reference = getFlutterwaveFundingReference(row);
+      if (!reference || seenReferences.has(reference)) {
+        continue;
+      }
+
+      seenReferences.add(reference);
+      merged.push(row);
+    }
+  };
+
+  if (customerEmail) {
+    addMatchingRows(await tryFetchAllFlutterwaveTransactions(secretKey, {
+      ...baseQuery,
+      customer_email: customerEmail,
+    }, maxPages, "customer_email"));
+  }
+
+  if (options.virtualAccount.tracking_reference) {
+    addMatchingRows(await tryFetchAllFlutterwaveTransactions(secretKey, {
+      ...baseQuery,
+      tx_ref: options.virtualAccount.tracking_reference,
+    }, 2, "tracking_reference"));
+  }
+
+  if (merged.length === 0) {
+    const broadRows = await tryFetchAllFlutterwaveTransactions(secretKey, baseQuery, maxPages, "broad_scan");
+    addMatchingRows(broadRows);
+  }
+
+  return merged;
 }

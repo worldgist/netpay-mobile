@@ -399,18 +399,6 @@ export default function AddMoney() {
 
         {virtualAccount ? (
           <div className="space-y-6">
-            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
-              <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-1">Funding Fee Notice</p>
-                  <p className="text-xs text-amber-800 dark:text-amber-200">
-                    A 5% processing fee (minimum ₦10) will be deducted from your transfer amount before wallet credit.
-                  </p>
-                </div>
-              </div>
-            </div>
-
             <div className="bg-card rounded-2xl border shadow-sm divide-y">
               <div className="p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">

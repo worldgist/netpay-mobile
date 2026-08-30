@@ -34,11 +34,20 @@ serve(async (req) => {
       console.warn("Flutterwave webhook sent verif-hash but FLUTTERWAVE_SECRET_HASH is not configured");
     }
 
-    const event = String(payload.event || payload.type || "");
+    const event = String(payload.event || payload.type || "").toLowerCase();
+    const nestedEvent = payload.event && typeof payload.event === "object"
+      ? payload.event as Record<string, unknown>
+      : null;
+    const nestedEventType = String(nestedEvent?.type || "").toLowerCase();
     const data = (payload.data || {}) as Record<string, unknown>;
 
-    if (event !== "charge.completed" || !isSuccessfulFlutterwaveStatus(data.status)) {
-      console.log("Ignoring Flutterwave webhook event:", event, data.status);
+    const isChargeCompleted = event === "charge.completed";
+    const isBankTransferEvent =
+      event === "bank_transfer_transaction" ||
+      nestedEventType === "bank_transfer_transaction";
+
+    if ((!isChargeCompleted && !isBankTransferEvent) || !isSuccessfulFlutterwaveStatus(data.status)) {
+      console.log("Ignoring Flutterwave webhook event:", event, nestedEventType, data.status);
       return new Response(JSON.stringify({ message: "Event ignored" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
+import { setBiometricLoginEnabled } from '@/utils/biometric-login-preference';
 import { clearAppCache } from '@/utils/clear-app-cache';
 
 import { useProfile } from '@/contexts/profile-context';
@@ -275,6 +276,11 @@ export default function ProfileScreen() {
         if (enabled) {
 
           await clearPendingBiometricReenrollment();
+          await setBiometricLoginEnabled(true);
+
+        } else {
+
+          await setBiometricLoginEnabled(false);
 
         }
 

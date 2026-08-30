@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getEBillsToken, verifyEBillsBettingCustomer, purchaseEBillsBetting, getEBillsBettingServiceId } from "../_shared/ebills-api.ts";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -15,7 +15,6 @@ serve(async (req) => {
   }
 
   try {
-    // Get authorization header for user authentication
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
@@ -24,17 +23,12 @@ serve(async (req) => {
       );
     }
 
-    // Create Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
-    });
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Verify authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' }),
@@ -114,8 +108,10 @@ serve(async (req) => {
     const chargeFee = Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100;
     const totalAmount = purchaseAmount + chargeFee;
 
+    const balanceBefore = await getUserLedgerBalance(supabase, user.id);
+
     // Check balance
-    if (profile.balance < totalAmount) {
+    if (balanceBefore < totalAmount) {
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient balance' }),
         { status: 402, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -146,10 +142,56 @@ serve(async (req) => {
       }
     }
 
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      try {
+        await creditUserWallet({
+          supabase,
+          userId: user.id,
+          amount: totalAmount,
+          transactionType: 'refund',
+          description: `Betting purchase refunded — ${reason}`,
+          reference: `${requestId}-${refSuffix}`,
+          performedBy: user.id,
+        });
+      } catch (refundError) {
+        console.error('CRITICAL: eBills betting refund failed; manual reconciliation required.', {
+          refundError,
+          userId: user.id,
+          requestId,
+          amount: totalAmount,
+          reason,
+        });
+      }
+    };
+
+    const recordBettingTransaction = async (params: {
+      reference: string;
+      status: string;
+      balanceBeforeValue: number;
+      balanceAfterValue: number;
+      amount?: number;
+      purchaseAmountValue?: number;
+      chargeFeeValue?: number;
+    }) => {
+      await supabase.from('betting_transactions').insert({
+        user_id: user.id,
+        betting_provider,
+        account_number: customer_id,
+        amount: params.amount ?? totalAmount,
+        purchase_amount: params.purchaseAmountValue ?? purchaseAmount,
+        charge_fee: params.chargeFeeValue ?? chargeFee,
+        balance_before: params.balanceBeforeValue,
+        balance_after: params.balanceAfterValue,
+        status: params.status,
+        reference: params.reference,
+        vending_provider: 'ebills',
+        performed_by: user.id,
+      });
+    };
+
     // For demo users or demo accounts, return mock successful response
     if (isDemoUser || isDemoAccount) {
       const reference = requestId || `BET-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`;
-      const balanceBefore = Number(profile.balance) || 0;
 
       const debitResult = await debitUserWallet({
         supabase,
@@ -166,22 +208,13 @@ serve(async (req) => {
         },
       });
 
-      await supabase.from('betting_transactions').insert({
-        user_id: user.id,
-        betting_provider: betting_provider,
-        account_number: customer_id,
-        amount: totalAmount,
-        purchase_amount: purchaseAmount,
-        charge_fee: chargeFee,
-        balance_before: debitResult.balanceBefore,
-        balance_after: debitResult.balanceAfter,
-        status: 'completed',
+      await recordBettingTransaction({
         reference,
-        vending_provider: 'ebills',
-        performed_by: user.id
+        status: 'completed',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
       });
 
-      // Send push notification for demo purchase
       await sendPushNotification(
         supabase,
         user.id,
@@ -193,7 +226,7 @@ serve(async (req) => {
           amount: totalAmount,
           purchase_amount: purchaseAmount,
           charge_fee: chargeFee,
-          betting_provider: betting_provider,
+          betting_provider,
           account_number: customer_id,
           status: 'completed',
         }
@@ -204,7 +237,7 @@ serve(async (req) => {
           success: true,
           data: {
             reference,
-            betting_provider: betting_provider,
+            betting_provider,
             account_number: customer_id,
             amount: totalAmount,
             purchase_amount: purchaseAmount,
@@ -223,123 +256,134 @@ serve(async (req) => {
       );
     }
 
-    // Get eBills token
-    const ebillsToken = await getEBillsToken();
-    
-    console.log('Purchasing betting credits via eBills:', {
-      requestId,
-      customerId: customer_id,
-      serviceId,
-      amount: purchaseAmount,
-      betting_provider
-    });
-
-    // Optional: Verify customer first (recommended)
-    let customerVerification = null;
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
     try {
-      customerVerification = await verifyEBillsBettingCustomer(
-        ebillsToken,
-        customer_id,
-        serviceId
-      );
-      console.log('Customer verified:', customerVerification.data.customer_name);
-    } catch (verifyError) {
-      console.warn('Customer verification failed (proceeding anyway):', verifyError);
-      // Continue with purchase even if verification fails
-    }
-
-    // Make purchase via eBills API
-    const purchaseResult = await purchaseEBillsBetting(
-      ebillsToken,
-      requestId,
-      customer_id,
-      serviceId,
-      purchaseAmount
-    );
-
-    const reference = purchaseResult.data.request_id || requestId;
-    const orderId = purchaseResult.data.order_id;
-
-    // Check if order is processing or completed
-    const isProcessing = purchaseResult.data.status === 'processing-api' || purchaseResult.message === 'ORDER PROCESSING';
-    const isCompleted = purchaseResult.data.status === 'completed-api' || purchaseResult.message === 'ORDER COMPLETED';
-    const isRefunded = purchaseResult.data.status === 'refunded' || purchaseResult.message === 'ORDER REFUNDED';
-
-    // Determine transaction status
-    let transactionStatus = 'pending';
-    if (isCompleted) {
-      transactionStatus = 'completed';
-    } else if (isProcessing) {
-      transactionStatus = 'processing';
-    } else if (isRefunded) {
-      transactionStatus = 'refunded';
-    }
-
-    // Debit wallet only if order is processing or completed (not refunded)
-    let debitResult;
-    if (!isRefunded) {
-      const balanceBefore = Number(profile.balance) || 0;
       debitResult = await debitUserWallet({
         supabase,
         userId: user.id,
         amount: totalAmount,
         transactionType: 'betting_purchase',
-        description: `Betting purchase (eBills) - ${betting_provider}`,
-        reference,
+        description: `Betting purchase (pending eBills) - ${betting_provider}`,
+        reference: requestId,
         performedBy: user.id,
         balanceBefore,
-        notification: {
-          title: isCompleted ? 'Betting purchase successful' : 'Betting purchase processing',
-          message: `₦${purchaseAmount} betting credits purchased via eBills. Reference: ${reference}.`,
-        },
       });
-    } else {
-      // For refunded orders, don't debit wallet
-      debitResult = {
-        balanceBefore: Number(profile.balance) || 0,
-        balanceAfter: Number(profile.balance) || 0,
-      };
+    } catch (debitError) {
+      console.error('Debit failed before eBills betting purchase:', debitError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitError instanceof Error
+            ? debitError.message
+            : 'Could not debit wallet for betting purchase',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Insert betting transaction record
-    const { data: transaction, error: transactionError } = await supabase
-      .from('betting_transactions')
-      .insert({
-        user_id: user.id,
-        betting_provider: betting_provider,
-        account_number: customer_id,
-        amount: isRefunded ? 0 : totalAmount,
-        purchase_amount: purchaseAmount,
-        charge_fee: isRefunded ? 0 : chargeFee,
-        balance_before: debitResult.balanceBefore,
-        balance_after: debitResult.balanceAfter,
-        status: transactionStatus,
+    console.log('Purchasing betting credits via eBills:', {
+      requestId,
+      customerId: customer_id,
+      serviceId,
+      amount: purchaseAmount,
+      betting_provider,
+    });
+
+    let customerVerification: Awaited<ReturnType<typeof verifyEBillsBettingCustomer>> | null = null;
+    try {
+      const ebillsToken = await getEBillsToken();
+      try {
+        customerVerification = await verifyEBillsBettingCustomer(
+          ebillsToken,
+          customer_id,
+          serviceId,
+        );
+        console.log('Customer verified:', customerVerification.data.customer_name);
+      } catch (verifyError) {
+        console.warn('Customer verification failed (proceeding anyway):', verifyError);
+      }
+
+      let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsBetting>>;
+      try {
+        purchaseResult = await purchaseEBillsBetting(
+          ebillsToken,
+          requestId,
+          customer_id,
+          serviceId,
+          purchaseAmount,
+        );
+      } catch (vendorError) {
+        console.error('eBills betting vendor call failed after debit:', vendorError);
+        await refundWallet(
+          vendorError instanceof Error ? vendorError.message : 'provider request failed',
+          'VENDOR-FAIL',
+        );
+        await recordBettingTransaction({
+          reference: requestId,
+          status: 'failed',
+          balanceBeforeValue: debitResult.balanceBefore,
+          balanceAfterValue: debitResult.balanceBefore,
+        });
+
+        throw vendorError;
+      }
+
+      const reference = purchaseResult.data.request_id || requestId;
+      const orderId = purchaseResult.data.order_id;
+
+      const isProcessing = purchaseResult.data.status === 'processing-api' || purchaseResult.message === 'ORDER PROCESSING';
+      const isCompleted = purchaseResult.data.status === 'completed-api' || purchaseResult.message === 'ORDER COMPLETED';
+      const isRefunded = purchaseResult.data.status === 'refunded' || purchaseResult.message === 'ORDER REFUNDED';
+
+      if (isRefunded || (!isProcessing && !isCompleted)) {
+        await refundWallet(
+          isRefunded ? 'provider refunded order' : 'provider rejected order',
+          'REF',
+        );
+        const failedStatus = isRefunded ? 'refunded' : 'failed';
+        await recordBettingTransaction({
+          reference,
+          status: failedStatus,
+          balanceBeforeValue: debitResult.balanceBefore,
+          balanceAfterValue: debitResult.balanceBefore,
+          amount: isRefunded ? 0 : totalAmount,
+          purchaseAmountValue: isRefunded ? 0 : purchaseAmount,
+          chargeFeeValue: isRefunded ? 0 : chargeFee,
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: isRefunded
+              ? 'Betting purchase was refunded by the provider. Your wallet has been credited back.'
+              : 'Betting purchase failed at the provider. Your wallet has been credited back.',
+            data: {
+              order_id: orderId,
+              reference,
+              status: failedStatus,
+              balance_before: debitResult.balanceBefore,
+              balance_after: debitResult.balanceBefore,
+            },
+          }),
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const transactionStatus = isCompleted ? 'completed' : 'processing';
+
+      await recordBettingTransaction({
         reference,
-        vending_provider: 'ebills',
-        performed_by: user.id,
-      })
-      .select()
-      .single();
+        status: transactionStatus,
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
+      });
 
-    if (transactionError) {
-      console.error('Error inserting betting transaction:', transactionError);
-      // If transaction insert fails but purchase succeeded, still return success
-      // but log the error
-    }
-
-    // Send push notification
-    if (!isRefunded) {
-      const notificationTitle = isCompleted 
-        ? 'Betting Purchase Successful' 
-        : isProcessing 
-        ? 'Betting Purchase Processing' 
-        : 'Betting Purchase Pending';
-      
+      const notificationTitle = isCompleted
+        ? 'Betting Purchase Successful'
+        : 'Betting Purchase Processing';
       const notificationMessage = isCompleted
         ? `₦${purchaseAmount.toFixed(2)} betting credits purchased via eBills. Order ID: ${orderId}. Reference: ${reference}.`
-        : isProcessing
-        ? `₦${purchaseAmount.toFixed(2)} betting credits purchase is being processed. Reference: ${reference}.`
-        : `₦${purchaseAmount.toFixed(2)} betting credits purchase is pending. Reference: ${reference}.`;
+        : `₦${purchaseAmount.toFixed(2)} betting credits purchase is being processed. Reference: ${reference}.`;
 
       await sendPushNotification(
         supabase,
@@ -353,47 +397,51 @@ serve(async (req) => {
           amount: totalAmount,
           purchase_amount: purchaseAmount,
           charge_fee: chargeFee,
-          betting_provider: betting_provider,
+          betting_provider,
           account_number: customer_id,
           customer_name: purchaseResult.data.customer_name || customerVerification?.data.customer_name,
           status: transactionStatus,
           vending_provider: 'ebills',
         }
       );
-    }
 
-    // Return response based on order status
-    return new Response(
-      JSON.stringify({
-        success: true,
-        data: {
-          order_id: orderId,
-          reference,
-          betting_provider: betting_provider,
-          account_number: customer_id,
-          customer_name: purchaseResult.data.customer_name || customerVerification?.data.customer_name,
-          customer_username: purchaseResult.data.customer_username,
-          customer_email_address: purchaseResult.data.customer_email_address,
-          customer_phone_number: purchaseResult.data.customer_phone_number,
-          amount: purchaseAmount,
-          purchase_amount: purchaseAmount,
-          charge_fee: isRefunded ? 0 : chargeFee,
-          amount_charged: isRefunded ? 0 : totalAmount,
-          total_amount: isRefunded ? 0 : totalAmount,
-          discount: purchaseResult.data.discount,
-          initial_balance: purchaseResult.data.initial_balance,
-          final_balance: purchaseResult.data.final_balance,
-          api_amount_charged: purchaseResult.data.amount_charged,
-          status: purchaseResult.data.status,
-          transaction_status: transactionStatus,
-          balance_before: debitResult.balanceBefore,
-          balance_after: debitResult.balanceAfter,
-          vending_provider: 'ebills',
-        },
-        message: purchaseResult.message,
-      }),
-      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            order_id: orderId,
+            reference,
+            betting_provider,
+            account_number: customer_id,
+            customer_name: purchaseResult.data.customer_name || customerVerification?.data.customer_name,
+            customer_username: purchaseResult.data.customer_username,
+            customer_email_address: purchaseResult.data.customer_email_address,
+            customer_phone_number: purchaseResult.data.customer_phone_number,
+            amount: purchaseAmount,
+            purchase_amount: purchaseAmount,
+            charge_fee: chargeFee,
+            amount_charged: totalAmount,
+            total_amount: totalAmount,
+            discount: purchaseResult.data.discount,
+            initial_balance: purchaseResult.data.initial_balance,
+            final_balance: purchaseResult.data.final_balance,
+            api_amount_charged: purchaseResult.data.amount_charged,
+            status: purchaseResult.data.status,
+            transaction_status: transactionStatus,
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter,
+            vending_provider: 'ebills',
+          },
+          message: purchaseResult.message,
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    } catch (innerError) {
+      if (innerError instanceof Error) {
+        throw innerError;
+      }
+      throw new Error('Betting purchase failed');
+    }
   } catch (error) {
     console.error('purchase-ebills-betting error:', error);
     

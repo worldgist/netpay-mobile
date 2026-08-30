@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
+import { buildTransactionTimestampFields, formatBankDisplayName } from '@/utils/transaction-display';
 
 export type MobileTransaction = {
   id: string;
@@ -14,12 +15,15 @@ export type MobileTransaction = {
   createdAt: string;
   formattedDate: string;
   formattedTime: string;
+  formattedDateTime: string;
   counterparty?: string | null;
   extra?: Record<string, any>;
 };
 
 const FUNDING_FEE_PERCENTAGE = 0.05;
 const MIN_FUNDING_FEE = 10;
+const TRANSFER_FEE_PERCENTAGE = 0.05;
+const MIN_TRANSFER_FEE = 10;
 
 const PURCHASE_LEDGER_TYPES = new Set([
   'airtime_purchase',
@@ -37,6 +41,37 @@ function calculateFundingFee(amount: number) {
   return Math.max(MIN_FUNDING_FEE, Math.round(percentageFee * 100) / 100);
 }
 
+function calculateTransferFee(amount: number) {
+  const percentageFee = amount * TRANSFER_FEE_PERCENTAGE;
+  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100);
+}
+
+function buildFeeMaps(
+  walletData: Array<{ transaction_type?: string | null; reference?: string | null; amount?: number | string }>,
+) {
+  const transferFees = new Map<string, number>();
+  const fundingFees = new Map<string, number>();
+
+  for (const txn of walletData) {
+    const transactionType = (txn.transaction_type || '').toLowerCase();
+    const reference = txn.reference || '';
+    const amount = Number(txn.amount) || 0;
+
+    if (!reference.endsWith('-FEE')) {
+      continue;
+    }
+
+    const baseReference = reference.slice(0, -4);
+    if (transactionType === 'transfer_fee') {
+      transferFees.set(baseReference, amount);
+    } else if (transactionType === 'funding_fee') {
+      fundingFees.set(baseReference, amount);
+    }
+  }
+
+  return { transferFees, fundingFees };
+}
+
 function collectPurchaseReferences(transactions: MobileTransaction[]) {
   const references = new Set<string>();
   for (const txn of transactions) {
@@ -52,7 +87,11 @@ function shouldHideWalletLedgerEntry(
   purchaseReferences: Set<string>,
 ) {
   const transactionType = (txn.transaction_type || '').toLowerCase();
-  if (transactionType === 'credit' || transactionType === 'refund' || transactionType === 'funding_fee') {
+  if (transactionType === 'transfer_fee' || transactionType === 'funding_fee') {
+    return true;
+  }
+
+  if (transactionType === 'credit' || transactionType === 'refund') {
     return false;
   }
 
@@ -129,7 +168,6 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
   }
 
   const airtimeTransactions: MobileTransaction[] = (airtimeRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
     return {
       id: txn.id,
       category: 'airtime',
@@ -141,14 +179,12 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       serviceType: 'Airtime VTU',
       provider: txn.network,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       extra: { phone_number: txn.phone_number },
     };
   });
 
   const dataTransactions: MobileTransaction[] = (dataRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
     return {
       id: txn.id,
       category: 'data',
@@ -160,15 +196,12 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       serviceType: 'Data Bundle',
       provider: txn.network,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       extra: { plan_validity: txn.plan_validity, phone_number: txn.phone_number },
     };
   });
 
   const electricityTransactions: MobileTransaction[] = (electricityRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
-
     let extractedToken = txn.token;
     let extractedAddress: string | null = null;
 
@@ -213,8 +246,7 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       serviceType: txn.provider || 'Electricity',
       provider: txn.provider,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       extra: {
         meterType: txn.meter_type,
         token: extractedToken,
@@ -227,8 +259,6 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
   });
 
   const educationTransactions: MobileTransaction[] = (educationRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
-
     let finalPins: { Pin: string; Serial?: string }[] = [];
     let finalPin: string | undefined;
     let finalSerial: string | undefined;
@@ -286,8 +316,7 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       serviceType: txn.exam_type ? `Education • ${txn.exam_type}` : 'Education',
       provider: txn.exam_type,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       extra: {
         phone_number: txn.phone_number,
         examType: txn.exam_type,
@@ -301,27 +330,32 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
     };
   });
 
+  const { transferFees, fundingFees } = buildFeeMaps(walletRes.data || []);
+
   const transferSent: MobileTransaction[] = (transfersSentRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
+    const amount = Number(txn.amount) || 0;
+    const transferFee = transferFees.get(txn.reference || '') ?? calculateTransferFee(amount);
     return {
       id: txn.id,
       category: 'transfer_sent',
       type: 'debit',
-      amount: Number(txn.amount) || 0,
+      amount,
       status: txn.status,
       reference: txn.reference,
       description: txn.description || 'Transfer sent',
       serviceType: 'Transfer',
       provider: null,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       counterparty: 'Recipient',
+      extra: {
+        transferFee,
+        totalDebited: amount + transferFee,
+      },
     };
   });
 
   const transferReceived: MobileTransaction[] = (transfersReceivedRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
     return {
       id: txn.id,
       category: 'transfer_received',
@@ -333,14 +367,12 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       serviceType: 'Transfer',
       provider: null,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       counterparty: 'Sender',
     };
   });
 
   const bettingTransactions: MobileTransaction[] = (bettingRes.data || []).map((txn) => {
-    const createdDate = new Date(txn.created_at);
     return {
       id: txn.id,
       category: 'betting',
@@ -352,8 +384,7 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
       serviceType: 'Betting',
       provider: txn.betting_provider,
       createdAt: txn.created_at,
-      formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-      formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+      ...buildTransactionTimestampFields(txn.created_at),
       extra: { account_number: txn.account_number, vending_provider: txn.vending_provider },
     };
   });
@@ -368,34 +399,61 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
     ...transferReceived,
   ]);
 
+  const fundingBankByReference = new Map<string, string>();
+  for (const txn of fundingRes.data || []) {
+    if (txn.reference && txn.bank_name) {
+      fundingBankByReference.set(txn.reference, txn.bank_name);
+    }
+  }
+
   const walletTransactions: MobileTransaction[] = (walletRes.data || [])
     .filter((txn) => !shouldHideWalletLedgerEntry(txn, purchaseReferences))
     .map((txn) => {
-      const createdDate = new Date(txn.created_at);
       const tt = (txn.transaction_type || '').toLowerCase();
       const isRefund = tt === 'refund';
-      const isFundingFee = tt === 'funding_fee';
       const description = txn.description || '';
       const isFlutterwaveFunding = description.toLowerCase().includes('flutterwave');
+      const reference = txn.reference || '';
+      const ledgerAmount = Number(txn.amount) || 0;
+      const isCredit = tt === 'credit' || isRefund;
+      const fundingFee = isCredit && reference ? fundingFees.get(reference) : undefined;
+      const bankName = reference ? fundingBankByReference.get(reference) : undefined;
+      const formattedBankName = bankName ? formatBankDisplayName(bankName) : null;
+      const extra =
+        fundingFee != null || formattedBankName
+          ? {
+              ...(fundingFee != null
+                ? {
+                    grossAmount: ledgerAmount + fundingFee,
+                    fundingFee,
+                    netAmount: ledgerAmount,
+                  }
+                : {}),
+              ...(formattedBankName ? { bankName: formattedBankName } : {}),
+            }
+          : undefined;
+
       return {
         id: txn.id,
         category: 'wallet' as const,
-        type: tt === 'credit' || isRefund ? ('credit' as const) : ('debit' as const),
-        amount: Number(txn.amount) || 0,
+        type: isCredit ? ('credit' as const) : ('debit' as const),
+        amount: ledgerAmount,
         status: 'Completed',
         reference: txn.reference,
         description,
-        serviceType: isFundingFee
-          ? 'Funding Fee'
-          : isRefund
-            ? 'Refund'
-            : tt === 'credit'
-              ? 'Fund Wallet'
-              : 'Wallet Transaction',
-        provider: isRefund ? null : tt === 'credit' ? (isFlutterwaveFunding ? 'Flutterwave' : 'NGN') : null,
+        serviceType: isRefund
+          ? 'Refund'
+          : tt === 'credit'
+            ? 'Fund Wallet'
+            : 'Wallet Transaction',
+        provider: isRefund
+          ? null
+          : tt === 'credit'
+            ? formattedBankName || (isFlutterwaveFunding ? 'Flutterwave' : null)
+            : null,
         createdAt: txn.created_at,
-        formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-        formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+        ...buildTransactionTimestampFields(txn.created_at),
+        extra,
       };
     });
 
@@ -406,11 +464,11 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
   const fundingTransactions: MobileTransaction[] = (fundingRes.data || [])
     .filter((txn) => txn.reference && !walletReferences.has(txn.reference))
     .map((txn) => {
-      const createdDate = new Date(txn.created_at);
       const grossAmount = Number(txn.amount) || 0;
-      const fundingFee = calculateFundingFee(grossAmount);
+      const fundingFee = (txn.reference && fundingFees.get(txn.reference)) ?? calculateFundingFee(grossAmount);
       const netAmount = grossAmount - fundingFee;
       const bankName = txn.bank_name || 'Flutterwave';
+      const formattedBankName = formatBankDisplayName(bankName);
 
       return {
         id: txn.id,
@@ -419,19 +477,18 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
         amount: netAmount,
         status: 'Completed',
         reference: txn.reference,
-        description: `Wallet funding via ${bankName} (₦${grossAmount.toLocaleString('en-NG')} received, ₦${fundingFee.toLocaleString('en-NG')} fee)`,
+        description: `Wallet funding via ${formattedBankName} (₦${grossAmount.toLocaleString('en-NG')} received, ₦${fundingFee.toLocaleString('en-NG')} fee)`,
         serviceType: 'Fund Wallet',
-        provider: 'Flutterwave',
+        provider: formattedBankName,
         createdAt: txn.created_at,
-        formattedDate: createdDate.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' }),
-        formattedTime: createdDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }),
+        ...buildTransactionTimestampFields(txn.created_at),
         extra: {
           sourceTable: 'funding_transactions',
           grossAmount,
           fundingFee,
           accountName: txn.account_name,
           accountNumber: txn.account_number,
-          bankName: bankName,
+          bankName: formattedBankName,
         },
       };
     });

@@ -1,4 +1,4 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert, Share } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert, Share, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -12,7 +12,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
-import { NGN_LOGO, FUND_WALLET_LABEL, getWalletTransactionLabel, isFundWalletTransaction } from '@/utils/transaction-display';
+import { NGN_LOGO, FUND_WALLET_LABEL, buildTransactionTimestampFields, extractFundWalletBankName, formatBankDisplayName, formatTransactionDateTime, getFundWalletDepositLabel, getTransactionDisplayDateTime, getWalletTransactionLabel, isFundWalletTransaction } from '@/utils/transaction-display';
+import { buildTransactionReportMessage, submitTransactionReport } from '@/utils/report-transaction';
 
 type DetailTransaction = {
   id: string;
@@ -33,6 +34,7 @@ type DetailTransaction = {
   createdAt: string;
   formattedDate: string;
   formattedTime: string;
+  formattedDateTime: string;
   metadata?: {
     meterType?: string;
     token?: string;
@@ -54,6 +56,8 @@ type DetailTransaction = {
     bankName?: string;
     accountName?: string;
     accountNumber?: string;
+    transferFee?: number;
+    totalDebited?: number;
   };
 };
 
@@ -91,16 +95,6 @@ const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
 const formatCurrency = (amount: number) =>
   `₦${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  return date.toLocaleDateString('en-NG', { year: 'numeric', month: 'short', day: 'numeric' });
-};
-
-const formatTime = (value: string) => {
-  const date = new Date(value);
-  return date.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
-};
-
 const parseDateTime = (dateStr?: string, timeStr?: string) => {
   const fallback = new Date();
 
@@ -131,18 +125,32 @@ const parseDateTime = (dateStr?: string, timeStr?: string) => {
 };
 
 const getStatusColor = (status: string) => {
-  switch (status.toLowerCase()) {
-    case 'completed':
-    case 'success':
-      return '#4CAF50';
-    case 'pending':
-      return '#FF9800';
-    case 'failed':
-    case 'cancelled':
-      return '#F44336';
-    default:
-      return '#666';
+  const normalized = status.toLowerCase();
+  if (normalized.includes('fail') || normalized.includes('cancel')) {
+    return '#F44336';
   }
+  if (normalized.includes('pending')) {
+    return '#FF9800';
+  }
+  if (
+    normalized.includes('success') ||
+    normalized.includes('complete') ||
+    normalized.includes('processing')
+  ) {
+    return '#4CAF50';
+  }
+  return '#4CAF50';
+};
+
+const getStatusLabel = (status: string) => {
+  const normalized = status.toLowerCase();
+  if (normalized.includes('fail') || normalized.includes('cancel')) {
+    return toTitle(status);
+  }
+  if (normalized.includes('pending')) {
+    return 'Pending';
+  }
+  return 'Completed';
 };
 
 const getTypeIcon = (type: string) => {
@@ -162,11 +170,19 @@ const getTypeColor = (type: string) => (type.toLowerCase() === 'credit' ? '#4CAF
 const getLedgerTypeLabel = (
   walletCategory: string,
   serviceType: string | null | undefined,
-  ledgerType: 'credit' | 'debit'
+  ledgerType: 'credit' | 'debit',
+  txn?: Pick<DetailTransaction, 'description' | 'provider' | 'metadata' | 'serviceType' | 'type'>,
 ) => {
   if (walletCategory === 'wallet' && (serviceType || '').toLowerCase() === 'refund') return 'Refund';
   if (walletCategory === 'wallet' && ((serviceType || '').toLowerCase() === 'fund wallet' || (serviceType || '').toLowerCase() === 'add money')) {
-    return FUND_WALLET_LABEL;
+    return getFundWalletDepositLabel({
+      category: walletCategory,
+      serviceType,
+      description: txn?.description,
+      provider: txn?.provider,
+      type: txn?.type || ledgerType,
+      metadata: txn?.metadata,
+    });
   }
   return ledgerType.charAt(0).toUpperCase() + ledgerType.slice(1);
 };
@@ -218,15 +234,129 @@ const toTitle = (value?: string | null) =>
   value ? value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) : '';
 
 const formatCurrencyPlain = (amount: number) =>
-  `N${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `₦${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const getStatusLabel = (status: string) => {
-  const normalized = status.toLowerCase();
-  if (normalized.includes('success')) return 'Success';
-  if (normalized.includes('complete')) return 'Completed';
-  if (normalized.includes('pending')) return 'Pending';
-  if (normalized.includes('fail') || normalized.includes('cancel')) return toTitle(status);
-  return toTitle(status) || 'Completed';
+const getServiceDisplayTitle = (txnCategory: string, txn: DetailTransaction) => {
+  const provider = txn.provider?.trim();
+  switch (txnCategory) {
+    case 'airtime':
+      return provider ? `${provider} Airtime VTU Topup` : 'Airtime VTU Topup';
+    case 'data':
+      return provider ? `${provider} Data Bundle` : txn.planName || 'Data Bundle';
+    case 'electricity':
+      return provider ? `${provider} Electricity Payment` : 'Electricity Payment';
+    case 'education':
+      return provider ? `${provider} Education Purchase` : 'Education Purchase';
+    case 'betting':
+      return provider ? `${provider} Betting Top-up` : 'Betting Top-up';
+    case 'transfer_sent':
+      return 'Transfer Sent';
+    case 'transfer_received':
+      return 'Transfer Received';
+    case 'wallet':
+      if (
+        isFundWalletTransaction({
+          category: txnCategory,
+          serviceType: txn.serviceType,
+          description: txn.description,
+          provider: txn.provider,
+          type: txn.type,
+          metadata: txn.metadata,
+        })
+      ) {
+        return getFundWalletDepositLabel({
+          category: txnCategory,
+          serviceType: txn.serviceType,
+          description: txn.description,
+          provider: txn.provider,
+          type: txn.type,
+          metadata: txn.metadata,
+        });
+      }
+      return getTransactionTitle(txnCategory, txn);
+    default:
+      return getTransactionTitle(txnCategory, txn);
+  }
+};
+
+const getSuccessMessage = (txnCategory: string, txn: DetailTransaction, failed: boolean) => {
+  if (failed) {
+    return 'This transaction could not be completed. Please try again or contact support.';
+  }
+
+  switch (txnCategory) {
+    case 'airtime':
+      return 'Your airtime purchase was successful.';
+    case 'data':
+      return 'Your data purchase was successful.';
+    case 'electricity':
+      return 'Your electricity payment was successful.';
+    case 'education':
+      return 'Your education purchase was successful.';
+    case 'betting':
+      return 'Your betting purchase was successful.';
+    case 'transfer_sent':
+      return 'Your transfer was sent successfully.';
+    case 'transfer_received':
+      return 'You received a transfer successfully.';
+    case 'wallet':
+      if ((txn.metadata?.transactionType || '').toLowerCase() === 'funding_fee') {
+        return 'Your funding fee was processed successfully.';
+      }
+      if (
+        isFundWalletTransaction({
+          category: txnCategory,
+          serviceType: txn.serviceType,
+          description: txn.description,
+          provider: txn.provider,
+          type: txn.type,
+          metadata: txn.metadata,
+        }) &&
+        txn.type === 'credit'
+      ) {
+        return `Your ${extractFundWalletBankName({
+          category: txnCategory,
+          serviceType: txn.serviceType,
+          description: txn.description,
+          provider: txn.provider,
+          type: txn.type,
+          metadata: txn.metadata,
+        })} deposit was successful.`;
+      }
+      if (txn.type === 'credit') {
+        return 'Your wallet was funded successfully.';
+      }
+      return 'Your wallet transaction was successful.';
+    default:
+      return 'Your transaction was successful.';
+  }
+};
+
+const getDisplayFee = (
+  txn: DetailTransaction,
+  txnCategory: string,
+  transferWithFee: boolean,
+) => {
+  if (transferWithFee && txn.metadata?.transferFee != null) {
+    return txn.metadata.transferFee;
+  }
+  if (txn.metadata?.fundingFee != null) {
+    return txn.metadata.fundingFee;
+  }
+  if ((txn.metadata?.transactionType || '').toLowerCase() === 'funding_fee') {
+    return txn.amount;
+  }
+  return 0;
+};
+
+const getRecipientDisplay = (txn: DetailTransaction, txnCategory: string) => {
+  if (txn.phoneNumber) return txn.phoneNumber;
+  if (txn.recipient) return txn.recipient;
+  if (txn.metadata?.meterNumber) return txn.metadata.meterNumber;
+  if (txn.metadata?.account_number) return txn.metadata.account_number;
+  if (txn.sender) return txn.sender;
+  if (txnCategory === 'wallet' && txn.metadata?.accountNumber) return txn.metadata.accountNumber;
+  return '';
 };
 
 const getTransactionTitle = (txnCategory: string, txn: DetailTransaction) => {
@@ -283,10 +413,17 @@ const getDetailTheme = (txnCategory: string, txn: DetailTransaction) => {
 
 const FUNDING_FEE_PERCENTAGE = 0.05;
 const MIN_FUNDING_FEE = 10;
+const TRANSFER_FEE_PERCENTAGE = 0.05;
+const MIN_TRANSFER_FEE = 10;
 
 const calculateFundingFee = (grossAmount: number) => {
   const percentageFee = grossAmount * FUNDING_FEE_PERCENTAGE;
   return Math.max(MIN_FUNDING_FEE, Math.round(percentageFee * 100) / 100);
+};
+
+const calculateTransferFee = (amount: number) => {
+  const percentageFee = amount * TRANSFER_FEE_PERCENTAGE;
+  return Math.max(MIN_TRANSFER_FEE, Math.round(percentageFee * 100) / 100);
 };
 
 const formatWalletEntryType = (transactionType?: string | null) => {
@@ -339,7 +476,7 @@ const buildFundingWalletDetail = (
   const grossAmount = Number(data.amount) || 0;
   const fundingFee = calculateFundingFee(grossAmount);
   const netAmount = grossAmount - fundingFee;
-  const bankName = data.bank_name || 'Bank Transfer';
+  const bankName = formatBankDisplayName(data.bank_name || 'Bank Transfer');
 
   return {
     id: data.id,
@@ -358,8 +495,7 @@ const buildFundingWalletDetail = (
     balanceBefore: null,
     balanceAfter: null,
     createdAt: data.created_at,
-    formattedDate: formatDate(data.created_at),
-    formattedTime: formatTime(data.created_at),
+    ...buildTransactionTimestampFields(data.created_at),
     metadata: {
       sourceTable: 'funding_transactions',
       transactionType: 'credit',
@@ -401,6 +537,16 @@ const buildUserWalletDetail = (data: {
           provider,
           type: ledgerType,
         });
+  const fundingBankName =
+    !isRefund && !isFundingFee && ledgerType === 'credit'
+      ? extractFundWalletBankName({
+          category: 'wallet',
+          description,
+          provider,
+          serviceType: tt === 'credit' ? FUND_WALLET_LABEL : serviceType,
+          type: ledgerType,
+        })
+      : null;
 
   return {
     id: data.id,
@@ -409,8 +555,11 @@ const buildUserWalletDetail = (data: {
     status: 'Completed',
     reference: data.reference,
     description,
-    serviceType,
-    provider,
+    serviceType: isFundingFee ? serviceType : tt === 'credit' && !isRefund ? FUND_WALLET_LABEL : serviceType,
+    provider:
+      fundingBankName && fundingBankName !== 'Bank Transfer'
+        ? fundingBankName
+        : provider,
     recipient: '',
     sender: '',
     phoneNumber: '',
@@ -419,10 +568,10 @@ const buildUserWalletDetail = (data: {
     balanceBefore: data.balance_before ?? null,
     balanceAfter: data.balance_after ?? null,
     createdAt: data.created_at,
-    formattedDate: formatDate(data.created_at),
-    formattedTime: formatTime(data.created_at),
+    ...buildTransactionTimestampFields(data.created_at),
     metadata: {
       transactionType: tt || (isRefund ? 'refund' : ledgerType),
+      ...(fundingBankName && fundingBankName !== 'Bank Transfer' ? { bankName: fundingBankName } : {}),
     },
   };
 };
@@ -454,6 +603,7 @@ const enrichWalletDetailFromFunding = async (
     createdAt: detail.createdAt,
     formattedDate: detail.formattedDate,
     formattedTime: detail.formattedTime,
+    formattedDateTime: detail.formattedDateTime,
   });
 
   return {
@@ -465,23 +615,125 @@ const enrichWalletDetailFromFunding = async (
   };
 };
 
+const enrichWalletDetailWithFee = async (
+  userId: string,
+  detail: DetailTransaction,
+): Promise<DetailTransaction> => {
+  if (detail.metadata?.fundingFee != null || detail.type !== 'credit' || !detail.reference) {
+    return detail;
+  }
+
+  const feeReference = `${detail.reference}-FEE`;
+  const { data: feeTxn } = await supabase
+    .from('user_transactions')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('transaction_type', 'funding_fee')
+    .eq('reference', feeReference)
+    .maybeSingle();
+
+  if (!feeTxn) {
+    return detail;
+  }
+
+  const fundingFee = Number(feeTxn.amount) || 0;
+  const netAmount = detail.amount;
+
+  return {
+    ...detail,
+    metadata: {
+      ...detail.metadata,
+      fundingFee,
+      grossAmount: netAmount + fundingFee,
+      netAmount,
+    },
+  };
+};
+
+const enrichTransferDetailWithFee = async (
+  userId: string,
+  detail: DetailTransaction,
+): Promise<DetailTransaction> => {
+  if (detail.metadata?.transferFee != null || !detail.reference) {
+    return detail;
+  }
+
+  const feeReference = `${detail.reference}-FEE`;
+  const { data: feeTxn } = await supabase
+    .from('user_transactions')
+    .select('amount')
+    .eq('user_id', userId)
+    .eq('transaction_type', 'transfer_fee')
+    .eq('reference', feeReference)
+    .maybeSingle();
+
+  const transferFee = feeTxn ? Number(feeTxn.amount) || 0 : calculateTransferFee(detail.amount);
+
+  return {
+    ...detail,
+    metadata: {
+      ...detail.metadata,
+      transferFee,
+      totalDebited: detail.amount + transferFee,
+    },
+  };
+};
+
+const resolveFundingFeeParentDetail = async (
+  userId: string,
+  feeReference: string,
+): Promise<DetailTransaction | null> => {
+  const baseReference = feeReference.replace(/-FEE$/, '');
+  if (!baseReference) {
+    return null;
+  }
+
+  const { data: fundingData } = await supabase
+    .from('funding_transactions')
+    .select('id, amount, status, reference, bank_name, account_name, account_number, created_at')
+    .eq('user_id', userId)
+    .eq('reference', baseReference)
+    .maybeSingle();
+
+  if (fundingData) {
+    return buildFundingWalletDetail(fundingData);
+  }
+
+  const { data: creditData } = await supabase
+    .from('user_transactions')
+    .select('id, amount, transaction_type, description, reference, created_at, balance_before, balance_after')
+    .eq('user_id', userId)
+    .eq('reference', baseReference)
+    .eq('transaction_type', 'credit')
+    .maybeSingle();
+
+  if (!creditData) {
+    return null;
+  }
+
+  const creditDetail = buildUserWalletDetail(creditData);
+  const withFunding = await enrichWalletDetailFromFunding(userId, creditDetail);
+  return enrichWalletDetailWithFee(userId, withFunding);
+};
+
 type DetailRowProps = {
   icon: keyof typeof MaterialIcons.glyphMap;
   label: string;
   value: string;
   onCopy?: () => void;
   multiline?: boolean;
+  isLast?: boolean;
 };
 
-function DetailRow({ icon, label, value, onCopy, multiline }: DetailRowProps) {
+function DetailRow({ icon, label, value, onCopy, multiline, isLast }: DetailRowProps) {
   return (
-    <View style={styles.detailRow}>
-      <View style={styles.detailIconCircle}>
+    <View style={[styles.detailRow, isLast && styles.detailRowLast]}>
+      <View style={styles.detailIconBox}>
         <MaterialIcons name={icon} size={18} color="#FF7F00" />
       </View>
       <ThemedText style={styles.detailLabel}>{label}</ThemedText>
       <View style={styles.detailValueWrap}>
-        <ThemedText style={styles.detailValue} numberOfLines={multiline ? 3 : 1}>
+        <ThemedText style={styles.detailValue} numberOfLines={multiline ? 3 : 2}>
           {value}
         </ThemedText>
         {onCopy ? (
@@ -527,8 +779,7 @@ function TransactionDetailsScreen() {
     balanceBefore: undefined,
     balanceAfter: undefined,
     createdAt: parsedIso,
-    formattedDate: formatDate(parsedIso),
-    formattedTime: formatTime(parsedIso),
+    ...buildTransactionTimestampFields(parsedIso),
     metadata: {
       meterType: (params.meterType as string) || '',
       token: (params.token as string) || '',
@@ -539,12 +790,21 @@ function TransactionDetailsScreen() {
       educationSerial: (params.educationSerial as string) || '',
       educationInstructions: (params.educationInstructions as string) || '',
       examType: (params.examType as string) || '',
+      transferFee: parseFloat((params.transferFee as string) || '') || undefined,
+      totalDebited: parseFloat((params.totalDebited as string) || '') || undefined,
+      grossAmount: parseFloat((params.grossAmount as string) || '') || undefined,
+      fundingFee: parseFloat((params.fundingFee as string) || '') || undefined,
+      netAmount: parseFloat((params.netAmount as string) || '') || undefined,
+      bankName: (params.bankName as string) || '',
     },
   };
 
   const [transaction, setTransaction] = useState<DetailTransaction>(initialTransaction);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportMessage, setReportMessage] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   const handleCopy = async (text: string, label: string) => {
     try {
@@ -607,16 +867,19 @@ function TransactionDetailsScreen() {
 
           if (error) throw error;
           if (data) {
-            const builtDetail = buildUserWalletDetail(data);
             const tt = (data.transaction_type || '').toLowerCase();
-            const shouldLookupFunding =
-              builtDetail.type === 'credit' &&
-              tt !== 'funding_fee' &&
-              tt !== 'refund' &&
-              !tt.includes('fee');
-            detail = shouldLookupFunding
-              ? await enrichWalletDetailFromFunding(userId, builtDetail)
-              : builtDetail;
+            if (tt === 'funding_fee') {
+              detail = await resolveFundingFeeParentDetail(userId, data.reference || '');
+            } else {
+              const builtDetail = buildUserWalletDetail(data);
+              const shouldLookupFunding =
+                builtDetail.type === 'credit' &&
+                tt !== 'refund' &&
+                !tt.includes('fee');
+              detail = shouldLookupFunding
+                ? await enrichWalletDetailWithFee(userId, await enrichWalletDetailFromFunding(userId, builtDetail))
+                : builtDetail;
+            }
           }
         }
 
@@ -677,8 +940,7 @@ function TransactionDetailsScreen() {
             balanceBefore: null,
             balanceAfter: null,
             createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
+            ...buildTransactionTimestampFields(data.created_at),
             metadata: (data as any)?.metadata || {},
           };
         }
@@ -709,8 +971,7 @@ function TransactionDetailsScreen() {
             balanceBefore: null,
             balanceAfter: null,
             createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
+            ...buildTransactionTimestampFields(data.created_at),
             metadata: (data as any)?.metadata || {},
           };
         }
@@ -798,8 +1059,7 @@ function TransactionDetailsScreen() {
             balanceBefore: null,
             balanceAfter: null,
             createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
+            ...buildTransactionTimestampFields(data.created_at),
             metadata: {
               ...((data as any)?.metadata || {}),
               meterType: data.meter_type,
@@ -892,8 +1152,7 @@ function TransactionDetailsScreen() {
             balanceBefore: data.balance_before ?? null,
             balanceAfter: data.balance_after ?? null,
             createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
+            ...buildTransactionTimestampFields(data.created_at),
             metadata: {
               ...((data as any)?.metadata || {}),
               pins: finalPins,
@@ -934,8 +1193,7 @@ function TransactionDetailsScreen() {
             balanceBefore: data.balance_before ?? null,
             balanceAfter: data.balance_after ?? null,
             createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
+            ...buildTransactionTimestampFields(data.created_at),
             metadata: {
               account_number: data.account_number,
               vending_provider: data.vending_provider,
@@ -972,10 +1230,17 @@ function TransactionDetailsScreen() {
             balanceBefore: null,
             balanceAfter: null,
             createdAt: data.created_at,
-            formattedDate: formatDate(data.created_at),
-            formattedTime: formatTime(data.created_at),
-            metadata: (data as any)?.metadata || {},
+            ...buildTransactionTimestampFields(data.created_at),
+            metadata: {
+              ...((data as any)?.metadata || {}),
+              transferFee: initialTransaction.metadata?.transferFee,
+              totalDebited: initialTransaction.metadata?.totalDebited,
+            },
           };
+
+          if (isSender) {
+            detail = await enrichTransferDetailWithFee(userId, detail);
+          }
         }
       }
 
@@ -1019,16 +1284,7 @@ function TransactionDetailsScreen() {
 
   const generateReceiptHTML = () => {
     const currentDate = new Date();
-    const formattedDate = currentDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    const formattedTime = currentDate.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
+    const receiptDateTime = formatTransactionDateTime(currentDate);
 
     return `
       <!DOCTYPE html>
@@ -1158,13 +1414,13 @@ function TransactionDetailsScreen() {
             <div class="header">
               <div class="logo">NetPay</div>
               <div class="receipt-title">Transaction Receipt</div>
-              <div class="receipt-subtitle">${formattedDate} at ${formattedTime}</div>
+              <div class="receipt-subtitle">${receiptDateTime}</div>
             </div>
 
             <div class="amount-section">
               <div class="amount-label">${showFundWalletLogo ? 'Amount Added' : isFundingFeeTxn ? 'Amount Debited' : transaction.type === 'credit' ? 'Amount Received' : 'Amount Sent'}</div>
               <div class="amount-value">${transaction.type === 'credit' ? '+' : '-'}${formatCurrency(transaction.amount)}</div>
-              <div class="status-badge">${transaction.status}</div>
+              <div class="status-badge">${getStatusLabel(transaction.status)}</div>
             </div>
 
             <div class="transaction-info">
@@ -1185,7 +1441,7 @@ function TransactionDetailsScreen() {
                 <span class="info-value">${transaction.metadata.bankName}</span>
               </div>
               ` : ''}
-              ${transaction.metadata?.accountName ? `
+              ${transaction.metadata?.accountName && !showFundWalletLogo ? `
               <div class="info-row">
                 <span class="info-label">Account Name</span>
                 <span class="info-value">${transaction.metadata.accountName}</span>
@@ -1224,7 +1480,7 @@ function TransactionDetailsScreen() {
               ` : `
               <div class="info-row">
                 <span class="info-label">Transaction Type</span>
-                <span class="info-value">${getLedgerTypeLabel(category, transaction.serviceType, transaction.type).toUpperCase()}</span>
+                <span class="info-value">${getLedgerTypeLabel(category, transaction.serviceType, transaction.type, transaction).toUpperCase()}</span>
               </div>
               ${transaction.serviceType ? `
               <div class="info-row">
@@ -1349,7 +1605,7 @@ function TransactionDetailsScreen() {
               ` : ''}
               <div class="info-row">
                 <span class="info-label">Date</span>
-                <span class="info-value">${transaction.formattedDate} ${transaction.formattedTime}</span>
+                <span class="info-value">${getTransactionDisplayDateTime(transaction)}</span>
               </div>
             </div>
 
@@ -1373,34 +1629,13 @@ function TransactionDetailsScreen() {
     `;
   };
 
-  const handlePrintReceipt = async () => {
-    try {
-      const html = generateReceiptHTML();
-      const { uri } = await Print.printToFileAsync({
-        html,
-        base64: false,
-        width: 612,
-        height: 792,
-      });
-
-      const isAvailable = await Sharing.isAvailableAsync();
-
-      if (isAvailable) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Share Receipt',
-        });
-      } else {
-        Alert.alert('Success', 'Receipt generated successfully!', [{ text: 'OK' }]);
-      }
-    } catch (error) {
-      console.error('Error generating receipt:', error);
-      Alert.alert('Error', 'Failed to generate receipt. Please try again.');
-    }
-  };
-
   const walletPaymentMethod = category === 'wallet' ? getWalletPaymentMethod(transaction) : '';
   const isFundingFeeTxn = (transaction.metadata?.transactionType || '').toLowerCase() === 'funding_fee';
+  const isTransferWithFee =
+    category === 'transfer_sent' &&
+    transaction.metadata?.transferFee != null &&
+    transaction.metadata?.totalDebited != null;
+  const displayAmount = transaction.amount;
   const amountLabel = showFundWalletLogo
     ? 'Amount Added'
     : isFundingFeeTxn
@@ -1413,9 +1648,9 @@ function TransactionDetailsScreen() {
     const sign = transaction.type === 'credit' ? '+' : '-';
     const lines = [
       getTransactionTitle(category, transaction),
-      `${amountLabel}: ${sign}${formatCurrencyPlain(transaction.amount)}`,
+      `${amountLabel}: ${sign}${formatCurrencyPlain(displayAmount)}`,
       `Status: ${getStatusLabel(transaction.status)}`,
-      `Date: ${transaction.formattedDate} • ${transaction.formattedTime}`,
+      `Date: ${getTransactionDisplayDateTime(transaction)}`,
       `Reference: ${transaction.reference || 'N/A'}`,
       `Transaction ID: ${transaction.id}`,
     ];
@@ -1426,7 +1661,9 @@ function TransactionDetailsScreen() {
       }
       if (walletPaymentMethod) lines.push(`Payment Method: ${walletPaymentMethod}`);
       if (transaction.metadata?.bankName) lines.push(`Bank Name: ${transaction.metadata.bankName}`);
-      if (transaction.metadata?.accountName) lines.push(`Account Name: ${transaction.metadata.accountName}`);
+      if (transaction.metadata?.accountName && !showFundWalletLogo) {
+        lines.push(`Account Name: ${transaction.metadata.accountName}`);
+      }
       if (transaction.metadata?.accountNumber) lines.push(`Account Number: ${transaction.metadata.accountNumber}`);
       if (transaction.metadata?.grossAmount != null) {
         lines.push(`Gross Amount: ${formatCurrencyPlain(transaction.metadata.grossAmount)}`);
@@ -1443,43 +1680,122 @@ function TransactionDetailsScreen() {
     return lines.join('\n');
   };
 
-  const handleShare = async () => {
+  const shareHtmlReceipt = async (dialogTitle = 'Share Transaction Receipt') => {
     try {
-      await Share.share({ message: buildShareMessage() });
+      const html = generateReceiptHTML();
+
+      if (Platform.OS === 'web') {
+        await Share.share({ message: buildShareMessage() });
+        return;
+      }
+
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+        width: 612,
+        height: 792,
+      });
+
+      const isAvailable = await Sharing.isAvailableAsync();
+
+      if (isAvailable) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle,
+        });
+      } else {
+        Alert.alert('Success', 'Receipt generated successfully!', [{ text: 'OK' }]);
+      }
     } catch (error) {
-      console.error('Error sharing transaction:', error);
+      console.error('Error sharing receipt:', error);
+      Alert.alert('Error', 'Failed to share receipt. Please try again.');
     }
   };
 
-  const theme = getDetailTheme(category, transaction);
-  const transactionTitle = getTransactionTitle(category, transaction);
+  const handleShare = async () => {
+    await shareHtmlReceipt('Share Transaction Receipt');
+  };
+
   const statusLabel = getStatusLabel(transaction.status);
   const isFailed =
     transaction.status.toLowerCase().includes('fail') ||
     transaction.status.toLowerCase().includes('cancel');
-  const summarySubtitle =
-    category === 'wallet'
-      ? transaction.metadata?.accountName ||
-        transaction.metadata?.bankName ||
-        transaction.metadata?.accountNumber ||
-        transaction.sender ||
-        transaction.recipient ||
-        ''
-      : transaction.recipient ||
-        transaction.phoneNumber ||
-        transaction.sender ||
-        transaction.description ||
-        '';
+  const serviceDisplayTitle = getServiceDisplayTitle(category, transaction);
+  const successMessage = getSuccessMessage(category, transaction, isFailed);
+  const feeAmount = getDisplayFee(transaction, category, isTransferWithFee);
+  const recipientDisplay = getRecipientDisplay(transaction, category);
+  const transactionIdDisplay = transaction.reference || transaction.id;
+  const showRecipient = Boolean(recipientDisplay) && !showFundWalletLogo;
+  const showFeeRow = category !== 'airtime' && category !== 'data';
+
+  const handleSubmitReport = async () => {
+    const trimmedMessage = reportMessage.trim();
+    if (!trimmedMessage) {
+      Alert.alert('Required', 'Please describe the issue with this transaction.');
+      return;
+    }
+
+    try {
+      setReportSubmitting(true);
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const session = sessionData.session;
+      if (!session) {
+        router.replace('/auth/login');
+        return;
+      }
+
+      const email = session.user.email || '';
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      const name = profile?.full_name?.trim() || email.split('@')[0] || 'NetPay User';
+      const reportTitle = serviceDisplayTitle || getTransactionTitle(category, transaction);
+      const subject = `Transaction Report - ${transaction.reference || transaction.id}`;
+      const message = buildTransactionReportMessage({
+        title: reportTitle,
+        category,
+        amount: displayAmount,
+        status: statusLabel,
+        dateTime: getTransactionDisplayDateTime(transaction),
+        reference: transaction.reference,
+        transactionId: transaction.id,
+        userMessage: trimmedMessage,
+      });
+
+      await submitTransactionReport({ name, email, subject, message });
+
+      setShowReportModal(false);
+      setReportMessage('');
+      Alert.alert(
+        'Report Submitted',
+        'Our support team will review this transaction and contact you if needed.',
+      );
+    } catch (err) {
+      console.error('Report transaction error:', err);
+      Alert.alert(
+        'Report Failed',
+        err instanceof Error ? err.message : 'Unable to submit your report. Please try again.',
+      );
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerSideButton}>
-          <MaterialIcons name="arrow-back" size={24} color="#1A2B4A" />
+          <MaterialIcons name="arrow-back" size={24} color="#FF7F00" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>Transaction Details</ThemedText>
         <TouchableOpacity onPress={handleShare} style={styles.headerSideButton}>
-          <MaterialIcons name="share" size={22} color="#1A2B4A" />
+          <MaterialIcons name="share" size={22} color="#FF7F00" />
         </TouchableOpacity>
       </View>
 
@@ -1497,217 +1813,175 @@ function TransactionDetailsScreen() {
           style={styles.scrollView}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}>
-          <View style={styles.summaryCard}>
-            <View style={[styles.summaryAccent, { backgroundColor: theme.accentColor }]} />
-            <MaterialIcons
-              name="check-circle"
-              size={120}
-              color="#4CAF50"
-              style={styles.summaryWatermark}
-            />
-            <View style={styles.summaryBody}>
-              <View style={styles.summaryLeft}>
-                <View style={[styles.summaryIconBox, { backgroundColor: theme.iconBackground }]}>
-                  {showFundWalletLogo || transactionLogo ? (
-                    <Image
-                      source={showFundWalletLogo ? NGN_LOGO : transactionLogo!}
-                      style={styles.summaryLogo}
-                      contentFit="contain"
-                    />
-                  ) : (
-                    <MaterialIcons
-                      name={getTypeIcon(transaction.type) as keyof typeof MaterialIcons.glyphMap}
-                      size={24}
-                      color={theme.accentColor}
-                    />
-                  )}
-                </View>
-                <View style={styles.summaryTextBlock}>
-                  <ThemedText style={styles.summaryTitle}>{transactionTitle}</ThemedText>
-                  {summarySubtitle ? (
-                    <ThemedText style={styles.summarySubtitle} numberOfLines={1}>
-                      {summarySubtitle}
-                    </ThemedText>
-                  ) : null}
-                  <View
-                    style={[
-                      styles.summaryStatusBadge,
-                      {
-                        backgroundColor: isFailed ? '#FFEBEE' : theme.statusBackground,
-                      },
-                    ]}>
-                    <MaterialIcons
-                      name={isFailed ? 'error-outline' : 'check-circle'}
-                      size={14}
-                      color={isFailed ? '#F44336' : theme.statusColor}
-                    />
-                    <ThemedText
-                      style={[
-                        styles.summaryStatusText,
-                        { color: isFailed ? '#F44336' : theme.statusColor },
-                      ]}>
-                      {statusLabel}
-                    </ThemedText>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.summaryAmountBlock}>
-                <ThemedText style={styles.summaryAmountLabel}>{amountLabel}</ThemedText>
-                <ThemedText
-                  style={[
-                    styles.summaryAmountValue,
-                    { color: transaction.type === 'credit' ? '#4CAF50' : '#F44336' },
-                  ]}>
-                  {transaction.type === 'credit' ? '+' : '-'}
-                  {formatCurrencyPlain(transaction.amount)}
-                </ThemedText>
-              </View>
+          <View style={[styles.heroCard, isFailed && styles.heroCardFailed]}>
+            <View style={styles.heroIconCircle}>
+              <MaterialIcons
+                name={isFailed ? 'close' : 'check'}
+                size={34}
+                color={isFailed ? '#D32F2F' : '#FF7F00'}
+              />
             </View>
+            <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.heroAmount}>
+              {formatCurrency(displayAmount)}
+            </ThemedText>
+            <View style={styles.heroStatusRow}>
+              <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.heroStatusText}>
+                {statusLabel}
+              </ThemedText>
+              {!isFailed ? (
+                <MaterialIcons name="check-circle" size={18} color="#FFFFFF" />
+              ) : null}
+            </View>
+            <ThemedText lightColor="#FFFFFF" darkColor="#FFFFFF" style={styles.heroMessage}>
+              {successMessage}
+            </ThemedText>
           </View>
 
-          <ThemedText style={styles.sectionHeading}>Transaction Information</ThemedText>
-          <View style={styles.detailsCard}>
-            <DetailRow
-              icon="credit-card"
-              label="Transaction ID"
-              value={transaction.id}
-              onCopy={() => handleCopy(transaction.id, 'Transaction ID')}
-            />
-            <DetailRow
-              icon="tag"
-              label="Reference Number"
-              value={transaction.reference || 'N/A'}
-              onCopy={() => handleCopy(transaction.reference || 'N/A', 'Reference number')}
-            />
-            <DetailRow
-              icon="event"
-              label="Date & Time"
-              value={`${transaction.formattedDate} • ${transaction.formattedTime}`}
-            />
-            {category === 'wallet' ? (
-              <>
-                <DetailRow icon="info" label="Status" value={statusLabel} />
-                {transaction.metadata?.transactionType ? (
-                  <DetailRow
-                    icon="swap-horiz"
-                    label="Entry Type"
-                    value={formatWalletEntryType(transaction.metadata.transactionType)}
-                  />
-                ) : null}
-                <DetailRow icon="payments" label="Payment Method" value={walletPaymentMethod} />
-                {transaction.metadata?.bankName ? (
-                  <DetailRow icon="account-balance" label="Bank Name" value={transaction.metadata.bankName} />
-                ) : null}
-                {transaction.metadata?.accountName ? (
-                  <DetailRow
-                    icon="person"
-                    label="Account Name"
-                    value={transaction.metadata.accountName}
-                  />
-                ) : null}
-                {transaction.metadata?.accountNumber ? (
-                  <DetailRow
-                    icon="account-box"
-                    label="Account Number"
-                    value={transaction.metadata.accountNumber}
-                    onCopy={() => handleCopy(transaction.metadata?.accountNumber || '', 'Account number')}
-                  />
-                ) : null}
-                {transaction.metadata?.grossAmount != null ? (
-                  <DetailRow
-                    icon="attach-money"
-                    label="Gross Amount"
-                    value={formatCurrencyPlain(transaction.metadata.grossAmount)}
-                  />
-                ) : null}
-                {transaction.metadata?.fundingFee != null ? (
-                  <DetailRow
-                    icon="receipt-long"
-                    label="Funding Fee"
-                    value={formatCurrencyPlain(transaction.metadata.fundingFee)}
-                  />
-                ) : null}
-                {transaction.metadata?.netAmount != null ? (
-                  <DetailRow
-                    icon="account-balance-wallet"
-                    label="Net Credit"
-                    value={formatCurrencyPlain(transaction.metadata.netAmount)}
-                  />
-                ) : null}
-                {transaction.description ? (
-                  <DetailRow icon="description" label="Details" value={transaction.description} multiline />
-                ) : null}
-              </>
-            ) : (
-              <>
-            {transaction.provider ? (
-              <DetailRow icon="cell-tower" label="Provider" value={transaction.provider} />
-            ) : null}
-            {transaction.recipient ? (
+          <View style={styles.detailsCardWrap}>
+            <View style={styles.providerLogoBadge}>
+              {showFundWalletLogo || transactionLogo ? (
+                <Image
+                  source={showFundWalletLogo ? NGN_LOGO : transactionLogo!}
+                  style={styles.providerLogo}
+                  contentFit="contain"
+                />
+              ) : (
+                <MaterialIcons
+                  name={getTypeIcon(transaction.type) as keyof typeof MaterialIcons.glyphMap}
+                  size={28}
+                  color="#FF7F00"
+                />
+              )}
+            </View>
+
+            <View style={styles.detailsCard}>
+              <ThemedText style={styles.serviceTitle}>{serviceDisplayTitle}</ThemedText>
+
+              <DetailRow icon="description" label="Amount" value={formatCurrencyPlain(displayAmount)} />
+              {showRecipient ? (
+                <DetailRow
+                  icon="phone"
+                  label="Recipient"
+                  value={recipientDisplay}
+                  onCopy={() => handleCopy(recipientDisplay, 'Recipient')}
+                />
+              ) : null}
+              {showFeeRow ? (
+                <DetailRow icon="account-balance-wallet" label="Fee" value={formatCurrencyPlain(feeAmount)} />
+              ) : null}
+              <DetailRow icon="event" label="Date & Time" value={getTransactionDisplayDateTime(transaction)} />
               <DetailRow
-                icon="person"
-                label="Recipient"
-                value={transaction.recipient}
-                onCopy={() => handleCopy(transaction.recipient || '', 'Recipient')}
+                icon="tag"
+                label="Transaction ID"
+                value={transactionIdDisplay}
+                onCopy={() => handleCopy(transactionIdDisplay, 'Transaction ID')}
               />
-            ) : null}
-            {transaction.sender ? (
-              <DetailRow icon="person-outline" label="Sender" value={transaction.sender} />
-            ) : null}
-            {transaction.phoneNumber ? (
-              <DetailRow
-                icon="phone"
-                label="Phone Number"
-                value={transaction.phoneNumber}
-                onCopy={() => handleCopy(transaction.phoneNumber || '', 'Phone number')}
-              />
-            ) : null}
-              </>
-            )}
-            {transaction.planName ? (
-              <DetailRow
-                icon="data-usage"
-                label="Plan"
-                value={`${transaction.planName}${transaction.planValidity ? ` • ${transaction.planValidity}` : ''}`}
-              />
-            ) : null}
-            {transaction.metadata?.examType ? (
-              <DetailRow icon="school" label="Exam" value={transaction.metadata.examType} />
-            ) : null}
-            {transaction.metadata?.customerName ? (
-              <DetailRow icon="badge" label="Customer" value={transaction.metadata.customerName} />
-            ) : null}
-            {transaction.metadata?.customerAddress ? (
-              <DetailRow
-                icon="home"
-                label="Address"
-                value={transaction.metadata.customerAddress}
-                onCopy={() => handleCopy(transaction.metadata?.customerAddress || '', 'Address')}
-                multiline
-              />
-            ) : null}
-            {transaction.metadata?.meterType ? (
-              <DetailRow
-                icon="bolt"
-                label="Meter Type"
-                value={transaction.metadata.meterType.toUpperCase()}
-              />
-            ) : null}
-            {transaction.metadata?.account_number ? (
-              <DetailRow
-                icon="account-circle"
-                label="Account ID / User ID"
-                value={transaction.metadata.account_number}
-                onCopy={() => handleCopy(transaction.metadata?.account_number || '', 'Account ID')}
-              />
-            ) : null}
-            {transaction.metadata?.vending_provider ? (
-              <DetailRow
-                icon="store"
-                label="Vending Provider"
-                value={transaction.metadata.vending_provider.toUpperCase()}
-              />
-            ) : null}
+
+              {category === 'wallet' ? (
+                <>
+                  {!showFundWalletLogo && transaction.metadata?.transactionType ? (
+                    <DetailRow
+                      icon="swap-horiz"
+                      label="Entry Type"
+                      value={formatWalletEntryType(transaction.metadata.transactionType)}
+                    />
+                  ) : null}
+                  {!showFundWalletLogo && transaction.metadata?.bankName ? (
+                    <DetailRow icon="account-balance" label="Bank Name" value={transaction.metadata.bankName} />
+                  ) : null}
+                  {transaction.metadata?.accountName && !showFundWalletLogo ? (
+                    <DetailRow icon="person" label="Account Name" value={transaction.metadata.accountName} />
+                  ) : null}
+                  {transaction.metadata?.accountNumber ? (
+                    <DetailRow
+                      icon="account-box"
+                      label="Account Number"
+                      value={transaction.metadata.accountNumber}
+                      onCopy={() => handleCopy(transaction.metadata?.accountNumber || '', 'Account number')}
+                    />
+                  ) : null}
+                  {!showFundWalletLogo && transaction.metadata?.grossAmount != null ? (
+                    <DetailRow
+                      icon="attach-money"
+                      label="Gross Amount"
+                      value={formatCurrencyPlain(transaction.metadata.grossAmount)}
+                    />
+                  ) : null}
+                  {!showFundWalletLogo && transaction.metadata?.netAmount != null ? (
+                    <DetailRow
+                      icon="account-balance-wallet"
+                      label="Net Credit"
+                      value={formatCurrencyPlain(transaction.metadata.netAmount)}
+                    />
+                  ) : null}
+                  {!showFundWalletLogo && transaction.description ? (
+                    <DetailRow icon="info" label="Details" value={transaction.description} multiline />
+                  ) : null}
+                </>
+              ) : null}
+
+              {category !== 'wallet' ? (
+                <>
+                  {transaction.sender ? (
+                    <DetailRow icon="person-outline" label="Sender" value={transaction.sender} />
+                  ) : null}
+                  {transaction.planName ? (
+                    <DetailRow
+                      icon="data-usage"
+                      label="Plan"
+                      value={`${transaction.planName}${transaction.planValidity ? ` • ${transaction.planValidity}` : ''}`}
+                    />
+                  ) : null}
+                  {transaction.metadata?.examType ? (
+                    <DetailRow icon="school" label="Exam" value={transaction.metadata.examType} />
+                  ) : null}
+                  {transaction.metadata?.customerName ? (
+                    <DetailRow icon="badge" label="Customer" value={transaction.metadata.customerName} />
+                  ) : null}
+                  {transaction.metadata?.customerAddress ? (
+                    <DetailRow
+                      icon="home"
+                      label="Address"
+                      value={transaction.metadata.customerAddress}
+                      onCopy={() => handleCopy(transaction.metadata?.customerAddress || '', 'Address')}
+                      multiline
+                    />
+                  ) : null}
+                  {transaction.metadata?.meterType ? (
+                    <DetailRow
+                      icon="bolt"
+                      label="Meter Type"
+                      value={transaction.metadata.meterType.toUpperCase()}
+                    />
+                  ) : null}
+                  {transaction.metadata?.account_number ? (
+                    <DetailRow
+                      icon="account-circle"
+                      label="Account ID / User ID"
+                      value={transaction.metadata.account_number}
+                      onCopy={() => handleCopy(transaction.metadata?.account_number || '', 'Account ID')}
+                    />
+                  ) : null}
+                  {transaction.metadata?.vending_provider ? (
+                    <DetailRow
+                      icon="store"
+                      label="Vending Provider"
+                      value={transaction.metadata.vending_provider.toUpperCase()}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+
+              <View style={styles.securityBanner}>
+                <MaterialIcons name="security" size={22} color="#FF7F00" />
+                <View style={styles.securityTextWrap}>
+                  <ThemedText style={styles.securityTitle}>Secure Transaction</ThemedText>
+                  <ThemedText style={styles.securityText}>
+                    This transaction is secure and your details are protected.
+                  </ThemedText>
+                </View>
+              </View>
+            </View>
           </View>
 
           {transaction.metadata?.token ? (
@@ -1770,12 +2044,83 @@ function TransactionDetailsScreen() {
             </View>
           ) : null}
 
-          <TouchableOpacity style={styles.printButton} onPress={handlePrintReceipt} activeOpacity={0.85}>
-            <MaterialIcons name="print" size={20} color="#fff" />
-            <ThemedText style={styles.printButtonText}>Print Receipt</ThemedText>
+          <TouchableOpacity
+            style={styles.reportButton}
+            onPress={() => setShowReportModal(true)}
+            activeOpacity={0.85}>
+            <MaterialIcons name="report-problem" size={20} color="#fff" />
+            <ThemedText style={styles.reportButtonText}>Report Transaction</ThemedText>
           </TouchableOpacity>
         </ScrollView>
       )}
+
+      <Modal
+        visible={showReportModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!reportSubmitting) {
+            setShowReportModal(false);
+          }
+        }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.reportModalOverlay}>
+          <View style={styles.reportModalCard}>
+            <View style={styles.reportModalHeader}>
+              <ThemedText style={styles.reportModalTitle}>Report Transaction</ThemedText>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!reportSubmitting) {
+                    setShowReportModal(false);
+                  }
+                }}
+                disabled={reportSubmitting}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ThemedText style={styles.reportModalSubtitle}>
+              Tell us what went wrong with this transaction. Include any extra details that can help our
+              support team investigate.
+            </ThemedText>
+
+            <View style={styles.reportSummaryBox}>
+              <ThemedText style={styles.reportSummaryTitle}>{serviceDisplayTitle}</ThemedText>
+              <ThemedText style={styles.reportSummaryMeta}>
+                {formatCurrencyPlain(displayAmount)} • {statusLabel}
+              </ThemedText>
+              <ThemedText style={styles.reportSummaryMeta}>
+                Ref: {transactionIdDisplay}
+              </ThemedText>
+            </View>
+
+            <TextInput
+              style={styles.reportInput}
+              placeholder="Describe the issue..."
+              placeholderTextColor="#999"
+              value={reportMessage}
+              onChangeText={setReportMessage}
+              multiline
+              textAlignVertical="top"
+              editable={!reportSubmitting}
+            />
+
+            <TouchableOpacity
+              style={[styles.reportSubmitButton, reportSubmitting && styles.reportSubmitButtonDisabled]}
+              onPress={handleSubmitReport}
+              disabled={reportSubmitting}
+              activeOpacity={0.85}>
+              {reportSubmitting ? (
+                <NetpayLoadingAnimation size={28} variant="onBrand" strokeWidth={2.5} />
+              ) : (
+                <ThemedText style={styles.reportSubmitButtonText}>Submit Report</ThemedText>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ThemedView>
   );
 }
@@ -1827,113 +2172,108 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
   },
-  summaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+  heroCard: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 20,
+    paddingTop: 28,
+    paddingBottom: 44,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    marginBottom: 0,
+  },
+  heroCardFailed: {
+    backgroundColor: '#B71C1C',
+  },
+  heroIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
-    overflow: 'hidden',
+  },
+  heroAmount: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    lineHeight: 44,
+    letterSpacing: 0.5,
+    marginBottom: 10,
+    textAlign: 'center',
+    ...Platform.select({
+      ios: {
+        textShadowColor: 'rgba(0,0,0,0.15)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+      },
+      android: {},
+    }),
+  },
+  heroStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  heroStatusText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    lineHeight: 22,
+  },
+  heroMessage: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.95)',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 8,
+  },
+  detailsCardWrap: {
+    marginTop: -20,
+    marginBottom: 16,
     position: 'relative',
+    zIndex: 1,
+  },
+  providerLogoBadge: {
+    alignSelf: 'center',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+    marginBottom: -36,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
       },
-      android: { elevation: 3 },
+      android: { elevation: 4 },
     }),
   },
-  summaryAccent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-  },
-  summaryWatermark: {
-    position: 'absolute',
-    right: -10,
-    bottom: -20,
-    opacity: 0.08,
-  },
-  summaryBody: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    padding: 16,
-    paddingLeft: 18,
-  },
-  summaryLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginRight: 12,
-  },
-  summaryIconBox: {
+  providerLogo: {
     width: 52,
     height: 52,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 8,
-    marginRight: 12,
   },
-  summaryLogo: {
-    width: '100%',
-    height: '100%',
-  },
-  summaryTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  summaryTitle: {
-    fontSize: 16,
+  serviceTitle: {
+    fontSize: 17,
     fontWeight: '700',
     color: '#1A2B4A',
-    marginBottom: 4,
-  },
-  summarySubtitle: {
-    fontSize: 13,
-    color: '#9E9E9E',
+    textAlign: 'center',
+    marginTop: 44,
     marginBottom: 8,
-  },
-  summaryStatusBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
-  },
-  summaryStatusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryAmountBlock: {
-    alignItems: 'flex-end',
-    flexShrink: 0,
-  },
-  summaryAmountLabel: {
-    fontSize: 12,
-    color: '#9E9E9E',
-    marginBottom: 4,
-  },
-  summaryAmountValue: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  sectionHeading: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1A2B4A',
-    marginBottom: 12,
+    paddingHorizontal: 16,
   },
   detailsCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
     paddingVertical: 4,
-    marginBottom: 16,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
@@ -1953,10 +2293,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#F0F0F0',
   },
-  detailIconCircle: {
+  detailRowLast: {
+    borderBottomWidth: 0,
+  },
+  detailIconBox: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 10,
     backgroundColor: '#FFF3E8',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2035,7 +2378,31 @@ const styles = StyleSheet.create({
   pinBlock: {
     marginBottom: 8,
   },
-  printButton: {
+  securityBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF3E8',
+    borderRadius: 12,
+    padding: 14,
+    margin: 14,
+    marginTop: 8,
+    gap: 12,
+  },
+  securityTextWrap: {
+    flex: 1,
+  },
+  securityTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FF7F00',
+    marginBottom: 4,
+  },
+  securityText: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+  },
+  reportButton: {
     backgroundColor: '#FF7F00',
     borderRadius: 14,
     paddingVertical: 16,
@@ -2045,7 +2412,82 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8,
   },
-  printButtonText: {
+  reportButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  reportModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  reportModalCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+  },
+  reportModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  reportModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A2B4A',
+  },
+  reportModalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  reportSummaryBox: {
+    backgroundColor: '#FFF3E8',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  reportSummaryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A2B4A',
+    marginBottom: 6,
+  },
+  reportSummaryMeta: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 2,
+  },
+  reportInput: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#333',
+    backgroundColor: '#FAFAFA',
+    marginBottom: 16,
+  },
+  reportSubmitButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  reportSubmitButtonDisabled: {
+    opacity: 0.7,
+  },
+  reportSubmitButtonText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',

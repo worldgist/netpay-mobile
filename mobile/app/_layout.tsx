@@ -16,8 +16,10 @@ import { handleAppLink } from '@/utils/handle-app-link';
 import { clearAppCache } from '@/utils/clear-app-cache';
 import { registerForPushNotifications, setupNotificationListeners, isPushNotificationsEnabled, preparePushNotificationEnvironment, getPushEnvironmentBlocker } from '@/utils/push-notifications';
 import { Platform } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import '@/utils/error-handler'; // Initialize error handler
 import { Alert, LogBox } from 'react-native';
+import { OnboardingGate } from '@/components/onboarding-gate';
 
 // Suppress handled network errors in development
 if (__DEV__) {
@@ -29,7 +31,7 @@ if (__DEV__) {
 }
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+  anchor: 'index',
   initialRouteName: 'index',
 };
 
@@ -69,6 +71,7 @@ export default function RootLayout() {
   };
 
   useEffect(() => {
+    void SplashScreen.hideAsync();
     void preparePushNotificationEnvironment();
 
     const environmentBlocker = getPushEnvironmentBlocker();
@@ -194,6 +197,7 @@ export default function RootLayout() {
         <VendingSettingsProvider>
         <TransactionsProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <OnboardingGate />
         <Stack initialRouteName="index">
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

@@ -67,6 +67,7 @@ const menuSections: MenuSection[] = [
     items: [
       { title: "Treasury", url: "/treasury", icon: Banknote },
       { title: "Wallets", url: "/wallets", icon: Wallet },
+      { title: "Virtual Accounts", url: "/virtual-accounts", icon: CreditCard },
       { title: "Ledger", url: "/ledger", icon: BookOpen },
       { title: "Transactions", url: "/transactions", icon: CreditCard },
       { title: "Platform Revenue", url: "/platform-revenue", icon: DollarSign },

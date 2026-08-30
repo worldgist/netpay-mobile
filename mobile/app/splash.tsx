@@ -1,137 +1,103 @@
-import { StyleSheet } from 'react-native';
-import { ThemedView } from '@/components/themed-view';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { supabase, isSupabaseInitialized } from '@/lib/supabase';
-import { isPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
-import { needsDeviceWelcomeSetup } from '@/utils/device-welcome';
-import { buildRouteHref } from '@/utils/router-href';
+import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ThemedText } from '@/components/themed-text';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { hasCompletedOnboarding } from '@/utils/onboarding';
 
-const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
-const EMAIL_KEY = 'supabase_email';
+const LOGO = require('@/assets/images/logo.png');
+const SPLASH_MIN_MS = 2200;
 
 export default function SplashScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const hasNavigatedRef = useRef(false);
 
   useEffect(() => {
-    let isMounted = true;
+    let active = true;
 
-    const autoSignInWithBiometric = async (email: string): Promise<boolean> => {
-      if (!isSupabaseInitialized()) {
-        return false;
+    const showSplash = async () => {
+      const [completed] = await Promise.all([
+        hasCompletedOnboarding(),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, SPLASH_MIN_MS);
+        }),
+      ]);
+
+      if (!active || hasNavigatedRef.current) {
+        return;
       }
 
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!hasHardware || !enrolled) {
-        return false;
-      }
-
-      const authResult = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Sign in with Biometrics',
-        cancelLabel: 'Cancel',
-      });
-
-      if (!authResult.success) {
-        return false;
-      }
-
-      const { data, error } = await supabase.functions.invoke('sign-in-with-biometric', {
-        body: { email },
-      });
-
-      if (error || !data?.success || !data?.token) {
-        return false;
-      }
-
-      const otpType: 'email' | 'magiclink' = data.otpType === 'magiclink' ? 'magiclink' : 'email';
-      const verifyResult = await supabase.auth.verifyOtp({
-        email,
-        token: data.token,
-        type: otpType,
-      });
-
-      return !!verifyResult.data.session && !verifyResult.error;
+      hasNavigatedRef.current = true;
+      router.replace(completed ? '/auth/login' : '/onboarding');
     };
 
-    const bootstrap = async () => {
-      try {
-        // Keep splash visible briefly for smoother startup transition.
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-
-        const storedEmailRaw = await SecureStore.getItemAsync(EMAIL_KEY);
-        const storedEmail = storedEmailRaw?.trim().toLowerCase() || '';
-        const onboardingCompleted = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_KEY);
-        const hasReturningUser = storedEmail.length > 0;
-
-        if (!onboardingCompleted && hasReturningUser) {
-          await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
-        }
-
-        if (hasReturningUser) {
-          const skipBiometric = await isPendingBiometricReenrollment();
-          if (skipBiometric) {
-            if (!isMounted) return;
-            router.replace('/auth/login');
-            return;
-          }
-
-          const biometricSignedIn = await autoSignInWithBiometric(storedEmail);
-          if (!isMounted) return;
-
-          if (biometricSignedIn) {
-            if (!isMounted) return;
-            const {
-              data: { session },
-            } = await supabase.auth.getSession();
-            if (session?.user?.id && (await needsDeviceWelcomeSetup(session.user.id))) {
-              router.replace(buildRouteHref('/setup-biometric', { from: 'new_device' }));
-              return;
-            }
-            router.replace('/(tabs)');
-            return;
-          }
-
-          router.replace('/auth/login');
-          return;
-        }
-
-        if (onboardingCompleted === 'true') {
-          router.replace('/auth/login');
-          return;
-        }
-
-        router.replace('/onboarding');
-      } catch (error) {
-        console.error('Splash bootstrap error:', error);
-        if (!isMounted) return;
-        router.replace('/auth/login');
-      }
-    };
-
-    bootstrap();
+    void showSplash();
 
     return () => {
-      isMounted = false;
+      active = false;
     };
   }, [router]);
 
   return (
-    <ThemedView style={styles.container}>
-      <NetpayLoadingAnimation />
-    </ThemedView>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={styles.content}>
+        <View style={styles.logoWrap}>
+          <Image source={LOGO} style={styles.logo} contentFit="contain" />
+        </View>
+        <ThemedText style={styles.title}>NetPay</ThemedText>
+        <ThemedText style={styles.subtitle}>Pay bills, fund your wallet, and manage everyday payments in one place.</ThemedText>
+      </View>
+
+      <View style={styles.footer}>
+        <NetpayLoadingAnimation message="Loading…" size={56} />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 32,
+  },
+  content: {
+    flex: 1,
     alignItems: 'center',
-    backgroundColor: '#fff',
+    justifyContent: 'center',
+  },
+  logoWrap: {
+    width: 120,
+    height: 120,
+    borderRadius: 28,
+    backgroundColor: '#FFF3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  logo: {
+    width: 84,
+    height: 84,
+  },
+  title: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: '#1A2B4A',
+    marginBottom: 12,
+    letterSpacing: 0.3,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#667085',
+    textAlign: 'center',
+    maxWidth: 320,
+  },
+  footer: {
+    alignItems: 'center',
+    paddingBottom: 32,
   },
 });
-

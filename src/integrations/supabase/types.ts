@@ -1264,6 +1264,44 @@ export type Database = {
           },
         ]
       }
+      user_nin: {
+        Row: {
+          id: string
+          user_id: string
+          nin: string
+          provider: string
+          verified_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          nin: string
+          provider?: string
+          verified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          nin?: string
+          provider?: string
+          verified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_nin_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       virtual_accounts: {
         Row: {
           account_name: string
@@ -1271,8 +1309,11 @@ export type Database = {
           bank_code: string
           bank_name: string
           business_id: string
+          bvn: string | null
           created_at: string
           id: string
+          nin: string | null
+          provider: string | null
           tracking_reference: string | null
           updated_at: string
           user_id: string
@@ -1283,8 +1324,11 @@ export type Database = {
           bank_code: string
           bank_name: string
           business_id: string
+          bvn?: string | null
           created_at?: string
           id?: string
+          nin?: string | null
+          provider?: string | null
           tracking_reference?: string | null
           updated_at?: string
           user_id: string
@@ -1295,13 +1339,24 @@ export type Database = {
           bank_code?: string
           bank_name?: string
           business_id?: string
+          bvn?: string | null
           created_at?: string
           id?: string
+          nin?: string | null
+          provider?: string | null
           tracking_reference?: string | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "virtual_accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_push_tokens: {
         Row: {

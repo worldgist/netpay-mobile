@@ -25,7 +25,7 @@ import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useProfile } from '@/contexts/profile-context';
 import { useTransactions, type MobileTransaction } from '@/contexts/transactions-context';
-import { getWalletTransactionLabel, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
+import { getWalletTransactionLabel, getTransactionDisplayDateTime, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
 import { buildTransactionDetailsHref } from '@/utils/transaction-navigation';
 import { FLIGHT_BOOKING_ENABLED } from '@/constants/features';
 import { writeCachedWalletBalance, readCachedWalletBalance } from '@/utils/wallet-balance-cache';
@@ -99,6 +99,7 @@ const formatNotificationTimestamp = (value: string) => {
 const formatUnreadBadgeCount = (count: number) => (count > 99 ? '99+' : String(count));
 
 const SHOW_NOTIFICATION_PANEL = false;
+const BALANCE_POLL_INTERVAL_MS = 5_000;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -305,10 +306,46 @@ export default function HomeScreen() {
     [router, fetchNotificationPreview]
   );
 
+  const refreshBalanceOnly = useCallback(async () => {
+    if (!userId) return;
+
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const nextBalance = Number(profile?.balance) || 0;
+      if (isMounted.current) {
+        setBalance(nextBalance);
+        void writeCachedWalletBalance(userId, nextBalance);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh wallet balance:', err);
+    }
+  }, [userId]);
+
   useFocusEffect(
     useCallback(() => {
       fetchDashboardData();
     }, [fetchDashboardData])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!userId) return;
+
+      const intervalId = setInterval(() => {
+        void refreshBalanceOnly();
+      }, BALANCE_POLL_INTERVAL_MS);
+
+      return () => {
+        clearInterval(intervalId);
+      };
+    }, [refreshBalanceOnly, userId]),
   );
 
   useEffect(() => {
@@ -378,8 +415,13 @@ export default function HomeScreen() {
           table: 'profiles',
           filter: `id=eq.${userId}`,
         },
-        () => {
-          fetchDashboardData({ refresh: true });
+        (payload) => {
+          const nextBalance = Number((payload.new as { balance?: number })?.balance ?? 0);
+          if (isMounted.current) {
+            setBalance(nextBalance);
+            void writeCachedWalletBalance(userId, nextBalance);
+          }
+          void refreshTransactions();
         }
       )
       .subscribe();
@@ -824,7 +866,7 @@ export default function HomeScreen() {
                   {renderTransactionIcon(txn)}
                   <View style={styles.transactionDetails}>
                     <ThemedText style={styles.transactionType}>{renderTransactionTitle(txn)}</ThemedText>
-                    <ThemedText style={styles.transactionDate}>{txn.formattedDate}</ThemedText>
+                    <ThemedText style={styles.transactionDate}>{getTransactionDisplayDateTime(txn)}</ThemedText>
                   </View>
                   <View style={styles.transactionAmountContainer}>
                     {renderTransactionAmount(txn)}
@@ -885,7 +927,7 @@ const styles = StyleSheet.create({
     height: 18,
     paddingHorizontal: 4,
     borderRadius: 9,
-    backgroundColor: '#FF7F00',
+    backgroundColor: '#F44336',
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
     alignItems: 'center',

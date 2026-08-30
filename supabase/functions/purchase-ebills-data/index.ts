@@ -9,7 +9,7 @@ import {
   generateEBillsRequestId,
   EBillsDataError,
 } from "../_shared/ebills-api.ts";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -123,7 +123,22 @@ serve(async (req) => {
       );
     }
 
-    if (!validateEBillsPhoneForNetwork(sanitizedPhone, serviceId)) {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('balance, email')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'User profile not found' }),
+        { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const isDemoUser = profile.email === 'demo@netppay.com';
+
+    if (!isDemoUser && !validateEBillsPhoneForNetwork(sanitizedPhone, serviceId)) {
       return new Response(
         JSON.stringify({
           success: false,
@@ -133,24 +148,12 @@ serve(async (req) => {
       );
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('balance, email')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Failed to fetch user profile' }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
+    const balanceBefore = await getUserLedgerBalance(supabase, user.id);
 
     const userCharged = dataPlan.custom_price ?? dataPlan.original_price ?? dataPlan.price;
     const userChargedAmount = Number(userCharged) || 0;
-    const balanceBefore = Number(profile.balance) || 0;
 
-    if (balanceBefore < userChargedAmount) {
+    if (!isDemoUser && balanceBefore < userChargedAmount) {
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient balance' }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
@@ -179,8 +182,55 @@ serve(async (req) => {
       );
     }
 
-    const isDemoUser = profile.email === 'demo@netppay.com';
     const planName = dataPlan.plan_name || 'Data Plan';
+    const networkLabel = dataPlan.network || serviceId;
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      try {
+        await creditUserWallet({
+          supabase,
+          userId: user.id,
+          amount: userChargedAmount,
+          transactionType: 'refund',
+          description: `Data purchase refunded — ${reason}`,
+          reference: `${requestId}-${refSuffix}`,
+          performedBy: user.id,
+        });
+      } catch (refundError) {
+        console.error('CRITICAL: eBills data refund failed; manual reconciliation required.', {
+          refundError,
+          userId: user.id,
+          requestId,
+          amount: userChargedAmount,
+          reason,
+        });
+      }
+    };
+
+    const recordDataTransaction = async (params: {
+      reference: string;
+      status: string;
+      balanceBeforeValue: number;
+      balanceAfterValue: number;
+      planLabel?: string;
+      apiResponse?: unknown;
+      amount?: number;
+    }) => {
+      await supabase.from('data_transactions').insert({
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: networkLabel,
+        plan_name: params.planLabel ?? planName,
+        plan_validity: dataPlan.validity || 'N/A',
+        amount: params.amount ?? userChargedAmount,
+        balance_before: params.balanceBeforeValue,
+        balance_after: params.balanceAfterValue,
+        status: params.status,
+        reference: params.reference,
+        api_response: params.apiResponse ?? null,
+        performed_by: user.id,
+      });
+    };
 
     if (isDemoUser) {
       const debitResult = await debitUserWallet({
@@ -198,18 +248,11 @@ serve(async (req) => {
         },
       });
 
-      await supabase.from('data_transactions').insert({
-        user_id: user.id,
-        phone_number: sanitizedPhone,
-        network: dataPlan.network || serviceId,
-        plan_name: planName,
-        plan_validity: dataPlan.validity || 'N/A',
-        amount: userChargedAmount,
-        balance_before: debitResult.balanceBefore,
-        balance_after: debitResult.balanceAfter,
-        status: 'success',
+      await recordDataTransaction({
         reference: requestId,
-        performed_by: user.id,
+        status: 'success',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
       });
 
       return new Response(
@@ -238,14 +281,68 @@ serve(async (req) => {
       planName,
     });
 
-    const ebillsToken = await getEBillsToken();
-    const purchaseResult = await purchaseEBillsData(
-      ebillsToken,
-      requestId,
-      sanitizedPhone,
-      serviceId,
-      variationId,
-    );
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+    try {
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        transactionType: 'data_purchase',
+        description: `Data purchase (pending eBills) - ${planName}`,
+        reference: requestId,
+        performedBy: user.id,
+        balanceBefore,
+      });
+    } catch (debitError) {
+      console.error('Debit failed before eBills data purchase:', debitError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitError instanceof Error
+            ? debitError.message
+            : 'Could not debit wallet for data purchase',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsData>>;
+    try {
+      const ebillsToken = await getEBillsToken();
+      purchaseResult = await purchaseEBillsData(
+        ebillsToken,
+        requestId,
+        sanitizedPhone,
+        serviceId,
+        variationId,
+      );
+    } catch (vendorError) {
+      console.error('eBills data vendor call failed after debit:', vendorError);
+      await refundWallet(
+        vendorError instanceof Error ? vendorError.message : 'provider request failed',
+        'VENDOR-FAIL',
+      );
+      await recordDataTransaction({
+        reference: requestId,
+        status: 'failed',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceBefore,
+        apiResponse: vendorError instanceof EBillsDataError
+          ? { code: vendorError.code, message: vendorError.message }
+          : { message: vendorError instanceof Error ? vendorError.message : 'Vendor failed' },
+      });
+
+      const message = vendorError instanceof EBillsDataError
+        ? vendorError.message
+        : vendorError instanceof Error
+          ? vendorError.message
+          : 'Data purchase failed';
+
+      return new Response(
+        JSON.stringify({ success: false, error: message }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const orderData = purchaseResult.data || {};
     const reference = String(orderData.request_id || requestId);
@@ -261,69 +358,49 @@ serve(async (req) => {
       orderData.status === 'refunded' ||
       purchaseResult.message === 'ORDER REFUNDED';
 
-    if (isRefunded) {
-      await supabase.from('data_transactions').insert({
-        user_id: user.id,
-        phone_number: sanitizedPhone,
-        network: dataPlan.network || serviceId,
-        plan_name: planName,
-        plan_validity: dataPlan.validity || 'N/A',
-        amount: 0,
-        balance_before: balanceBefore,
-        balance_after: balanceBefore,
-        status: 'refunded',
+    if (isRefunded || (!isProcessing && !isCompleted)) {
+      await refundWallet(
+        isRefunded ? 'provider refunded order' : 'provider rejected order',
+        'REF',
+      );
+      await recordDataTransaction({
         reference,
-        api_response: purchaseResult,
-        performed_by: user.id,
+        status: isRefunded ? 'refunded' : 'failed',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceBefore,
+        planLabel: orderData.data_plan || planName,
+        amount: isRefunded ? 0 : userChargedAmount,
+        apiResponse: purchaseResult,
       });
 
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Data purchase was refunded by the provider. Your wallet was not charged.',
+          error: isRefunded
+            ? 'Data purchase was refunded by the provider. Your wallet has been credited back.'
+            : 'Data purchase failed at the provider. Your wallet has been credited back.',
           data: {
             reference,
             order_id: orderId,
-            status: 'refunded',
+            status: isRefunded ? 'refunded' : 'failed',
             api_response: orderData,
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceBefore,
           },
         }),
         { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
 
-    let transactionStatus = 'pending';
-    if (isCompleted) transactionStatus = 'success';
-    else if (isProcessing) transactionStatus = 'processing';
+    const transactionStatus = isCompleted ? 'success' : 'processing';
 
-    const debitResult = await debitUserWallet({
-      supabase,
-      userId: user.id,
-      amount: userChargedAmount,
-      transactionType: 'data_purchase',
-      description: `Data purchase (eBills) - ${planName}`,
+    await recordDataTransaction({
       reference,
-      performedBy: user.id,
-      balanceBefore,
-      notification: {
-        title: isCompleted ? 'Data purchase successful' : 'Data purchase processing',
-        message: `${planName} purchased for ${sanitizedPhone}. Reference: ${reference}.`,
-      },
-    });
-
-    await supabase.from('data_transactions').insert({
-      user_id: user.id,
-      phone_number: sanitizedPhone,
-      network: dataPlan.network || serviceId,
-      plan_name: orderData.data_plan || planName,
-      plan_validity: dataPlan.validity || 'N/A',
-      amount: userChargedAmount,
-      balance_before: debitResult.balanceBefore,
-      balance_after: debitResult.balanceAfter,
       status: transactionStatus,
-      reference,
-      api_response: purchaseResult,
-      performed_by: user.id,
+      balanceBeforeValue: debitResult.balanceBefore,
+      balanceAfterValue: debitResult.balanceAfter,
+      planLabel: orderData.data_plan || planName,
+      apiResponse: purchaseResult,
     });
 
     const notificationTitle = isCompleted ? 'Data Purchase Successful' : 'Data Purchase Processing';

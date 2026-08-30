@@ -21,7 +21,7 @@ import {
   TRANSACTIONS_PAGE_SIZE,
   type MobileTransaction,
 } from '@/contexts/transactions-context';
-import { getWalletTransactionLabel, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
+import { getWalletTransactionLabel, getTransactionDisplayDateTime, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
 import { buildTransactionDetailsHref } from '@/utils/transaction-navigation';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
@@ -91,6 +91,22 @@ const FILTER_OPTIONS: { id: TransactionFilter; label: string }[] = [
 
 const TAB_BAR_HEIGHT = 64;
 
+const APP_COLORS = {
+  brand: '#FF7F00',
+  brandLight: '#FFF3E8',
+  brandBorder: '#FFD9B3',
+  textPrimary: '#1A2B4A',
+  textTitle: '#333333',
+  textSecondary: '#666666',
+  textMuted: '#9CA3AF',
+  credit: '#2E7D32',
+  debit: '#1A2B4A',
+  success: '#2E7D32',
+  successLight: '#E8F5E9',
+  error: '#D32F2F',
+  errorLight: '#FFEBEE',
+};
+
 const formatCurrency = (amount: number) =>
   `N${amount.toLocaleString('en-NG', {
     minimumFractionDigits: 2,
@@ -132,10 +148,10 @@ const getLogo = (serviceType?: string | null, provider?: string | null): ImageSo
 const getTransactionTheme = (transaction: MobileTransaction): TransactionTheme => {
   if (isFundWalletTransaction(transaction) || transaction.category === 'transfer_received') {
     return {
-      accentColor: '#4CAF50',
-      iconBackground: '#E8F5E9',
-      statusBackground: '#E8F5E9',
-      statusColor: '#4CAF50',
+      accentColor: APP_COLORS.credit,
+      iconBackground: APP_COLORS.successLight,
+      statusBackground: APP_COLORS.successLight,
+      statusColor: APP_COLORS.credit,
     };
   }
 
@@ -150,36 +166,36 @@ const getTransactionTheme = (transaction: MobileTransaction): TransactionTheme =
 
   if (transaction.category === 'wallet' && transaction.type === 'debit') {
     return {
-      accentColor: '#2196F3',
-      iconBackground: '#E3F2FD',
-      statusBackground: '#E3F2FD',
-      statusColor: '#2196F3',
+      accentColor: APP_COLORS.brand,
+      iconBackground: APP_COLORS.brandLight,
+      statusBackground: APP_COLORS.brandLight,
+      statusColor: APP_COLORS.brand,
     };
   }
 
   if (transaction.category === 'airtime') {
     return {
-      accentColor: '#FFC107',
-      iconBackground: '#FFF8E1',
-      statusBackground: '#E8F5E9',
-      statusColor: '#4CAF50',
+      accentColor: APP_COLORS.brand,
+      iconBackground: APP_COLORS.brandLight,
+      statusBackground: APP_COLORS.successLight,
+      statusColor: APP_COLORS.credit,
     };
   }
 
   if (transaction.type === 'credit') {
     return {
-      accentColor: '#4CAF50',
-      iconBackground: '#E8F5E9',
-      statusBackground: '#E8F5E9',
-      statusColor: '#4CAF50',
+      accentColor: APP_COLORS.credit,
+      iconBackground: APP_COLORS.successLight,
+      statusBackground: APP_COLORS.successLight,
+      statusColor: APP_COLORS.credit,
     };
   }
 
   return {
-    accentColor: '#FF7F00',
-    iconBackground: '#FFF3E8',
-    statusBackground: '#E8F5E9',
-    statusColor: '#4CAF50',
+    accentColor: APP_COLORS.brand,
+    iconBackground: APP_COLORS.brandLight,
+    statusBackground: APP_COLORS.successLight,
+    statusColor: APP_COLORS.credit,
   };
 };
 
@@ -354,8 +370,8 @@ export default function TransactionsScreen() {
                 {renderTransactionTitle(transaction)}
               </ThemedText>
               <View style={styles.dateRow}>
-                <MaterialIcons name="event" size={14} color="#9E9E9E" />
-                <ThemedText style={styles.transactionDate}>{transaction.formattedDate}</ThemedText>
+                <MaterialIcons name="event" size={14} color={APP_COLORS.textMuted} />
+                <ThemedText style={styles.transactionDate}>{getTransactionDisplayDateTime(transaction)}</ThemedText>
               </View>
             </View>
 
@@ -363,7 +379,7 @@ export default function TransactionsScreen() {
               <ThemedText
                 style={[
                   styles.transactionAmount,
-                  { color: transaction.type === 'credit' ? '#4CAF50' : '#F44336' },
+                  { color: transaction.type === 'credit' ? APP_COLORS.credit : APP_COLORS.debit },
                 ]}>
                 {transaction.type === 'credit' ? '+' : '-'}
                 {formatCurrency(Math.abs(Number(transaction.amount)))}
@@ -378,12 +394,12 @@ export default function TransactionsScreen() {
                 <MaterialIcons
                   name={isFailed ? 'error-outline' : 'check-circle'}
                   size={14}
-                  color={isFailed ? '#F44336' : theme.statusColor}
+                  color={isFailed ? APP_COLORS.error : theme.statusColor}
                 />
                 <ThemedText
                   style={[
                     styles.statusBadgeText,
-                    { color: isFailed ? '#F44336' : theme.statusColor },
+                    { color: isFailed ? APP_COLORS.error : theme.statusColor },
                   ]}
                   numberOfLines={1}>
                   {statusLabel}
@@ -406,7 +422,7 @@ export default function TransactionsScreen() {
           style={styles.filterButton}
           onPress={() => setShowFilterModal(true)}
           activeOpacity={0.7}>
-          <MaterialIcons name="filter-list" size={18} color="#4CAF50" />
+          <MaterialIcons name="filter-list" size={18} color={APP_COLORS.brand} />
           <ThemedText style={styles.filterButtonText}>Filter</ThemedText>
         </TouchableOpacity>
       </View>
@@ -429,7 +445,7 @@ export default function TransactionsScreen() {
         ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#4CAF50" colors={['#4CAF50']} />
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={APP_COLORS.brand} colors={[APP_COLORS.brand]} />
         }>
         {error && !showInitialLoading ? (
           <View style={styles.errorBanner}>
@@ -453,7 +469,7 @@ export default function TransactionsScreen() {
                 <MaterialIcons
                   name="chevron-left"
                   size={20}
-                  color={hasPreviousPage ? '#4CAF50' : '#BDBDBD'}
+                  color={hasPreviousPage ? APP_COLORS.brand : '#BDBDBD'}
                   style={styles.paginationIconLeft}
                 />
                 <ThemedText
@@ -476,7 +492,7 @@ export default function TransactionsScreen() {
                 <MaterialIcons
                   name="chevron-right"
                   size={20}
-                  color={hasNextPage ? '#4CAF50' : '#BDBDBD'}
+                  color={hasNextPage ? APP_COLORS.brand : '#BDBDBD'}
                   style={styles.paginationIconRight}
                 />
               </TouchableOpacity>
@@ -513,7 +529,7 @@ export default function TransactionsScreen() {
                   <ThemedText style={[styles.filterOptionText, selected && styles.filterOptionTextSelected]}>
                     {option.label}
                   </ThemedText>
-                  {selected ? <MaterialIcons name="check-circle" size={20} color="#4CAF50" /> : null}
+                  {selected ? <MaterialIcons name="check-circle" size={20} color={APP_COLORS.brand} /> : null}
                 </TouchableOpacity>
               );
             })}
@@ -544,7 +560,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#1A2B4A',
+    color: APP_COLORS.textPrimary,
   },
   filterButton: {
     flexShrink: 0,
@@ -554,14 +570,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#4CAF50',
+    borderColor: APP_COLORS.brand,
     backgroundColor: '#fff',
     gap: 6,
   },
   filterButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#4CAF50',
+    color: APP_COLORS.brand,
   },
   activeFilterBanner: {
     flexDirection: 'row',
@@ -572,12 +588,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: APP_COLORS.brandLight,
   },
   activeFilterText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#2E7D32',
+    color: APP_COLORS.brand,
     flex: 1,
   },
   scrollView: {
@@ -657,7 +673,7 @@ const styles = StyleSheet.create({
   transactionType: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#1A2B4A',
+    color: APP_COLORS.textTitle,
     marginBottom: 6,
   },
   dateRow: {
@@ -667,7 +683,8 @@ const styles = StyleSheet.create({
   },
   transactionDate: {
     fontSize: 12,
-    color: '#9E9E9E',
+    color: APP_COLORS.textSecondary,
+    flexShrink: 1,
   },
   transactionAmountContainer: {
     alignItems: 'flex-end',
@@ -699,13 +716,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
+    color: APP_COLORS.textMuted,
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 12,
-    color: '#999',
+    color: APP_COLORS.textMuted,
     textAlign: 'center',
     paddingHorizontal: 24,
   },
@@ -717,7 +734,7 @@ const styles = StyleSheet.create({
   },
   paginationLabel: {
     fontSize: 13,
-    color: '#666',
+    color: APP_COLORS.textSecondary,
     textAlign: 'center',
     marginBottom: 12,
   },
@@ -731,12 +748,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 48,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: APP_COLORS.brandLight,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#C8E6C9',
+    borderColor: APP_COLORS.brandBorder,
   },
   paginationButtonLeft: {
     marginRight: 6,
@@ -757,7 +774,7 @@ const styles = StyleSheet.create({
   paginationButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#4CAF50',
+    color: APP_COLORS.brand,
     flexShrink: 1,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : null),
   },
@@ -790,7 +807,7 @@ const styles = StyleSheet.create({
   filterSheetTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1A2B4A',
+    color: APP_COLORS.textPrimary,
   },
   filterOption: {
     flexDirection: 'row',
@@ -802,14 +819,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F0F0F0',
   },
   filterOptionSelected: {
-    backgroundColor: '#F1F8F4',
+    backgroundColor: APP_COLORS.brandLight,
   },
   filterOptionText: {
     fontSize: 15,
-    color: '#333',
+    color: APP_COLORS.textTitle,
   },
   filterOptionTextSelected: {
-    color: '#2E7D32',
+    color: APP_COLORS.brand,
     fontWeight: '600',
   },
 });

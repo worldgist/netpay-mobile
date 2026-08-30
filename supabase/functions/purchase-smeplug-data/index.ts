@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
+import { refundPurchaseWallet } from "../_shared/purchase-refund.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -249,103 +250,158 @@ serve(async (req) => {
     }
 
     const reference = `DATA-${Date.now()}-${user.id.slice(0, 8)}`;
+    const formattedAmount = `₦${userChargedAmount.toFixed(2)}`;
 
     console.log(
       `Purchasing data: ${dataPlan.plan_name} for ${sanitizedPhone} on network ${smeplugNetworkId} (resolved from ${network_id ?? resolved_network_key ?? resolvedNetworkName})`
     );
 
-    // Purchase data via SMEPLUG API
-    const response = await fetch('https://smeplug.ng/api/v1/data/purchase', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        network_id: smeplugNetworkId,
-        plan_id: parseInt(dataPlan.api_code),
-        phone: sanitizedPhone,
-        customer_reference: reference
-      }),
-    });
-
-    const responseText = await response.text();
-    let apiResponse;
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
     try {
-      if (responseText.trim().length === 0) {
-        throw new Error('Empty response from SMEPLUG data endpoint');
-      }
-      apiResponse = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse SMEPLUG response:', responseText, parseError);
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        transactionType: 'data_purchase',
+        description: `Data purchase (pending vendor) - ${dataPlan.plan_name} for ${sanitizedPhone}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+      });
+    } catch (debitError) {
+      console.error('Debit failed before SMEPlug data purchase:', debitError);
       return new Response(
         JSON.stringify({
           success: false,
-          error: `Invalid response from data provider: ${responseText.substring(0, 120)}`,
-          details: {
-            raw: responseText,
-          },
+          error: debitError instanceof Error
+            ? debitError.message
+            : 'Could not debit wallet for data purchase',
         }),
-        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
       );
     }
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      await refundPurchaseWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        purchaseReference: reference,
+        productLabel: 'Data purchase',
+        reason,
+        refSuffix,
+        performedBy: user.id,
+      });
+    };
+
+    const recordDataFailure = async (apiPayload: unknown, status: string) => {
+      const baseTransactionData = {
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: dataPlan.network || String(network_id),
+        plan_name: dataPlan.plan_name,
+        plan_validity: dataPlan.validity || 'N/A',
+        amount: userChargedAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceBefore,
+        status,
+        reference,
+        api_response: apiPayload ?? null,
+        performed_by: user.id,
+        provider: 'smeplug',
+      };
+
+      const result = await supabase.from('data_transactions').insert({
+        ...baseTransactionData,
+        api_cost: apiCostAmount,
+        admin_revenue: adminRevenue,
+      });
+
+      if (result.error) {
+        await supabase.from('data_transactions').insert(baseTransactionData);
+      }
+    };
+
+    // Purchase data via SMEPLUG API
+    let response: Response;
+    let apiResponse: Record<string, unknown>;
+    try {
+      response = await fetch('https://smeplug.ng/api/v1/data/purchase', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          network_id: smeplugNetworkId,
+          plan_id: parseInt(dataPlan.api_code),
+          phone: sanitizedPhone,
+          customer_reference: reference,
+        }),
+      });
+
+      const responseText = await response.text();
+      if (responseText.trim().length === 0) {
+        throw new Error('Empty response from SMEPLUG data endpoint');
+      }
+      apiResponse = JSON.parse(responseText) as Record<string, unknown>;
+    } catch (vendorError) {
+      console.error('SMEPLUG data vendor call failed after debit:', vendorError);
+      const reason = vendorError instanceof Error ? vendorError.message : 'provider request failed';
+      await refundWallet(reason, 'VENDOR-FAIL');
+      await recordDataFailure({ message: reason }, 'failed');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: reason || 'Data purchase failed. Your wallet has been credited back.',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
     console.log('SMEPLUG data purchase response:', JSON.stringify(apiResponse, null, 2));
 
-    // Check for actual delivery status, not just request acceptance
-    // SMEPLUG can return:
-    // - status: true (boolean) = success
-    // - status: 'success' (string) = success
-    // - status: 'delivered' (string) = success
-    // - status: 'pending' (string) = pending
-    // - status: 'processing' (string) = pending
-    // - success: true/false (boolean) = also indicates success/failure
-    const status = apiResponse?.status || apiResponse?.data?.status || '';
+    const status = apiResponse?.status || (apiResponse?.data as Record<string, unknown> | undefined)?.status || '';
     const statusLower = (typeof status === 'string' ? status : String(status || '')).toLowerCase();
     const success = apiResponse?.success;
-    const dataSuccess = apiResponse?.data?.success;
-    
-    // Check if status is boolean true (SMEPLUG sometimes returns status: true)
+    const dataSuccess = (apiResponse?.data as Record<string, unknown> | undefined)?.success;
+
     const statusIsTrue = status === true || status === 'true';
-    
-    // Only consider it successful if data is actually delivered
-    // Accept: status === true (boolean), status === 'success', status === 'delivered', or success === true
-    const isDelivered = 
+
+    const isDelivered =
       statusIsTrue ||
       statusLower === 'success' ||
       statusLower === 'delivered' ||
       success === true ||
       dataSuccess === true;
-    
-    // Check if it's pending/processing (request accepted but not yet delivered)
-    const isPending = 
+
+    const isPending =
       statusLower === 'pending' ||
       statusLower === 'processing' ||
       statusLower === 'queued';
-    
-    // Check if it failed
-    // Only mark as failed if explicitly failed
-    const isFailed = 
+
+    const isFailed =
       !response.ok ||
       statusLower === 'failed' ||
       statusLower === 'error' ||
       success === false ||
       dataSuccess === false ||
-      (status === false);
+      status === false;
 
     if (isFailed) {
-      // Extract error message from multiple possible locations
       const errorMessage =
-        apiResponse.message ||
-        apiResponse.error ||
-        apiResponse.data?.message ||
-        apiResponse.data?.error ||
-        apiResponse.response_description ||
-        apiResponse.status_message ||
-        (typeof apiResponse.details === 'string' ? apiResponse.details : null) ||
-        (apiResponse.details?.message) ||
-        (apiResponse.details?.error) ||
+        (typeof apiResponse.message === 'string' ? apiResponse.message : null) ||
+        (typeof apiResponse.error === 'string' ? apiResponse.error : null) ||
+        (typeof (apiResponse.data as Record<string, unknown> | undefined)?.message === 'string'
+          ? (apiResponse.data as Record<string, unknown>).message as string
+          : null) ||
+        (typeof (apiResponse.data as Record<string, unknown> | undefined)?.error === 'string'
+          ? (apiResponse.data as Record<string, unknown>).error as string
+          : null) ||
+        (typeof apiResponse.response_description === 'string' ? apiResponse.response_description : null) ||
+        (typeof apiResponse.status_message === 'string' ? apiResponse.status_message : null) ||
         `Data purchase failed${status ? ` (status: ${status})` : ''}`;
-      
+
       console.error('SMEPLUG data API error:', {
         errorMessage,
         httpStatus: response.status,
@@ -357,25 +413,26 @@ serve(async (req) => {
         isDelivered,
         isPending,
         isFailed,
-        fullResponse: JSON.stringify(apiResponse, null, 2)
+        fullResponse: JSON.stringify(apiResponse, null, 2),
       });
-      
+
+      await refundWallet('provider reported failure or non-success', 'REF');
+      await recordDataFailure(apiResponse, 'failed');
+
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: errorMessage,
+        JSON.stringify({
+          success: false,
+          error: `${errorMessage}. Your wallet has been credited back.`,
           details: {
             status,
             statusCode: response.status,
-            apiResponse: apiResponse
+            apiResponse,
           },
         }),
-        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
       );
     }
 
-    // If pending, we should still debit but mark as pending
-    // The webhook will update it to success when delivered
     const transactionStatus = isDelivered ? 'success' : 'pending';
     console.log('Transaction status determined:', {
       status,
@@ -385,28 +442,7 @@ serve(async (req) => {
       isDelivered,
       isPending,
       isFailed,
-      transactionStatus
-    });
-
-    const formattedAmount = `₦${userChargedAmount.toFixed(2)}`;
-
-    // Debit wallet with the amount user is charged (custom_price or original_price)
-    // This is the full amount the user pays, which includes admin markup
-    const debitResult = await debitUserWallet({
-      supabase,
-      userId: user.id,
-      amount: userChargedAmount, // Charge user the admin-set price
-      transactionType: 'data_purchase',
-      description: `Data purchase - ${dataPlan.plan_name} for ${sanitizedPhone}`,
-      reference,
-      performedBy: user.id,
-      balanceBefore,
-      notification: {
-        title: isDelivered ? 'Data purchase successful' : 'Data purchase processing',
-        message: isDelivered 
-          ? `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Reference: ${reference}.`
-          : `${formattedAmount} data bundle (${dataPlan.plan_name}) is being processed for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Reference: ${reference}.`,
-      },
+      transactionStatus,
     });
 
     // Record transaction with admin revenue tracking - CRITICAL: This must succeed

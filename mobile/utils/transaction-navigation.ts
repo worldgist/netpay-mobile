@@ -13,8 +13,8 @@ export function buildTransactionDetailsHref(transaction: MobileTransaction): Hre
     description: transaction.description || '',
     serviceType: transaction.serviceType || '',
     network: transaction.provider || '',
-    date: transaction.formattedDate,
-    time: transaction.formattedTime,
+    date: transaction.createdAt,
+    time: '',
     meterType: transaction.extra?.meterType || '',
     token: transaction.extra?.token || '',
     meterNumber: transaction.extra?.meter_number || '',
@@ -28,5 +28,11 @@ export function buildTransactionDetailsHref(transaction: MobileTransaction): Hre
     accountNumber: transaction.extra?.account_number || '',
     vendingProvider: transaction.extra?.vending_provider || '',
     sourceTable: transaction.extra?.sourceTable || '',
+    transferFee: transaction.extra?.transferFee?.toString() || '',
+    totalDebited: transaction.extra?.totalDebited?.toString() || '',
+    grossAmount: transaction.extra?.grossAmount?.toString() || '',
+    fundingFee: transaction.extra?.fundingFee?.toString() || '',
+    netAmount: transaction.extra?.netAmount?.toString() || '',
+    bankName: transaction.extra?.bankName || transaction.provider || '',
   });
 }

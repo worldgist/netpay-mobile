@@ -44,7 +44,7 @@ export function ConfirmTransferModal({
       animationType="slide"
       onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, loading && styles.modalContentDisabled]} pointerEvents={loading ? 'none' : 'auto'}>
+        <View style={styles.modalContent} pointerEvents={loading ? 'none' : 'auto'}>
           {/* Header */}
           <View style={styles.header}>
             <ThemedText style={styles.headerTitle}>Confirm Transfer</ThemedText>
@@ -110,9 +110,7 @@ export function ConfirmTransferModal({
               </View>
               <View style={[styles.summaryRow, styles.summaryRowLast]}>
                 <ThemedText style={styles.summaryLabel}>Status</ThemedText>
-                <ThemedText style={[styles.statusValue, loading && styles.statusValueProcessing]}>
-                  {loading ? 'Processing…' : 'Ready'}
-                </ThemedText>
+                <ThemedText style={styles.statusValue}>Ready</ThemedText>
               </View>
             </View>
 
@@ -132,23 +130,16 @@ export function ConfirmTransferModal({
             activeOpacity={loading ? 1 : 0.8}
             disabled={loading}
           >
-            {loading ? (
-              <View style={styles.confirmButtonContent}>
-                <NetpayLoadingAnimation size={40} strokeWidth={2.5} variant="onBrand" />
-                <ThemedText style={[styles.confirmButtonText, styles.confirmButtonTextLoading]}>Processing…</ThemedText>
-              </View>
-            ) : (
-              <ThemedText style={styles.confirmButtonText}>Confirm Transfer</ThemedText>
-            )}
+            <ThemedText style={styles.confirmButtonText}>Confirm Transfer</ThemedText>
           </TouchableOpacity>
         </View>
-        {loading && (
+        {loading ? (
           <View style={styles.loadingOverlay} pointerEvents="auto">
             <View style={styles.loadingCard}>
               <NetpayLoadingAnimation message="Processing transfer…" />
             </View>
           </View>
-        )}
+        ) : null}
       </View>
     </Modal>
   );
@@ -169,9 +160,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     maxHeight: '85%',
     width: '100%',
-  },
-  modalContentDisabled: {
-    opacity: 0.5,
   },
   scrollView: {
     flex: 1,
@@ -276,9 +264,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4CAF50',
   },
-  statusValueProcessing: {
-    color: '#FF9800',
-  },
   warningContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFF3E0',
@@ -303,15 +288,6 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     opacity: 0.7,
   },
-  confirmButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  confirmButtonTextLoading: {
-    marginLeft: 4,
-  },
   confirmButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -319,6 +295,7 @@ const styles = StyleSheet.create({
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     justifyContent: 'center',
     alignItems: 'center',
   },

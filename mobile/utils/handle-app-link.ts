@@ -125,7 +125,7 @@ export function handleAppLink(url: string): void {
   }
 
   if (path === 'open/app' || path === 'open') {
-    router.replace('/splash');
+    router.replace('/auth/login');
     return;
   }
 

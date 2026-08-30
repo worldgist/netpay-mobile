@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
+import { getEbillsOrderStatus } from "../_shared/purchase-refund.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -365,26 +366,92 @@ serve(async (req) => {
           );
         }
 
-        // Get eBills service ID
+        // Get eBills service ID and debit wallet before calling provider
         const serviceId = getEBillsElectricityServiceId(provider);
-        
-        // Get eBills token
-        const ebillsToken = await getEBillsToken();
-        
-        // Generate unique request ID
         const requestId = generateEBillsRequestId(user.id);
-        
+        const reference = requestId;
+
+        const refundWallet = async (reason: string, refSuffix: string) => {
+          try {
+            await creditUserWallet({
+              supabase,
+              userId: user.id,
+              amount: totalAmount,
+              transactionType: 'refund',
+              description: `Electricity purchase refunded — ${reason}`,
+              reference: `${reference}-${refSuffix}`,
+              performedBy: user.id,
+            });
+          } catch (refundError) {
+            console.error('CRITICAL: eBills electricity refund failed; manual reconciliation required.', {
+              refundError,
+              userId: user.id,
+              reference,
+              amount: totalAmount,
+              reason,
+            });
+          }
+        };
+
+        const recordElectricityFailure = async (params: {
+          status: string;
+          apiResponse?: unknown;
+        }) => {
+          await supabase.from('electricity_transactions').insert({
+            user_id: user.id,
+            meter_number: meter_number,
+            provider: provider,
+            meter_type: meter_type,
+            amount: totalAmount,
+            purchase_amount: purchaseAmount,
+            charge_fee: chargeFee,
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceBefore,
+            status: params.status,
+            reference,
+            api_response: params.apiResponse ?? null,
+            vending_provider: 'ebills',
+            performed_by: user.id,
+          });
+        };
+
+        let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+        try {
+          debitResult = await debitUserWallet({
+            supabase,
+            userId: user.id,
+            amount: totalAmount,
+            transactionType: 'electricity_purchase',
+            description: `Electricity purchase (pending eBills) - ${provider} ${meter_type}`,
+            reference,
+            performedBy: user.id,
+            balanceBefore: Number(profile.balance) || 0,
+          });
+        } catch (debitError) {
+          console.error('Debit failed before eBills electricity purchase:', debitError);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: debitError instanceof Error
+                ? debitError.message
+                : 'Could not debit wallet for electricity purchase',
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
+
         console.log('Purchasing electricity via eBills:', {
           requestId,
           customerId: meter_number,
           serviceId,
           variationId: normalizedMeterType,
           amount: purchaseAmount,
-          provider
+          provider,
         });
 
-        // Make purchase via eBills API
-        let purchaseResult;
+        const ebillsToken = await getEBillsToken();
+
+        let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsElectricity>>;
         try {
           purchaseResult = await purchaseEBillsElectricity(
             ebillsToken,
@@ -394,19 +461,70 @@ serve(async (req) => {
             purchaseAmount,
             normalizedMeterType,
           );
-        } catch (purchaseError: any) {
+        } catch (purchaseError: unknown) {
           console.error('Error purchasing electricity via eBills API:', purchaseError);
-          throw new Error(purchaseError?.message || 'Failed to purchase electricity via eBills. Please try again.');
+          const reason = purchaseError instanceof Error ? purchaseError.message : 'provider request failed';
+          await refundWallet(reason, 'VENDOR-FAIL');
+          await recordElectricityFailure({
+            status: 'failed',
+            apiResponse: { message: reason },
+          });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: reason || 'Failed to purchase electricity via eBills. Your wallet has been credited back.',
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
         }
 
-        // Validate purchase result structure
         if (!purchaseResult || !purchaseResult.data) {
           console.error('Invalid purchase result structure:', purchaseResult);
-          throw new Error('Invalid response from eBills API. Please try again.');
+          await refundWallet('invalid provider response', 'INVALID-RESP');
+          await recordElectricityFailure({
+            status: 'failed',
+            apiResponse: purchaseResult ?? null,
+          });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'Invalid response from eBills API. Your wallet has been credited back.',
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
         }
 
-        const reference = purchaseResult.data.request_id || `ELEC-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`;
         const orderId = purchaseResult.data.order_id;
+        const orderStatus = getEbillsOrderStatus(purchaseResult);
+        const isProcessing = orderStatus.isProcessing;
+        const isCompleted = orderStatus.isCompleted;
+        const isRefunded = orderStatus.isRefunded;
+
+        if (orderStatus.shouldRefund) {
+          await refundWallet(
+            isRefunded ? 'provider refunded order' : 'provider rejected order',
+            'REF',
+          );
+          await recordElectricityFailure({
+            status: isRefunded ? 'refunded' : 'failed',
+            apiResponse: purchaseResult,
+          });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: isRefunded
+                ? 'Electricity purchase was refunded by the provider. Your wallet has been credited back.'
+                : 'Electricity purchase failed at the provider. Your wallet has been credited back.',
+              data: {
+                reference,
+                status: isRefunded ? 'refunded' : 'failed',
+                balance_before: debitResult.balanceBefore,
+                balance_after: debitResult.balanceBefore,
+              },
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
 
         // Log the full response for debugging
         console.log('eBills purchase response:', {
@@ -424,16 +542,6 @@ serve(async (req) => {
 
         // Check if order is processing or completed
         // eBills status values: 'processing-api', 'completed-api', 'refunded'
-        const statusLower = (purchaseResult.data?.status || '').toLowerCase();
-        const messageLower = (purchaseResult.message || '').toLowerCase();
-        const isProcessing = statusLower === 'processing-api' || 
-                            statusLower === 'processing' ||
-                            messageLower.includes('processing');
-        const isCompleted = statusLower === 'completed-api' || 
-                           statusLower === 'completed' ||
-                           messageLower.includes('completed');
-        const isRefunded = statusLower === 'refunded' || 
-                          messageLower.includes('refunded');
 
         // Extract token from response - check multiple locations
         // Token can be null when processing, or a string when completed
@@ -493,36 +601,8 @@ serve(async (req) => {
           customerName,
         });
 
-        // Debit wallet only if order is processing or completed (not refunded)
-        let debitResult;
-        if (!isRefunded) {
-          const balanceBefore = Number(profile.balance) || 0;
-          debitResult = await debitUserWallet({
-            supabase,
-            userId: user.id,
-            amount: totalAmount,
-            transactionType: 'electricity_purchase',
-            description: `Electricity purchase (eBills) - ${provider} ${meter_type}`,
-            reference,
-            performedBy: user.id,
-            balanceBefore,
-            notification: {
-              title: 'Electricity purchase successful',
-              message: `₦${totalAmount.toFixed(2)} electricity purchased via eBills. ${isCompleted && token ? `Token: ${token}` : 'Processing...'}. Reference: ${reference}.`,
-            },
-          });
-        } else {
-          // If refunded, don't debit wallet
-          debitResult = {
-            balanceBefore: Number(profile.balance) || 0,
-            balanceAfter: Number(profile.balance) || 0,
-          };
-        }
-
-        // Determine transaction status
-        // Use 'completed' for completed (consistent with other transaction types), 'processing' for processing, 'refunded' for refunded
-        // Note: Some parts of the codebase expect 'completed' instead of 'success'
-        const transactionStatus = isRefunded ? 'refunded' : (isCompleted ? 'completed' : 'processing');
+        // Wallet already debited — keep debit when processing or completed
+        const transactionStatus = isCompleted ? 'completed' : 'processing';
 
         // Record transaction in electricity_transactions table
         const transactionData = {
@@ -530,7 +610,7 @@ serve(async (req) => {
           meter_number: meter_number,
           provider: provider,
           meter_type: meter_type,
-          amount: isRefunded ? 0 : totalAmount,
+          amount: totalAmount,
           purchase_amount: purchaseAmount,
           charge_fee: chargeFee,
           balance_before: debitResult.balanceBefore,
@@ -652,26 +732,24 @@ serve(async (req) => {
         });
 
         // Send push notification
-        if (!isRefunded) {
-          await sendPushNotification(
-            supabase,
-            user.id,
-            'Electricity Purchase Successful',
-            `₦${totalAmount.toFixed(2)} electricity purchased via eBills. ${isCompleted && token ? `Token: ${token}` : 'Processing...'}. Reference: ${reference}.`,
-            {
-              type: 'electricity_purchase',
-              reference,
-              amount: totalAmount,
-              provider,
-              meter_type,
-              token: token,
-            }
-          );
-        }
+        await sendPushNotification(
+          supabase,
+          user.id,
+          'Electricity Purchase Successful',
+          `₦${totalAmount.toFixed(2)} electricity purchased via eBills. ${isCompleted && token ? `Token: ${token}` : 'Processing...'}. Reference: ${reference}.`,
+          {
+            type: 'electricity_purchase',
+            reference,
+            amount: totalAmount,
+            provider,
+            meter_type,
+            token: token,
+          }
+        );
 
         // Send email receipt notification
         // Always send email receipt, even if token is processing (will show "Processing...")
-        if (!isRefunded && profile.email) {
+        if (profile.email) {
           try {
             const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
             const emailFunctionUrl = `${supabaseUrl}/functions/v1/send-purchase-email`;
@@ -752,7 +830,7 @@ serve(async (req) => {
               meter_number: meter_number,
               provider: provider,
               meter_type: meter_type,
-              amount: isRefunded ? 0 : totalAmount,
+              amount: totalAmount,
               purchase_amount: purchaseAmount,
               charge_fee: chargeFee,
               vendor: 'ebills',
@@ -765,11 +843,9 @@ serve(async (req) => {
               customer_address: customerAddress,
               ebills_response: purchaseResult.data
             },
-            message: isRefunded 
-              ? 'Order was refunded' 
-              : isCompleted 
-                ? 'Electricity purchased successfully via eBills' 
-                : 'Electricity purchase is processing',
+            message: isCompleted
+              ? 'Electricity purchased successfully via eBills'
+              : 'Electricity purchase is processing',
           }),
           { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
         );

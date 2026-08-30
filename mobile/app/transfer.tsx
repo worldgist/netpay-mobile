@@ -467,16 +467,10 @@ export default function TransferScreen() {
             onPress={handleTransfer}
             disabled={!canTransfer}
           >
-            {transferLoading ? (
-              <NetpayLoadingAnimation size={44} variant="onBrand" strokeWidth={2.5} />
-            ) : (
-              <>
-                <MaterialIcons name="send" size={20} color="#fff" style={styles.transferIcon} />
-                <ThemedText style={styles.transferButtonText}>
-                  Transfer ₦{amountValue > 0 ? amountValue.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-                </ThemedText>
-              </>
-            )}
+            <MaterialIcons name="send" size={20} color="#fff" style={styles.transferIcon} />
+            <ThemedText style={styles.transferButtonText}>
+              Transfer ₦{amountValue > 0 ? amountValue.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+            </ThemedText>
           </TouchableOpacity>
 
           <View style={styles.noteContainer}>

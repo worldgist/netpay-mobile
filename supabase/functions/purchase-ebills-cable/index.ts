@@ -5,7 +5,8 @@ import {
   getEBillsServiceId,
   purchaseEBillsCableTV,
 } from "../_shared/ebills-api.ts";
-import { debitUserWallet } from "../_shared/wallet.ts";
+import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
+import { getEbillsOrderStatus } from "../_shared/purchase-refund.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -101,7 +102,7 @@ serve(async (req) => {
     }
 
     const isDemoUser = profile.email === 'demo@netppay.com';
-    const balanceBefore = Number(profile.balance) || 0;
+    const balanceBefore = await getUserLedgerBalance(supabase, user.id);
 
     if (balanceBefore < totalAmount) {
       return new Response(
@@ -112,6 +113,53 @@ serve(async (req) => {
 
     const reference = `CABLE-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`;
     const serviceId = getEBillsServiceId(provider);
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      try {
+        await creditUserWallet({
+          supabase,
+          userId: user.id,
+          amount: totalAmount,
+          transactionType: 'refund',
+          description: `Cable TV purchase refunded — ${reason}`,
+          reference: `${reference}-${refSuffix}`,
+          performedBy: user.id,
+        });
+      } catch (refundError) {
+        console.error('CRITICAL: eBills cable refund failed; manual reconciliation required.', {
+          refundError,
+          userId: user.id,
+          reference,
+          amount: totalAmount,
+          reason,
+        });
+      }
+    };
+
+    const recordCableTransaction = async (params: {
+      status: string;
+      balanceBeforeValue: number;
+      balanceAfterValue: number;
+      customerName?: string | null;
+      apiResponse?: unknown;
+    }) => {
+      await supabase.from('cable_tv_transactions').insert({
+        user_id: user.id,
+        smartcard_number: card_number,
+        provider,
+        plan_name: package_name,
+        customer_name: params.customerName ?? customer_name ?? null,
+        amount: totalAmount,
+        purchase_amount: purchaseAmount,
+        charge_fee: chargeFee,
+        balance_before: params.balanceBeforeValue,
+        balance_after: params.balanceAfterValue,
+        status: params.status,
+        reference,
+        api_response: params.apiResponse ?? null,
+        performed_by: user.id,
+      });
+    };
 
     if (isDemoUser) {
       const debitResult = await debitUserWallet({
@@ -129,19 +177,10 @@ serve(async (req) => {
         },
       });
 
-      await supabase.from('cable_tv_transactions').insert({
-        user_id: user.id,
-        smartcard_number: card_number,
-        provider,
-        plan_name: package_name,
-        amount: totalAmount,
-        purchase_amount: purchaseAmount,
-        charge_fee: chargeFee,
-        balance_before: debitResult.balanceBefore,
-        balance_after: debitResult.balanceAfter,
+      await recordCableTransaction({
         status: 'success',
-        reference,
-        performed_by: user.id,
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
       });
 
       return new Response(
@@ -165,45 +204,106 @@ serve(async (req) => {
       );
     }
 
-    const ebillsToken = await getEBillsToken();
-    const purchaseResult = await purchaseEBillsCableTV(
-      ebillsToken,
-      card_number,
-      serviceId,
-      api_code,
-      purchaseAmount,
-    );
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+    try {
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: totalAmount,
+        transactionType: 'cable_purchase',
+        description: `Cable TV purchase (pending eBills) - ${package_name}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+      });
+    } catch (debitError) {
+      console.error('Debit failed before eBills cable purchase:', debitError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitError instanceof Error
+            ? debitError.message
+            : 'Could not debit wallet for cable purchase',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    const debitResult = await debitUserWallet({
-      supabase,
-      userId: user.id,
-      amount: totalAmount,
-      transactionType: 'purchase',
-      description: `${provider} - ${package_name} - ${card_number}`,
-      reference,
-      performedBy: user.id,
-      balanceBefore,
-      notification: {
-        title: 'Cable TV purchase successful',
-        message: `₦${totalAmount.toFixed(2)} paid for ${provider} (${package_name}) smart card ${card_number}. Reference: ${reference}.`,
-      },
-    });
+    let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsCableTV>>;
+    try {
+      const ebillsToken = await getEBillsToken();
+      purchaseResult = await purchaseEBillsCableTV(
+        ebillsToken,
+        card_number,
+        serviceId,
+        api_code,
+        purchaseAmount,
+      );
+    } catch (vendorError) {
+      console.error('eBills cable vendor call failed after debit:', vendorError);
+      await refundWallet(
+        vendorError instanceof Error ? vendorError.message : 'provider request failed',
+        'VENDOR-FAIL',
+      );
+      await recordCableTransaction({
+        status: 'failed',
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceBefore,
+        apiResponse: {
+          message: vendorError instanceof Error ? vendorError.message : 'Vendor failed',
+        },
+      });
 
-    await supabase.from('cable_tv_transactions').insert({
-      user_id: user.id,
-      smartcard_number: card_number,
-      provider,
-      plan_name: package_name,
-      customer_name: customer_name || purchaseResult.data?.customer_name || null,
-      amount: totalAmount,
-      purchase_amount: purchaseAmount,
-      charge_fee: chargeFee,
-      balance_before: debitResult.balanceBefore,
-      balance_after: debitResult.balanceAfter,
-      status: purchaseResult.data?.status || 'success',
-      reference,
-      api_response: purchaseResult,
-      performed_by: user.id,
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: vendorError instanceof Error ? vendorError.message : 'Cable TV purchase failed',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const resolvedCustomerName = customer_name || purchaseResult.data?.customer_name || null;
+    const orderStatus = getEbillsOrderStatus(purchaseResult);
+
+    if (orderStatus.shouldRefund) {
+      await refundWallet(
+        orderStatus.isRefunded ? "provider refunded order" : "provider rejected order",
+        "REF",
+      );
+      await recordCableTransaction({
+        status: orderStatus.isRefunded ? "refunded" : "failed",
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceBefore,
+        customerName: resolvedCustomerName,
+        apiResponse: purchaseResult,
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: orderStatus.isRefunded
+            ? "Cable TV purchase was refunded by the provider. Your wallet has been credited back."
+            : "Cable TV purchase failed at the provider. Your wallet has been credited back.",
+          data: {
+            reference,
+            status: orderStatus.isRefunded ? "refunded" : "failed",
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceBefore,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
+
+    const transactionStatus = orderStatus.isCompleted ? "success" : "processing";
+
+    await recordCableTransaction({
+      status: transactionStatus,
+      balanceBeforeValue: debitResult.balanceBefore,
+      balanceAfterValue: debitResult.balanceAfter,
+      customerName: resolvedCustomerName,
+      apiResponse: purchaseResult,
     });
 
     await sendPushNotification(
@@ -229,12 +329,13 @@ serve(async (req) => {
           amount: totalAmount,
           purchase_amount: purchaseAmount,
           charge_fee: chargeFee,
+          balance_before: debitResult.balanceBefore,
           balance_after: debitResult.balanceAfter,
           provider,
           package: package_name,
           card_number,
-          customer_name: customer_name || purchaseResult.data?.customer_name,
-          status: purchaseResult.data?.status,
+          customer_name: resolvedCustomerName,
+          status: transactionStatus,
           vendor: 'ebills',
           api_response: purchaseResult.data,
         },

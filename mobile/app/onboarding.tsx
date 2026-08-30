@@ -1,39 +1,65 @@
-import { StyleSheet, View, Dimensions, ScrollView, TouchableOpacity } from 'react-native';
-import { ThemedText } from '@/components/themed-text';
-import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
-import { Image } from 'expo-image';
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ThemedText } from '@/components/themed-text';
+import { Onboarding3DIcon, type OnboardingIconVariant } from '@/components/onboarding/onboarding-3d-icon';
+import { markOnboardingCompleted } from '@/utils/onboarding';
 
-const ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
+const { width } = Dimensions.get('window');
 
-const { width, height } = Dimensions.get('window');
+const BRAND = {
+  orange: '#FF7F00',
+  orangeLight: '#FFF3E8',
+  orangeBorder: '#FFD9B3',
+  navy: '#1A2B4A',
+  textMuted: '#667085',
+  white: '#FFFFFF',
+};
 
-const slides = [
+type Slide = {
+  variant: OnboardingIconVariant;
+  eyebrow: string;
+  title: string;
+  description: string;
+};
+
+const slides: Slide[] = [
   {
-    image: require('@/assets/images/splash1.png'),
-    title: 'Pay Bills Faster',
-    description: 'Airtime, data, electricity, cable TV, education, and betting in one app.',
+    variant: 'mobile-bills',
+    eyebrow: 'Mobile services',
+    title: 'Airtime & Data',
+    description: 'Top up airtime and buy data bundles for MTN, Airtel, Glo, and 9mobile in seconds.',
   },
   {
-    image: require('@/assets/images/splash2.png'),
-    title: 'Fund & Transfer Easily',
-    description: 'Top up with your virtual account and send money securely in seconds.',
+    variant: 'utility-bills',
+    eyebrow: 'Home utilities',
+    title: 'Electricity & Cable TV',
+    description: 'Pay electricity bills and renew DStv, GOtv, StarTimes, and other cable subscriptions easily.',
   },
   {
-    image: require('@/assets/images/splash.png'),
-    title: 'Track Every Payment',
-    description: 'Get transaction records, receipts, and statement history whenever you need them.',
+    variant: 'lifestyle-bills',
+    eyebrow: 'Everyday services',
+    title: 'Education & Betting',
+    description: 'Purchase exam pins, education services, and fund betting accounts from one wallet.',
   },
 ];
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const [currentPage, setCurrentPage] = useState(0);
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
 
   const completeOnboarding = async () => {
-    await SecureStore.setItemAsync(ONBOARDING_COMPLETED_KEY, 'true');
+    await markOnboardingCompleted();
     router.replace('/auth/login');
   };
 
@@ -41,21 +67,34 @@ export default function OnboardingScreen() {
     if (currentPage < slides.length - 1) {
       const nextPage = currentPage + 1;
       setCurrentPage(nextPage);
-      if (scrollRef.current) {
-        scrollRef.current.scrollTo({ x: nextPage * width, animated: true });
-      }
-    } else {
-      // Persist onboarding completion and continue to login.
-      await completeOnboarding();
+      scrollRef.current?.scrollTo({ x: nextPage * width, animated: true });
+      return;
     }
+
+    await completeOnboarding();
   };
 
   const handleSkip = async () => {
     await completeOnboarding();
   };
 
+  const isLastSlide = currentPage === slides.length - 1;
+
   return (
     <View style={styles.container}>
+      <View style={styles.backgroundTop} />
+      <View style={styles.backgroundOrbPrimary} />
+      <View style={styles.backgroundOrbSecondary} />
+
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.logoRow}>
+          <ThemedText style={styles.logoText}>NetPay</ThemedText>
+        </View>
+        <TouchableOpacity onPress={handleSkip} style={styles.skipChip} activeOpacity={0.85}>
+          <ThemedText style={styles.skipChipText}>Skip</ThemedText>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -67,47 +106,42 @@ export default function OnboardingScreen() {
         }}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}>
-        {slides.map((slide, index) => (
-          <View key={slide.title} style={[styles.page, { width }]}> 
-            <Image
-              source={slide.image}
-              style={styles.backgroundImage}
-              contentFit="cover"
-            />
-            <View style={styles.slideBackground}>
-              <View style={styles.contentContainer}>
-                <ThemedText type="title" style={styles.title}>
-                  {slide.title}
-                </ThemedText>
-                <ThemedText style={styles.description}>{slide.description}</ThemedText>
+        {slides.map((slide) => (
+          <View key={slide.title} style={[styles.page, { width }]}>
+            <View style={styles.iconStage}>
+              <Onboarding3DIcon variant={slide.variant} size={240} />
+            </View>
+
+            <View style={styles.copyCard}>
+              <View style={styles.eyebrowPill}>
+                <ThemedText style={styles.eyebrowText}>{slide.eyebrow}</ThemedText>
               </View>
+              <ThemedText style={styles.title}>{slide.title}</ThemedText>
+              <ThemedText style={styles.description}>{slide.description}</ThemedText>
             </View>
           </View>
         ))}
       </ScrollView>
 
-      {/* Pagination Dots */}
-      <View style={styles.pagination}>
-        {slides.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dot,
-              currentPage === index && styles.activeDot,
-            ]}
-          />
-        ))}
-      </View>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <View style={styles.pagination}>
+          {slides.map((slide, index) => (
+            <View
+              key={slide.title}
+              style={[styles.dot, currentPage === index && styles.activeDot]}
+            />
+          ))}
+        </View>
 
-      {/* Action Buttons */}
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
-          <ThemedText style={styles.skipButtonText}>Skip</ThemedText>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleNext} style={styles.nextButton}>
-          <ThemedText style={styles.nextButtonText}>
-            {currentPage === slides.length - 1 ? 'Get Started' : 'Next'}
+        <TouchableOpacity onPress={handleNext} style={styles.primaryButton} activeOpacity={0.9}>
+          <ThemedText style={styles.primaryButtonText}>
+            {isLastSlide ? 'Get Started' : 'Continue'}
           </ThemedText>
+          <MaterialIcons
+            name={isLastSlide ? 'arrow-forward' : 'chevron-right'}
+            size={22}
+            color={BRAND.white}
+          />
         </TouchableOpacity>
       </View>
     </View>
@@ -117,7 +151,61 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: BRAND.white,
+  },
+  backgroundTop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: BRAND.orangeLight,
+    height: '48%',
+  },
+  backgroundOrbPrimary: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(255, 127, 0, 0.14)',
+    top: -40,
+    right: -50,
+  },
+  backgroundOrbSecondary: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(26, 43, 74, 0.08)',
+    top: 120,
+    left: -40,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    zIndex: 2,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: BRAND.navy,
+    letterSpacing: 0.2,
+  },
+  skipChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: BRAND.orangeBorder,
+  },
+  skipChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BRAND.orange,
   },
   scrollView: {
     flex: 1,
@@ -126,103 +214,98 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   page: {
-    height,
-    width,
-    justifyContent: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  backgroundImage: {
-    width,
-    height,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-  },
-  slideBackground: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     paddingHorizontal: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
   },
-  contentContainer: {
+  iconStage: {
+    flex: 1,
     alignItems: 'center',
-    paddingHorizontal: 16,
-    width: '100%',
-    marginTop: 'auto',
-    marginBottom: 200,
+    justifyContent: 'center',
+    paddingTop: 12,
+  },
+  copyCard: {
+    backgroundColor: BRAND.white,
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+    shadowColor: '#1A2B4A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 4,
+    marginBottom: 8,
+  },
+  eyebrowPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: BRAND.orangeLight,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: BRAND.orangeBorder,
+  },
+  eyebrowText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: BRAND.orange,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   title: {
-    textAlign: 'center',
-    marginBottom: 20,
-    color: '#fff',
-    fontSize: 34,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
+    color: BRAND.navy,
+    marginBottom: 12,
   },
   description: {
-    textAlign: 'center',
     fontSize: 16,
     lineHeight: 24,
-    color: '#fff',
-    opacity: 0.95,
-    maxWidth: 320,
+    color: BRAND.textMuted,
+  },
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    gap: 16,
   },
   pagination: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'absolute',
-    bottom: 120,
-    left: 0,
-    right: 0,
     gap: 8,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    backgroundColor: '#D0D5DD',
   },
   activeDot: {
-    width: 24,
-    backgroundColor: '#fff',
+    width: 28,
+    backgroundColor: BRAND.orange,
   },
-  buttonContainer: {
+  primaryButton: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 30,
-    paddingBottom: 50,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: BRAND.orange,
+    borderRadius: 16,
+    minHeight: 56,
+    shadowColor: BRAND.orange,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 5,
   },
-  skipButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: '#FF7F00',
-    alignItems: 'center',
-  },
-  skipButtonText: {
-    fontSize: 16,
-    color: '#FF7F00',
-    fontWeight: '600',
-  },
-  nextButton: {
-    backgroundColor: '#FF7F00',
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    borderRadius: 25,
-    minWidth: 120,
-    alignItems: 'center',
-  },
-  nextButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+  primaryButtonText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: BRAND.white,
   },
 });
-

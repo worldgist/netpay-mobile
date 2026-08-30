@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  DEMO_USER_EMAIL,
+  seedDemoVirtualAccountAndFunding,
+} from "../_shared/demo-user.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,7 +12,7 @@ const corsHeaders = {
 
 // Demo user credentials (safe to expose as this is for testing only)
 const DEMO_USER = {
-  email: 'demo@netppay.com',
+  email: DEMO_USER_EMAIL,
   password: 'Demo@1234',
   pin: '1234',
   fullName: 'Demo User',
@@ -96,7 +100,7 @@ serve(async (req) => {
         balance: DEMO_USER.balance,
         status: 'active',
         pin_enabled: true,
-        biometric_enabled: false,
+        biometric_enabled: true,
       }, {
         onConflict: 'id',
       });
@@ -120,6 +124,9 @@ serve(async (req) => {
     } else {
       console.log('PIN set up successfully for demo user');
     }
+
+    const walletSeed = await seedDemoVirtualAccountAndFunding(supabase, userId);
+    console.log('Demo Flutterwave virtual account and funding seeded:', walletSeed);
 
     // Create demo referral code
     console.log('Creating demo referral code...');
@@ -180,6 +187,9 @@ serve(async (req) => {
           password: DEMO_USER.password,
           pin: DEMO_USER.pin,
           referral_code: referralData?.referral_code || 'DEMO-REF',
+          virtual_account_number: walletSeed.virtual_account.account_number,
+          virtual_account_bank: walletSeed.virtual_account.bank_name,
+          virtual_account_name: walletSeed.virtual_account.account_name,
         },
         user: {
           id: userId,

@@ -17,6 +17,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/utils/push-notifications';
 import { markDeviceWelcomeSetupComplete } from '@/utils/device-welcome';
+import { setBiometricLoginEnabled } from '@/utils/biometric-login-preference';
 
 const getBiometricLabel = (type: LocalAuthentication.AuthenticationType) => {
   switch (type) {
@@ -92,6 +93,7 @@ export default function SetupBiometricScreen() {
               .update({ biometric_enabled: true })
               .eq('id', user.id);
           }
+          await setBiometricLoginEnabled(true);
         } catch (error) {
           console.error('Failed to update biometric setting:', error);
         }
