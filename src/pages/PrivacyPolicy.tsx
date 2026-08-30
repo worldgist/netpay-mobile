@@ -8,7 +8,7 @@ const PrivacyPolicy = () => {
     {
       icon: Info,
       title: "1. Introduction",
-      content: "NetPay (\"we,\" \"our,\" \"us,\" or \"the Company\") operates the NetPay mobile application and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.",
+      content: "NetPay (\"we,\" \"our,\" \"us,\" or \"the Company\") operates the NetPay website at https://netppay.com, the NetPay mobile application, and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.",
       color: "text-orange-600"
     },
     {
@@ -111,6 +111,7 @@ const PrivacyPolicy = () => {
       content: "For privacy-related questions, requests, or complaints:",
       list: [
         "Data Controller: NetPay (registered in Nigeria)",
+        "Website: https://netppay.com",
         "Email: support@netppay.com (include \"Privacy Request\" in subject line)",
         "Phone: +234 706 739 8399",
         "Address: Lagos, Nigeria (specific address available upon request)",

@@ -10,7 +10,7 @@ export const mobileTermsContent = `# Terms & Conditions
 
 ## 1. Acceptance of Terms
 
-By downloading, installing, accessing, or using the NetPay mobile application ("App") or website ("Service"), you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions ("Terms"). If you do not agree with any part of these Terms, you must not use our Service. These Terms constitute a legally binding agreement between you and NetPay.
+By downloading, installing, accessing, or using the NetPay website at https://netppay.com, the NetPay mobile application ("App"), or related services ("Service"), you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions ("Terms"). If you do not agree with any part of these Terms, you must not use our Service. These Terms constitute a legally binding agreement between you and NetPay.
 
 > **Note:** You must be at least 18 years old to use our Service. By using the Service, you represent and warrant that you are of legal age to enter into this agreement.
 
@@ -159,10 +159,54 @@ Governing Law:
 
 > **Note:** This dispute resolution clause does not prevent you from filing complaints with relevant regulatory authorities.
 
-## 12. Contact Information and Support
+## 12. Intellectual Property Rights
+
+All content, features, and functionality of the Service, including but not limited to:
+
+- App design, logos, text, graphics, and software
+- Trade names, trademarks, and service marks
+- Proprietary algorithms and business methods
+
+These are owned by NetPay or its licensors and are protected by copyright, trademark, and other intellectual property laws. You may not:
+
+- Copy, modify, distribute, sell, or lease any part of the Service
+- Use our trademarks or logos without written permission
+- Remove any copyright or proprietary notices
+
+> **Note:** Your use of the Service does not grant you ownership of any intellectual property rights.
+
+## 13. Age Restrictions and Eligibility
+
+Service eligibility:
+
+- You must be at least 18 years old to use our Service
+- You must have legal capacity to enter into binding contracts in your jurisdiction
+- You must comply with all applicable laws and regulations
+- You must not be prohibited from using financial services by any law or regulatory body
+
+> **Note:** By using the Service, you represent and warrant that you meet all eligibility requirements.
+
+## 14. In-App Purchases and Third-Party Services
+
+Our Service:
+
+- Does not currently use Apple's In-App Purchase system or Google Play Billing
+- All payments are processed through our own payment infrastructure
+- If we introduce in-app purchases through App Store/Play Store in the future, additional terms will apply
+
+Third-party services:
+
+- We integrate with third-party service providers (telecom operators, payment processors, etc.)
+- We are not responsible for the availability, quality, or delivery of third-party services
+- Third-party terms and conditions apply to their respective services
+
+> **Note:** Your relationship with third-party service providers is separate from your relationship with NetPay.
+
+## 15. Contact Information and Support
 
 For questions, complaints, or support:
 
+- **Website:** https://netppay.com
 - **Email:** support@netppay.com (include transaction reference if applicable)
 - **Phone:** +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)
 - **In-App:** Use the "Contact Us" feature
@@ -182,7 +226,7 @@ export const mobilePrivacyContent = `# Privacy Policy
 
 ## 1. Introduction
 
-NetPay ("we," "our," "us," or "the Company") operates the NetPay mobile application and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.
+NetPay ("we," "our," "us," or "the Company") operates the NetPay website at https://netppay.com, the NetPay mobile application, and related services. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our iOS and Android mobile application, website, and services. By using our services, you consent to the data practices described in this policy.
 
 ## 2. Information We Collect
 
@@ -256,22 +300,23 @@ You have the right to:
 
 > **Note:** To exercise these rights, contact us at support@netppay.com. We will respond within 30 days.
 
-## 8. Biometric Authentication
+## 8. Cookies and Tracking Technologies
 
-Our app offers optional biometric authentication (Face ID/Touch ID on iOS, fingerprint on Android):
+Our app and website use:
 
-- **Storage:** Biometric data is stored securely on your device only - we do not receive, store, or transmit your biometric data
-- **Privacy:** Apple/Google handles biometric authentication through their secure enclave/systems
-- **Control:** You can enable or disable biometric authentication at any time in app settings
-- **Purpose:** Used solely for device authentication to access the app - not shared with third parties
+- **Essential Cookies:** Required for app functionality, authentication, security — cannot be disabled
+- **Analytics:** Usage analytics to improve services (anonymized data)
+- **Session Storage:** Temporary storage of authentication tokens and session data on your device
+- **Third-Party Analytics:** We may use analytics services (anonymized usage data only)
+- **Opt-Out:** You can control cookies through your device or browser settings, but disabling essential cookies may affect functionality
 
-> **Note:** If you disable biometric authentication, you can still use PIN or password to access the app.
+> **Note:** We do not use cookies for advertising purposes or to track you across other apps or websites.
 
 ## 9. Age Restrictions and Children's Privacy
 
 Our services are intended for users aged 18 years and older. We do not knowingly collect personal information from individuals under 18 years of age. If we become aware that we have collected information from a minor, we will take steps to delete such information promptly. Parents or guardians who believe their child has provided us with personal information should contact us immediately at support@netppay.com.
 
-## 10. International Data Transfers
+## 10. International Data Transfers and Storage
 
 Your information may be:
 
@@ -282,21 +327,48 @@ Your information may be:
 
 > **Note:** By using our services, you consent to such transfers.
 
-## 11. Changes to This Privacy Policy
+## 11. Biometric Authentication
+
+Our app offers optional biometric authentication (Face ID/Touch ID on iOS, fingerprint on Android):
+
+- **Storage:** Biometric data is stored securely on your device only — we do not receive, store, or transmit your biometric data
+- **Privacy:** Apple/Google handles biometric authentication through their secure enclave/systems
+- **Control:** You can enable or disable biometric authentication at any time in app settings
+- **Purpose:** Used solely for device authentication to access the app — not shared with third parties
+
+> **Note:** If you disable biometric authentication, you can still use PIN or password to access the app.
+
+## 12. Payment Information and Financial Data
+
+Financial information handling:
+
+- **Payment Cards:** Card details are not stored by us — processed securely by PCI DSS compliant payment processors
+- **Bank Accounts:** Virtual account details are provided by licensed financial institutions
+- **Transaction Records:** Transaction history is stored securely and encrypted
+- **Regulatory Compliance:** We comply with Nigerian financial services regulations and anti-money laundering requirements
+
+> **Note:** We never store your full payment card details on our servers.
+
+## 13. In-App Purchases and Subscriptions
+
+Our app does not currently offer in-app purchases or subscriptions through Apple's App Store or Google Play Store. All transactions are processed through our payment infrastructure. If we introduce in-app purchases in the future, this policy will be updated accordingly. All service fees are clearly displayed before transaction completion.
+
+## 14. Changes to This Privacy Policy
 
 We may update this Privacy Policy periodically to reflect changes in our practices, technology, legal requirements, or other factors. We will:
 
-- Notify you of material changes via email, in-app notification, or prominent notice in the app
-- Update the "Last updated" date at the top of this policy
-- Your continued use after changes constitutes acceptance - we encourage periodic review
+- **Notification:** Notify you of material changes via email, in-app notification, or prominent notice in the app
+- **Review Date:** Update the "Last updated" date at the top of this policy
+- **Consent:** Your continued use after changes constitutes acceptance — we encourage periodic review
 
 > **Note:** Material changes affecting your rights will be communicated at least 30 days in advance when possible.
 
-## 12. Contact Information and Data Controller
+## 15. Contact Information and Data Controller
 
 For privacy-related questions, requests, or complaints:
 
 - **Data Controller:** NetPay (registered in Nigeria)
+- **Website:** https://netppay.com
 - **Email:** support@netppay.com (include "Privacy Request" in subject line)
 - **Phone:** +234 706 739 8399
 - **Address:** Lagos, Nigeria (specific address available upon request)

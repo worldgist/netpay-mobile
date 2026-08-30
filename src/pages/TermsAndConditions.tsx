@@ -8,7 +8,7 @@ const TermsAndConditions = () => {
     {
       icon: CheckCircle2,
       title: "1. Acceptance of Terms",
-      content: "By downloading, installing, accessing, or using the NetPay mobile application (\"App\") or website (\"Service\"), you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions (\"Terms\"). If you do not agree with any part of these Terms, you must not use our Service. These Terms constitute a legally binding agreement between you and NetPay.",
+      content: "By downloading, installing, accessing, or using the NetPay website at https://netppay.com, the NetPay mobile application (\"App\"), or related services (\"Service\"), you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions (\"Terms\"). If you do not agree with any part of these Terms, you must not use our Service. These Terms constitute a legally binding agreement between you and NetPay.",
       note: "You must be at least 18 years old to use our Service. By using the Service, you represent and warrant that you are of legal age to enter into this agreement.",
       color: "text-orange-600"
     },
@@ -182,6 +182,7 @@ const TermsAndConditions = () => {
       title: "12. Contact Information and Support",
       content: "For questions, complaints, or support:",
       list: [
+        "Website: https://netppay.com",
         "Email: support@netppay.com (include transaction reference if applicable)",
         "Phone: +234 706 739 8399 (Business hours: 9:00 AM - 9:00 PM WAT, Monday - Saturday)",
         "In-App: Use the \"Contact Us\" feature",

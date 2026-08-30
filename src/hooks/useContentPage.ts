@@ -22,22 +22,25 @@ export function useContentPage(pageType: string) {
         setLoading(true);
         setError(null);
 
+        // Use limit(1) instead of maybeSingle() — the shared client sets
+        // Accept: application/json, which makes PostgREST return 406 for object mode.
         const { data, error: fetchError } = await supabase
           .from('content_pages')
           .select('*')
           .eq('page_type', pageType)
           .eq('is_published', true)
-          .maybeSingle();
+          .limit(1);
 
         if (fetchError) {
           throw fetchError;
         }
 
-        if (!data) {
+        const page = data?.[0] ?? null;
+        if (!page) {
           setError(`Content page "${pageType}" not found`);
           setContent(null);
         } else {
-          setContent(data);
+          setContent(page);
         }
       } catch (err) {
         console.error('Error fetching content page:', err);
