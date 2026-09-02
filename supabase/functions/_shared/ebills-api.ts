@@ -594,51 +594,103 @@ export interface EBillsPurchaseResponse {
   code: string;
   message: string;
   data: {
-    transaction_id: string;
-    customer_id: string;
-    customer_name: string;
-    service_name: string;
-    variation_name: string;
-    amount: number;
-    status: string;
+    order_id?: number;
+    transaction_id?: string;
+    customer_id?: string;
+    customer_name?: string;
+    service_name?: string;
+    variation_name?: string;
+    product_name?: string;
+    amount?: number;
+    amount_charged?: string;
+    discount?: string;
+    initial_balance?: string;
+    final_balance?: string;
+    status?: string;
+    request_id?: string;
     reference?: string;
   };
 }
 
+export function mapEBillsCableError(
+  errorData: EBillsErrorResponse,
+  httpStatus: number,
+): string {
+  const code = String(errorData.code || '').toLowerCase();
+  const message = String(errorData.message || '').toLowerCase();
+
+  if (code.includes('rest_no_route') || message.includes('no route was found')) {
+    return 'Cable TV service is temporarily unavailable. Please try again.';
+  }
+  if (code.includes('missing_fields') || message.includes('missing')) {
+    return 'Required cable purchase details are missing. Please try again.';
+  }
+  if (code.includes('invalid_service') || message.includes('invalid service')) {
+    return 'Invalid cable TV provider. Please contact support.';
+  }
+  if (code.includes('invalid_variation') || message.includes('invalid variation')) {
+    return 'Invalid cable package selected. Please refresh packages and try again.';
+  }
+  if (code.includes('invalid_customer') || message.includes('invalid customer')) {
+    return 'Invalid smartcard/IUC number. Please verify the card and try again.';
+  }
+  if (code.includes('insufficient_funds') || message.includes('insufficient')) {
+    return 'Cable TV service is temporarily unavailable. Please try again later.';
+  }
+  if (code.includes('duplicate_request') || code.includes('duplicate_order') || message.includes('duplicate')) {
+    return 'Duplicate request detected. Please wait a moment and try again.';
+  }
+  if (httpStatus === 403 || code.includes('forbidden')) {
+    return 'Cable TV purchase is not authorized. Please contact support.';
+  }
+
+  return errorData.message || `Cable TV purchase failed (HTTP ${httpStatus})`;
+}
+
 /**
- * Purchase cable TV subscription using eBills API
- * Requires valid JWT token
+ * Purchase cable TV subscription using eBills POST /api/v2/tv.
+ * Requires valid JWT token, request_id, and variation_id from /api/v2/variations/tv.
  */
 export async function purchaseEBillsCableTV(
   token: string,
+  requestId: string,
   customerId: string,
   serviceId: string,
   variationId: string,
-  amount: number
+  amount?: number,
 ): Promise<EBillsPurchaseResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/purchase`, {
-    method: 'POST',
-    headers: getEBillsAuthHeaders(token),
-    body: JSON.stringify({
-      customer_id: customerId,
-      service_id: serviceId,
-      variation_id: variationId,
-      amount: amount,
-    }),
+  const requestBody: Record<string, unknown> = {
+    request_id: requestId,
+    customer_id: customerId,
+    service_id: serviceId,
+    variation_id: String(variationId),
+  };
+
+  if (typeof amount === 'number' && Number.isFinite(amount) && amount > 0) {
+    requestBody.amount = Math.round(amount);
+  }
+
+  console.log('eBills cable purchase request:', {
+    request_id: requestId,
+    customer_id: customerId.substring(0, 4) + '***',
+    service_id: serviceId,
+    variation_id: variationId,
+    amount: requestBody.amount,
+    url: `${EBILLS_BASE_URL}/api/v2/tv`,
   });
 
-  if (!response.ok) {
-    const errorData: EBillsErrorResponse = await response.json();
-    throw new Error(errorData.message || `Purchase failed: ${response.status}`);
+  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/tv`, {
+    method: 'POST',
+    headers: getEBillsAuthHeaders(token),
+    body: JSON.stringify(requestBody),
+  });
+
+  const data = await parseEBillsJsonResponse<EBillsPurchaseResponse & EBillsErrorResponse>(response);
+  if (!response.ok || data.code !== 'success') {
+    throw new Error(mapEBillsCableError(data, response.status));
   }
 
-  const data: EBillsPurchaseResponse = await response.json();
-  
-  if (data.code !== 'success') {
-    throw new Error(data.message || 'Cable TV purchase failed');
-  }
-
-  return data;
+  return data as EBillsPurchaseResponse;
 }
 
 export interface EBillsElectricityPurchaseResponse {

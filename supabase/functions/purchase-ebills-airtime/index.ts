@@ -205,7 +205,7 @@ serve(async (req) => {
       apiResponse?: unknown;
       amount?: number;
     }) => {
-      await supabase.from('airtime_transactions').insert({
+      const row = {
         user_id: user.id,
         phone_number: sanitizedPhone,
         network: displayNetwork,
@@ -216,8 +216,14 @@ serve(async (req) => {
         status: params.status,
         reference: params.reference,
         api_response: params.apiResponse ?? null,
+        vending_provider: 'ebills',
         performed_by: user.id,
-      });
+      };
+      const { error } = await supabase.from('airtime_transactions').insert(row);
+      if (error && /vending_provider/i.test(error.message || '')) {
+        const { vending_provider: _vendor, ...withoutVendor } = row;
+        await supabase.from('airtime_transactions').insert(withoutVendor);
+      }
     };
 
     if (isDemoUser) {

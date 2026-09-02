@@ -143,7 +143,7 @@ serve(async (req) => {
       customerName?: string | null;
       apiResponse?: unknown;
     }) => {
-      await supabase.from('cable_tv_transactions').insert({
+      const row = {
         user_id: user.id,
         smartcard_number: card_number,
         provider,
@@ -157,8 +157,14 @@ serve(async (req) => {
         status: params.status,
         reference,
         api_response: params.apiResponse ?? null,
+        vending_provider: 'ebills',
         performed_by: user.id,
-      });
+      };
+      const { error } = await supabase.from('cable_tv_transactions').insert(row);
+      if (error && /vending_provider/i.test(error.message || '')) {
+        const { vending_provider: _vendor, ...withoutVendor } = row;
+        await supabase.from('cable_tv_transactions').insert(withoutVendor);
+      }
     };
 
     if (isDemoUser) {
@@ -234,6 +240,7 @@ serve(async (req) => {
       const ebillsToken = await getEBillsToken();
       purchaseResult = await purchaseEBillsCableTV(
         ebillsToken,
+        reference,
         card_number,
         serviceId,
         api_code,

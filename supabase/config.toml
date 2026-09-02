@@ -38,6 +38,9 @@ verify_jwt = true
 [functions.admin-send-password-reset-link]
 verify_jwt = true
 
+[functions.admin-create-user]
+verify_jwt = true
+
 [functions.payvessel-webhook]
 verify_jwt = false
 
@@ -102,6 +105,9 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.fetch-smeplug-wallet-history]
+verify_jwt = true
+
+[functions.fetch-ebills-transactions]
 verify_jwt = true
 
 [functions.fetch-mobilenig-balance]

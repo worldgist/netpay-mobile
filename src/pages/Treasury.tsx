@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
+import { fetchEbillsApiTransactions } from "@/lib/ebills-transactions";
 import {
   DEFAULT_VENDING_PROVIDERS,
   VENDING_SETTING_KEYS,
@@ -104,14 +105,6 @@ const VENDOR_LABELS: Record<VendorKey, string> = {
   payvessel: "PayVessel",
   flutterwave: "Flutterwave",
 };
-
-const EBILLS_SERVICE_TABLES = [
-  { table: "electricity_transactions", service: "electricity" },
-  { table: "betting_transactions", service: "betting" },
-  { table: "cable_tv_transactions", service: "cable_tv" },
-  { table: "education_transactions", service: "education" },
-  { table: "data_transactions", service: "data" },
-] as const;
 
 type ServiceKey = keyof VendingProviders;
 
@@ -299,10 +292,12 @@ function mapEbillsDbTx(tx: Record<string, unknown>, serviceType: string): Vendor
   const profiles = tx.profiles as { full_name?: string | null; email?: string | null } | null | undefined;
   const detail =
     tx.meter_number ||
+    tx.phone_number ||
     tx.account_number ||
     tx.smartcard_number ||
     tx.customer_name ||
     tx.plan_name ||
+    tx.network ||
     tx.betting_provider;
 
   return {
@@ -322,35 +317,10 @@ function mapEbillsDbTx(tx: Record<string, unknown>, serviceType: string): Vendor
 }
 
 async function fetchEbillsVendorTransactions(): Promise<VendorTransaction[]> {
-  const results = await Promise.all(
-    EBILLS_SERVICE_TABLES.map(({ table, service }) =>
-      supabase
-        .from(table)
-        .select(`
-          *,
-          profiles (
-            full_name,
-            email
-          )
-        `)
-        .eq("vending_provider", "ebills")
-        .order("created_at", { ascending: false })
-        .limit(50),
-    ),
-  );
-
-  const all: VendorTransaction[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const { data } = results[i];
-    const service = EBILLS_SERVICE_TABLES[i].service;
-    for (const row of data || []) {
-      all.push(mapEbillsDbTx(row as Record<string, unknown>, service));
-    }
-  }
-
-  return all
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 200);
+  const rows = await fetchEbillsApiTransactions();
+  return rows
+    .map((tx) => mapEbillsDbTx(tx as unknown as Record<string, unknown>, tx.service_type))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 function mapFlutterwaveFundingTx(tx: Record<string, unknown>): VendorTransaction {

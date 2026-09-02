@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw, BarChart3, Wallet, ArrowDownLeft, TrendingUp, ArrowUp, ArrowDown, Inbox } from "lucide-react";
+import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw, BarChart3, Wallet, ArrowDownLeft, TrendingUp, ArrowUp, ArrowDown, Inbox, UserPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
@@ -17,6 +17,7 @@ import { balancesMatch, fetchUserLedgerBalance } from "@/lib/ledger-balance";
 import { UserBalanceReconcileDialog } from "@/components/UserBalanceReconcileDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Pagination,
@@ -136,6 +137,16 @@ export default function Users() {
   const [isSendResetLinkDialogOpen, setIsSendResetLinkDialogOpen] = useState(false);
   const [resetLinkReason, setResetLinkReason] = useState("");
   const [sendingResetLink, setSendingResetLink] = useState(false);
+  const [isCreateUserDialogOpen, setIsCreateUserDialogOpen] = useState(false);
+  const [createFullName, setCreateFullName] = useState("");
+  const [createEmail, setCreateEmail] = useState("");
+  const [createPhone, setCreatePhone] = useState("");
+  const [createPassword, setCreatePassword] = useState("");
+  const [createPasswordConfirm, setCreatePasswordConfirm] = useState("");
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [createNote, setCreateNote] = useState("");
+  const [createSendEmail, setCreateSendEmail] = useState(true);
+  const [creatingUser, setCreatingUser] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -438,13 +449,132 @@ export default function Users() {
     setIsDeleteDialogOpen(true);
   };
 
-  const generateSecurePassword = () => {
+  const generatePasswordString = () => {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*";
     const bytes = crypto.getRandomValues(new Uint8Array(12));
-    const password = Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
+    return Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
+  };
+
+  const generateSecurePassword = () => {
+    const password = generatePasswordString();
     setResetPasswordValue(password);
     setResetPasswordConfirm(password);
     setShowResetPassword(true);
+  };
+
+  const generateCreateUserPassword = () => {
+    const password = generatePasswordString();
+    setCreatePassword(password);
+    setCreatePasswordConfirm(password);
+    setShowCreatePassword(true);
+  };
+
+  const resetCreateUserForm = () => {
+    setCreateFullName("");
+    setCreateEmail("");
+    setCreatePhone("");
+    setCreatePassword("");
+    setCreatePasswordConfirm("");
+    setShowCreatePassword(false);
+    setCreateNote("");
+    setCreateSendEmail(true);
+  };
+
+  const handleOpenCreateUserDialog = () => {
+    resetCreateUserForm();
+    setIsCreateUserDialogOpen(true);
+  };
+
+  const handleCreateUser = async () => {
+    const fullName = createFullName.trim();
+    const email = createEmail.trim().toLowerCase();
+    const phone = createPhone.replace(/[^0-9]/g, "");
+    const password = createPassword.trim();
+    const confirm = createPasswordConfirm.trim();
+
+    if (fullName.length < 2) {
+      toast({
+        title: "Name Required",
+        description: "Enter the user's full name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast({
+        title: "Valid Email Required",
+        description: "Enter a valid email address",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!/^0[0-9]{10}$/.test(phone)) {
+      toast({
+        title: "Valid Phone Required",
+        description: "Phone number must be 11 digits and start with 0",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      toast({
+        title: "Password Too Short",
+        description: "Password must be at least 6 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password !== confirm) {
+      toast({
+        title: "Passwords Do Not Match",
+        description: "Confirm the password before creating the account",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setCreatingUser(true);
+      const { data, error } = await supabase.functions.invoke("admin-create-user", {
+        body: {
+          full_name: fullName,
+          email,
+          phone,
+          password,
+          note: createNote.trim() || null,
+          send_email: createSendEmail,
+        },
+      });
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error("Failed to create user");
+      }
+
+      toast({
+        title: "Account Created",
+        description: data.message || `Account created for ${email}`,
+      });
+
+      setIsCreateUserDialogOpen(false);
+      resetCreateUserForm();
+      await fetchUsers();
+    } catch (error: unknown) {
+      toast({
+        title: "Create User Failed",
+        description: error instanceof Error ? error.message : "Could not create user account",
+        variant: "destructive",
+      });
+    } finally {
+      setCreatingUser(false);
+    }
   };
 
   const handleOpenResetPasswordDialog = () => {
@@ -1247,7 +1377,7 @@ export default function Users() {
             </div>
           ) : (
           <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
@@ -1257,6 +1387,10 @@ export default function Users() {
                   className="pl-10"
                 />
               </div>
+              <Button onClick={handleOpenCreateUserDialog} className="gap-2">
+                <UserPlus className="h-4 w-4" />
+                Create User
+              </Button>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1561,6 +1695,135 @@ export default function Users() {
             <Button onClick={handlePrintUserTransactions} disabled={!selectedUser}>
               <Printer className="h-4 w-4 mr-2" />
               Print Now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create User Dialog */}
+      <Dialog open={isCreateUserDialogOpen} onOpenChange={setIsCreateUserDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create User Account</DialogTitle>
+            <DialogDescription>
+              Create a verified NetPay customer account. The user can sign in immediately with the password you set.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="create-full-name">Full name</Label>
+              <Input
+                id="create-full-name"
+                placeholder="Jane Doe"
+                value={createFullName}
+                onChange={(event) => setCreateFullName(event.target.value)}
+                autoComplete="name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-email">Email</Label>
+              <Input
+                id="create-email"
+                type="email"
+                placeholder="user@email.com"
+                value={createEmail}
+                onChange={(event) => setCreateEmail(event.target.value)}
+                autoComplete="email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-phone">Phone</Label>
+              <Input
+                id="create-phone"
+                placeholder="08012345678"
+                value={createPhone}
+                onChange={(event) => setCreatePhone(event.target.value)}
+                autoComplete="tel"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="create-password">Password</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={generateCreateUserPassword}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  Generate secure password
+                </Button>
+              </div>
+              <div className="relative">
+                <Input
+                  id="create-password"
+                  type={showCreatePassword ? "text" : "password"}
+                  placeholder="Enter password (min. 6 characters)"
+                  value={createPassword}
+                  onChange={(event) => setCreatePassword(event.target.value)}
+                  autoComplete="new-password"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                  onClick={() => setShowCreatePassword((current) => !current)}
+                  aria-label={showCreatePassword ? "Hide password" : "Show password"}
+                >
+                  {showCreatePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-password-confirm">Confirm password</Label>
+              <Input
+                id="create-password-confirm"
+                type={showCreatePassword ? "text" : "password"}
+                placeholder="Re-enter the password"
+                value={createPasswordConfirm}
+                onChange={(event) => setCreatePasswordConfirm(event.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-note">Note for user (optional, included in email)</Label>
+              <Textarea
+                id="create-note"
+                placeholder="Welcome note or why this account was created"
+                value={createNote}
+                onChange={(event) => setCreateNote(event.target.value)}
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={createSendEmail}
+                onCheckedChange={(checked) => setCreateSendEmail(checked === true)}
+              />
+              Email sign-in details to the user
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCreateUserDialogOpen(false)}
+              disabled={creatingUser}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateUser}
+              disabled={
+                creatingUser ||
+                !createFullName.trim() ||
+                !createEmail.trim() ||
+                !createPhone.trim() ||
+                !createPassword.trim() ||
+                !createPasswordConfirm.trim()
+              }
+            >
+              {creatingUser ? "Creating…" : "Create Account"}
             </Button>
           </DialogFooter>
         </DialogContent>
