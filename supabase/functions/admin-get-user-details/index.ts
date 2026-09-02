@@ -2,10 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
   corsHeaders,
   createServiceClient,
-  errorResponse,
   jsonResponse,
   requireAdmin,
 } from "../_shared/admin-auth.ts";
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -16,56 +19,107 @@ serve(async (req) => {
     const supabase = createServiceClient();
     await requireAdmin(req, supabase);
 
-    const { userId } = await req.json();
-    if (!userId || typeof userId !== "string") {
-      throw new Error("userId is required");
+    let userId = "";
+    try {
+      const body = await req.json();
+      userId = typeof body?.userId === "string" ? body.userId.trim() : "";
+    } catch {
+      userId = "";
     }
 
-    const [{ data: profile, error: profileError }, { data: authData, error: authError }] =
-      await Promise.all([
-        supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
-        supabase.auth.admin.getUserById(userId),
-      ]);
-
-    if (profileError) {
-      throw new Error(`Failed to load profile: ${profileError.message}`);
+    if (!userId) {
+      return jsonResponse({ success: false, error: "userId is required" });
     }
 
-    if (authError || !authData?.user) {
-      throw new Error("User not found");
+    const profileResult = await supabase
+      .from("profiles")
+      .select("id, email, full_name, phone, balance, status, created_at, updated_at")
+      .eq("id", userId)
+      .limit(1);
+
+    if (profileResult.error) {
+      console.error("admin-get-user-details profile error:", profileResult.error);
+      return jsonResponse({
+        success: false,
+        error: `Failed to load profile: ${profileResult.error.message}`,
+      });
     }
 
-    const authUser = authData.user;
+    const profile = profileResult.data?.[0] ?? null;
 
-    const [{ count: transactionCount }, { data: roles }] = await Promise.all([
+    let authUser: {
+      id: string;
+      email?: string | null;
+      phone?: string | null;
+      created_at?: string;
+      last_sign_in_at?: string | null;
+      email_confirmed_at?: string | null;
+    } | null = null;
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.admin.getUserById(userId);
+      if (!authError && authData?.user) {
+        const user = authData.user as Record<string, unknown>;
+        authUser = {
+          id: String(user.id),
+          email: readString(user.email),
+          phone: readString(user.phone),
+          created_at: readString(user.created_at) ?? undefined,
+          last_sign_in_at: readString(user.last_sign_in_at),
+          email_confirmed_at: readString(user.email_confirmed_at) ?? readString(user.confirmed_at),
+        };
+      } else if (authError) {
+        console.warn("admin-get-user-details auth lookup warning:", authError.message);
+      }
+    } catch (authLookupError) {
+      console.warn("admin-get-user-details auth lookup failed:", authLookupError);
+    }
+
+    if (!profile && !authUser) {
+      return jsonResponse({ success: false, error: "User not found" });
+    }
+
+    const [transactionResult, rolesResult] = await Promise.all([
       supabase
         .from("user_transactions")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("user_id", userId),
       supabase.from("user_roles").select("role").eq("user_id", userId),
     ]);
+
+    if (transactionResult.error) {
+      console.warn("admin-get-user-details transaction count warning:", transactionResult.error);
+    }
+    if (rolesResult.error) {
+      console.warn("admin-get-user-details roles warning:", rolesResult.error);
+    }
+
+    const emailConfirmedAt = authUser?.email_confirmed_at ?? null;
 
     return jsonResponse({
       success: true,
       data: {
         profile,
-        auth: {
-          id: authUser.id,
-          email: authUser.email,
-          phone: authUser.phone,
-          created_at: authUser.created_at,
-          last_sign_in_at: authUser.last_sign_in_at,
-          email_confirmed_at: authUser.email_confirmed_at,
-          confirmed_at: authUser.confirmed_at,
-          banned_until: authUser.banned_until,
-        },
-        roles: roles?.map((entry) => entry.role) ?? [],
-        transaction_count: transactionCount ?? 0,
-        email_verified: Boolean(authUser.email_confirmed_at || authUser.confirmed_at),
+        auth: authUser
+          ? {
+              id: authUser.id,
+              email: authUser.email,
+              phone: authUser.phone,
+              created_at: authUser.created_at,
+              last_sign_in_at: authUser.last_sign_in_at,
+              email_confirmed_at: emailConfirmedAt,
+              confirmed_at: emailConfirmedAt,
+              banned_until: null,
+            }
+          : null,
+        roles: (rolesResult.data || []).map((entry) => entry.role),
+        transaction_count: transactionResult.count ?? 0,
+        email_verified: Boolean(emailConfirmedAt),
       },
     });
   } catch (error) {
     console.error("admin-get-user-details error:", error);
-    return errorResponse(error);
+    const message = error instanceof Error ? error.message : "Failed to load user details";
+    return jsonResponse({ success: false, error: message });
   }
 });

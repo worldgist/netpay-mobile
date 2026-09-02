@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +10,76 @@ import { toast } from "sonner";
 import { Loader2, DollarSign, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { z } from "zod";
+
 const authSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(255, "Email too long"),
   password: z.string().min(6, "Password must be at least 6 characters").max(100, "Password too long"),
 });
+
+type AdminAccessResult = {
+  allowed: boolean;
+  queryFailed: boolean;
+};
+
+function isStaffEmail(email?: string | null): boolean {
+  return (email ?? "").trim().toLowerCase().endsWith("@netppay.com");
+}
+
+function authErrorMessage(error: { message?: string } | null | undefined): string {
+  const message = error?.message ?? "";
+  const lower = message.toLowerCase();
+  if (lower.includes("invalid login credentials")) {
+    return "Invalid email or password. Please try again.";
+  }
+  if (lower.includes("email not confirmed")) {
+    return "This email is not confirmed yet. Confirm the account or ask an admin to verify it.";
+  }
+  if (lower.includes("too many requests")) {
+    return "Too many login attempts. Please wait a moment and try again.";
+  }
+  return message || "Sign in failed. Please try again.";
+}
+
+/**
+ * Do not use maybeSingle() here. The shared client sets Accept: application/json,
+ * which makes PostgREST return 406 / PGRST116 and look like a failed admin login.
+ */
+async function resolveAdminAccess(user: User): Promise<AdminAccessResult> {
+  if (isStaffEmail(user.email)) {
+    return { allowed: true, queryFailed: false };
+  }
+
+  const { data: hasRole, error: rpcError } = await supabase.rpc("has_role", {
+    _user_id: user.id,
+    _role: "admin",
+  });
+  if (!rpcError && hasRole === true) {
+    return { allowed: true, queryFailed: false };
+  }
+
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id)
+    .eq("role", "admin")
+    .limit(1);
+
+  if (!error && data && data.length > 0) {
+    return { allowed: true, queryFailed: false };
+  }
+
+  if (rpcError && error) {
+    console.error("Error checking admin role:", rpcError, error);
+    return { allowed: false, queryFailed: true };
+  }
+
+  if (error) {
+    console.error("Error checking admin role:", error);
+    return { allowed: false, queryFailed: true };
+  }
+
+  return { allowed: false, queryFailed: false };
+}
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -22,112 +89,70 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const handlingAuthRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
-    
-    // Set a timeout to ensure the component always renders
+
     const timeoutId = setTimeout(() => {
       if (mounted) {
         setInitializing(false);
       }
-    }, 3000); // Max 3 seconds for initialization
+    }, 3000);
+
+    const applyAdminAccess = async (user: User, signOutIfDenied: boolean) => {
+      const access = await resolveAdminAccess(user);
+      if (!mounted) return access;
+
+      if (access.allowed) {
+        clearTimeout(timeoutId);
+        navigate("/dashboard");
+        return access;
+      }
+
+      if (access.queryFailed) {
+        setInitializing(false);
+        return access;
+      }
+
+      if (signOutIfDenied) {
+        await supabase.auth.signOut();
+        toast.error("Admin access required. Contact administrator.");
+      }
+      setInitializing(false);
+      return access;
+    };
 
     const checkUser = async () => {
       try {
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-        
+
         if (sessionError) {
-          console.error('Error getting session:', sessionError);
+          console.error("Error getting session:", sessionError);
           if (mounted) setInitializing(false);
           return;
         }
-        
+
         if (currentSession) {
-          // Check if user has admin role
-          try {
-            const { data: roles, error: rolesError } = await supabase
-              .from('user_roles')
-              .select('role')
-              .eq('user_id', currentSession.user.id)
-              .eq('role', 'admin')
-              .maybeSingle();
-
-            if (!mounted) return;
-
-            if (rolesError) {
-              console.error('Error checking user role:', rolesError);
-              // Don't sign out on query errors, just log and show the form
-              setInitializing(false);
-            } else if (roles) {
-              clearTimeout(timeoutId);
-              navigate("/dashboard");
-              return; // Don't set initializing to false if navigating
-            } else {
-              await supabase.auth.signOut();
-              toast.error("Admin access required");
-              setInitializing(false);
-            }
-          } catch (error: any) {
-            console.error('Error in role check:', error);
-            // If there's an error, just show the form
-            if (mounted) setInitializing(false);
-          }
-        } else {
-          if (mounted) setInitializing(false);
+          await applyAdminAccess(currentSession.user, true);
+          return;
         }
+
+        if (mounted) setInitializing(false);
       } catch (error) {
-        console.error('Error in checkUser:', error);
+        console.error("Error in checkUser:", error);
         if (mounted) setInitializing(false);
       }
     };
-    
-    checkUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session && event === 'SIGNED_IN') {
-        // Defer admin check with setTimeout to prevent deadlock
-        setTimeout(async () => {
-          if (!mounted) return;
-          
-          try {
-            const { data: roles, error: rolesError } = await supabase
-              .from('user_roles')
-              .select('role')
-              .eq('user_id', session.user.id)
-              .eq('role', 'admin')
-              .maybeSingle();
+    void checkUser();
 
-            if (rolesError) {
-              // Handle 406 Not Acceptable errors gracefully
-              if (rolesError.code === '406' || rolesError.message?.includes('406')) {
-                console.warn('406 error checking user role (likely Accept header issue), trying alternative query:', rolesError);
-                // Try alternative query without maybeSingle
-                const { data: altRoles } = await supabase
-                  .from('user_roles')
-                  .select('role')
-                  .eq('user_id', session.user.id)
-                  .eq('role', 'admin');
-                
-                if (altRoles && altRoles.length > 0) {
-                  navigate("/dashboard");
-                } else {
-                  await supabase.auth.signOut();
-                  toast.error("Admin access required. Contact administrator.");
-                }
-              } else {
-                console.error('Error checking user role:', rolesError);
-                // Don't sign out on query errors, just log
-              }
-            } else if (roles) {
-              navigate("/dashboard");
-            } else {
-              await supabase.auth.signOut();
-              toast.error("Admin access required. Contact administrator.");
-            }
-          } catch (error) {
-            console.error('Error in auth state change handler:', error);
-          }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (handlingAuthRef.current) return;
+      if (session && event === "SIGNED_IN") {
+        setTimeout(() => {
+          if (!mounted || handlingAuthRef.current) return;
+          void applyAdminAccess(session.user, true);
         }, 0);
       }
     });
@@ -143,9 +168,9 @@ const Auth = () => {
     e.preventDefault();
     setLoading(true);
     setValidationError(null);
+    handlingAuthRef.current = true;
 
     try {
-      // Validate input
       const validation = authSchema.safeParse({ email: email.trim(), password });
       if (!validation.success) {
         setValidationError(validation.error.errors[0].message);
@@ -170,53 +195,65 @@ const Auth = () => {
           throw error;
         }
 
-        // Ensure profile is created (fallback if trigger doesn't fire)
         if (signUpData.user) {
           try {
             const { error: profileError } = await supabase
-              .from('profiles')
+              .from("profiles")
               .upsert({
                 id: signUpData.user.id,
                 email: trimmedEmail,
-                full_name: trimmedEmail.split('@')[0],
+                full_name: trimmedEmail.split("@")[0],
                 balance: 0,
-                status: 'active'
+                status: "active",
               }, {
-                onConflict: 'id'
+                onConflict: "id",
               });
 
             if (profileError) {
-              console.error('Profile creation error:', profileError);
-              // Don't fail signup if profile creation fails - trigger should handle it
+              console.error("Profile creation error:", profileError);
             }
           } catch (profileErr) {
-            console.error('Error ensuring profile exists:', profileErr);
-            // Continue anyway - trigger should have created it
+            console.error("Error ensuring profile exists:", profileErr);
           }
         }
-        
+
         toast.success("Account created! Check your email to verify your account.");
         setIsSignUp(false);
         setEmail("");
         setPassword("");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: trimmedEmail,
           password,
         });
 
         if (error) {
-          if (error.message.includes("Invalid login credentials")) {
-            throw new Error("Invalid email or password. Please try again.");
-          }
-          throw error;
+          throw new Error(authErrorMessage(error));
         }
-        
-        toast.success("Signed in successfully!");
+
+        const user = data.user ?? data.session?.user;
+        if (!user) {
+          throw new Error("Sign in failed. Please try again.");
+        }
+
+        const access = await resolveAdminAccess(user);
+        if (access.allowed) {
+          toast.success("Signed in successfully!");
+          navigate("/dashboard");
+          return;
+        }
+
+        if (access.queryFailed) {
+          throw new Error("Could not verify admin access. Please try again.");
+        }
+
+        await supabase.auth.signOut();
+        throw new Error("Admin access required. Contact administrator.");
       }
     } catch (error: any) {
       setValidationError(error.message || "An error occurred during authentication");
     } finally {
+      handlingAuthRef.current = false;
       setLoading(false);
     }
   };

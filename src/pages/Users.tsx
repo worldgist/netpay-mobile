@@ -74,6 +74,21 @@ interface AdminUserDetails {
   roles: string[];
 }
 
+function getFunctionErrorMessage(error: unknown, data: unknown, fallback: string): string {
+  const payload = data as { error?: string; message?: string } | null;
+  if (payload?.error && payload.error.trim()) return payload.error;
+  if (payload?.message && payload.message.trim() && payload.message !== "Function error") {
+    return payload.message;
+  }
+
+  const err = error as { message?: string } | null;
+  if (err?.message && err.message !== "Function error" && !err.message.includes("non-2xx")) {
+    return err.message;
+  }
+
+  return fallback;
+}
+
 function getUserInitials(fullName: string | null, email: string | null): string {
   if (fullName?.trim()) {
     const parts = fullName.trim().split(/\s+/);
@@ -381,21 +396,18 @@ export default function Users() {
         body: { userId },
       });
 
-      if (error) {
-        throw error;
+      if (data?.success && data.data) {
+        setUserDetails({
+          email_verified: Boolean(data.data.email_verified),
+          email_confirmed_at: data.data.auth?.email_confirmed_at ?? data.data.auth?.confirmed_at ?? null,
+          last_sign_in_at: data.data.auth?.last_sign_in_at ?? null,
+          transaction_count: Number(data.data.transaction_count || 0),
+          roles: Array.isArray(data.data.roles) ? data.data.roles : [],
+        });
+        return;
       }
 
-      if (!data?.success) {
-        throw new Error(data?.error || "Failed to load user details");
-      }
-
-      setUserDetails({
-        email_verified: Boolean(data.data.email_verified),
-        email_confirmed_at: data.data.auth?.email_confirmed_at ?? data.data.auth?.confirmed_at ?? null,
-        last_sign_in_at: data.data.auth?.last_sign_in_at ?? null,
-        transaction_count: Number(data.data.transaction_count || 0),
-        roles: Array.isArray(data.data.roles) ? data.data.roles : [],
-      });
+      throw new Error(getFunctionErrorMessage(error, data, "Failed to load user details"));
     } catch (error: any) {
       console.error("Failed to load admin user details:", error);
       setUserDetails(null);
