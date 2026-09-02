@@ -2,37 +2,13 @@ const DEFAULT_MARKETING_ONLY_HOSTS = ["netppay.com", "www.netppay.com"];
 
 const ALLOWED_DEEP_LINK_PATH_PREFIXES = ["/reset-password", "/pay", "/open"];
 
+/** Customer web-wallet routes only. Admin login at /auth is allowed on the marketing host. */
 const BLOCKED_PATH_PREFIXES = [
   "/user",
-  "/auth",
-  "/dashboard",
-  "/smeplug",
-  "/ebills",
-  "/users",
-  "/transactions",
-  "/analytics",
-  "/referrals",
-  "/content",
-  "/staff",
-  "/notifications",
-  "/email-notifications",
-  "/settings",
-  "/hr",
-  "/electricity",
-  "/cable-tv",
-  "/import-cable-transactions",
-  "/education",
-  "/betting",
-  "/platform-revenue",
-  "/data-plans",
-  "/airtime",
-  "/support-admin",
-  "/compliance",
-  "/admin",
 ];
 
 export const WEB_APP_BLOCKED_ON_HOST_MESSAGE =
-  "The NetPay wallet and account features are not available on this website. Please use the official NetPay mobile app.";
+  "The NetPay customer wallet is not available on this website. Please use the official NetPay mobile app.";
 
 function parseHostList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];

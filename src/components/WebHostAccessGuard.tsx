@@ -30,7 +30,7 @@ export function WebHostAccessGuard({ children }: Props) {
           {WEB_APP_BLOCKED_ON_HOST_MESSAGE}
         </p>
         <p className="text-xs text-muted-foreground">
-          Wallet and admin features on the website are disabled. Use the NetPay mobile app for your account.
+          Customer wallet features on this website are disabled. Use the NetPay mobile app for your personal account.
         </p>
         <Button asChild variant="default" className="mx-auto">
           <Link to="/">

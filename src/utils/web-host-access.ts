@@ -1,52 +1,20 @@
-/** Hostnames where only marketing/landing pages are allowed (no web wallet or admin). */
+/** Hostnames where the public marketing site is served (customer web wallet stays off). */
 const DEFAULT_MARKETING_ONLY_HOSTS = ["netppay.com", "www.netppay.com"];
 
-/** App deep-link paths on netppay.com (allowed even when web wallet is disabled). */
+/** App deep-link paths on netppay.com (allowed even when the web wallet is disabled). */
 const ALLOWED_DEEP_LINK_PATH_PREFIXES = [
   "/reset-password",
   "/pay",
   "/open",
 ];
 
+/** Customer web-wallet routes only. Admin login lives at /auth and must work in production. */
 const BLOCKED_PATH_PREFIXES = [
   "/user",
-  "/auth",
-  "/dashboard",
-  "/smeplug",
-  "/ebills",
-  "/payvessel",
-  "/mobilenig",
-  "/flutterwave",
-  "/users",
-  "/transactions",
-  "/analytics",
-  "/referrals",
-  "/content",
-  "/staff",
-  "/notifications",
-  "/email-notifications",
-  "/settings",
-  "/hr",
-  "/electricity",
-  "/cable-tv",
-  "/import-cable-transactions",
-  "/education",
-  "/betting",
-  "/platform-revenue",
-  "/treasury",
-  "/wallets",
-  "/wallet-management",
-  "/ledger",
-  "/admin/ledger",
-  "/data-plans",
-  "/airtime",
-  "/support-admin",
-  "/compliance",
-  "/admin",
 ];
 
 export const WEB_APP_BLOCKED_ON_HOST_MESSAGE =
-  "The NetPay wallet and account features are not available on this website. Please use the official NetPay mobile app to sign in, pay bills, and manage your wallet.";
+  "The NetPay customer wallet is not available on this website. Please use the official NetPay mobile app to sign in, pay bills, and manage your wallet.";
 
 function parseHostList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
