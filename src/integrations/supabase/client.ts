@@ -5,7 +5,15 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const CLIENT_KEY = SUPABASE_PUBLISHABLE_KEY || SUPABASE_ANON_KEY;
+
+function resolveClientKey(anon?: string, publishable?: string): string | undefined {
+  const isJwt = (key?: string) => Boolean(key?.startsWith("eyJ"));
+  if (isJwt(anon)) return anon;
+  if (isJwt(publishable)) return publishable;
+  return anon || publishable;
+}
+
+const CLIENT_KEY = resolveClientKey(SUPABASE_ANON_KEY, SUPABASE_PUBLISHABLE_KEY);
 
 if (!SUPABASE_URL || !CLIENT_KEY) {
   throw new Error('Missing Supabase URL or anon key');
@@ -21,8 +29,6 @@ export const supabase = createClient<Database>(SUPABASE_URL, CLIENT_KEY, {
   global: {
     headers: {
       'x-client-info': 'netpay-web',
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
     },
   },
 });

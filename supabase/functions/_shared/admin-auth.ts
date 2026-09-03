@@ -87,20 +87,3 @@ export function errorResponse(error: unknown, status = 400): Response {
 
   return jsonResponse({ success: false, error: message }, resolvedStatus);
 }
-
-export function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
-export function errorResponse(error: unknown, status = 400): Response {
-  const message = error instanceof Error ? error.message : "An unknown error occurred";
-  const resolvedStatus =
-    status === 400 && (message.includes("Unauthorized") || message.includes("authorization"))
-      ? 401
-      : status;
-
-  return jsonResponse({ success: false, error: message }, resolvedStatus);
-}

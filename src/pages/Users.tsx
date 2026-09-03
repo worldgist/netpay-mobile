@@ -734,17 +734,15 @@ export default function Users() {
         },
       });
 
-      if (error) {
-        throw error;
-      }
-
       if (!data?.success) {
-        throw new Error(data?.error || "Failed to delete user");
+        throw new Error(getFunctionErrorMessage(error, data, "Failed to delete user"));
       }
 
       toast({
         title: "User Deleted",
-        description: "The user was removed from the app and archived in deleted account management",
+        description: data.data?.email_sent
+          ? `The account was closed and a notice with account activity was emailed to ${data.data.email}.`
+          : data.data?.email_error || "The user was removed from the app and archived in deleted account management",
       });
 
       setIsDeleteDialogOpen(false);
@@ -2102,7 +2100,7 @@ export default function Users() {
           <DialogHeader>
             <DialogTitle>Delete User Account</DialogTitle>
             <DialogDescription>
-              This permanently removes the user from the app and archives their account data in deleted account management.
+              This permanently removes the user from the app, archives their account, and emails them that the account is closed with a copy of their recent activity.
             </DialogDescription>
           </DialogHeader>
           {selectedUser && (

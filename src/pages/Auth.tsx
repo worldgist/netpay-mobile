@@ -37,6 +37,14 @@ function authErrorMessage(error: { message?: string } | null | undefined): strin
   if (lower.includes("too many requests")) {
     return "Too many login attempts. Please wait a moment and try again.";
   }
+  if (
+    lower.includes("failed to fetch") ||
+    lower.includes("networkerror") ||
+    lower.includes("network request failed") ||
+    lower.includes("load failed")
+  ) {
+    return "Could not reach NetPay sign-in. Check your connection and try again.";
+  }
   return message || "Sign in failed. Please try again.";
 }
 
@@ -222,10 +230,16 @@ const Auth = () => {
         setEmail("");
         setPassword("");
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
-          password,
-        });
+        const signInOnce = () =>
+          supabase.auth.signInWithPassword({
+            email: trimmedEmail,
+            password,
+          });
+
+        let { data, error } = await signInOnce();
+        if (error?.message?.toLowerCase().includes("failed to fetch")) {
+          ({ data, error } = await signInOnce());
+        }
 
         if (error) {
           throw new Error(authErrorMessage(error));

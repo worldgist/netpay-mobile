@@ -87,19 +87,14 @@ function mapRow(row: Record<string, unknown>, serviceType: string): EBillsApiTra
 async function fetchTableFallback(table: string, service: string): Promise<EBillsApiTransaction[]> {
   const attempts = [
     'vending_provider.eq.ebills,vending_provider.eq.ebills.africa,reference.ilike.%EBILLS%,reference.ilike.req_%',
+    'provider.eq.ebills,reference.ilike.%EBILLS%,reference.ilike.req_%',
     'reference.ilike.%EBILLS%,reference.ilike.req_%',
   ];
 
   for (const filter of attempts) {
     const { data, error } = await supabase
       .from(table)
-      .select(`
-        *,
-        profiles (
-          full_name,
-          email
-        )
-      `)
+      .select('*')
       .or(filter)
       .order('created_at', { ascending: false })
       .limit(1000);
@@ -111,7 +106,20 @@ async function fetchTableFallback(table: string, service: string): Promise<EBill
     }
   }
 
-  return [];
+  const { data, error } = await supabase
+    .from(table)
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(1000);
+
+  if (error) {
+    console.warn(`eBills table fallback failed for ${table}:`, error.message);
+    return [];
+  }
+
+  return ((data || []) as Record<string, unknown>[])
+    .filter(isEbillsRow)
+    .map((row) => mapRow(row, service));
 }
 
 export async function fetchEbillsApiTransactions(): Promise<EBillsApiTransaction[]> {

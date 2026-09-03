@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  corsHeaders,
+  createServiceClient,
+  errorResponse,
+  jsonResponse,
+  requireAdmin,
+} from "../_shared/admin-auth.ts";
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS_PER_TABLE = 20000;
@@ -118,47 +120,12 @@ function mapTransaction(row: Record<string, unknown>, serviceType: ServiceType) 
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: CORS_HEADERS });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Missing authorization header" }),
-        { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    );
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
-
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
-
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!roleData) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized: Admin access required" }),
-        { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
-    }
+    const supabase = createServiceClient();
+    await requireAdmin(req, supabase);
 
     const tableResults = await Promise.all(
       SERVICE_TABLES.map(async ({ table, service }) => {
@@ -199,23 +166,14 @@ serve(async (req) => {
       return acc;
     }, {});
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        transactions: withProfiles,
-        total: withProfiles.length,
-        counts: byService,
-      }),
-      { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      success: true,
+      transactions: withProfiles,
+      total: withProfiles.length,
+      counts: byService,
+    });
   } catch (error) {
     console.error("fetch-ebills-transactions error:", error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : "Failed to fetch eBills transactions",
-      }),
-      { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return errorResponse(error);
   }
 });
