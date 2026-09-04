@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import {
@@ -26,6 +26,10 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
   const onBalanceIncreaseRef = useRef(onBalanceIncrease);
   const balanceChannelRef = useRef<RealtimeChannel | null>(null);
   const hasHydratedRef = useRef(false);
+  const applyBalanceRef = useRef<(value: number, options?: { persist?: boolean; hydrating?: boolean }) => void>(
+    () => undefined,
+  );
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     onBalanceIncreaseRef.current = onBalanceIncrease;
@@ -38,6 +42,10 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
       hasHydratedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
   const applyBalance = useCallback((value: number, options?: { persist?: boolean; hydrating?: boolean }) => {
     const persist = options?.persist ?? true;
@@ -56,10 +64,15 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
       onBalanceIncreaseRef.current?.(normalized, previous);
     }
 
-    if (persist && userId) {
-      void writeCachedWalletBalance(userId, normalized);
+    const activeUserId = userIdRef.current;
+    if (persist && activeUserId) {
+      void writeCachedWalletBalance(activeUserId, normalized);
     }
-  }, [userId]);
+  }, []);
+
+  useEffect(() => {
+    applyBalanceRef.current = applyBalance;
+  }, [applyBalance]);
 
   const setBalance = useCallback((value: number) => {
     applyBalance(value);
@@ -148,19 +161,17 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
   useEffect(() => {
     if (!userId) {
       if (balanceChannelRef.current) {
-        supabase.removeChannel(balanceChannelRef.current);
+        void supabase.removeChannel(balanceChannelRef.current);
         balanceChannelRef.current = null;
       }
       return;
     }
 
-    if (balanceChannelRef.current) {
-      supabase.removeChannel(balanceChannelRef.current);
-      balanceChannelRef.current = null;
-    }
-
+    // Unique topic per hook instance so concurrent screens never reuse a
+    // already-subscribed channel (Supabase rejects .on() after subscribe()).
+    const topic = `wallet-balance-${userId}-${Math.random().toString(36).slice(2, 10)}`;
     const channel = supabase
-      .channel(`wallet-balance-${userId}`)
+      .channel(topic)
       .on(
         'postgres_changes',
         {
@@ -171,7 +182,7 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
         },
         (payload) => {
           const nextBalance = Number((payload.new as { balance?: number })?.balance ?? 0);
-          applyBalance(nextBalance);
+          applyBalanceRef.current(nextBalance);
         },
       )
       .subscribe();
@@ -179,12 +190,12 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
     balanceChannelRef.current = channel;
 
     return () => {
-      if (balanceChannelRef.current) {
-        supabase.removeChannel(balanceChannelRef.current);
+      void supabase.removeChannel(channel);
+      if (balanceChannelRef.current === channel) {
         balanceChannelRef.current = null;
       }
     };
-  }, [userId, applyBalance]);
+  }, [userId]);
 
   return { balance, setBalance, refreshBalance, userId };
 }

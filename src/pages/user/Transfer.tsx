@@ -111,12 +111,18 @@ export default function Transfer() {
           : undefined,
       });
 
-      if (error) {
+      if (error && !verifyResponse) {
         throw error;
       }
 
       if (!verifyResponse?.success) {
-        toast.error(verifyResponse?.error || "Recipient not found. Please check the email address.");
+        const message = typeof verifyResponse?.error === "string" ? verifyResponse.error : "";
+        const lower = message.toLowerCase();
+        if (lower.includes("user not found") || lower.includes("recipient not found") || lower.includes("no user found")) {
+          toast.error("User not found. No NetPay account matches that email.");
+        } else {
+          toast.error(message || "User not found. Please check the email address.");
+        }
         setRecipientDetails(null);
         return;
       }

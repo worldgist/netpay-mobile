@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Optional: generate a monochrome Android status-bar icon derived from logo.png.
- * The app config uses logo.png directly; run this only if you need a separate
- * white-on-transparent asset for legacy Android tooling.
- * Run: node ./scripts/generate-notification-icon.js
+ * Generate a bold monochrome Android status-bar / push notification icon
+ * from logo.png (white silhouette on transparent background).
+ *
+ * Run: npm run generate:notification-icon
  */
 const path = require('path');
 const fs = require('fs');
@@ -11,6 +11,27 @@ const fs = require('fs');
 const projectRoot = path.join(__dirname, '..');
 const src = path.join(projectRoot, 'assets', 'images', 'logo.png');
 const out = path.join(projectRoot, 'assets', 'images', 'notification-icon.png');
+
+/** Expand opaque pixels so thin logo strokes read bold at status-bar size. */
+function dilateMask(alpha, width, height, radius) {
+  const next = Buffer.alloc(alpha.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let maxA = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx * dx + dy * dy > radius * radius) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          maxA = Math.max(maxA, alpha[ny * width + nx]);
+        }
+      }
+      next[y * width + x] = maxA;
+    }
+  }
+  return next;
+}
 
 async function main() {
   let sharp;
@@ -26,38 +47,42 @@ async function main() {
     process.exit(1);
   }
 
-  // Resize with transparent padding first so the icon has breathing room in status bar.
-  const base = await sharp(src)
-    .resize(96, 96, {
+  // Fill most of a fixed 96×96 canvas so the mark reads larger in the tray.
+  const size = 96;
+  const { data, info } = await sharp(src)
+    .resize(size, size, {
       fit: 'contain',
-      background: { r: 255, g: 255, b: 255, alpha: 0 },
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
-    .png()
-    .toBuffer();
-
-  // Convert to raw pixels and map non-white logo pixels to solid white,
-  // keeping near-white background fully transparent.
-  const { data, info } = await sharp(base)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
+  const channels = info.channels;
+  const pixelCount = info.width * info.height;
+  const mask = Buffer.alloc(pixelCount);
 
-  const outData = Buffer.alloc(data.length);
-  const channels = info.channels; // expected RGBA
-
-  for (let i = 0; i < data.length; i += channels) {
+  for (let i = 0, p = 0; i < data.length; i += channels, p++) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
     const a = data[i + 3];
 
-    // Treat very light pixels as background.
-    const isBackground = r > 242 && g > 242 && b > 242;
+    // Keep colored logo ink; drop near-white / empty background.
+    const isBackground = a < 20 || (r > 245 && g > 245 && b > 245);
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    // Orange logo is mid-luminance; solidify ink pixels aggressively.
+    mask[p] = isBackground ? 0 : a > 40 && luminance < 250 ? 255 : 0;
+  }
 
+  // Two dilate passes → thicker "N" waves and NETPAY wordmark at small sizes.
+  const boldMask = dilateMask(dilateMask(mask, info.width, info.height, 1), info.width, info.height, 1);
+
+  const outData = Buffer.alloc(data.length);
+  for (let p = 0, i = 0; p < pixelCount; p++, i += channels) {
     outData[i] = 255;
     outData[i + 1] = 255;
     outData[i + 2] = 255;
-    outData[i + 3] = isBackground ? 0 : a;
+    outData[i + 3] = boldMask[p];
   }
 
   await sharp(outData, {
@@ -71,7 +96,7 @@ async function main() {
     .toFile(out);
 
   const meta = await sharp(out).metadata();
-  console.log('Wrote', path.relative(projectRoot, out), `(${meta.width}x${meta.height})`);
+  console.log('Wrote bold notification icon', path.relative(projectRoot, out), `(${meta.width}x${meta.height})`);
 }
 
 main().catch((e) => {

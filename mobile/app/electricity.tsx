@@ -11,8 +11,9 @@ import { Dropdown } from '@/components/dropdown';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
+import { useServiceLogos } from '@/contexts/service-logos-context';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
 import * as Clipboard from 'expo-clipboard';
 
@@ -27,78 +28,86 @@ type ElectricityProvider = {
   };
 };
 
-const FALLBACK_PROVIDERS: ElectricityProvider[] = [
+const LOCAL_ELECTRICITY_LOGOS: Record<string, any> = {
+  IKEJA: require('@/assets/images/IKEDC.png'),
+  EKO: require('@/assets/images/EKEDC.png'),
+  ABUJA: require('@/assets/images/AEDC.png'),
+  KADUNA: require('@/assets/images/KAEDCO.png'),
+  IBADAN: require('@/assets/images/IBEDC.png'),
+  KANO: require('@/assets/images/KEDCO.png'),
+  PORTHARCOURT: require('@/assets/images/PHEDC.png'),
+  JOS: require('@/assets/images/JED.png'),
+  BENIN: require('@/assets/images/BEDC.png'),
+  YOLA: require('@/assets/images/YEDC.png'),
+};
+
+const FALLBACK_PROVIDER_DEFS: Omit<ElectricityProvider, 'logo'>[] = [
   {
     id: 'IKEJA',
     name: 'Ikeja Electricity',
-    logo: require('@/assets/images/IKEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'AMA', postpaid: 'AMB' },
   },
   {
     id: 'EKO',
     name: 'Eko Electricity',
-    logo: require('@/assets/images/EKEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'ANA', postpaid: 'ANB' },
   },
   {
     id: 'ABUJA',
     name: 'Abuja Electricity',
-    logo: require('@/assets/images/AEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'AHB', postpaid: 'AHA' },
   },
   {
     id: 'KADUNA',
     name: 'Kaduna Electricity',
-    logo: require('@/assets/images/KAEDCO.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'AGB', postpaid: 'AGA' },
   },
   {
     id: 'IBADAN',
     name: 'Ibadan Electricity',
-    logo: require('@/assets/images/IBEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'AEA', postpaid: 'AEB' },
   },
   {
     id: 'KANO',
     name: 'Kano Electricity Distribution',
-    logo: require('@/assets/images/KEDCO.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'AFA', postpaid: 'AFB' },
   },
   {
     id: 'PORTHARCOURT',
     name: 'Port-Harcourt Electricity',
-    logo: require('@/assets/images/PHEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'ADB', postpaid: 'ADA' },
   },
   {
     id: 'JOS',
     name: 'Jos Electricity',
-    logo: require('@/assets/images/JED.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'ACB', postpaid: 'ACA' },
   },
   {
     id: 'BENIN',
     name: 'Benin Electricity',
-    logo: require('@/assets/images/BEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'AAB', postpaid: 'AAA' },
   },
   {
     id: 'YOLA',
     name: 'Yola Electricity',
-    logo: require('@/assets/images/YEDC.png'),
     meterTypes: ['prepaid', 'postpaid'],
     serviceIds: { prepaid: 'ALA', postpaid: 'ALB' },
   },
 ];
+
+const FALLBACK_PROVIDERS: ElectricityProvider[] = FALLBACK_PROVIDER_DEFS.map((provider) => ({
+  ...provider,
+  logo: LOCAL_ELECTRICITY_LOGOS[provider.id],
+}));
 
 type ElectricityPlan = {
   id: string;
@@ -129,10 +138,18 @@ export default function ElectricityScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { providers: vendingSettings } = useVendingSettings();
+  const { getLogoSource } = useServiceLogos();
   const vendingProvider = vendingSettings.electricity as 'vtpass' | 'mobilenig' | 'smeplug' | 'ebills';
-  const [providers] = useState<ElectricityProvider[]>(FALLBACK_PROVIDERS);
+  const providers = useMemo(
+    () =>
+      FALLBACK_PROVIDER_DEFS.map((provider) => ({
+        ...provider,
+        logo: getLogoSource('electricity', provider.id, LOCAL_ELECTRICITY_LOGOS[provider.id]),
+      })),
+    [getLogoSource],
+  );
   const [plans] = useState<ElectricityPlan[]>(FALLBACK_PLANS);
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(FALLBACK_PROVIDERS[0]?.id || null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(FALLBACK_PROVIDER_DEFS[0]?.id || null);
   const [meterType, setMeterType] = useState<'prepaid' | 'postpaid' | ''>('');
   const [meterNumber, setMeterNumber] = useState('');
   const [amount, setAmount] = useState('');

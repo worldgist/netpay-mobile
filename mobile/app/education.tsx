@@ -12,8 +12,9 @@ import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { useWalletBalance } from '@/hooks/use-wallet-balance';
+import { useServiceLogos } from '@/contexts/service-logos-context';
 
 type EducationService = {
   id: string;
@@ -28,7 +29,7 @@ type EducationService = {
   logoUrl?: string | null;
 };
 
-const SERVICE_LOGOS: Record<string, any> = {
+const LOCAL_SERVICE_LOGOS: Record<string, any> = {
   WAEC: require('@/assets/images/waec.png'),
   NECO: require('@/assets/images/neco.png'),
   JAMB: require('@/assets/images/jamb.png'),
@@ -41,15 +42,16 @@ const SERVICE_ID_MAP: Record<string, string> = {
 };
 
 const FALLBACK_SERVICES: EducationService[] = [
-  { id: 'waec-fallback', examType: 'WAEC', name: 'WAEC Result Checker PIN', price: 3900, apiCode: 'WAEC', serviceId: SERVICE_ID_MAP.WAEC, logo: SERVICE_LOGOS.WAEC },
-  { id: 'neco-fallback', examType: 'NECO', name: 'NECO Result Checker PIN', price: 3900, apiCode: 'NECO', serviceId: SERVICE_ID_MAP.NECO, logo: SERVICE_LOGOS.NECO },
-  { id: 'jamb-fallback', examType: 'JAMB', name: 'JAMB Registration', price: 6500, apiCode: 'JAMB', serviceId: SERVICE_ID_MAP.JAMB, logo: SERVICE_LOGOS.JAMB },
+  { id: 'waec-fallback', examType: 'WAEC', name: 'WAEC Result Checker PIN', price: 3900, apiCode: 'WAEC', serviceId: SERVICE_ID_MAP.WAEC, logo: LOCAL_SERVICE_LOGOS.WAEC },
+  { id: 'neco-fallback', examType: 'NECO', name: 'NECO Result Checker PIN', price: 3900, apiCode: 'NECO', serviceId: SERVICE_ID_MAP.NECO, logo: LOCAL_SERVICE_LOGOS.NECO },
+  { id: 'jamb-fallback', examType: 'JAMB', name: 'JAMB Registration', price: 6500, apiCode: 'JAMB', serviceId: SERVICE_ID_MAP.JAMB, logo: LOCAL_SERVICE_LOGOS.JAMB },
 ];
 
 const formatCurrency = (amount: number) => `₦${Number(amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function EducationScreen() {
   const router = useRouter();
+  const { getLogoUrl, getLogoSource } = useServiceLogos();
   const [services, setServices] = useState<EducationService[]>(FALLBACK_SERVICES);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(FALLBACK_SERVICES[0]?.id ?? null);
   const [referenceNumber, setReferenceNumber] = useState('');
@@ -307,8 +309,14 @@ export default function EducationScreen() {
               service.original_price,
               ...collectPriceCandidates(service.metadata)
             );
-            const logoUrl = service.logo_url ? String(service.logo_url).trim() : null;
-            const localLogo = SERVICE_LOGOS[examType] || SERVICE_LOGOS.WAEC;
+            const logoUrl =
+              (service.logo_url ? String(service.logo_url).trim() : null) ||
+              getLogoUrl('education', examType);
+            const localLogo = getLogoSource(
+              'education',
+              examType,
+              LOCAL_SERVICE_LOGOS[examType] || LOCAL_SERVICE_LOGOS.WAEC,
+            );
             const providerServiceId =
               (service.service_id && String(service.service_id).trim()) ||
               (service.api_code && String(service.api_code).trim()) ||
@@ -377,7 +385,11 @@ export default function EducationScreen() {
             ...service,
             examType: matchExam,
             name: `${matchExam} Registration`,
-            logo: SERVICE_LOGOS[matchExam] || service.logo,
+            logo: getLogoSource(
+              'education',
+              matchExam,
+              LOCAL_SERVICE_LOGOS[matchExam] || service.logo,
+            ),
           });
         }
       });
@@ -461,7 +473,7 @@ export default function EducationScreen() {
         setSelectedServiceId(FALLBACK_SERVICES[0]?.id ?? null);
       }
     }
-  }, [router, selectedServiceId]);
+  }, [router, selectedServiceId, getLogoUrl, getLogoSource]);
 
   useFocusEffect(
     useCallback(() => {

@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authRedirectUrls, NETPAY_SITE_URL } from '@/constants/site';
 import { buildReferralCode, REFERRER_REWARD_AMOUNT } from '@/utils/referral';

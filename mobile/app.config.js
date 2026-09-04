@@ -18,7 +18,6 @@ module.exports = {
   },
   scheme: 'netpay',
   userInterfaceStyle: 'automatic',
-  newArchEnabled: true,
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.netpay.mobile',

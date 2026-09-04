@@ -144,6 +144,7 @@ const DataPlans = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
 
   // Define fetchDataPlansForProvider first (before it's used)
   const fetchDataPlansForProvider = useCallback(async (provider: string) => {
@@ -264,6 +265,53 @@ const DataPlans = () => {
       setDataPlans([]);
     }
   }, [filterNetwork, toast]);
+
+  const syncAllProviderPlans = useCallback(async () => {
+    setIsSyncingAll(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Session expired. Please sign in again.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('sync-data-plans', {
+        body: { providers: ['smeplug', 'ebills', 'mobilenig'] },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to sync data plans');
+      }
+
+      const summary = data.summary || {};
+      const parts = Object.entries(summary).map(([provider, info]: [string, any]) => {
+        const count = info?.planCount ?? 0;
+        const errs = Array.isArray(info?.errors) ? info.errors.length : 0;
+        return `${provider}: ${count} plans${errs ? ` (${errs} errors)` : ''}`;
+      });
+
+      toast({
+        title: 'Data plans synced',
+        description: parts.length
+          ? `Stored for instant app loading — ${parts.join(' · ')}`
+          : 'Providers synced into the database.',
+      });
+
+      setLastSyncedAt(new Date());
+      await fetchAllDataPlans(filterNetwork);
+      await fetchDataPlans();
+    } catch (error: any) {
+      console.error('syncAllProviderPlans failed:', error);
+      toast({
+        title: 'Sync failed',
+        description: error?.message || 'Unable to sync data plans from providers',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSyncingAll(false);
+    }
+  }, [toast, fetchAllDataPlans, fetchDataPlans, filterNetwork]);
 
   const fetchNetworks = useCallback(async () => {
     try {
@@ -1826,6 +1874,16 @@ const DataPlans = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={syncAllProviderPlans}
+                    disabled={isSyncingAll}
+                    className="flex items-center gap-2"
+                    title="Fetch and store plans for SMEPLUG, eBills, and MobileNig so the app loads instantly"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
+                    {isSyncingAll ? 'Syncing…' : 'Sync All Providers'}
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={resetAllCustomPricesForProvider}

@@ -29,8 +29,8 @@ export default function SignupScreen() {
   const [phoneExists, setPhoneExists] = useState(false);
   const [checkingEmail, setCheckingEmail] = useState(false);
   const [checkingPhone, setCheckingPhone] = useState(false);
-  const emailCheckTimeout = useRef<NodeJS.Timeout | null>(null);
-  const phoneCheckTimeout = useRef<NodeJS.Timeout | null>(null);
+  const emailCheckTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const phoneCheckTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (typeof refParam === 'string' && refParam.trim()) {
@@ -104,7 +104,7 @@ export default function SignupScreen() {
       } else {
         setEmailExists(false);
       }
-    }, 500) as unknown as NodeJS.Timeout; // Wait 500ms after user stops typing
+    }, 500); // Wait 500ms after user stops typing
 
     return () => {
       if (emailCheckTimeout.current) {
@@ -125,7 +125,7 @@ export default function SignupScreen() {
       } else {
         setPhoneExists(false);
       }
-    }, 500) as unknown as NodeJS.Timeout; // Wait 500ms after user stops typing
+    }, 500); // Wait 500ms after user stops typing
 
     return () => {
       if (phoneCheckTimeout.current) {

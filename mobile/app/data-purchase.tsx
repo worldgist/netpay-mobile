@@ -6,17 +6,23 @@ import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
+import { useServiceLogos } from '@/contexts/service-logos-context';
 import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import * as Clipboard from 'expo-clipboard';
+import {
+  readCachedDataPlans,
+  writeCachedDataPlans,
+  type CachedDataPlan,
+} from '@/utils/data-plans-cache';
 
-const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
+const LOCAL_NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
   GLO: require('@/assets/images/glo.png'),
@@ -156,7 +162,7 @@ type NetworkOption = {
 const DEFAULT_NETWORKS: NetworkOption[] = SUPPORTED_DATA_NETWORKS.map((networkId) => ({
   id: networkId,
   name: getNetworkDisplayName(networkId),
-  logo: NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
+  logo: LOCAL_NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
 }));
 
 export default function DataPurchaseScreen() {
@@ -176,6 +182,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
   const { providers: vendingSettings } = useVendingSettings();
+  const { getLogoSource } = useServiceLogos();
   const dataProvider = vendingSettings.data;
   const [isDemoUser, setIsDemoUser] = useState(false);
 
@@ -219,35 +226,42 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         setIsDemoUser(userEmail === 'demo@netppay.com');
       }
 
-      const userId = session.user.id;
-      const accessToken = session.access_token;
-      if (!accessToken) {
-        throw new Error('Missing access token. Please sign in again.');
-      }
-
       const resolvedProvider = dataProvider || 'smeplug';
 
-      const networksPromise =
-        resolvedProvider === 'smeplug'
-          ? supabase.functions.invoke('fetch-smeplug-networks', {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            })
-          : Promise.resolve({ data: null, error: null });
+      // Show cached plans instantly while we refresh from the database.
+      const cached = await readCachedDataPlans(resolvedProvider);
+      if (cached && isMounted.current) {
+        const priorityOrder = [...SUPPORTED_DATA_NETWORKS];
+        const networkList: NetworkOption[] = priorityOrder.map((networkId) => ({
+          id: networkId,
+          name: getNetworkDisplayName(networkId),
+          logo: getLogoSource('data', networkId, LOCAL_NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO),
+        }));
+        const previousNetwork = selectedNetworkRef.current;
+        const effectiveNetwork =
+          previousNetwork && networkList.some((n) => n.id === previousNetwork)
+            ? previousNetwork
+            : networkList[0]?.id ?? null;
+        setPlansByNetwork(cached.plansByNetwork as Record<string, DataPlan[]>);
+        setNetworks(networkList);
+        setSelectedNetwork(effectiveNetwork);
+        setNetworkIdMap(
+          resolvedProvider === 'smeplug'
+            ? mergeLegacyNetworkIdMap({ ...SMEPLUG_NETWORK_IDS, ...cached.networkIdMap })
+            : {},
+        );
+      }
 
+      // Load from database only — no vendor API calls on screen open.
       let plansQuery = supabase
         .from('data_plans')
-        .select('id, network, plan_name, price, validity, api_code, provider, custom_price, original_price')
+        .select('id, network, plan_name, price, validity, api_code, provider, custom_price, original_price, is_active')
+        .eq('provider', resolvedProvider)
+        .or('is_active.eq.true,is_active.is.null')
         .order('network', { ascending: true })
         .order('price', { ascending: true });
 
-      if (resolvedProvider) {
-        plansQuery = plansQuery.eq('provider', resolvedProvider);
-      }
-
-      const [plansRes, networksRes] = await Promise.all([
-        plansQuery,
-        networksPromise,
-      ]);
+      const plansRes = await plansQuery;
 
       let plansData: any[] = plansRes.data || [];
       if (plansRes.error) {
@@ -275,40 +289,27 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                                errorMsgLower.includes('custom_price') ||
                                errorMsgLower.includes('original_price') ||
                                errorMsgLower.includes('provider') ||
+                               errorMsgLower.includes('is_active') ||
                                errorMsgLower.includes('bad request')
                              ));
         
         if (isColumnError) {
-          console.warn('Column missing from data_plans, using fallback query', {
-            errorCode,
-            errorMessage,
-            isProviderColumnError: errorMsgLower.includes('provider') && errorMsgLower.includes('does not exist'),
-            isCustomPriceError: errorMsgLower.includes('custom_price'),
-            isOriginalPriceError: errorMsgLower.includes('original_price'),
-          });
+          console.warn('Column missing from data_plans, using fallback query');
           
-          // Check if the error is about specific columns
           const isProviderColumnError = errorMsgLower.includes('provider') && 
                                       errorMsgLower.includes('does not exist');
           
-          // Start with absolute minimum columns that should always exist
           let fallbackSelect = 'id, network, plan_name, price, validity, api_code';
           
-          // Only add provider if we know it exists (not the cause of error)
           if (!isProviderColumnError) {
             fallbackSelect += ', provider';
           }
           
-          console.log('Fallback select:', fallbackSelect, 'resolvedProvider:', resolvedProvider);
-          
-          // Try fallback query with provider filter first
           let fallbackSuccess = false;
           let lastError = null;
           
-          // Attempt 1: Try with provider filter if provider column exists
           if (!isProviderColumnError && resolvedProvider) {
             try {
-              console.log('Attempt 1: Trying fallback with provider filter:', resolvedProvider);
               const fallbackWithProvider = await supabase
                 .from('data_plans')
                 .select(fallbackSelect)
@@ -316,74 +317,52 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                 .order('network', { ascending: true })
                 .order('price', { ascending: true });
               
-              console.log('Fallback with provider result:', {
-                error: fallbackWithProvider.error,
-                dataCount: fallbackWithProvider.data?.length || 0
-              });
-              
               if (!fallbackWithProvider.error) {
                 plansData = fallbackWithProvider.data || [];
                 fallbackSuccess = true;
-                console.log('Fallback with provider succeeded, got', plansData.length, 'plans');
               } else {
                 lastError = fallbackWithProvider.error;
-                console.warn('Fallback with provider filter failed:', fallbackWithProvider.error, 'trying without filter');
               }
             } catch (e) {
               lastError = e;
-              console.warn('Fallback with provider filter threw error:', e, 'trying without filter');
             }
           }
           
-          // Attempt 2: Try without provider filter
           if (!fallbackSuccess) {
             try {
-              console.log('Attempt 2: Trying fallback without provider filter');
               const fallbackWithoutProvider = await supabase
                 .from('data_plans')
                 .select(fallbackSelect)
                 .order('network', { ascending: true })
                 .order('price', { ascending: true });
               
-              console.log('Fallback without provider result:', {
-                error: fallbackWithoutProvider.error,
-                dataCount: fallbackWithoutProvider.data?.length || 0
-              });
-              
               if (!fallbackWithoutProvider.error) {
                 plansData = fallbackWithoutProvider.data || [];
                 fallbackSuccess = true;
-                console.log('Fallback without provider succeeded, got', plansData.length, 'plans');
               } else {
                 lastError = fallbackWithoutProvider.error;
-                console.error('Fallback without provider filter also failed:', fallbackWithoutProvider.error);
               }
             } catch (e) {
               lastError = e;
-              console.error('Fallback without provider filter threw error:', e);
             }
           }
           
           if (!fallbackSuccess) {
-            console.error('All fallback attempts failed, throwing error');
             throw lastError || plansRes.error;
           }
           
-          // Filter by provider in memory to ensure only the selected provider's plans are shown
           if (resolvedProvider && plansData.length > 0) {
             const hasProviderField = plansData.some((plan: any) => plan.provider !== undefined);
             if (hasProviderField) {
               const filteredPlans = plansData.filter((plan: any) => 
                 plan.provider === resolvedProvider
               );
-              // Only use filtered results if we got matches, otherwise might be all same provider already
               if (filteredPlans.length > 0 || plansData.length === 0) {
                 plansData = filteredPlans;
               }
             }
           }
           
-          // Map fallback data to include missing columns as null
           plansData = (plansData || []).map((plan: any) => ({
             ...plan,
             provider: plan.provider || resolvedProvider || 'smeplug',
@@ -395,30 +374,10 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         }
       }
 
-      let fetchedNetworkMap: Record<string, string> = {};
-      if (resolvedProvider === 'smeplug') {
-        if (networksRes.error) {
-          console.warn('Failed to fetch SMEPLUG networks. Falling back to default mapping:', networksRes.error);
-        } else {
-          const payload = networksRes.data;
-          if (payload?.success && Array.isArray(payload.data) && payload.data.length > 0) {
-            payload.data.forEach((item: { id: string; name: string; network_id: string }) => {
-              const normalizedFromName = normalizeNetwork(item.name);
-              const normalizedFromId = normalizeNetwork(item.id);
-              const derivedKey = normalizedFromName || normalizedFromId;
-              if (derivedKey) {
-                fetchedNetworkMap[derivedKey] = String(item.network_id || item.id);
-              }
-            });
-          } else {
-            console.warn('SMEPLUG networks function returned no data. Falling back to default mapping.');
-          }
-        }
-
-        if (Object.keys(fetchedNetworkMap).length === 0) {
-          fetchedNetworkMap = { ...SMEPLUG_NETWORK_IDS };
-        }
-      }
+      const networkIdMap =
+        resolvedProvider === 'smeplug'
+          ? mergeLegacyNetworkIdMap({ ...SMEPLUG_NETWORK_IDS })
+          : {};
 
       const grouped: Record<string, DataPlan[]> = {};
       plansData.forEach((plan) => {
@@ -452,7 +411,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       const networkList: NetworkOption[] = priorityOrder.map((networkId) => ({
         id: networkId,
         name: getNetworkDisplayName(networkId),
-        logo: NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO,
+        logo: getLogoSource('data', networkId, LOCAL_NETWORK_LOGOS[networkId] || DEFAULT_NETWORK_LOGO),
       }));
 
       const previousNetwork = selectedNetworkRef.current;
@@ -468,6 +427,21 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
           ? previousPlanId
           : '';
 
+      const cachePayload: Record<string, CachedDataPlan[]> = {};
+      Object.entries(grouped).forEach(([network, plans]) => {
+        cachePayload[network] = plans.map((plan) => ({
+          id: plan.id,
+          network: plan.network,
+          planName: plan.planName,
+          price: plan.price,
+          validity: plan.validity,
+          apiCode: plan.apiCode || '',
+          custom_price: plan.custom_price,
+          original_price: plan.original_price,
+        }));
+      });
+      void writeCachedDataPlans(resolvedProvider, cachePayload, networkIdMap);
+
       if (isMounted.current) {
         setPlansByNetwork(grouped);
         setNetworks(networkList);
@@ -476,11 +450,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         if (!effectivePlanId) {
           setSelectedPlanCache(null);
         }
-        setNetworkIdMap(
-          resolvedProvider === 'smeplug'
-            ? mergeLegacyNetworkIdMap({ ...fetchedNetworkMap })
-            : {},
-        );
+        setNetworkIdMap(networkIdMap);
       }
     } catch (err) {
       console.error('Failed to fetch data plans:', err);
@@ -492,7 +462,16 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         setPlansRefreshing(false);
       }
     }
-  }, [router, dataProvider]);
+  }, [router, dataProvider, getLogoSource]);
+
+  useEffect(() => {
+    setNetworks((prev) =>
+      prev.map((network) => ({
+        ...network,
+        logo: getLogoSource('data', network.id, LOCAL_NETWORK_LOGOS[network.id] || DEFAULT_NETWORK_LOGO),
+      })),
+    );
+  }, [getLogoSource]);
 
   useEffect(() => {
     fetchDataPlans();

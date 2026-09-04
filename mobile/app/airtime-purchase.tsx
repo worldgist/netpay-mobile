@@ -5,18 +5,19 @@ import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { Image } from 'expo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
+import { useServiceLogos } from '@/contexts/service-logos-context';
 import { suppressHandledNetworkError } from '@/utils/error-handler';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
 import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import * as Clipboard from 'expo-clipboard';
 
-const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
+const LOCAL_NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   MTN: require('@/assets/images/mtn.png'),
   AIRTEL: require('@/assets/images/airtel.png'),
   GLO: require('@/assets/images/glo.png'),
@@ -80,10 +81,10 @@ const isFlutterwaveAirtimeProvider = (vendingProvider: string) =>
   vendingProvider.toLowerCase() === 'flutterwave';
 
 const FALLBACK_PROVIDERS: ProviderDetails[] = [
-  { id: 'fallback-mtn', network: 'MTN', networkName: 'MTN', displayName: 'MTN', minAmount: 50, maxAmount: 50000, apiCode: '1', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.MTN },
-  { id: 'fallback-airtel', network: 'AIRTEL', networkName: 'Airtel', displayName: 'Airtel', minAmount: 50, maxAmount: 50000, apiCode: '2', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.AIRTEL },
-  { id: 'fallback-t2', network: 'T2', networkName: '9Mobile', displayName: 'T2', minAmount: 50, maxAmount: 50000, apiCode: '3', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.T2 },
-  { id: 'fallback-glo', network: 'GLO', networkName: 'Glo', displayName: 'Glo', minAmount: 50, maxAmount: 50000, apiCode: '4', identifierLabel: 'Phone Number', logo: NETWORK_LOGOS.GLO },
+  { id: 'fallback-mtn', network: 'MTN', networkName: 'MTN', displayName: 'MTN', minAmount: 50, maxAmount: 50000, apiCode: '1', identifierLabel: 'Phone Number', logo: LOCAL_NETWORK_LOGOS.MTN },
+  { id: 'fallback-airtel', network: 'AIRTEL', networkName: 'Airtel', displayName: 'Airtel', minAmount: 50, maxAmount: 50000, apiCode: '2', identifierLabel: 'Phone Number', logo: LOCAL_NETWORK_LOGOS.AIRTEL },
+  { id: 'fallback-t2', network: 'T2', networkName: '9Mobile', displayName: 'T2', minAmount: 50, maxAmount: 50000, apiCode: '3', identifierLabel: 'Phone Number', logo: LOCAL_NETWORK_LOGOS.T2 },
+  { id: 'fallback-glo', network: 'GLO', networkName: 'Glo', displayName: 'Glo', minAmount: 50, maxAmount: 50000, apiCode: '4', identifierLabel: 'Phone Number', logo: LOCAL_NETWORK_LOGOS.GLO },
 ];
 
 const resolveAirtimeNetworkId = (
@@ -170,6 +171,7 @@ export default function AirtimePurchaseScreen() {
   const [invalidPhoneMessage, setInvalidPhoneMessage] = useState('Please enter a valid 11-digit phone number (e.g. 08012345678).');
   const [isDemoUser, setIsDemoUser] = useState(false);
   const { providers: vendingSettings } = useVendingSettings();
+  const { getLogoSource } = useServiceLogos();
   const airtimeVendingProvider = vendingSettings.airtime || 'smeplug';
 
   const isMounted = useRef(true);
@@ -278,7 +280,7 @@ export default function AirtimePurchaseScreen() {
             apiCode,
             identifierLabel: provider.identifier_label || 'Phone Number',
             placeholder: provider.placeholder,
-            logo: NETWORK_LOGOS[normalized] || DEFAULT_NETWORK_LOGO,
+            logo: getLogoSource('airtime', normalized, LOCAL_NETWORK_LOGOS[normalized] || DEFAULT_NETWORK_LOGO),
           } as ProviderDetails;
         })
         .filter((item): item is ProviderDetails => Boolean(item));
@@ -330,7 +332,20 @@ export default function AirtimePurchaseScreen() {
         setError(err instanceof Error ? err.message : 'Unable to load airtime providers.');
       }
     }
-  }, [router, airtimeVendingProvider]);
+  }, [router, airtimeVendingProvider, getLogoSource]);
+
+  useEffect(() => {
+    setProviders((prev) =>
+      prev.map((provider) => ({
+        ...provider,
+        logo: getLogoSource(
+          'airtime',
+          provider.network,
+          LOCAL_NETWORK_LOGOS[provider.network] || DEFAULT_NETWORK_LOGO,
+        ),
+      })),
+    );
+  }, [getLogoSource]);
 
   useFocusEffect(
     useCallback(() => {

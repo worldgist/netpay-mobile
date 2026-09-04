@@ -12,6 +12,7 @@ export const MOBILENIG_DATA_SERVICE_IDS: Record<string, string> = {
   "9MOBILE": "9CA",
   "9 MOBILE": "9CA",
   ETISALAT: "9CA",
+  T2: "9CA",
 };
 
 /** MobileNig VTU airtime service IDs (distinct from data service IDs). */

@@ -57,6 +57,19 @@ export function parseVendingProviders(input: Partial<VendingProviders> | null | 
   };
 }
 
+export function providersFromAppSettingsRows(
+  rows: Array<{ setting_key?: string | null; setting_value?: unknown }> | null | undefined,
+): VendingProviders {
+  let next = { ...DEFAULT_VENDING_PROVIDERS };
+  for (const row of rows || []) {
+    const key = row.setting_key;
+    if (!key || !isVendingSettingKey(key)) continue;
+    const patched = patchVendingProviderFromSettingKey(next, key, row.setting_value);
+    if (patched) next = patched;
+  }
+  return next;
+}
+
 export function isVendingSettingKey(key: string): boolean {
   return (VENDING_SETTING_KEYS as readonly string[]).includes(key);
 }
@@ -77,6 +90,8 @@ export function patchVendingProviderFromSettingKey(
     const obj = settingValue as Record<string, unknown>;
     if (typeof obj.provider === 'string') {
       rawProvider = obj.provider;
+    } else if (typeof obj.value === 'string') {
+      rawProvider = obj.value;
     }
   }
 

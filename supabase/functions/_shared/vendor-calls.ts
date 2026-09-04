@@ -328,7 +328,9 @@ export async function purchaseViaMobilenig(
   const serviceType = planTypeUpper.includes('GIFTING') ? 'GIFTING' : 'SME';
 
   // Get plan code (prefer mobilenig_code, fallback to api_code)
-  const planCode = plan.mobilenig_code || plan.api_code || '';
+  // Sync may store api_code as "SME:CODE" — strip the request-type prefix if present.
+  const rawPlanCode = plan.mobilenig_code || plan.api_code || '';
+  const planCode = String(rawPlanCode).replace(/^(SME|GIFTING|CORPORATE):/i, '').trim();
   if (!planCode) {
     return {
       success: false,

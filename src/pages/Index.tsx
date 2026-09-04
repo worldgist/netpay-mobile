@@ -124,16 +124,6 @@ const Index = () => {
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-4">
-              <Button
-                onClick={() => navigate("/open/signup")}
-                size="lg"
-                className="bg-brand hover:bg-brand/90 text-white h-12 px-8 text-base"
-              >
-                Create Free Account
-              </Button>
-            </div>
-
             <div className="grid sm:grid-cols-2 gap-4">
               {heroHighlights.map((highlight) => (
                 <div key={highlight} className="flex items-start gap-3 text-sm text-muted-foreground">
@@ -281,13 +271,6 @@ const Index = () => {
             Join thousands of individuals, businesses and resellers who trust NetPay for their everyday payments.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
-              <Button
-                onClick={() => navigate("/open/signup")}
-                size="lg"
-                className="bg-white text-brand hover:bg-white/90 h-12 px-8 shadow-elegant"
-              >
-              Create Your Free Account
-            </Button>
             <Button
               onClick={() => navigate("/contact-us")}
               size="lg"

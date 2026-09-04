@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { ProfileProvider } from '@/contexts/profile-context';
 import { TransactionsProvider } from '@/contexts/transactions-context';
 import { VendingSettingsProvider } from '@/contexts/vending-settings-context';
+import { ServiceLogosProvider } from '@/contexts/service-logos-context';
 import { supabase } from '@/lib/supabase';
 import { handleAppLink } from '@/utils/handle-app-link';
 import { clearAppCache } from '@/utils/clear-app-cache';
@@ -195,6 +196,7 @@ export default function RootLayout() {
     <ErrorBoundary>
       <ProfileProvider>
         <VendingSettingsProvider>
+        <ServiceLogosProvider>
         <TransactionsProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <OnboardingGate />
@@ -246,6 +248,7 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         </ThemeProvider>
         </TransactionsProvider>
+        </ServiceLogosProvider>
         </VendingSettingsProvider>
       </ProfileProvider>
     </ErrorBoundary>

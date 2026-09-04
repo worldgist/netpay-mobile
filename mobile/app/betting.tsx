@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Keyboard } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
@@ -9,6 +9,7 @@ import { buildRouteHref } from '@/utils/router-href';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useWalletBalance } from '@/hooks/use-wallet-balance';
+import { useServiceLogos } from '@/contexts/service-logos-context';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InvalidAccountModal } from '@/components/invalid-account-modal';
@@ -22,21 +23,42 @@ type BettingProvider = {
   providerCode: string;
 };
 
-const ALL_BETTING_PROVIDERS: BettingProvider[] = [
-  { id: 'bet9ja', name: 'Bet9ja', logo: require('@/assets/images/bet9ja.png'), providerCode: 'BET9JA' },
-  { id: 'nairabet', name: 'Nairabet', logo: require('@/assets/images/nairabet.png'), providerCode: 'NAIRABET' },
-  { id: '1xbet', name: '1xBet', logo: require('@/assets/images/1xbet.png'), providerCode: '1XBET' },
-  { id: 'betking', name: 'BetKing', logo: require('@/assets/images/betking.png'), providerCode: 'BETKING' },
-  { id: 'betway', name: 'Betway', logo: require('@/assets/images/betway.png'), providerCode: 'BETWAY' },
-  { id: 'merrybet', name: 'MerryBet', logo: require('@/assets/images/merrybet.png'), providerCode: 'MERRYBET' },
-  { id: 'bangbet', name: 'BangBet', logo: require('@/assets/images/bangbet.png.jpeg'), providerCode: 'BANGBET' },
-  { id: 'betland', name: 'BetLand', logo: require('@/assets/images/betland.png.jpeg'), providerCode: 'BETLAND' },
-  { id: 'betlion', name: 'BetLion', logo: require('@/assets/images/betlion.png.jpeg'), providerCode: 'BETLION' },
-  { id: 'cloudbet', name: 'CloudBet', logo: require('@/assets/images/cloudbet.png.jpeg'), providerCode: 'CLOUDBET' },
-  { id: 'livescorebet', name: 'LiveScoreBet', logo: require('@/assets/images/livescorebet.png.jpeg'), providerCode: 'LIVESCOREBET' },
-  { id: 'naijabet', name: 'NaijaBet', logo: require('@/assets/images/naijabet.png.jpeg'), providerCode: 'NAIJABET' },
-  { id: 'supabet', name: 'SupaBet', logo: require('@/assets/images/supabet.png.jpeg'), providerCode: 'SUPABET' },
+const LOCAL_BETTING_LOGOS: Record<string, any> = {
+  BET9JA: require('@/assets/images/bet9ja.png'),
+  NAIRABET: require('@/assets/images/nairabet.png'),
+  '1XBET': require('@/assets/images/1xbet.png'),
+  BETKING: require('@/assets/images/betking.png'),
+  BETWAY: require('@/assets/images/betway.png'),
+  MERRYBET: require('@/assets/images/merrybet.png'),
+  BANGBET: require('@/assets/images/bangbet.png.jpeg'),
+  BETLAND: require('@/assets/images/betland.png.jpeg'),
+  BETLION: require('@/assets/images/betlion.png.jpeg'),
+  CLOUDBET: require('@/assets/images/cloudbet.png.jpeg'),
+  LIVESCOREBET: require('@/assets/images/livescorebet.png.jpeg'),
+  NAIJABET: require('@/assets/images/naijabet.png.jpeg'),
+  SUPABET: require('@/assets/images/supabet.png.jpeg'),
+};
+
+const ALL_BETTING_PROVIDER_DEFS: Omit<BettingProvider, 'logo'>[] = [
+  { id: 'bet9ja', name: 'Bet9ja', providerCode: 'BET9JA' },
+  { id: 'nairabet', name: 'Nairabet', providerCode: 'NAIRABET' },
+  { id: '1xbet', name: '1xBet', providerCode: '1XBET' },
+  { id: 'betking', name: 'BetKing', providerCode: 'BETKING' },
+  { id: 'betway', name: 'Betway', providerCode: 'BETWAY' },
+  { id: 'merrybet', name: 'MerryBet', providerCode: 'MERRYBET' },
+  { id: 'bangbet', name: 'BangBet', providerCode: 'BANGBET' },
+  { id: 'betland', name: 'BetLand', providerCode: 'BETLAND' },
+  { id: 'betlion', name: 'BetLion', providerCode: 'BETLION' },
+  { id: 'cloudbet', name: 'CloudBet', providerCode: 'CLOUDBET' },
+  { id: 'livescorebet', name: 'LiveScoreBet', providerCode: 'LIVESCOREBET' },
+  { id: 'naijabet', name: 'NaijaBet', providerCode: 'NAIJABET' },
+  { id: 'supabet', name: 'SupaBet', providerCode: 'SUPABET' },
 ];
+
+const ALL_BETTING_PROVIDERS: BettingProvider[] = ALL_BETTING_PROVIDER_DEFS.map((provider) => ({
+  ...provider,
+  logo: LOCAL_BETTING_LOGOS[provider.providerCode],
+}));
 
 // eBills supported betting providers (from eBills API documentation)
 const EBILLS_SUPPORTED_PROVIDERS = [
@@ -55,11 +77,22 @@ const EBILLS_SUPPORTED_PROVIDERS = [
   'SUPABET',
 ];
 
-const BETTING_PROVIDERS = ALL_BETTING_PROVIDERS.filter((provider) =>
-  EBILLS_SUPPORTED_PROVIDERS.includes(provider.providerCode),
-);
-
 export default function BettingScreen() {
+  const { getLogoSource } = useServiceLogos();
+  const BETTING_PROVIDERS = useMemo(
+    () =>
+      ALL_BETTING_PROVIDER_DEFS
+        .filter((provider) => EBILLS_SUPPORTED_PROVIDERS.includes(provider.providerCode))
+        .map((provider) => ({
+          ...provider,
+          logo: getLogoSource(
+            'betting',
+            provider.providerCode,
+            LOCAL_BETTING_LOGOS[provider.providerCode],
+          ),
+        })),
+    [getLogoSource],
+  );
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);

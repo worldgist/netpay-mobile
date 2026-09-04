@@ -5,7 +5,7 @@ import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
@@ -38,6 +38,7 @@ export default function TransferScreen() {
   const [error, setError] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [verificationSuccess, setVerificationSuccess] = useState(false);
+  const [showUserNotFoundModal, setShowUserNotFoundModal] = useState(false);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
 
@@ -116,6 +117,15 @@ export default function TransferScreen() {
       return;
     }
 
+    const isUserNotFound = (message?: string | null) => {
+      const lower = (message || '').toLowerCase();
+      return (
+        lower.includes('user not found') ||
+        lower.includes('recipient not found') ||
+        lower.includes('no user found')
+      );
+    };
+
     try {
       setVerifying(true);
       setError(null);
@@ -142,13 +152,30 @@ export default function TransferScreen() {
           : undefined,
       });
 
-      if (verifyError) {
-        throw verifyError;
+      const responseError =
+        (typeof verifyResponse?.error === 'string' && verifyResponse.error) ||
+        (verifyError as { message?: string } | null)?.message ||
+        null;
+
+      if (verifyError && !verifyResponse) {
+        if (isUserNotFound(responseError)) {
+          setShowUserNotFoundModal(true);
+        } else {
+          Alert.alert('Verification Failed', 'Unable to verify recipient. Please try again later.');
+        }
+        setRecipientDetails(null);
+        setVerificationSuccess(false);
+        return;
       }
 
       if (!verifyResponse?.success) {
-        Alert.alert('Verification Failed', verifyResponse?.error || 'No user found with the provided email address.');
+        if (isUserNotFound(responseError)) {
+          setShowUserNotFoundModal(true);
+        } else {
+          Alert.alert('Verification Failed', responseError || 'Unable to verify recipient.');
+        }
         setRecipientDetails(null);
+        setVerificationSuccess(false);
         return;
       }
 
@@ -162,7 +189,12 @@ export default function TransferScreen() {
       setVerificationSuccess(true);
     } catch (err) {
       console.error('Verify recipient error:', err);
-      Alert.alert('Verification Failed', 'Unable to verify recipient. Please try again later.');
+      const message = err instanceof Error ? err.message : '';
+      if (isUserNotFound(message)) {
+        setShowUserNotFoundModal(true);
+      } else {
+        Alert.alert('Verification Failed', 'Unable to verify recipient. Please try again later.');
+      }
       setRecipientDetails(null);
       setVerificationSuccess(false);
     } finally {
@@ -528,6 +560,39 @@ export default function TransferScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={showUserNotFoundModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowUserNotFoundModal(false)}
+      >
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <View style={styles.notFoundIconCircle}>
+              <MaterialIcons name="person-off" size={36} color="#d32f2f" />
+            </View>
+            <ThemedText style={styles.notFoundTitle}>User Not Found</ThemedText>
+            <ThemedText style={styles.successMessage}>
+              No NetPay user was found with that email address. Check the email and try again.
+            </ThemedText>
+            {!!recipientEmail.trim() && (
+              <View style={styles.notFoundEmailBox}>
+                <MaterialIcons name="email" size={18} color="#666" />
+                <ThemedText style={styles.notFoundEmailText} numberOfLines={1}>
+                  {recipientEmail.trim().toLowerCase()}
+                </ThemedText>
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.notFoundButton}
+              onPress={() => setShowUserNotFoundModal(false)}
+            >
+              <ThemedText style={styles.successButtonText}>OK</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
@@ -810,6 +875,45 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  notFoundIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(211, 47, 47, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  notFoundTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#d32f2f',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  notFoundEmailBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FFF5F5',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 24,
+    width: '100%',
+  },
+  notFoundEmailText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '600',
+  },
+  notFoundButton: {
+    backgroundColor: '#d32f2f',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
   },
   demoEmailCard: {
     backgroundColor: '#FFF8E1',

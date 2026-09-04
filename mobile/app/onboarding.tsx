@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND.white,
   },
   backgroundTop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: BRAND.orangeLight,
     height: '48%',
   },

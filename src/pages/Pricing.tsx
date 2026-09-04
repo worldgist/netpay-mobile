@@ -87,10 +87,10 @@ const Pricing = () => (
               ))}
             </ul>
             <a
-              href={tier.name === "Enterprise" ? "mailto:support@netppay.com" : "https://netppay.com/open/signup"}
+              href={tier.name === "Enterprise" ? "mailto:support@netppay.com" : "/contact-us"}
               className="inline-flex items-center justify-center rounded-xl border border-brand/50 text-brand hover:bg-brand/10 transition-colors text-sm font-medium px-4 py-2"
             >
-              {tier.name === "Enterprise" ? "Talk to sales" : "Get started"}
+              {tier.name === "Enterprise" ? "Talk to sales" : "Contact us"}
             </a>
           </div>
         ))}

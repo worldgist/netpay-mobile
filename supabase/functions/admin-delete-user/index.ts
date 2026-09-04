@@ -8,9 +8,9 @@ import {
 } from "../_shared/admin-auth.ts";
 import { deleteUserAccount } from "../_shared/delete-user-core.ts";
 import {
-  buildAccountActivityCsv,
+  buildAccountActivityPdf,
   buildAccountClosedEmail,
-  encodeCsvAttachment,
+  encodePdfAttachment,
 } from "../_shared/admin-account-closed-email.ts";
 import {
   getResendFromAddress,
@@ -100,7 +100,7 @@ serve(async (req) => {
           activities: snapshot.activities,
         };
         const { html, text } = buildAccountClosedEmail(emailParams);
-        const csv = buildAccountActivityCsv(emailParams);
+        const pdfBytes = await buildAccountActivityPdf(emailParams);
         const closedDay = snapshot.closedAt.slice(0, 10);
 
         const emailPayload = {
@@ -118,14 +118,14 @@ serve(async (req) => {
             ...emailPayload,
             attachments: [
               {
-                filename: `netpay-account-activity-${closedDay}.csv`,
-                content: encodeCsvAttachment(csv),
-                content_type: "text/csv",
+                filename: `netpay-account-activity-${closedDay}.pdf`,
+                content: encodePdfAttachment(pdfBytes),
+                content_type: "application/pdf",
               },
             ],
           });
         } catch (attachmentError) {
-          console.warn("admin-delete-user CSV attachment failed, sending activity email without file:", attachmentError);
+          console.warn("admin-delete-user PDF attachment failed, sending HTML notice without file:", attachmentError);
           resendResult = await sendResendEmail(emailPayload);
         }
         emailSent = true;
@@ -145,7 +145,7 @@ serve(async (req) => {
     return jsonResponse({
       success: true,
       message: emailSent
-        ? "User deleted and notified by email with their account activity"
+        ? "User deleted and notified by email with their account activity PDF"
         : "User deleted and archived successfully",
       data: {
         userId,

@@ -11,7 +11,7 @@ import {
   Modal,
 } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { Image } from 'expo-image';
@@ -579,14 +579,6 @@ export default function LoginScreen() {
           <TouchableOpacity style={styles.linkContainer} onPress={() => router.push('/forget-password')}>
             <ThemedText style={styles.linkText}>Forgot Password?</ThemedText>
           </TouchableOpacity>
-
-          {/* Sign Up Link */}
-          <View style={styles.signUpContainer}>
-            <ThemedText style={styles.signUpText}>Don&apos;t have an account? </ThemedText>
-            <TouchableOpacity onPress={() => router.push('/auth/signup')}>
-              <ThemedText style={styles.signUpLink}>Sign Up</ThemedText>
-            </TouchableOpacity>
-          </View>
         </ThemedView>
       </ScrollView>
 
@@ -828,20 +820,6 @@ const styles = StyleSheet.create({
     color: '#333',
     fontSize: 16,
     textAlign: 'center',
-  },
-  signUpContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 32,
-  },
-  signUpText: {
-    color: '#333',
-    fontSize: 16,
-  },
-  signUpLink: {
-    color: '#FF7F00',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });
 

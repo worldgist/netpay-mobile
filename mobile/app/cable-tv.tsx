@@ -17,8 +17,9 @@ import {
   WRONG_SMART_CARD_DEFAULT_MESSAGE,
 } from '@/utils/cable-smart-card-errors';
 import { supabase } from '@/lib/supabase';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
+import { useServiceLogos } from '@/contexts/service-logos-context';
 import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import {
   readCachedCablePackages,
@@ -26,7 +27,7 @@ import {
 } from '@/utils/cable-packages-cache';
 import * as Clipboard from 'expo-clipboard';
 
-const PROVIDER_LOGOS: Record<string, any> = {
+const LOCAL_CABLE_LOGOS: Record<string, any> = {
   DSTV: require('@/assets/images/dstv.png'),
   GOTV: require('@/assets/images/gotv.png'),
   STARTIMES: require('@/assets/images/startimes.png'),
@@ -34,17 +35,13 @@ const PROVIDER_LOGOS: Record<string, any> = {
 
 const fallbackLogo = require('@/assets/images/logo.png');
 
-// Static list of cable TV providers (not fetched from API)
-const STATIC_PROVIDERS: CableProvider[] = [
-  { name: 'DSTV', logo: PROVIDER_LOGOS.DSTV },
-  { name: 'GOTV', logo: PROVIDER_LOGOS.GOTV },
-  { name: 'STARTIMES', logo: PROVIDER_LOGOS.STARTIMES },
-];
-
 type CableProvider = {
   name: string;
   logo: any;
 };
+
+// Static list of cable TV providers (logos resolved from DB at runtime)
+const STATIC_PROVIDER_NAMES = ['DSTV', 'GOTV', 'STARTIMES'] as const;
 
 type CablePlan = {
   id: string;
@@ -100,11 +97,19 @@ export default function CableTVScreen() {
   const router = useRouter();
   const isMounted = useRef(true);
   const { providers: vendingSettings } = useVendingSettings();
+  const { getLogoSource } = useServiceLogos();
   const cableVendingProvider = vendingSettings.cable;
   const { balance } = useWalletBalance();
-  const [providers, setProviders] = useState<CableProvider[]>(STATIC_PROVIDERS);
+  const providers = useMemo<CableProvider[]>(
+    () =>
+      STATIC_PROVIDER_NAMES.map((name) => ({
+        name,
+        logo: getLogoSource('cable', name, LOCAL_CABLE_LOGOS[name] || fallbackLogo),
+      })),
+    [getLogoSource],
+  );
   const [plansByProvider, setPlansByProvider] = useState<Record<string, CablePlan[]>>({});
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(STATIC_PROVIDERS[0]?.name ?? null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(STATIC_PROVIDER_NAMES[0] ?? null);
   const [smartCardNumber, setSmartCardNumber] = useState('');
   const [packagePlan, setPackagePlan] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -221,7 +226,7 @@ export default function CableTVScreen() {
       // Fetch packages for each static provider from API
       const grouped: Record<string, CablePlan[]> = {};
       
-      for (const provider of STATIC_PROVIDERS) {
+      for (const provider of providers) {
         try {
           // Determine which function to call based on vending provider
           let functionName: string;
@@ -426,6 +431,17 @@ export default function CableTVScreen() {
     void hydratePackagesFromCache();
   }, [hydratePackagesFromCache]);
 
+  // When admin switches cable vending provider, drop stale plans and reload for the new API.
+  useEffect(() => {
+    plansFetchRef.current = null;
+    setPackagePlan('');
+    setPlansByProvider({});
+    void hydratePackagesFromCache();
+    if (selectedProvider) {
+      void fetchPackagesForProvider(selectedProvider);
+    }
+  }, [cableVendingProvider]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const fetchPackagesFromAPI = async () => {
     try {
       setRefreshingPlans(true);
@@ -451,7 +467,7 @@ export default function CableTVScreen() {
       console.log('Cable TV vending provider (fetchPackagesFromAPI):', vendingProvider);
 
       // Fetch packages for each static provider
-      const fetchPromises = STATIC_PROVIDERS.map(async (provider) => {
+      const fetchPromises = providers.map(async (provider) => {
         try {
           // Determine which function to call based on vending provider
           let functionName: string;
