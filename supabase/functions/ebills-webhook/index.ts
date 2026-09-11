@@ -6,6 +6,14 @@ import {
   reconcileEbillsTransactionRow,
 } from "../_shared/ebills-reconcile.ts";
 import { getEbillsOrderStatus } from "../_shared/purchase-refund.ts";
+import {
+  buildEbillsEventId,
+  claimWebhookEvent,
+  completeWebhookEvent,
+  failWebhookEvent,
+  scheduleWebhookWork,
+  webhookJsonResponse,
+} from "../_shared/webhook-idempotency.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -53,17 +61,15 @@ serve(async (req) => {
     const signature = req.headers.get("x-signature") || req.headers.get("X-Signature") || "";
     const userPin = Deno.env.get("EBILLS_WEBHOOK_PIN") || Deno.env.get("EBILLS_USER_PIN") || "";
 
-    if (userPin && signature) {
+    if (userPin) {
+      if (!signature) {
+        return webhookJsonResponse({ success: false, error: "Missing X-Signature header" }, 401, CORS_HEADERS);
+      }
       const valid = await verifyEbillsWebhookSignature(rawBody, signature, userPin);
       if (!valid) {
         console.error("eBills webhook signature mismatch");
-        return new Response(JSON.stringify({ success: false, error: "Invalid signature" }), {
-          status: 401,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
+        return webhookJsonResponse({ success: false, error: "Invalid signature" }, 401, CORS_HEADERS);
       }
-    } else if (userPin) {
-      console.warn("eBills webhook missing X-Signature header");
     }
 
     let payload: Record<string, unknown>;
@@ -76,90 +82,88 @@ serve(async (req) => {
       });
     }
 
-    console.log("eBills webhook received:", JSON.stringify(payload));
+    const eventId = buildEbillsEventId(payload);
+    const claim = await claimWebhookEvent(supabase, "ebills", eventId, payload);
 
-    const orderId = payload.order_id;
-    const status = String(payload.status ?? "").toLowerCase();
-    const requestId = typeof payload.request_id === "string" ? payload.request_id : undefined;
-
-    const match = await findEbillsTransaction(supabase, {
-      reference: requestId,
-      orderId: orderId != null ? Number(orderId) : undefined,
-    });
-
-    if (!match) {
-      console.warn("eBills webhook: no matching transaction", { orderId, requestId, status });
-      return new Response(JSON.stringify({ success: true, action: "ignored", reason: "transaction not found" }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
-
-    const { config, row } = match;
-
-    const syntheticResult = {
-      code: "success",
-      message: status === "refunded"
-        ? "ORDER REFUNDED"
-        : status === "completed-api" || status === "completed"
-          ? "ORDER COMPLETED"
-          : status === "failed" || status === "failed-api"
-            ? "ORDER FAILED"
-            : "ORDER PROCESSING",
-      data: {
-        order_id: orderId,
-        status,
-      },
-    };
-
-    const orderStatus = getEbillsOrderStatus(syntheticResult);
-
-    if (orderStatus.isCompleted) {
-      const result = await reconcileEbillsTransactionRow(supabase, config, row, syntheticResult, "WEBHOOK-REF");
-      return new Response(JSON.stringify({ success: true, ...result }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
-
-    if (orderStatus.shouldRefund && isWalletStillDebited(row)) {
-      const result = await reconcileEbillsTransactionRow(supabase, config, row, syntheticResult, "WEBHOOK-REF");
-      return new Response(JSON.stringify({ success: true, ...result }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
-
-    if (orderStatus.shouldRefund) {
-      await supabase.from(config.table).update({
-        status: orderStatus.isRefunded ? config.refundedStatus : config.failedStatus,
-        api_response: {
-          ...(typeof row.api_response === "object" && row.api_response ? row.api_response : {}),
-          webhook: payload,
-          webhook_at: new Date().toISOString(),
-        },
-      }).eq("id", row.id);
-
-      return new Response(JSON.stringify({
+    if (claim.action === "skip") {
+      return webhookJsonResponse({
         success: true,
-        action: "status_updated",
-        reference: row.reference,
-        wallet_refunded: false,
-      }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+        duplicate: true,
+        reason: claim.reason,
+      }, 200, CORS_HEADERS);
     }
 
-    return new Response(JSON.stringify({
+    scheduleWebhookWork((async () => {
+      try {
+        const orderId = payload.order_id;
+        const status = String(payload.status ?? "").toLowerCase();
+        const requestId = typeof payload.request_id === "string" ? payload.request_id : undefined;
+
+        const match = await findEbillsTransaction(supabase, {
+          reference: requestId,
+          orderId: orderId != null ? Number(orderId) : undefined,
+        });
+
+        if (!match) {
+          await completeWebhookEvent(supabase, claim.rowId, {
+            action: "ignored",
+            reason: "transaction not found",
+          });
+          return;
+        }
+
+        const { config, row } = match;
+        const syntheticResult = {
+          code: "success",
+          message: status === "refunded"
+            ? "ORDER REFUNDED"
+            : status === "completed-api" || status === "completed"
+              ? "ORDER COMPLETED"
+              : status === "failed" || status === "failed-api"
+                ? "ORDER FAILED"
+                : "ORDER PROCESSING",
+          data: {
+            order_id: orderId,
+            status,
+          },
+        };
+
+        const orderStatus = getEbillsOrderStatus(syntheticResult);
+        let result: Record<string, unknown> = { action: "ignored", reference: row.reference, status };
+
+        if (orderStatus.isCompleted) {
+          result = await reconcileEbillsTransactionRow(supabase, config, row, syntheticResult, "WEBHOOK-REF");
+        } else if (orderStatus.shouldRefund && isWalletStillDebited(row)) {
+          result = await reconcileEbillsTransactionRow(supabase, config, row, syntheticResult, "WEBHOOK-REF");
+        } else if (orderStatus.shouldRefund) {
+          await supabase.from(config.table).update({
+            status: orderStatus.isRefunded ? config.refundedStatus : config.failedStatus,
+            api_response: {
+              ...(typeof row.api_response === "object" && row.api_response ? row.api_response : {}),
+              webhook: payload,
+              webhook_at: new Date().toISOString(),
+            },
+          }).eq("id", row.id);
+          result = {
+            action: "status_updated",
+            reference: row.reference,
+            wallet_refunded: false,
+          };
+        }
+
+        await completeWebhookEvent(supabase, claim.rowId, { success: true, ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Webhook processing failed";
+        await failWebhookEvent(supabase, claim.rowId, message);
+        console.error("eBills webhook background error:", error);
+      }
+    })());
+
+    return webhookJsonResponse({
       success: true,
-      action: "ignored",
-      reference: row.reference,
-      status,
-    }), {
-      status: 200,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
+      received: true,
+      event_id: eventId,
+    }, 200, CORS_HEADERS);
   } catch (error) {
     console.error("ebills-webhook error:", error);
     return new Response(JSON.stringify({

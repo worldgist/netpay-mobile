@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { processFlutterwaveFunding } from "../_shared/flutterwave-funding.ts";
+import { flutterwaveJson } from "../_shared/flutterwave-http.ts";
+import type { FlutterwaveChargeData } from "../_shared/flutterwave-references.ts";
 import {
   getFlutterwaveCreditAmount,
   getFlutterwaveFundingReference,
@@ -47,23 +49,28 @@ serve(async (req) => {
       throw new Error("Flutterwave credentials not configured");
     }
 
-    const verifyResponse = await fetch(
-      `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(txRef)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${secretKey}`,
-          Accept: "application/json",
-        },
-      },
+    const verifyData = await flutterwaveJson<{
+      status: string;
+      message?: string;
+      data?: Record<string, unknown>;
+    }>(
+      secretKey,
+      `/transactions/verify_by_reference?tx_ref=${encodeURIComponent(txRef)}`,
+      { method: "GET" },
     );
 
-    const verifyData = await verifyResponse.json();
-
-    if (!verifyResponse.ok || verifyData.status !== "success" || !verifyData.data) {
+    if (!verifyData.data) {
       throw new Error(verifyData.message || "Unable to verify payment");
     }
 
-    const transaction = verifyData.data;
+    const transaction = verifyData.data as Record<string, unknown> & {
+      status?: string;
+      meta?: { user_id?: string };
+      tx_ref?: string;
+      payment_type?: string;
+      account_id?: string | number;
+      customer?: { name?: string };
+    };
     const paymentStatus = String(transaction.status || "").toLowerCase();
 
     if (!isSuccessfulFlutterwaveStatus(transaction.status)) {
@@ -95,9 +102,10 @@ serve(async (req) => {
       throw new Error("Payment does not belong to this user");
     }
 
-    const grossAmount = getFlutterwaveCreditAmount(transaction);
+    const charge = transaction as FlutterwaveChargeData;
+    const grossAmount = getFlutterwaveCreditAmount(charge);
     const reference = String(transaction.tx_ref || txRef || "").trim()
-      || getFlutterwaveFundingReference(transaction)
+      || getFlutterwaveFundingReference(charge)
       || txRef;
 
     if (!reference) {

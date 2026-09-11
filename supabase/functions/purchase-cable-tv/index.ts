@@ -972,13 +972,7 @@ serve(async (req) => {
         reference: reference,
         performed_by: user.id,
       });
-      
-      // Update balance manually
-      await supabase
-        .from('profiles')
-        .update({ balance: balanceAfter })
-        .eq('id', user.id);
-      
+
       debitResult = {
         balanceBefore: Number(profile.balance) || 0,
         balanceAfter: balanceAfter,

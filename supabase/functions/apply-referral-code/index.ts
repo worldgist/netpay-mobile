@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.42.0";
+import { creditUserWallet } from "../_shared/wallet.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -135,43 +136,14 @@ serve(async (req) => {
 
     if (insertedReferralId) {
       try {
-        const { data: referrerProfile, error: referrerProfileError } = await supabase
-          .from("profiles")
-          .select("balance")
-          .eq("id", referrerId)
-          .single();
-
-        if (referrerProfileError) {
-          throw referrerProfileError;
-        }
-
-        const currentBalance = Number(referrerProfile?.balance ?? 0);
-        const newBalance = currentBalance + rewardAmount;
-
-        const { error: balanceUpdateError } = await supabase
-          .from("profiles")
-          .update({ balance: newBalance })
-          .eq("id", referrerId);
-
-        if (balanceUpdateError) {
-          throw balanceUpdateError;
-        }
-
-        const { error: transactionError } = await supabase
-          .from("user_transactions")
-          .insert({
-            user_id: referrerId,
-            transaction_type: "credit",
-            amount: rewardAmount,
-            balance_before: currentBalance,
-            balance_after: newBalance,
-            description: `Referral bonus for code: ${normalizedCode}`,
-            reference: `REF_BONUS_${finalReferralCode}`,
-          });
-
-        if (transactionError) {
-          throw transactionError;
-        }
+        await creditUserWallet({
+          supabase,
+          userId: referrerId,
+          amount: rewardAmount,
+          transactionType: "credit",
+          description: `Referral bonus for code: ${normalizedCode}`,
+          reference: `REF_BONUS_${finalReferralCode}`,
+        });
 
         const { error: referralUpdateError } = await supabase
           .from("referrals")

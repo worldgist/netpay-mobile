@@ -4,6 +4,7 @@ import {
   DEMO_USER_EMAIL,
   seedDemoVirtualAccountAndFunding,
 } from "../_shared/demo-user.ts";
+import { creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -555,19 +556,24 @@ serve(async (req) => {
       console.log(`Created ${insertedTransfers?.length || 0} transfer transactions`);
     }
 
-    // Update final balance - ensure demo user has sufficient balance for testing
-    // Set to a high amount (₦100,000) to ensure all purchases work
-    const finalBalance = 100000.00; // ₦100,000 for comprehensive testing
-    const { error: balanceUpdateError } = await supabase
-      .from("profiles")
-      .update({ balance: finalBalance })
-      .eq("id", demoUserId);
-
-    if (balanceUpdateError) {
-      console.error("Failed to update final balance:", balanceUpdateError);
-      // Don't throw - transactions are more important than final balance
-    } else {
-      console.log(`Updated demo user balance to ₦${finalBalance.toLocaleString()}`);
+    const targetBalance = 100000.0;
+    try {
+      const ledgerBalance = await getUserLedgerBalance(supabase, demoUserId);
+      const topUpAmount = targetBalance - ledgerBalance;
+      if (topUpAmount > 0.009) {
+        await creditUserWallet({
+          supabase,
+          userId: demoUserId,
+          amount: topUpAmount,
+          transactionType: "credit",
+          description: "Demo account setup balance top-up",
+          reference: "DEMO-SETUP-LEDGER-TOPUP",
+          performedBy: demoUserId,
+        });
+        console.log(`Credited demo ledger top-up ₦${topUpAmount.toLocaleString()} (target ₦${targetBalance.toLocaleString()})`);
+      }
+    } catch (balanceError) {
+      console.error("Failed to align demo balance via ledger:", balanceError);
     }
 
     return new Response(

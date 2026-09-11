@@ -8,6 +8,13 @@ import {
   shouldProcessPayvesselEvent,
   verifyPayvesselWebhook,
 } from "../_shared/payvessel-webhook.ts";
+import {
+  buildPayvesselEventId,
+  claimWebhookEvent,
+  completeWebhookEvent,
+  failWebhookEvent,
+  scheduleWebhookWork,
+} from "../_shared/webhook-idempotency.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -231,6 +238,22 @@ serve(async (req) => {
       );
     }
 
+    const eventId = buildPayvesselEventId(
+      payload,
+      reference || transaction_reference,
+      amountValue,
+    );
+    const claim = await claimWebhookEvent(supabaseClient, "payvessel", eventId, payload);
+    if (claim.action === "skip") {
+      return new Response(
+        JSON.stringify({ success: true, duplicate: true, reason: claim.reason }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 },
+      );
+    }
+    const webhookRowId = claim.rowId;
+
+    scheduleWebhookWork((async () => {
+      try {
     // Find the user associated with this virtual account
     // Try exact match first
     console.log(`Looking up virtual account for account_number: "${account_number}" (length: ${account_number.length})`);
@@ -305,13 +328,7 @@ serve(async (req) => {
         .select('account_number, user_id')
         .limit(10);
       console.log('Sample virtual accounts in database:', allAccounts);
-      return new Response(
-        JSON.stringify({ 
-          error: `Virtual account not found for account number: ${account_number}`,
-          received_account: account_number
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
-      );
+      throw new Error(`Virtual account not found for account number: ${account_number}`);
     }
 
     console.log(`Found user: ${virtualAccount.user_id}`);
@@ -360,13 +377,12 @@ serve(async (req) => {
         existing_id: existingTransaction.id,
         existing_reference: existingTransaction.reference
       });
-      return new Response(
-        JSON.stringify({ 
-          message: 'Transaction already processed',
-          existing_reference: existingTransaction.reference
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-      );
+      await completeWebhookEvent(supabaseClient, webhookRowId, {
+        success: true,
+        message: "Transaction already processed",
+        existing_reference: existingTransaction.reference,
+      });
+      return;
     }
 
     const fundingReference = reference || transaction_reference;
@@ -380,13 +396,12 @@ serve(async (req) => {
 
       if (existingLedger) {
         console.log('Funding ledger already recorded for reference:', fundingReference);
-        return new Response(
-          JSON.stringify({
-            message: 'Transaction already processed',
-            existing_reference: fundingReference,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-        );
+        await completeWebhookEvent(supabaseClient, webhookRowId, {
+          success: true,
+          message: "Transaction already processed",
+          existing_reference: fundingReference,
+        });
+        return;
       }
     }
 
@@ -491,56 +506,21 @@ serve(async (req) => {
       accountNumber: virtualAccount.account_number
     };
 
-    const executionTime = Date.now() - startTime;
-    console.log(`Returning success response (execution time: ${executionTime}ms):`, JSON.stringify(successResponse));
-    
-    // Create and return response immediately - don't wait for verification
-    const responseBody = JSON.stringify(successResponse);
-    const finalResponse = new Response(
-      responseBody,
-      { 
-        headers: { 
-          ...corsHeaders, 
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-          'X-Execution-Time': `${executionTime}ms`
-        }, 
-        status: 200 
+    await completeWebhookEvent(supabaseClient, webhookRowId, successResponse);
+    console.log('PayVessel webhook processed:', JSON.stringify(successResponse));
+      } catch (backgroundError) {
+        const message = backgroundError instanceof Error
+          ? backgroundError.message
+          : "PayVessel webhook background processing failed";
+        await failWebhookEvent(supabaseClient, webhookRowId, message);
+        console.error("PayVessel webhook background error:", backgroundError);
       }
-    );
-    
-    console.log('Response created, returning immediately to prevent EarlyDrop');
-    
-    // Do final verification asynchronously (non-blocking) after returning response
-    // This prevents EarlyDrop shutdown
-    (async () => {
-      try {
-        const { data: finalProfile, error: verifyError } = await supabaseClient
-          .from('profiles')
-          .select('balance')
-          .eq('id', virtualAccount.user_id)
-          .single();
+    })());
 
-        if (verifyError) {
-          console.error('Error verifying final balance (async):', verifyError);
-        } else {
-          const actualBalance = Number(finalProfile.balance || 0);
-          console.log(`Final balance verification (async): Expected ₦${finalBalance}, Actual ₦${actualBalance}`);
-          
-          if (Math.abs(actualBalance - finalBalance) > 0.01) {
-            console.error(`CRITICAL: Final balance mismatch! Expected ₦${finalBalance}, got ₦${actualBalance}`);
-            await supabaseClient
-              .from('profiles')
-              .update({ balance: finalBalance })
-              .eq('id', virtualAccount.user_id);
-          }
-        }
-      } catch (verifyErr) {
-        console.error('Error in async verification:', verifyErr);
-      }
-    })();
-    
-    return finalResponse;
+    return new Response(
+      JSON.stringify({ success: true, received: true, event_id: eventId }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 },
+    );
 
   } catch (error) {
     console.error('=== ERROR in payvessel-webhook ===');

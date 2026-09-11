@@ -1,3 +1,8 @@
+/**
+ * Wallet mutations must go through ledger rows in user_transactions.
+ * profiles.balance is a read cache synced by DB trigger from the latest balance_after.
+ * Prefer debitUserWallet / creditUserWallet (atomic append_user_ledger_entry RPC when available).
+ */
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendPushNotification } from "./push-notifications.ts";
 
@@ -127,6 +132,48 @@ const insertUserTransactionWithFallback = async (
   return { error: lastError, payloadUsed: null };
 };
 
+type AppendLedgerRpcResult = {
+  success?: boolean;
+  already_processed?: boolean;
+  balance_before?: number;
+  balance_after?: number;
+  reference?: string;
+  error?: string;
+};
+
+async function appendLedgerEntryViaRpc(
+  supabase: SupabaseClient,
+  params: {
+    userId: string;
+    amount: number;
+    transactionType: string;
+    description?: string | null;
+    reference: string;
+    performedBy?: string;
+    isCredit: boolean;
+  },
+): Promise<AppendLedgerRpcResult | null> {
+  const { data, error } = await supabase.rpc("append_user_ledger_entry", {
+    p_user_id: params.userId,
+    p_amount: params.amount,
+    p_transaction_type: params.transactionType,
+    p_description: params.description ?? null,
+    p_reference: params.reference,
+    p_performed_by: params.performedBy ?? params.userId,
+    p_is_credit: params.isCredit,
+  });
+
+  if (error) {
+    const message = error.message || "";
+    if (/append_user_ledger_entry|could not find the function/i.test(message)) {
+      return null;
+    }
+    throw error;
+  }
+
+  return (data ?? null) as AppendLedgerRpcResult | null;
+}
+
 /** Latest balance_after from user_transactions; falls back to profiles.balance. */
 export async function getUserLedgerBalance(
   supabase: SupabaseClient,
@@ -188,39 +235,107 @@ export const debitUserWallet = async ({
     throw new Error("Insufficient balance");
   }
 
-  const balanceAfter = startingBalance - debitAmount;
   const txReference =
     reference || `DEBIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
   const ledgerReference = txReference;
 
-  const transactionPayload: Record<string, unknown> = {
-    user_id: userId,
-    transaction_type: transactionType,
+  const rpcResult = await appendLedgerEntryViaRpc(supabase, {
+    userId,
     amount: debitAmount,
-    balance_before: startingBalance,
-    balance_after: balanceAfter,
+    transactionType,
+    description,
     reference: ledgerReference,
-    description: description ?? null,
-    performed_by: performedBy ?? userId,
-  };
+    performedBy,
+    isCredit: false,
+  });
 
-  const { error: transactionError } = await insertUserTransactionWithFallback(
-    supabase,
-    transactionPayload,
-    ["debit", "purchase"],
-  );
+  let balanceAfter = startingBalance - debitAmount;
 
-  if (transactionError) {
-    console.error("Failed to record user transaction (debit):", transactionError.message, transactionError);
-    throw new Error(
-      `Failed to record wallet transaction after debit${
-        transactionError?.message
-          ? `: ${transactionError.message}`
-          : transactionError
-            ? `: ${JSON.stringify(transactionError)}`
-            : ""
-      }`,
+  if (rpcResult) {
+    if (!rpcResult.success) {
+      if (rpcResult.error === "insufficient_balance") {
+        throw new Error("Insufficient balance");
+      }
+      if (rpcResult.error === "duplicate_reference_amount_mismatch") {
+        throw new Error("Duplicate transaction reference with a different amount");
+      }
+      throw new Error(rpcResult.error || "Failed to record wallet debit");
+    }
+
+    balanceAfter = Number(rpcResult.balance_after);
+    startingBalance = Number(rpcResult.balance_before);
+  } else {
+    if (reference) {
+      const { data: existingLedger } = await supabase
+        .from("user_transactions")
+        .select("balance_before, balance_after, reference, amount")
+        .eq("user_id", userId)
+        .eq("reference", ledgerReference)
+        .not("transaction_type", "in", '("credit","refund")')
+        .maybeSingle();
+
+      if (existingLedger) {
+        const existingAmount = Number(existingLedger.amount);
+        if (Math.abs(existingAmount - debitAmount) > 0.001) {
+          throw new Error("Duplicate transaction reference with a different amount");
+        }
+        return {
+          balanceBefore: Number(existingLedger.balance_before),
+          balanceAfter: Number(existingLedger.balance_after),
+          reference: String(existingLedger.reference || ledgerReference),
+        };
+      }
+    }
+
+    balanceAfter = startingBalance - debitAmount;
+
+    const transactionPayload: Record<string, unknown> = {
+      user_id: userId,
+      transaction_type: transactionType,
+      amount: debitAmount,
+      balance_before: startingBalance,
+      balance_after: balanceAfter,
+      reference: ledgerReference,
+      description: description ?? null,
+      performed_by: performedBy ?? userId,
+    };
+
+    const { error: transactionError } = await insertUserTransactionWithFallback(
+      supabase,
+      transactionPayload,
+      ["debit", "purchase"],
     );
+
+    if (transactionError) {
+      if (reference && transactionError.code === "23505") {
+        const { data: racedLedger } = await supabase
+          .from("user_transactions")
+          .select("balance_before, balance_after, reference, amount")
+          .eq("user_id", userId)
+          .eq("reference", ledgerReference)
+          .not("transaction_type", "in", '("credit","refund")')
+          .maybeSingle();
+
+        if (racedLedger) {
+          return {
+            balanceBefore: Number(racedLedger.balance_before),
+            balanceAfter: Number(racedLedger.balance_after),
+            reference: String(racedLedger.reference || ledgerReference),
+          };
+        }
+      }
+
+      console.error("Failed to record user transaction (debit):", transactionError.message, transactionError);
+      throw new Error(
+        `Failed to record wallet transaction after debit${
+          transactionError?.message
+            ? `: ${transactionError.message}`
+            : transactionError
+              ? `: ${JSON.stringify(transactionError)}`
+              : ""
+        }`,
+      );
+    }
   }
 
   if (notification) {
@@ -253,7 +368,6 @@ export const debitUserWallet = async ({
           console.error("Failed to create notification recipient record:", recipientError);
         }
 
-        // Send push notification to user's device
         await sendPushNotification(
           supabase,
           userId,
@@ -322,27 +436,7 @@ export const creditUserWallet = async ({
 
   const txReference =
     reference || `CREDIT-${Date.now()}-${userId.replace(/-/g, "").slice(0, 12)}`;
-
-  if (reference) {
-    const { data: existingLedger, error: existingError } = await supabase
-      .from("user_transactions")
-      .select("balance_before, balance_after, reference")
-      .eq("user_id", userId)
-      .eq("reference", reference)
-      .maybeSingle();
-
-    if (existingError) {
-      throw existingError;
-    }
-
-    if (existingLedger) {
-      return {
-        balanceBefore: Number(existingLedger.balance_before) || 0,
-        balanceAfter: Number(existingLedger.balance_after) || 0,
-        reference: existingLedger.reference || reference,
-      };
-    }
-  }
+  const ledgerReference = txReference;
 
   let startingBalance = balanceBefore ?? null;
 
@@ -350,54 +444,98 @@ export const creditUserWallet = async ({
     startingBalance = await getUserLedgerBalance(supabase, userId);
   }
 
-  const balanceAfter = startingBalance + creditAmount;
-  const ledgerReference = txReference;
-
-  const transactionPayload: Record<string, unknown> = {
-    user_id: userId,
-    transaction_type: transactionType,
+  const rpcResult = await appendLedgerEntryViaRpc(supabase, {
+    userId,
     amount: creditAmount,
-    balance_before: startingBalance,
-    balance_after: balanceAfter,
+    transactionType,
+    description,
     reference: ledgerReference,
-    description: description ?? null,
-    performed_by: performedBy ?? userId,
-  };
+    performedBy,
+    isCredit: true,
+  });
 
-  const { error: transactionError } = await insertUserTransactionWithFallback(
-    supabase,
-    transactionPayload,
-    ["credit", "purchase"],
-  );
+  let balanceAfter = startingBalance + creditAmount;
 
-  if (transactionError) {
-    if (reference && transactionError.code === "23505") {
-      const { data: racedLedger } = await supabase
+  if (rpcResult) {
+    if (!rpcResult.success) {
+      if (rpcResult.error === "duplicate_reference_amount_mismatch") {
+        throw new Error("Duplicate transaction reference with a different amount");
+      }
+      throw new Error(rpcResult.error || "Failed to record wallet credit");
+    }
+
+    balanceAfter = Number(rpcResult.balance_after);
+    startingBalance = Number(rpcResult.balance_before);
+  } else {
+    if (reference) {
+      const { data: existingLedger, error: existingError } = await supabase
         .from("user_transactions")
         .select("balance_before, balance_after, reference")
         .eq("user_id", userId)
         .eq("reference", reference)
         .maybeSingle();
 
-      if (racedLedger) {
+      if (existingError) {
+        throw existingError;
+      }
+
+      if (existingLedger) {
         return {
-          balanceBefore: Number(racedLedger.balance_before) || 0,
-          balanceAfter: Number(racedLedger.balance_after) || 0,
-          reference: racedLedger.reference || reference,
+          balanceBefore: Number(existingLedger.balance_before) || 0,
+          balanceAfter: Number(existingLedger.balance_after) || 0,
+          reference: existingLedger.reference || reference,
         };
       }
     }
 
-    console.error("Failed to record user transaction (credit):", transactionError.message, transactionError);
-    throw new Error(
-      `Failed to record wallet transaction after credit${
-        transactionError?.message
-          ? `: ${transactionError.message}`
-          : transactionError
-            ? `: ${JSON.stringify(transactionError)}`
-            : ""
-      }`,
+    balanceAfter = startingBalance + creditAmount;
+
+    const transactionPayload: Record<string, unknown> = {
+      user_id: userId,
+      transaction_type: transactionType,
+      amount: creditAmount,
+      balance_before: startingBalance,
+      balance_after: balanceAfter,
+      reference: ledgerReference,
+      description: description ?? null,
+      performed_by: performedBy ?? userId,
+    };
+
+    const { error: transactionError } = await insertUserTransactionWithFallback(
+      supabase,
+      transactionPayload,
+      ["credit", "purchase"],
     );
+
+    if (transactionError) {
+      if (reference && transactionError.code === "23505") {
+        const { data: racedLedger } = await supabase
+          .from("user_transactions")
+          .select("balance_before, balance_after, reference")
+          .eq("user_id", userId)
+          .eq("reference", reference)
+          .maybeSingle();
+
+        if (racedLedger) {
+          return {
+            balanceBefore: Number(racedLedger.balance_before) || 0,
+            balanceAfter: Number(racedLedger.balance_after) || 0,
+            reference: racedLedger.reference || reference,
+          };
+        }
+      }
+
+      console.error("Failed to record user transaction (credit):", transactionError.message, transactionError);
+      throw new Error(
+        `Failed to record wallet transaction after credit${
+          transactionError?.message
+            ? `: ${transactionError.message}`
+            : transactionError
+              ? `: ${JSON.stringify(transactionError)}`
+              : ""
+        }`,
+      );
+    }
   }
 
   if (notification) {

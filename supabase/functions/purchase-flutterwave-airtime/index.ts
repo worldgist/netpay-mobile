@@ -8,6 +8,10 @@ import {
   payFlutterwaveAirtimeBill,
   resolveFlutterwaveAirtimeBillCodes,
 } from "../_shared/flutterwave-bills.ts";
+import {
+  findExistingPurchaseByReference,
+  resolveClientPurchaseReference,
+} from "../_shared/purchase-idempotency.ts";
 import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
@@ -156,7 +160,52 @@ serve(async (req) => {
       }
     }
 
-    const reference = `AIRTIME-FLW-${Date.now()}-${user.id.slice(0, 8)}`;
+    const reference = resolveClientPurchaseReference(
+      user.id,
+      "AIRTIME-FLW",
+      body?.request_id ?? body?.idempotency_key ?? body?.reference,
+    );
+
+    const existingPurchase = await findExistingPurchaseByReference(
+      supabase,
+      "airtime_transactions",
+      user.id,
+      reference,
+    );
+    if (existingPurchase) {
+      const existingStatus = String(existingPurchase.status || "").toLowerCase();
+      if (existingStatus === "success") {
+        return new Response(JSON.stringify({
+          success: true,
+          data: {
+            reference,
+            phone_number: String(existingPurchase.phone_number || sanitizedPhone),
+            network: String(existingPurchase.network || displayNetwork),
+            amount: Number(existingPurchase.amount) || purchaseAmount,
+            vendor: "flutterwave",
+            balance_before: Number(existingPurchase.balance_before),
+            balance_after: Number(existingPurchase.balance_after),
+          },
+          message: "Airtime purchase already completed",
+          alreadyProcessed: true,
+        }), {
+          status: 200,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      if (existingStatus === "processing" || existingStatus === "pending") {
+        return new Response(JSON.stringify({
+          success: false,
+          pending: true,
+          message: "Airtime purchase is still processing",
+          data: { reference, status: existingStatus },
+        }), {
+          status: 200,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     let debitResult: Awaited<ReturnType<typeof debitUserWallet>> | null = null;
 
     if (!isDemoUser) {

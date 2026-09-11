@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isDemoUserEmail } from "../_shared/demo-user.ts";
 import { processFlutterwaveFunding } from "../_shared/flutterwave-funding.ts";
+import { flutterwaveFetch } from "../_shared/flutterwave-http.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,13 +107,8 @@ serve(async (req) => {
 
     const txRef = `netpay-fund-${user.id.replace(/-/g, "").slice(0, 12)}-${Date.now()}`;
 
-    const flutterwaveResponse = await fetch("https://api.flutterwave.com/v3/payments", {
+    const flutterwaveResponse = await flutterwaveFetch(secretKey, "/payments", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
       body: JSON.stringify({
         tx_ref: txRef,
         amount: paymentAmount,

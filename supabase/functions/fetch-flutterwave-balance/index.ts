@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { flutterwaveJson } from "../_shared/flutterwave-http.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,21 +68,22 @@ serve(async (req) => {
       );
     }
 
-    const balanceResponse = await fetch("https://api.flutterwave.com/v3/balances/NGN", {
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    const balanceData = await balanceResponse.json();
-
-    if (!balanceResponse.ok || balanceData.status !== "success" || !balanceData.data) {
-      const errorMsg = balanceData.message || "Failed to fetch Flutterwave balance";
-      console.error("Flutterwave balance error:", balanceData);
+    let balanceData: { data?: Record<string, unknown>; message?: string };
+    try {
+      balanceData = await flutterwaveJson(secretKey, "/balances/NGN", { method: "GET" });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to fetch Flutterwave balance";
+      console.error("Flutterwave balance error:", error);
       return new Response(
-        JSON.stringify({ success: false, error: errorMsg, details: balanceData }),
-        { status: balanceResponse.status || 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ success: false, error: errorMsg }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    if (!balanceData.data) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to fetch Flutterwave balance" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 

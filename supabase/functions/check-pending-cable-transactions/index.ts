@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { creditUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -143,43 +144,25 @@ serve(async (req) => {
     // If transaction is still pending and auto_refund is enabled, refund the user
     if (isPending && auto_refund) {
       // Refund the user
-      const { data: userProfile } = await supabase
-        .from("profiles")
-        .select("balance")
-        .eq("id", transaction.user_id)
-        .single();
+      const refundAmount = parseFloat(transaction.amount.toString());
+      const refundReference = `REFUND-${transaction.reference}`;
 
-      if (userProfile) {
-        const currentBalance = parseFloat(userProfile.balance.toString()) || 0;
-        const refundAmount = parseFloat(transaction.amount.toString());
-        const newBalance = currentBalance + refundAmount;
+      await creditUserWallet({
+        supabase,
+        userId: transaction.user_id,
+        amount: refundAmount,
+        transactionType: "refund",
+        description: `Refund: ${transaction.description} - Transaction still pending in MobileNig`,
+        reference: refundReference,
+        performedBy: user.id,
+      });
 
-        // Update balance
-        await supabase
-          .from("profiles")
-          .update({ balance: newBalance })
-          .eq("id", transaction.user_id);
-
-        // Create refund transaction
-        await supabase.from("user_transactions").insert({
-          user_id: transaction.user_id,
-          transaction_type: "refund",
-          amount: refundAmount,
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          description: `Refund: ${transaction.description} - Transaction still pending in MobileNig`,
-          reference: `REFUND-${transaction.reference}`,
-          performed_by: user.id,
-        });
-
-        // Update original transaction description
-        await supabase
-          .from("user_transactions")
-          .update({
-            description: `[REFUNDED - PENDING] ${transaction.description}`
-          })
-          .eq("id", transaction.id);
-      }
+      await supabase
+        .from("user_transactions")
+        .update({
+          description: `[REFUNDED - PENDING] ${transaction.description}`,
+        })
+        .eq("id", transaction.id);
     }
 
     return new Response(

@@ -1,4 +1,4 @@
-const FLUTTERWAVE_API_BASE = "https://api.flutterwave.com/v3";
+import { flutterwaveJson } from "./flutterwave-http.ts";
 
 export type FlutterwaveBillPaymentResult = {
   success: boolean;
@@ -118,32 +118,12 @@ async function flutterwaveApi<T = Record<string, unknown>>(
   init?: RequestInit,
 ): Promise<T> {
   const secretKey = getFlutterwaveSecretKey();
-  const response = await fetch(`${FLUTTERWAVE_API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${secretKey}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-
-  const text = await response.text();
-  let payload: Record<string, unknown>;
   try {
-    payload = text ? JSON.parse(text) as Record<string, unknown> : {};
-  } catch {
-    throw new Error(`Invalid JSON from Flutterwave (${response.status})`);
-  }
-
-  if (!response.ok || payload.status !== "success") {
-    const message =
-      (typeof payload.message === "string" && payload.message) ||
-      (typeof payload.error === "string" && payload.error) ||
-      `Flutterwave API error (${response.status})`;
+    return await flutterwaveJson<T>(secretKey, path, init);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Flutterwave API error";
     throw new Error(mapFlutterwaveBillPaymentError(message));
   }
-
-  return payload as T;
 }
 
 export async function payFlutterwaveBill(params: {

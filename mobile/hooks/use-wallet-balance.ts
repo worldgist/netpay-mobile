@@ -107,17 +107,28 @@ export function useWalletBalance(options: UseWalletBalanceOptions = {}) {
           }
         }
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('balance')
-          .eq('id', nextUserId)
-          .maybeSingle();
+        const { data: ledgerBalance, error: ledgerError } = await supabase.rpc(
+          'get_my_ledger_balance',
+        );
 
-        if (profileError && profileError.code !== 'PGRST116') {
-          throw profileError;
+        if (ledgerError) {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('balance')
+            .eq('id', nextUserId)
+            .maybeSingle();
+
+          if (profileError && profileError.code !== 'PGRST116') {
+            throw profileError;
+          }
+
+          applyBalance(Number(profile?.balance) || 0, {
+            hydrating: !hasHydratedRef.current,
+          });
+          return;
         }
 
-        applyBalance(Number(profile?.balance) || 0, {
+        applyBalance(Number(ledgerBalance) || 0, {
           hydrating: !hasHydratedRef.current,
         });
       } catch (error) {

@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.74.0';
+import { creditUserWallet } from '../_shared/wallet.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -86,38 +87,16 @@ Deno.serve(async (req) => {
     // Process referrer payment
     if ((paymentType === 'referrer' || paymentType === 'both') && !referral.referrer_reward_paid) {
       const referrerAmount = Number(settings.referrer_reward);
-      const currentBalance = Number(referral.referrer.balance);
-      const newBalance = currentBalance + referrerAmount;
 
-      // Update referrer balance
-      const { error: balanceError } = await supabase
-        .from('profiles')
-        .update({ balance: newBalance })
-        .eq('id', referral.referrer_id);
-
-      if (balanceError) {
-        console.error('Error updating referrer balance:', balanceError);
-        throw new Error('Failed to update referrer balance');
-      }
-
-      // Create transaction record
-      const { error: transactionError } = await supabase
-        .from('user_transactions')
-        .insert({
-          user_id: referral.referrer_id,
-          transaction_type: 'credit',
-          amount: referrerAmount,
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          description: `Referral reward for code: ${referral.referral_code}`,
-          reference: `REF_EARN_${referral.referral_code}`,
-          performed_by: user.id,
-        });
-
-      if (transactionError) {
-        console.error('Error creating referrer transaction:', transactionError);
-        throw new Error('Failed to create referrer transaction');
-      }
+      await creditUserWallet({
+        supabase,
+        userId: referral.referrer_id,
+        amount: referrerAmount,
+        transactionType: 'credit',
+        description: `Referral reward for code: ${referral.referral_code}`,
+        reference: `REF_EARN_${referral.referral_code}`,
+        performedBy: user.id,
+      });
 
       // Mark referrer reward as paid
       const { error: updateError } = await supabase
@@ -143,38 +122,15 @@ Deno.serve(async (req) => {
     ) {
       const referredAmount = Number(settings.referred_reward);
       if (referredAmount > 0) {
-      const currentBalance = Number(referral.referred.balance);
-      const newBalance = currentBalance + referredAmount;
-
-      // Update referred user balance
-      const { error: balanceError } = await supabase
-        .from('profiles')
-        .update({ balance: newBalance })
-        .eq('id', referral.referred_id);
-
-      if (balanceError) {
-        console.error('Error updating referred balance:', balanceError);
-        throw new Error('Failed to update referred user balance');
-      }
-
-      // Create transaction record
-      const { error: transactionError } = await supabase
-        .from('user_transactions')
-        .insert({
-          user_id: referral.referred_id,
-          transaction_type: 'credit',
-          amount: referredAmount,
-          balance_before: currentBalance,
-          balance_after: newBalance,
-          description: `Welcome referral bonus from code: ${referral.referral_code}`,
-          reference: `REF_BONUS_${referral.referral_code}`,
-          performed_by: user.id,
-        });
-
-      if (transactionError) {
-        console.error('Error creating referred transaction:', transactionError);
-        throw new Error('Failed to create referred user transaction');
-      }
+      await creditUserWallet({
+        supabase,
+        userId: referral.referred_id,
+        amount: referredAmount,
+        transactionType: 'credit',
+        description: `Welcome referral bonus from code: ${referral.referral_code}`,
+        reference: `REF_BONUS_${referral.referral_code}`,
+        performedBy: user.id,
+      });
 
       // Mark referred reward as paid
       const { error: updateError } = await supabase

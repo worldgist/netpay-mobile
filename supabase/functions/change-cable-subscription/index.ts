@@ -396,12 +396,7 @@ serve(async (req) => {
         reference: reference,
         performed_by: user.id,
       });
-      
-      await supabase
-        .from('profiles')
-        .update({ balance: balanceAfter })
-        .eq('id', user.id);
-      
+
       debitResult = {
         balanceBefore: userBalance,
         balanceAfter: balanceAfter,

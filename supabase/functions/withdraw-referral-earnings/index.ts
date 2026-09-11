@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { creditUserWallet } from "../_shared/wallet.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,49 +68,17 @@ serve(async (req) => {
       );
     }
 
-    // Get user's current balance
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
-      .select('balance')
-      .eq('id', user.id)
-      .single();
+    const withdrawReference = `REF-WITHDRAW-${Date.now()}`;
+    const creditResult = await creditUserWallet({
+      supabase: supabaseClient,
+      userId: user.id,
+      amount: totalEarnings,
+      transactionType: 'referral_withdrawal',
+      description: 'Referral earnings withdrawal',
+      reference: withdrawReference,
+    });
 
-    if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      throw profileError;
-    }
-
-    const currentBalance = Number(profile.balance || 0);
-    const newBalance = currentBalance + totalEarnings;
-
-    // Update user balance
-    const { error: balanceError } = await supabaseClient
-      .from('profiles')
-      .update({ balance: newBalance })
-      .eq('id', user.id);
-
-    if (balanceError) {
-      console.error('Error updating balance:', balanceError);
-      throw balanceError;
-    }
-
-    // Create transaction record
-    const { error: transactionError } = await supabaseClient
-      .from('user_transactions')
-      .insert({
-        user_id: user.id,
-        amount: totalEarnings,
-        balance_before: currentBalance,
-        balance_after: newBalance,
-        transaction_type: 'referral_withdrawal',
-        description: 'Referral earnings withdrawal',
-        reference: `REF-WITHDRAW-${Date.now()}`,
-      });
-
-    if (transactionError) {
-      console.error('Error creating transaction:', transactionError);
-      throw transactionError;
-    }
+    const newBalance = creditResult.balanceAfter;
 
     // Mark all referrals as paid
     const { error: updateError } = await supabaseClient

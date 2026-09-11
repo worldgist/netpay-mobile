@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { flutterwaveFetch } from "../_shared/flutterwave-http.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,13 +107,8 @@ serve(async (req) => {
       phonenumber,
     });
 
-    const flutterwaveResponse = await fetch("https://api.flutterwave.com/v3/virtual-account-numbers", {
+    const flutterwaveResponse = await flutterwaveFetch(secretKey, "/virtual-account-numbers", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
       body: JSON.stringify(requestBody),
     });
 

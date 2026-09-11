@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { creditUserWallet } from "../_shared/wallet.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -54,48 +55,17 @@ serve(async (req) => {
       );
     }
 
-    // Get current balance
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("balance")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError) {
-      throw profileError;
-    }
-
-    const balanceBefore = Number(profile?.balance || 0);
-    const balanceAfter = balanceBefore + DEMO_CREDIT_AMOUNT;
     const reference = `DEMO-${Date.now()}`;
-
-    // Update balance
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ balance: balanceAfter })
-      .eq("id", user.id);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    // Record transaction
-    const { error: transactionError } = await supabase
-      .from("user_transactions")
-      .insert({
-        user_id: user.id,
-        transaction_type: "credit",
-        amount: DEMO_CREDIT_AMOUNT,
-        balance_before: balanceBefore,
-        balance_after: balanceAfter,
-        description: "Demo mode auto-credit",
-        reference,
-        performed_by: user.id,
-      });
-
-    if (transactionError) {
-      console.warn("Failed to record transaction:", transactionError);
-    }
+    const creditResult = await creditUserWallet({
+      supabase,
+      userId: user.id,
+      amount: DEMO_CREDIT_AMOUNT,
+      transactionType: "credit",
+      description: "Demo mode auto-credit",
+      reference,
+      performedBy: user.id,
+    });
+    const balanceAfter = creditResult.balanceAfter;
 
     // Create notification
     try {

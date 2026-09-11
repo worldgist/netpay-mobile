@@ -236,45 +236,26 @@ serve(async (req) => {
     if (isDemoUser) {
       console.log('Demo user detected - using mock API response for electricity purchase');
       
-      // For demo users, debit wallet but allow negative balance
-      // Update balance directly without checking (allows negative for demo)
-      const { data: updatedProfile, error: updateError } = await supabaseClient
-        .from('profiles')
-        .update({ balance: balanceBefore - totalAmount })
-        .eq('id', user.id)
-        .select('balance')
-        .single();
-
-      if (updateError) {
-        console.error('Failed to update demo user balance:', updateError);
-        // Continue anyway for demo users
-      }
-
-      const balanceAfter = updatedProfile ? Number(updatedProfile.balance) || (balanceBefore - totalAmount) : (balanceBefore - totalAmount);
-      
-      // Record transaction in user_transactions
-      const { error: userTransactionError } = await supabaseClient
-        .from('user_transactions')
-        .insert({
-          user_id: user.id,
-          transaction_type: 'electricity_purchase',
+      let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+      try {
+        debitResult = await debitUserWallet({
+          supabase: supabaseClient,
+          userId: user.id,
           amount: totalAmount,
-          balance_before: balanceBefore,
-          balance_after: balanceAfter,
-          reference: reference,
+          transactionType: 'electricity_purchase',
           description: `Electricity purchase (Demo): ${canonicalProvider || 'IKEJA'} ${finalMeterType} - ${reference}`,
-          performed_by: user.id,
+          reference,
+          performedBy: user.id,
+          balanceBefore,
         });
-
-      if (userTransactionError) {
-        console.error('Failed to record demo user transaction:', userTransactionError);
+      } catch (debitError) {
+        console.error('Demo electricity debit failed:', debitError);
+        debitResult = {
+          balanceBefore,
+          balanceAfter: balanceBefore - totalAmount,
+          reference,
+        };
       }
-
-      const debitResult = {
-        balanceBefore: balanceBefore,
-        balanceAfter: balanceAfter,
-        reference: reference
-      };
 
       // Generate mock token for demo
       const mockToken = `DEMO-${finalSanitizedMeter.substring(0, Math.min(4, finalSanitizedMeter.length))}-${Date.now().toString().slice(-8)}`;

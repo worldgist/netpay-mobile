@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { processFlutterwaveFunding } from "./flutterwave-funding.ts";
+import { getFlutterwaveSecretKeyOptional } from "./flutterwave-bills.ts";
+import {
+  flutterwaveFetch,
+  verifyFlutterwaveTransactionWithProvider,
+} from "./flutterwave-http.ts";
 import {
   type FlutterwaveChargeData,
   getFlutterwaveFundingReference,
@@ -184,19 +189,33 @@ export async function processFlutterwaveChargeData(
     return { processed: false, reason: "not_successful" as const };
   }
 
-  const reference = getFlutterwaveFundingReference(data);
-  const creditAmount = getFlutterwaveCreditAmount(data);
+  const secretKey = getFlutterwaveSecretKeyOptional();
+  if (!secretKey) {
+    throw new Error("Flutterwave credentials not configured");
+  }
+
+  const verifiedCharge = await verifyFlutterwaveTransactionWithProvider(secretKey, data);
+  if (!verifiedCharge || !isSuccessfulFlutterwaveStatus(verifiedCharge.status)) {
+    console.warn("Skipping Flutterwave credit: provider verification failed", {
+      reference: getFlutterwaveFundingReference(data),
+      id: data.id,
+    });
+    return { processed: false, reason: "provider_verify_failed" as const };
+  }
+
+  const reference = getFlutterwaveFundingReference(verifiedCharge);
+  const creditAmount = getFlutterwaveCreditAmount(verifiedCharge);
 
   if (!reference || creditAmount <= 0) {
     throw new Error("Missing Flutterwave payment reference or amount");
   }
 
-  if (isFlutterwaveCheckoutFunding(data)) {
+  if (isFlutterwaveCheckoutFunding(verifiedCharge)) {
     return { processed: false as const, reason: "checkout_handled_by_verify_endpoint" as const };
   }
 
   const knownUserId = typeof payload?.knownUserId === "string" ? payload.knownUserId : null;
-  const userId = knownUserId ?? await resolveFlutterwaveChargeUserId(supabase, data, payload);
+  const userId = knownUserId ?? await resolveFlutterwaveChargeUserId(supabase, verifiedCharge, payload);
   if (!userId) {
     throw new Error("Unable to resolve user for Flutterwave payment");
   }
@@ -208,26 +227,26 @@ export async function processFlutterwaveChargeData(
     .eq("provider", "flutterwave")
     .maybeSingle();
 
-  if (!virtualAccount || !isVirtualAccountFundingTransaction(data, virtualAccount)) {
+  if (!virtualAccount || !isVirtualAccountFundingTransaction(verifiedCharge, virtualAccount)) {
     return { processed: false as const, reason: "not_virtual_account_funding" as const };
   }
 
-  const customer = (data.customer || {}) as Record<string, unknown>;
-  const account = (data.account || {}) as Record<string, unknown>;
+  const customer = (verifiedCharge.customer || {}) as Record<string, unknown>;
+  const account = (verifiedCharge.account || {}) as Record<string, unknown>;
 
   const result = await processFlutterwaveFunding({
     supabase,
     userId,
     grossAmount: creditAmount,
     reference,
-    bankName: String(data.payment_type || data.bankname || "Flutterwave"),
+    bankName: String(verifiedCharge.payment_type || verifiedCharge.bankname || "Flutterwave"),
     accountNumber: account.nuban
       ? String(account.nuban)
-      : data.account_number
-      ? String(data.account_number)
+      : verifiedCharge.account_number
+      ? String(verifiedCharge.account_number)
       : null,
     accountName: String(customer.name || "Bank Transfer"),
-    apiResponse: payload ?? data,
+    apiResponse: { webhook: payload ?? data, verified: verifiedCharge },
     sendNotification,
   });
 
@@ -250,12 +269,7 @@ export async function fetchFlutterwaveTransactions(
     }
   }
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${secretKey}`,
-      Accept: "application/json",
-    },
-  });
+  const response = await flutterwaveFetch(secretKey, url.toString(), { method: "GET" });
 
   const body = await response.json();
   if (!response.ok || body.status !== "success") {

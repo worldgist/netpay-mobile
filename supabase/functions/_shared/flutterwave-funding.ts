@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { creditUserWallet } from "./wallet.ts";
+import { creditUserWallet, getUserLedgerBalance } from "./wallet.ts";
 import { getFlutterwaveReferenceCandidates } from "./flutterwave-references.ts";
 
 export const FUNDING_FEE_PERCENTAGE = 0.05;
@@ -203,13 +203,7 @@ async function backfillFundingLedger(
     return;
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("balance")
-    .eq("id", userId)
-    .single();
-
-  const balanceAfter = Number(profile?.balance || 0);
+  const balanceAfter = await getUserLedgerBalance(supabase, userId);
   const balanceBefore = Math.max(0, balanceAfter - netCreditAmount);
 
   const { error } = await supabase.from("user_transactions").insert({
@@ -230,13 +224,7 @@ async function backfillFundingLedger(
 }
 
 async function readWalletBalance(supabase: SupabaseClient, userId: string): Promise<number> {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("balance")
-    .eq("id", userId)
-    .single();
-
-  return Number(profile?.balance || 0);
+  return getUserLedgerBalance(supabase, userId);
 }
 
 export async function processFlutterwaveFunding({

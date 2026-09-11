@@ -1,3 +1,5 @@
+import { fetchWithRetry } from "./http-client.ts";
+
 /**
  * eBills Africa API integration
  * Auth: POST /jwt-auth/v1/token (username + password → JWT, 7-day expiry)
@@ -33,6 +35,15 @@ export interface EBillsErrorResponse {
   data?: {
     status: number;
   };
+}
+
+async function ebillsFetch(url: string, init?: RequestInit): Promise<Response> {
+  return fetchWithRetry(url, init ?? {}, {
+    timeoutMs: 30_000,
+    maxAttempts: 3,
+    initialDelayMs: 800,
+    maxDelayMs: 8_000,
+  });
 }
 
 async function parseEBillsJsonResponse<T>(response: Response): Promise<T> {
@@ -74,7 +85,7 @@ export async function authenticateEBills(
   username: string,
   password: string,
 ): Promise<EBillsAuthResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}${EBILLS_TOKEN_PATH}`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}${EBILLS_TOKEN_PATH}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -125,7 +136,7 @@ export function getEBillsAuthHeaders(token: string): Record<string, string> {
  * Requires valid JWT token
  */
 export async function getEBillsBalance(token: string): Promise<EBillsBalanceResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/balance`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/balance`, {
     method: 'GET',
     headers: getEBillsAuthHeaders(token),
   });
@@ -207,7 +218,7 @@ export async function verifyEBillsCableCustomer(
     url: `${EBILLS_BASE_URL}/api/v2/verify-customer`,
   });
 
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/verify-customer`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/verify-customer`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify(requestBody),
@@ -382,7 +393,7 @@ export async function verifyEBillsElectricityCustomer(
     url: `${EBILLS_BASE_URL}/api/v2/verify-customer`,
   });
 
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/verify-customer`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/verify-customer`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify(requestBody),
@@ -481,7 +492,7 @@ export interface EBillsTVVariationsResponse {
 export async function getEBillsTVVariations(
   serviceId: string
 ): Promise<EBillsTVVariationsResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/variations/tv?service_id=${serviceId}`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/variations/tv?service_id=${serviceId}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -565,7 +576,7 @@ export async function getEBillsDataVariations(
     ? `${EBILLS_BASE_URL}/api/v2/variations/data?service_id=${encodeURIComponent(normalizedServiceId)}`
     : `${EBILLS_BASE_URL}/api/v2/variations/data`;
 
-  const response = await fetch(url, {
+  const response = await ebillsFetch(url, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -679,7 +690,7 @@ export async function purchaseEBillsCableTV(
     url: `${EBILLS_BASE_URL}/api/v2/tv`,
   });
 
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/tv`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/tv`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify(requestBody),
@@ -701,7 +712,7 @@ export async function requeryEBillsOrder(
   token: string,
   requestId: string,
 ): Promise<EBillsPurchaseResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/requery`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/requery`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify({ request_id: requestId }),
@@ -813,7 +824,7 @@ export async function purchaseEBillsElectricity(
     url: `${EBILLS_BASE_URL}/api/v2/electricity`,
   });
 
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/electricity`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/electricity`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify(requestBody),
@@ -994,7 +1005,7 @@ export async function verifyEBillsBettingCustomer(
     url: `${EBILLS_BASE_URL}/api/v2/verify-customer`,
   });
 
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/verify-customer`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/verify-customer`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify(requestBody),
@@ -1165,7 +1176,7 @@ export async function purchaseEBillsBetting(
     url: `${EBILLS_BASE_URL}/api/v2/betting`,
   });
 
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/betting`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/betting`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify(requestBody),
@@ -1435,7 +1446,7 @@ export async function purchaseEBillsAirtime(
   serviceId: string,
   amount: number,
 ): Promise<EBillsAirtimePurchaseResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/airtime`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/airtime`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify({
@@ -1522,7 +1533,7 @@ export async function purchaseEBillsData(
   serviceId: string,
   variationId: string,
 ): Promise<EBillsDataPurchaseResponse> {
-  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/data`, {
+  const response = await ebillsFetch(`${EBILLS_BASE_URL}/api/v2/data`, {
     method: 'POST',
     headers: getEBillsAuthHeaders(token),
     body: JSON.stringify({
