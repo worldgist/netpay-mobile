@@ -113,6 +113,12 @@ verify_jwt = true
 [functions.fetch-ebills-transactions]
 verify_jwt = true
 
+[functions.process-pending-ebills-transactions]
+verify_jwt = true
+
+[functions.ebills-webhook]
+verify_jwt = false
+
 [functions.fetch-mobilenig-balance]
 verify_jwt = true
 

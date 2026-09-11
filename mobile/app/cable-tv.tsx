@@ -810,6 +810,23 @@ export default function CableTVScreen() {
       const responseJson = await response.json();
       const responseData = responseJson?.data || responseJson;
 
+      if (responseData?.pending === true) {
+        Alert.alert(
+          'Transaction Processing',
+          responseData?.message ||
+            'Your cable TV subscription is being processed. You will be notified when completed.',
+          [
+            {
+              text: 'View Transactions',
+              onPress: () => router.push('/(tabs)/transactions'),
+            },
+            { text: 'OK' },
+          ],
+        );
+        setIsProcessing(false);
+        return;
+      }
+
       if (!response.ok) {
         const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}: ${response.statusText}`;
         const errorDetails = responseData?.details || '';
@@ -909,17 +926,6 @@ export default function CableTVScreen() {
         }
         
         throw new Error(errorMessage);
-      }
-
-      // Handle pending transactions
-      if (responseData?.pending === true) {
-        Alert.alert(
-          'Transaction Processing',
-          'Your cable TV subscription is being processed. You will be notified when completed.',
-          [{ text: 'OK' }]
-        );
-        setIsProcessing(false);
-        return;
       }
 
       // Success - navigate to success screen

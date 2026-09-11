@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
-import { sendPushNotification } from "../_shared/push-notifications.ts";
 import { fetchSmeplugWalletBalance } from "../_shared/smeplug-balance.ts";
 
 const CORS_HEADERS = {
@@ -327,7 +326,6 @@ serve(async (req) => {
       (fallbackNetworkId !== null && fallbackNetworkId !== undefined && fallbackNetworkId !== ''
         ? `Network ${fallbackNetworkId}`
         : 'the selected network');
-    const formattedAmount = `₦${normalizedAmount.toFixed(2)}`;
     const purchaseAmount = Math.round(normalizedAmount);
 
     if (!isDemoUser && SECRET_KEY) {
@@ -684,21 +682,7 @@ serve(async (req) => {
       );
     }
 
-    // Send push notification
-    await sendPushNotification(
-      supabase,
-      user.id,
-      'Airtime Purchase Successful',
-      `${formattedAmount} airtime purchased for ${sanitizedPhone} on ${displayNetwork}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
-      {
-        type: 'airtime_purchase',
-        transactionType: 'airtime_purchase',
-        reference,
-        amount: normalizedAmount,
-        phone_number: sanitizedPhone,
-        network: normalizedNetworkName || String(network_id ?? smeplugNetworkId ?? ''),
-      }
-    );
+    // Push is sent once from the mobile payment-success screen ("Purchase Successful").
 
     return new Response(
       JSON.stringify({ 

@@ -238,6 +238,19 @@ serve(async (req) => {
             }),
             { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
           );
+        } else if (response.ok && responseData?.pending === true) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              pending: true,
+              message: responseData.message || 'Data purchase is being processed',
+              data: {
+                ...responseData.data,
+                vendor: provider,
+              },
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
         } else if (response.ok && responseData?.success === false) {
           // Provider returned an error - save it and try next provider if available
           lastError = responseData.error || responseData.message || 'Purchase failed';

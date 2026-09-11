@@ -11,7 +11,6 @@ import {
   EBillsAirtimeError,
 } from "../_shared/ebills-api.ts";
 import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
-import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -236,10 +235,6 @@ serve(async (req) => {
         reference: requestId,
         performedBy: user.id,
         balanceBefore,
-        notification: {
-          title: 'Airtime purchase successful (Demo)',
-          message: `₦${purchaseAmount} airtime purchased for ${sanitizedPhone}. Reference: ${requestId}.`,
-        },
       });
 
       await recordAirtimeTransaction({
@@ -388,28 +383,7 @@ serve(async (req) => {
       apiResponse: purchaseResult,
     });
 
-    const notificationTitle = isCompleted
-      ? 'Airtime Purchase Successful'
-      : 'Airtime Purchase Processing';
-    const notificationMessage = isCompleted
-      ? `₦${purchaseAmount.toFixed(2)} airtime purchased for ${sanitizedPhone}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`
-      : `₦${purchaseAmount.toFixed(2)} airtime purchase is being processed for ${sanitizedPhone}. Reference: ${reference}.`;
-
-    await sendPushNotification(
-      supabase,
-      user.id,
-      notificationTitle,
-      notificationMessage,
-      {
-        type: 'airtime_purchase',
-        reference,
-        order_id: orderId,
-        amount: purchaseAmount,
-        phone_number: sanitizedPhone,
-        network: displayNetwork,
-        status: transactionStatus,
-      }
-    );
+    // Push is sent once from the mobile payment-success screen ("Purchase Successful").
 
     return new Response(
       JSON.stringify({

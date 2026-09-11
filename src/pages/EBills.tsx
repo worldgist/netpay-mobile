@@ -46,6 +46,7 @@ export default function EBills() {
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<EBillsTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [processingPending, setProcessingPending] = useState(false);
   const [transactionSearchQuery, setTransactionSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [serviceFilter, setServiceFilter] = useState('all');
@@ -240,6 +241,39 @@ export default function EBills() {
     await Promise.all([fetchEBillsBalance(true), fetchEBillsTransactions()]);
   };
 
+  const processPendingEbills = async (reference?: string) => {
+    setProcessingPending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('process-pending-ebills-transactions', {
+        body: {
+          limit: 100,
+          ...(reference ? { reference } : {}),
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to reconcile pending eBills orders');
+      }
+
+      toast({
+        title: 'eBills reconciliation complete',
+        description: `Processed ${data.processed}. Completed: ${data.completed}, Refunded: ${data.refunded}, Still processing: ${data.still_processing}`,
+      });
+
+      await fetchEBillsTransactions();
+    } catch (error: unknown) {
+      console.error('process-pending-ebills-transactions error:', error);
+      toast({
+        title: 'Reconciliation failed',
+        description: error instanceof Error ? error.message : 'Could not reconcile pending eBills orders',
+        variant: 'destructive',
+      });
+    } finally {
+      setProcessingPending(false);
+    }
+  };
+
   if (loading) {
     return (
       <SidebarProvider>
@@ -275,15 +309,26 @@ export default function EBills() {
               <p className="text-muted-foreground">
                 Wallet balance and every purchase processed through the eBills API
               </p>
-              <Button
-                onClick={handleRefresh}
-                disabled={refreshing || loadingTransactions}
-                variant="outline"
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className={`h-4 w-4 ${refreshing || loadingTransactions ? 'animate-spin' : ''}`} />
-                {refreshing || loadingTransactions ? 'Refreshing...' : 'Refresh'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => processPendingEbills()}
+                  disabled={processingPending || loadingTransactions}
+                  variant="default"
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${processingPending ? 'animate-spin' : ''}`} />
+                  {processingPending ? 'Reconciling...' : 'Reconcile pending'}
+                </Button>
+                <Button
+                  onClick={handleRefresh}
+                  disabled={refreshing || loadingTransactions}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${refreshing || loadingTransactions ? 'animate-spin' : ''}`} />
+                  {refreshing || loadingTransactions ? 'Refreshing...' : 'Refresh'}
+                </Button>
+              </div>
             </div>
 
             {balance ? (
@@ -434,18 +479,19 @@ export default function EBills() {
                         <TableHead>Balance</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loadingTransactions ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="text-center text-muted-foreground">
+                          <TableCell colSpan={10} className="text-center text-muted-foreground">
                             Loading transactions...
                           </TableCell>
                         </TableRow>
                       ) : paginatedTransactions.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="text-center text-muted-foreground">
+                          <TableCell colSpan={10} className="text-center text-muted-foreground">
                             No eBills transactions found
                           </TableCell>
                         </TableRow>
@@ -532,6 +578,18 @@ export default function EBills() {
                             </TableCell>
                             <TableCell className="text-sm whitespace-nowrap">
                               {format(new Date(txn.created_at), 'MMM dd, yyyy HH:mm')}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {['processing', 'pending'].includes(txn.status.toLowerCase()) ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={processingPending}
+                                  onClick={() => processPendingEbills(txn.reference)}
+                                >
+                                  Sync & refund
+                                </Button>
+                              ) : null}
                             </TableCell>
                           </TableRow>
                         ))

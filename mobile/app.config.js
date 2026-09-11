@@ -111,6 +111,7 @@ module.exports = {
       },
     ],
     'expo-secure-store',
+    'expo-sharing',
     '@react-native-community/datetimepicker',
   ],
   experiments: {

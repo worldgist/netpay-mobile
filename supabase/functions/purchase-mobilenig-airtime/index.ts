@@ -5,7 +5,6 @@ import {
   resolveMobilenigAirtimeServiceId,
 } from "../_shared/mobilenig-api.ts";
 import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
-import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -231,15 +230,7 @@ serve(async (req) => {
       performed_by: user.id,
     });
 
-    if (!isDemoUser) {
-      await sendPushNotification(
-        supabase,
-        user.id,
-        "Airtime Purchase Successful",
-        `₦${purchaseAmount.toFixed(2)} airtime sent to ${sanitizedPhone} on ${displayNetwork}.`,
-        { type: "airtime_purchase", reference },
-      );
-    }
+    // Push is sent once from the mobile payment-success screen ("Purchase Successful").
 
     return new Response(JSON.stringify({
       success: true,

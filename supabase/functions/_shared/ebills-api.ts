@@ -693,6 +693,33 @@ export async function purchaseEBillsCableTV(
   return data as EBillsPurchaseResponse;
 }
 
+/**
+ * Requery an eBills order by request_id (POST /api/v2/requery).
+ * Use for pending/processing orders to detect completion, failure, or refund.
+ */
+export async function requeryEBillsOrder(
+  token: string,
+  requestId: string,
+): Promise<EBillsPurchaseResponse> {
+  const response = await fetch(`${EBILLS_BASE_URL}/api/v2/requery`, {
+    method: 'POST',
+    headers: getEBillsAuthHeaders(token),
+    body: JSON.stringify({ request_id: requestId }),
+  });
+
+  const data = await parseEBillsJsonResponse<EBillsPurchaseResponse & EBillsErrorResponse>(response);
+
+  if (!response.ok || data.code !== 'success') {
+    const code = String(data.code || '').toLowerCase();
+    if (code.includes('order_not_found') || response.status === 404) {
+      throw new Error(`Order not found at eBills for request_id: ${requestId}`);
+    }
+    throw new Error(data.message || `eBills requery failed (HTTP ${response.status})`);
+  }
+
+  return data as EBillsPurchaseResponse;
+}
+
 export interface EBillsElectricityPurchaseResponse {
   code: string;
   message: string;

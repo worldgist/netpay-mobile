@@ -6,7 +6,7 @@ import {
   purchaseEBillsCableTV,
 } from "../_shared/ebills-api.ts";
 import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
-import { getEbillsOrderStatus } from "../_shared/purchase-refund.ts";
+import { resolveEbillsPurchaseResult } from "../_shared/ebills-reconcile.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -236,8 +236,9 @@ serve(async (req) => {
     }
 
     let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsCableTV>>;
+    let ebillsToken: string;
     try {
-      const ebillsToken = await getEBillsToken();
+      ebillsToken = await getEBillsToken();
       purchaseResult = await purchaseEBillsCableTV(
         ebillsToken,
         reference,
@@ -270,13 +271,15 @@ serve(async (req) => {
       );
     }
 
+    const resolved = await resolveEbillsPurchaseResult(ebillsToken, reference, purchaseResult);
+    purchaseResult = resolved.purchaseResult;
+    const orderStatus = resolved.orderStatus;
     const resolvedCustomerName = customer_name || purchaseResult.data?.customer_name || null;
-    const orderStatus = getEbillsOrderStatus(purchaseResult);
 
     if (orderStatus.shouldRefund) {
       await refundWallet(
         orderStatus.isRefunded ? "provider refunded order" : "provider rejected order",
-        "REF",
+        resolved.polled ? "POLL-REF" : "REF",
       );
       await recordCableTransaction({
         status: orderStatus.isRefunded ? "refunded" : "failed",
@@ -303,10 +306,62 @@ serve(async (req) => {
       );
     }
 
-    const transactionStatus = orderStatus.isCompleted ? "success" : "processing";
+    if (!orderStatus.isCompleted) {
+      await recordCableTransaction({
+        status: "processing",
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
+        customerName: resolvedCustomerName,
+        apiResponse: {
+          ...purchaseResult,
+          poll: { polled: resolved.polled, timedOut: resolved.timedOut },
+        },
+      });
+
+      await sendPushNotification(
+        supabase,
+        user.id,
+        "Cable TV Purchase Processing",
+        `₦${totalAmount.toFixed(2)} ${package_name} for ${provider} is being processed. Reference: ${reference}. You will be notified when completed.`,
+        {
+          type: "cable_tv_subscription",
+          reference,
+          amount: totalAmount,
+          provider,
+          package_name,
+          card_number,
+          status: "processing",
+        },
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          pending: true,
+          message:
+            "Your cable TV subscription is still being processed. You will be notified when it completes or if a refund is issued.",
+          data: {
+            reference,
+            amount: totalAmount,
+            purchase_amount: purchaseAmount,
+            charge_fee: chargeFee,
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter,
+            provider,
+            package: package_name,
+            card_number,
+            customer_name: resolvedCustomerName,
+            status: "processing",
+            vendor: "ebills",
+            api_response: purchaseResult.data,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
 
     await recordCableTransaction({
-      status: transactionStatus,
+      status: "success",
       balanceBeforeValue: debitResult.balanceBefore,
       balanceAfterValue: debitResult.balanceAfter,
       customerName: resolvedCustomerName,
@@ -316,16 +371,17 @@ serve(async (req) => {
     await sendPushNotification(
       supabase,
       user.id,
-      'Cable TV Subscription Successful',
+      "Cable TV Subscription Successful",
       `₦${totalAmount.toFixed(2)} ${package_name} subscription successful for ${provider} (Card: ${card_number}). Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
       {
-        type: 'cable_tv_subscription',
+        type: "cable_tv_subscription",
         reference,
         amount: totalAmount,
         provider,
         package_name,
         card_number,
-      }
+        status: "success",
+      },
     );
 
     return new Response(
@@ -342,12 +398,12 @@ serve(async (req) => {
           package: package_name,
           card_number,
           customer_name: resolvedCustomerName,
-          status: transactionStatus,
-          vendor: 'ebills',
+          status: "success",
+          vendor: "ebills",
           api_response: purchaseResult.data,
         },
       }),
-      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
     );
   } catch (error) {
     console.error('purchase-ebills-cable error:', error);

@@ -63,6 +63,15 @@ function isBiometricNotEnabledMessage(msg: string): boolean {
   );
 }
 
+function isAccountNotFoundMessage(msg: string): boolean {
+  const s = msg.toLowerCase();
+  return (
+    s.includes('account not found') ||
+    s.includes('no account found') ||
+    s.includes('please sign up first')
+  );
+}
+
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -411,6 +420,17 @@ export default function LoginScreen() {
           return;
         }
 
+        if (isAccountNotFoundMessage(errorMessage) || pinData?.code === 'account_not_found') {
+          await setBiometricLoginEnabled(false);
+          setShowBiometricLogin(false);
+          Alert.alert(
+            'Biometric Login',
+            'No account found for the saved email. Please sign in with your email and password.',
+          );
+          setBiometricLoading(false);
+          return;
+        }
+
         Alert.alert('Biometric Login', errorMessage);
         setBiometricLoading(false);
         return;
@@ -427,7 +447,18 @@ export default function LoginScreen() {
           return;
         }
 
-        console.error('Biometric sign-in function responded with error:', pinData);
+        if (isAccountNotFoundMessage(errorMsg) || pinData?.code === 'account_not_found') {
+          await setBiometricLoginEnabled(false);
+          setShowBiometricLogin(false);
+          Alert.alert(
+            'Biometric Login',
+            'No account found for the saved email. Please sign in with your email and password.',
+          );
+          setBiometricLoading(false);
+          return;
+        }
+
+        console.warn('Biometric sign-in function responded with error:', pinData);
         Alert.alert('Biometric Login', errorMsg);
         setBiometricLoading(false);
         return;

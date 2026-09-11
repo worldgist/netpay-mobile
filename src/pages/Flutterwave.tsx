@@ -10,6 +10,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import { formatNaira } from "@/lib/currency";
 
@@ -41,6 +50,8 @@ export default function Flutterwave() {
   const [transactions, setTransactions] = useState<FundingTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const { toast } = useToast();
   const flutterwaveWebhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/flutterwave-webhook`;
 
@@ -92,8 +103,7 @@ export default function Flutterwave() {
           )
         `)
         .ilike("bank_name", "%flutterwave%")
-        .order("created_at", { ascending: false })
-        .limit(100);
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       setTransactions((data as FundingTransaction[]) || []);
@@ -136,6 +146,20 @@ export default function Flutterwave() {
         txn.status?.toLowerCase().includes(query),
     );
   }, [transactions, searchQuery]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, pageSize]);
+
+  const totalFilteredCount = filteredTransactions.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTransactions = filteredTransactions.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
 
   const totalFunded = useMemo(
     () =>
@@ -263,24 +287,43 @@ export default function Flutterwave() {
                       <CardDescription>User wallet top-ups via Flutterwave</CardDescription>
                     </div>
                   </div>
-                  <div className="relative max-w-xs w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search reference, user..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10"
-                    />
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="relative max-w-xs w-full">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search reference, user..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(value) => {
+                        setPageSize(Number(value));
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="w-full sm:w-[120px]">
+                        <SelectValue placeholder="Rows" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10 / page</SelectItem>
+                        <SelectItem value="25">25 / page</SelectItem>
+                        <SelectItem value="50">50 / page</SelectItem>
+                        <SelectItem value="100">100 / page</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 {loadingTransactions ? (
                   <div className="space-y-2">
                     <Skeleton className="h-12 w-full" />
                     <Skeleton className="h-12 w-full" />
                   </div>
-                ) : filteredTransactions.length === 0 ? (
+                ) : totalFilteredCount === 0 ? (
                   <p className="text-center py-8 text-muted-foreground">No Flutterwave funding transactions found</p>
                 ) : (
                   <div className="rounded-md border overflow-x-auto">
@@ -295,7 +338,7 @@ export default function Flutterwave() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredTransactions.map((txn) => (
+                        {paginatedTransactions.map((txn) => (
                           <TableRow key={txn.id}>
                             <TableCell className="text-sm whitespace-nowrap">
                               {format(new Date(txn.created_at), "MMM d, yyyy HH:mm")}
@@ -323,6 +366,74 @@ export default function Flutterwave() {
                     </Table>
                   </div>
                 )}
+
+                {!loadingTransactions && totalFilteredCount > 0 ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2 border-t">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {pageStart}-{pageEnd} of {totalFilteredCount}
+                    </p>
+                    {totalPages > 1 ? (
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setCurrentPage((page) => Math.max(1, page - 1));
+                              }}
+                              className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                          {Array.from({ length: totalPages }, (_, index) => index + 1)
+                            .filter((page) => {
+                              if (totalPages <= 7) return true;
+                              return Math.abs(page - safeCurrentPage) <= 2 || page === 1 || page === totalPages;
+                            })
+                            .map((page, index, visiblePages) => {
+                              const previousPage = visiblePages[index - 1];
+                              const showEllipsis = previousPage != null && page - previousPage > 1;
+
+                              return (
+                                <span key={page} className="flex items-center">
+                                  {showEllipsis ? (
+                                    <PaginationItem>
+                                      <span className="px-2 text-muted-foreground">…</span>
+                                    </PaginationItem>
+                                  ) : null}
+                                  <PaginationItem>
+                                    <PaginationLink
+                                      href="#"
+                                      isActive={page === safeCurrentPage}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        setCurrentPage(page);
+                                      }}
+                                      className="cursor-pointer"
+                                    >
+                                      {page}
+                                    </PaginationLink>
+                                  </PaginationItem>
+                                </span>
+                              );
+                            })}
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setCurrentPage((page) => Math.min(totalPages, page + 1));
+                              }}
+                              className={
+                                safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"
+                              }
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    ) : null}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </div>

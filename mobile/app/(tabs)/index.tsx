@@ -397,16 +397,18 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!userId) {
+      if (balanceChannelRef.current) {
+        void supabase.removeChannel(balanceChannelRef.current);
+        balanceChannelRef.current = null;
+      }
       return;
     }
 
-    if (balanceChannelRef.current) {
-      supabase.removeChannel(balanceChannelRef.current);
-      balanceChannelRef.current = null;
-    }
-
+    // Unique topic per effect run so React remounts never reuse a subscribed channel
+    // (Supabase rejects .on() after subscribe() on an existing topic).
+    const topic = `wallet-balance-home-${userId}-${Math.random().toString(36).slice(2, 10)}`;
     const channel = supabase
-      .channel(`wallet-balance-${userId}`)
+      .channel(topic)
       .on(
         'postgres_changes',
         {
@@ -422,19 +424,19 @@ export default function HomeScreen() {
             void writeCachedWalletBalance(userId, nextBalance);
           }
           void refreshTransactions();
-        }
+        },
       )
       .subscribe();
 
     balanceChannelRef.current = channel;
 
     return () => {
-      if (balanceChannelRef.current) {
-        supabase.removeChannel(balanceChannelRef.current);
+      void supabase.removeChannel(channel);
+      if (balanceChannelRef.current === channel) {
         balanceChannelRef.current = null;
       }
     };
-  }, [fetchDashboardData, userId]);
+  }, [refreshTransactions, userId]);
 
   const onRefresh = useCallback(() => {
     void clearAppCache().then(() => {

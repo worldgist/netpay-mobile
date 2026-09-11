@@ -731,6 +731,24 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
 
       // Check if transaction failed
       if (responseData?.success === false) {
+        if (responseData?.pending === true) {
+          setShowConfirmModal(false);
+          Alert.alert(
+            'Transaction Processing',
+            responseData?.message ||
+              'Your data purchase is being processed. You will be notified when completed.',
+            [
+              {
+                text: 'View Transactions',
+                onPress: () => router.push('/(tabs)/transactions'),
+              },
+              { text: 'OK' },
+            ],
+          );
+          setIsProcessing(false);
+          return;
+        }
+
         const detail =
           responseData?.details?.message ||
           responseData?.details?.error ||
@@ -788,56 +806,42 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         throw new Error(message);
       }
 
-      // Transaction is successful (user debited and transaction recorded)
-      // Check if transaction status is pending or delivered
+      // Only navigate to success when purchase is fully completed
       const transactionStatus = responseData?.data?.status || 'success';
-      const vendor = responseData?.data?.vendor || 'vendor';
-      const isPending = transactionStatus?.toLowerCase() === 'pending' || 
-                       transactionStatus?.toLowerCase() === 'processing' ||
-                       transactionStatus?.toLowerCase() === 'queued';
+      const isPending =
+        responseData?.pending === true ||
+        transactionStatus?.toLowerCase() === 'pending' ||
+        transactionStatus?.toLowerCase() === 'processing' ||
+        transactionStatus?.toLowerCase() === 'queued';
 
       setShowConfirmModal(false);
 
-      const reference = responseData?.data?.reference || '';
-      
-      // Navigate to success screen - user is debited and transaction is recorded
-      // If pending, transaction will be updated to success when vendor confirms
-      const navigateToSuccess = () => {
-        router.push(buildRouteHref('/payment-success', {
-          amount: getEffectivePrice(selectedPlan).toString(),
-          network: selectedNetworkName,
-          recipient: sanitizedPhoneNumber,
-          serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
-          reference,
-        }));
-      };
-
-      // If transaction is pending, show info but still navigate to success
-      // The transaction is recorded as pending and will be updated when vendor confirms
       if (isPending) {
         Alert.alert(
           'Transaction Processing',
-          `Your data purchase is being processed via ${vendor}. Reference: ${reference}. You will be notified when completed.`,
+          responseData?.message ||
+            'Your data purchase is being processed. You will be notified when completed.',
           [
             {
               text: 'View Transactions',
-              onPress: () => {
-                router.push('/(tabs)/transactions');
-              }
+              onPress: () => router.push('/(tabs)/transactions'),
             },
-            {
-              text: 'OK',
-              onPress: navigateToSuccess
-            }
+            { text: 'OK' },
           ],
-          { cancelable: false }
         );
-        // Also navigate after a short delay in case user doesn't click
-        setTimeout(navigateToSuccess, 100);
-      } else {
-        // Navigate immediately for delivered transactions
-        navigateToSuccess();
+        setIsProcessing(false);
+        return;
       }
+
+      const reference = responseData?.data?.reference || '';
+
+      router.push(buildRouteHref('/payment-success', {
+        amount: getEffectivePrice(selectedPlan).toString(),
+        network: selectedNetworkName,
+        recipient: sanitizedPhoneNumber,
+        serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
+        reference,
+      }));
     } catch (purchaseError: any) {
       console.error('Data purchase failed:', purchaseError);
       let message = 'Unable to complete data purchase. Please try again.';

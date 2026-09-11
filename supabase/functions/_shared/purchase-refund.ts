@@ -53,24 +53,59 @@ export type EbillsOrderStatus = {
   isProcessing: boolean;
   isCompleted: boolean;
   isRefunded: boolean;
+  isFailed: boolean;
   shouldRefund: boolean;
 };
 
-/** eBills order statuses: refund when rejected/refunded; keep debit when processing or completed. */
+/** eBills order statuses: refund when failed/refunded; keep debit when processing or completed. */
 export function getEbillsOrderStatus(purchaseResult: {
   data?: { status?: string | null };
   message?: string | null;
 }): EbillsOrderStatus {
   const orderData = purchaseResult.data || {};
+  const statusLower = String(orderData.status ?? "").toLowerCase();
+  const messageLower = String(purchaseResult.message ?? "").toLowerCase();
+
   const isProcessing =
-    orderData.status === "processing-api" ||
-    purchaseResult.message === "ORDER PROCESSING";
+    statusLower === "processing-api" ||
+    statusLower === "queued-api" ||
+    statusLower === "initiated-api" ||
+    purchaseResult.message === "ORDER PROCESSING" ||
+    purchaseResult.message === "ORDER QUEUED" ||
+    purchaseResult.message === "ORDER INITIATED" ||
+    messageLower.includes("order processing") ||
+    messageLower.includes("order queued");
+
   const isCompleted =
-    orderData.status === "completed-api" ||
-    purchaseResult.message === "ORDER COMPLETED";
+    statusLower === "completed-api" ||
+    statusLower === "completed" ||
+    purchaseResult.message === "ORDER COMPLETED" ||
+    messageLower.includes("order completed");
+
   const isRefunded =
-    orderData.status === "refunded" ||
-    purchaseResult.message === "ORDER REFUNDED";
-  const shouldRefund = isRefunded || (!isProcessing && !isCompleted);
-  return { isProcessing, isCompleted, isRefunded, shouldRefund };
+    statusLower === "refunded" ||
+    purchaseResult.message === "ORDER REFUNDED" ||
+    messageLower.includes("order refunded");
+
+  const isFailed =
+    statusLower === "failed" ||
+    statusLower === "failed-api" ||
+    statusLower === "cancelled" ||
+    purchaseResult.message === "ORDER FAILED" ||
+    purchaseResult.message === "ORDER CANCELLED" ||
+    messageLower.includes("order failed") ||
+    messageLower.includes("order cancelled");
+
+  const isPendingLike =
+    statusLower === "pending" ||
+    statusLower === "on-hold" ||
+    messageLower.includes("order pending") ||
+    messageLower.includes("on-hold");
+
+  const shouldRefund =
+    isRefunded ||
+    isFailed ||
+    (!isProcessing && !isCompleted && !isPendingLike);
+
+  return { isProcessing, isCompleted, isRefunded, isFailed, shouldRefund };
 }

@@ -10,6 +10,7 @@ import {
   EBillsDataError,
 } from "../_shared/ebills-api.ts";
 import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
+import { resolveEbillsPurchaseResult } from "../_shared/ebills-reconcile.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
 
 const CORS_HEADERS = {
@@ -314,8 +315,9 @@ serve(async (req) => {
     }
 
     let purchaseResult: Awaited<ReturnType<typeof purchaseEBillsData>>;
+    let ebillsToken: string;
     try {
-      const ebillsToken = await getEBillsToken();
+      ebillsToken = await getEBillsToken();
       purchaseResult = await purchaseEBillsData(
         ebillsToken,
         requestId,
@@ -351,84 +353,123 @@ serve(async (req) => {
       );
     }
 
+    const resolved = await resolveEbillsPurchaseResult(ebillsToken, requestId, purchaseResult);
+    purchaseResult = resolved.purchaseResult;
+    const orderStatus = resolved.orderStatus;
+
     const orderData = purchaseResult.data || {};
     const reference = String(orderData.request_id || requestId);
     const orderId = orderData.order_id;
 
-    const isProcessing =
-      orderData.status === 'processing-api' ||
-      purchaseResult.message === 'ORDER PROCESSING';
-    const isCompleted =
-      orderData.status === 'completed-api' ||
-      purchaseResult.message === 'ORDER COMPLETED';
-    const isRefunded =
-      orderData.status === 'refunded' ||
-      purchaseResult.message === 'ORDER REFUNDED';
-
-    if (isRefunded || (!isProcessing && !isCompleted)) {
+    if (orderStatus.shouldRefund) {
       await refundWallet(
-        isRefunded ? 'provider refunded order' : 'provider rejected order',
-        'REF',
+        orderStatus.isRefunded ? "provider refunded order" : "provider rejected order",
+        resolved.polled ? "POLL-REF" : "REF",
       );
       await recordDataTransaction({
         reference,
-        status: isRefunded ? 'refunded' : 'failed',
+        status: orderStatus.isRefunded ? "refunded" : "failed",
         balanceBeforeValue: debitResult.balanceBefore,
         balanceAfterValue: debitResult.balanceBefore,
         planLabel: orderData.data_plan || planName,
-        amount: isRefunded ? 0 : userChargedAmount,
+        amount: orderStatus.isRefunded ? 0 : userChargedAmount,
         apiResponse: purchaseResult,
       });
 
       return new Response(
         JSON.stringify({
           success: false,
-          error: isRefunded
-            ? 'Data purchase was refunded by the provider. Your wallet has been credited back.'
-            : 'Data purchase failed at the provider. Your wallet has been credited back.',
+          error: orderStatus.isRefunded
+            ? "Data purchase was refunded by the provider. Your wallet has been credited back."
+            : "Data purchase failed at the provider. Your wallet has been credited back.",
           data: {
             reference,
             order_id: orderId,
-            status: isRefunded ? 'refunded' : 'failed',
+            status: orderStatus.isRefunded ? "refunded" : "failed",
             api_response: orderData,
             balance_before: debitResult.balanceBefore,
             balance_after: debitResult.balanceBefore,
           },
         }),
-        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
       );
     }
 
-    const transactionStatus = isCompleted ? 'success' : 'processing';
+    if (!orderStatus.isCompleted) {
+      await recordDataTransaction({
+        reference,
+        status: "processing",
+        balanceBeforeValue: debitResult.balanceBefore,
+        balanceAfterValue: debitResult.balanceAfter,
+        planLabel: orderData.data_plan || planName,
+        apiResponse: {
+          ...purchaseResult,
+          poll: { polled: resolved.polled, timedOut: resolved.timedOut },
+        },
+      });
+
+      await sendPushNotification(
+        supabase,
+        user.id,
+        "Data Purchase Processing",
+        `${planName} purchase is being processed for ${sanitizedPhone}. Reference: ${reference}. You will be notified when completed.`,
+        {
+          type: "data_purchase",
+          reference,
+          order_id: orderId,
+          amount: userChargedAmount,
+          phone_number: sanitizedPhone,
+          plan_name: planName,
+          status: "processing",
+        },
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          pending: true,
+          message:
+            "Your data purchase is still being processed. You will be notified when it completes or if a refund is issued.",
+          data: {
+            reference,
+            order_id: orderId,
+            phone_number: sanitizedPhone,
+            plan_name: orderData.data_plan || planName,
+            amount: userChargedAmount,
+            vendor: "ebills",
+            status: "processing",
+            balance_before: debitResult.balanceBefore,
+            balance_after: debitResult.balanceAfter,
+            api_response: orderData,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
 
     await recordDataTransaction({
       reference,
-      status: transactionStatus,
+      status: "success",
       balanceBeforeValue: debitResult.balanceBefore,
       balanceAfterValue: debitResult.balanceAfter,
       planLabel: orderData.data_plan || planName,
       apiResponse: purchaseResult,
     });
 
-    const notificationTitle = isCompleted ? 'Data Purchase Successful' : 'Data Purchase Processing';
-    const notificationMessage = isCompleted
-      ? `${planName} purchased for ${sanitizedPhone}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`
-      : `${planName} purchase is being processed for ${sanitizedPhone}. Reference: ${reference}.`;
-
     await sendPushNotification(
       supabase,
       user.id,
-      notificationTitle,
-      notificationMessage,
+      "Data Purchase Successful",
+      `${planName} purchased for ${sanitizedPhone}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
       {
-        type: 'data_purchase',
+        type: "data_purchase",
         reference,
         order_id: orderId,
         amount: userChargedAmount,
         phone_number: sanitizedPhone,
         plan_name: planName,
-        status: transactionStatus,
-      }
+        status: "success",
+      },
     );
 
     return new Response(
@@ -440,17 +481,15 @@ serve(async (req) => {
           phone_number: sanitizedPhone,
           plan_name: orderData.data_plan || planName,
           amount: userChargedAmount,
-          vendor: 'ebills',
-          status: transactionStatus,
+          vendor: "ebills",
+          status: "success",
           balance_before: debitResult.balanceBefore,
           balance_after: debitResult.balanceAfter,
           api_response: orderData,
         },
-        message: isCompleted
-          ? (purchaseResult.message || 'Data purchased successfully')
-          : 'Data purchase is being processed',
+        message: purchaseResult.message || "Data purchased successfully",
       }),
-      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
     );
   } catch (error) {
     console.error('purchase-ebills-data error:', error);
