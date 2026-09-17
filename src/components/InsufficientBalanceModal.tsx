@@ -21,7 +21,7 @@ export function InsufficientBalanceModal({
 }: InsufficientBalanceModalProps) {
   const handleFundWallet = () => {
     onOpenChange(false);
-    goExpoWeb(expoWebRoutes.addMoney, "/open/app");
+    goExpoWeb(expoWebRoutes.addMoney, "/user/auth");
   };
 
   const defaultMessage = requiredAmount && requiredAmount > 0

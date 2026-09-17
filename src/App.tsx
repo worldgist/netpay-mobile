@@ -52,9 +52,9 @@ import { WebHostAccessGuard } from "@/components/WebHostAccessGuard";
 import AppLinkRedirect from "./pages/AppLinkRedirect";
 import { VendingSettingsProvider } from "@/contexts/VendingSettingsContext";
 
-/** Customer app UI lives on Expo web — Vite only redirects. */
-function ExpoRoute({ path, fallback }: { path: string; fallback?: string }) {
-  return <ExpoWebRedirect path={path} fallbackSitePath={fallback} />;
+/** Customer app UI lives on Expo web — Vite only redirects (or falls back to /user/auth). */
+function ExpoRoute({ path, viteFallback = "/user/auth" }: { path: string; viteFallback?: string }) {
+  return <ExpoWebRedirect path={path} viteFallbackPath={viteFallback} />;
 }
 
 /**
@@ -130,35 +130,35 @@ const App = () => (
             <Route path="/admin/privacy" element={<PrivacyPolicy />} />
             <Route path="/admin/terms" element={<TermsAndConditions />} />
 
-            {/* Customer web app → Expo (never Vite user UIs) */}
+            {/* Customer web app → Expo when VITE_EXPO_WEB_URL is set; else Vite /user/auth */}
             <Route path="/user/auth" element={<UserAuthExpoRedirect />} />
-            <Route path="/user/verify-email" element={<ExpoRoute path={expoWebRoutes.emailVerification} fallback="/open/verify-email" />} />
-            <Route path="/user/setup-pin" element={<ExpoRoute path={expoWebRoutes.setupPin} fallback="/open/app" />} />
-            <Route path="/user/forgot-password" element={<ExpoRoute path={expoWebRoutes.forgetPassword} fallback="/open/app" />} />
-            <Route path="/user/dashboard" element={<ExpoRoute path={expoWebRoutes.home} fallback="/open/app" />} />
-            <Route path="/user/add-money" element={<ExpoRoute path={expoWebRoutes.addMoney} fallback="/open/app" />} />
-            <Route path="/user/transfer" element={<ExpoRoute path={expoWebRoutes.transfer} fallback="/open/app" />} />
-            <Route path="/user/paybills" element={<ExpoRoute path={expoWebRoutes.payBills} fallback="/pay?screen=pay_bills" />} />
-            <Route path="/user/purchase-airtime" element={<ExpoRoute path={expoWebRoutes.airtime} fallback="/pay?screen=airtime" />} />
-            <Route path="/user/purchase-data" element={<ExpoRoute path={expoWebRoutes.data} fallback="/pay?screen=data_purchase" />} />
-            <Route path="/user/purchase-cable-tv" element={<ExpoRoute path={expoWebRoutes.cable} fallback="/pay?screen=cable_tv" />} />
-            <Route path="/user/purchase-electricity" element={<ExpoRoute path={expoWebRoutes.electricity} fallback="/pay?screen=electricity" />} />
-            <Route path="/user/purchase-education" element={<ExpoRoute path={expoWebRoutes.education} fallback="/pay?screen=education" />} />
-            <Route path="/user/purchase-betting" element={<ExpoRoute path={expoWebRoutes.betting} fallback="/pay?screen=betting" />} />
-            <Route path="/user/flight-booking" element={<ExpoRoute path={expoWebRoutes.flight} fallback="/pay?screen=flight_booking" />} />
-            <Route path="/user/transactions" element={<ExpoRoute path={expoWebRoutes.transactions} fallback="/open/app" />} />
-            <Route path="/user/transaction/:type/:id" element={<ExpoRoute path={expoWebRoutes.transactions} fallback="/open/app" />} />
-            <Route path="/user/profile" element={<ExpoRoute path={expoWebRoutes.profile} fallback="/open/app" />} />
-            <Route path="/user/security" element={<ExpoRoute path={expoWebRoutes.security} fallback="/open/app" />} />
-            <Route path="/user/edit-profile" element={<ExpoRoute path={expoWebRoutes.editProfile} fallback="/open/app" />} />
-            <Route path="/user/notifications" element={<ExpoRoute path={expoWebRoutes.notifications} fallback="/open/app" />} />
-            <Route path="/user/referrals" element={<ExpoRoute path={expoWebRoutes.referral} fallback="/open/app" />} />
-            <Route path="/user/contact" element={<ExpoRoute path={expoWebRoutes.contact} fallback="/open/app" />} />
-            <Route path="/user/terms" element={<ExpoRoute path={expoWebRoutes.terms} fallback="/open/app" />} />
-            <Route path="/user/privacy" element={<ExpoRoute path={expoWebRoutes.privacy} fallback="/open/app" />} />
-            <Route path="/user/statement-of-account" element={<ExpoRoute path={expoWebRoutes.statement} fallback="/open/app" />} />
-            <Route path="/user/delete-account" element={<ExpoRoute path={expoWebRoutes.deleteAccount} fallback="/open/app" />} />
-            <Route path="/user/*" element={<ExpoRoute path={expoWebRoutes.home} fallback="/open/app" />} />
+            <Route path="/user/verify-email" element={<ExpoRoute path={expoWebRoutes.emailVerification} />} />
+            <Route path="/user/setup-pin" element={<ExpoRoute path={expoWebRoutes.setupPin} />} />
+            <Route path="/user/forgot-password" element={<ExpoRoute path={expoWebRoutes.forgetPassword} />} />
+            <Route path="/user/dashboard" element={<ExpoRoute path={expoWebRoutes.home} />} />
+            <Route path="/user/add-money" element={<ExpoRoute path={expoWebRoutes.addMoney} />} />
+            <Route path="/user/transfer" element={<ExpoRoute path={expoWebRoutes.transfer} />} />
+            <Route path="/user/paybills" element={<ExpoRoute path={expoWebRoutes.payBills} />} />
+            <Route path="/user/purchase-airtime" element={<ExpoRoute path={expoWebRoutes.airtime} />} />
+            <Route path="/user/purchase-data" element={<ExpoRoute path={expoWebRoutes.data} />} />
+            <Route path="/user/purchase-cable-tv" element={<ExpoRoute path={expoWebRoutes.cable} />} />
+            <Route path="/user/purchase-electricity" element={<ExpoRoute path={expoWebRoutes.electricity} />} />
+            <Route path="/user/purchase-education" element={<ExpoRoute path={expoWebRoutes.education} />} />
+            <Route path="/user/purchase-betting" element={<ExpoRoute path={expoWebRoutes.betting} />} />
+            <Route path="/user/flight-booking" element={<ExpoRoute path={expoWebRoutes.flight} />} />
+            <Route path="/user/transactions" element={<ExpoRoute path={expoWebRoutes.transactions} />} />
+            <Route path="/user/transaction/:type/:id" element={<ExpoRoute path={expoWebRoutes.transactions} />} />
+            <Route path="/user/profile" element={<ExpoRoute path={expoWebRoutes.profile} />} />
+            <Route path="/user/security" element={<ExpoRoute path={expoWebRoutes.security} />} />
+            <Route path="/user/edit-profile" element={<ExpoRoute path={expoWebRoutes.editProfile} />} />
+            <Route path="/user/notifications" element={<ExpoRoute path={expoWebRoutes.notifications} />} />
+            <Route path="/user/referrals" element={<ExpoRoute path={expoWebRoutes.referral} />} />
+            <Route path="/user/contact" element={<ExpoRoute path={expoWebRoutes.contact} />} />
+            <Route path="/user/terms" element={<ExpoRoute path={expoWebRoutes.terms} />} />
+            <Route path="/user/privacy" element={<ExpoRoute path={expoWebRoutes.privacy} />} />
+            <Route path="/user/statement-of-account" element={<ExpoRoute path={expoWebRoutes.statement} />} />
+            <Route path="/user/delete-account" element={<ExpoRoute path={expoWebRoutes.deleteAccount} />} />
+            <Route path="/user/*" element={<ExpoRoute path={expoWebRoutes.home} />} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

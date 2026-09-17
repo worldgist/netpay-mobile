@@ -9,7 +9,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { expoWebUrl, expoWebRoutes } from "@/config/site";
+import { expoWebUrl, expoWebRoutes, isExpoWebConfigured } from "@/config/site";
 
 const NAV_ITEMS = [
   { label: "Home", path: "/" },
@@ -17,9 +17,6 @@ const NAV_ITEMS = [
   { label: "Contact Us", path: "/contact-us" },
   { label: "FAQ", path: "/faq" },
 ] as const;
-
-const EXPO_LOGIN_URL = expoWebUrl(expoWebRoutes.login, "/open/app");
-const EXPO_SIGNUP_URL = expoWebUrl(expoWebRoutes.signup, "/open/signup");
 
 export function LandingHeader() {
   const navigate = useNavigate();
@@ -31,9 +28,24 @@ export function LandingHeader() {
     navigate(path);
   };
 
-  const goExpo = (url: string) => {
+  const goLogin = () => {
     setOpen(false);
-    window.location.assign(url);
+    if (isExpoWebConfigured) {
+      const url = expoWebUrl(expoWebRoutes.login);
+      if (url) window.location.assign(url);
+      return;
+    }
+    navigate("/user/auth");
+  };
+
+  const goSignup = () => {
+    setOpen(false);
+    if (isExpoWebConfigured) {
+      const url = expoWebUrl(expoWebRoutes.signup);
+      if (url) window.location.assign(url);
+      return;
+    }
+    navigate("/user/auth?mode=signup");
   };
 
   return (
@@ -80,14 +92,14 @@ export function LandingHeader() {
             type="button"
             variant="ghost"
             className="hidden sm:inline-flex text-white hover:bg-white/15 hover:text-white"
-            onClick={() => goExpo(EXPO_LOGIN_URL)}
+            onClick={goLogin}
           >
             Login
           </Button>
           <Button
             type="button"
             className="hidden sm:inline-flex bg-white text-orange-700 hover:bg-orange-50 font-semibold shadow-sm"
-            onClick={() => goExpo(EXPO_SIGNUP_URL)}
+            onClick={goSignup}
           >
             Sign up
           </Button>
@@ -127,18 +139,13 @@ export function LandingHeader() {
                   );
                 })}
                 <div className="my-2 border-t border-border" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="justify-start"
-                  onClick={() => goExpo(EXPO_LOGIN_URL)}
-                >
+                <Button type="button" variant="outline" className="justify-start" onClick={goLogin}>
                   Login
                 </Button>
                 <Button
                   type="button"
                   className="justify-start bg-orange-600 text-white hover:bg-orange-700"
-                  onClick={() => goExpo(EXPO_SIGNUP_URL)}
+                  onClick={goSignup}
                 >
                   Sign up
                 </Button>

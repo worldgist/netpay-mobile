@@ -7,11 +7,16 @@ export const NETPAY_SITE_URL = (
  * Expo Router web base URL — customer web app (login, wallet, pay bills).
  * Local default: Metro on :8081. Override with VITE_EXPO_WEB_URL.
  * Admin stays on Vite (`/auth`, `/dashboard`, …).
+ *
+ * Production must set VITE_EXPO_WEB_URL (e.g. https://app.netppay.com).
+ * If unset, landing Login falls back to Vite /user/auth — never /open/app.
  */
 export const NETPAY_EXPO_WEB_URL = (
   import.meta.env.VITE_EXPO_WEB_URL ||
   (import.meta.env.DEV ? "http://localhost:8081" : "")
 ).replace(/\/$/, "");
+
+export const isExpoWebConfigured = Boolean(NETPAY_EXPO_WEB_URL);
 
 export const NETPAY_APP_SCHEME = "netpay";
 
@@ -21,18 +26,17 @@ export function siteUrl(path = ""): string {
   return `${NETPAY_SITE_URL}${normalized}`;
 }
 
-/** Absolute URL into the Expo web app (falls back to site deep-link paths when unset). */
-export function expoWebUrl(path: string, fallbackSitePath?: string): string {
+/** Absolute URL into the Expo web app. Returns null when Expo web is not configured. */
+export function expoWebUrl(path: string): string | null {
+  if (!NETPAY_EXPO_WEB_URL) return null;
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  if (NETPAY_EXPO_WEB_URL) {
-    return `${NETPAY_EXPO_WEB_URL}${normalized}`;
-  }
-  return siteUrl(fallbackSitePath || normalized);
+  return `${NETPAY_EXPO_WEB_URL}${normalized}`;
 }
 
-/** Navigate the browser to an Expo Router web path. */
-export function goExpoWeb(path: string, fallbackSitePath?: string): void {
-  window.location.assign(expoWebUrl(path, fallbackSitePath));
+/** Navigate to Expo web when configured; otherwise stay on the given Vite path. */
+export function goExpoWeb(path: string, viteFallbackPath = "/user/auth"): void {
+  const expo = expoWebUrl(path);
+  window.location.assign(expo || viteFallbackPath);
 }
 
 /**

@@ -1,28 +1,31 @@
 import { useEffect, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
-import { expoWebUrl } from "@/config/site";
+import { Navigate, useSearchParams } from "react-router-dom";
+import { expoWebUrl, isExpoWebConfigured } from "@/config/site";
 
 type ExpoWebRedirectProps = {
   /** Expo Router path, e.g. /pay-bills or /auth/login */
   path: string;
-  /** Optional marketing-site deep-link fallback when Expo web URL is unset */
-  fallbackSitePath?: string;
+  /** Vite path when Expo web URL is not configured */
+  viteFallbackPath?: string;
   /** Forward current Vite query string to Expo (default true) */
   forwardQuery?: boolean;
 };
 
 /**
- * Sends the browser to the Expo customer web app (not Vite user pages).
+ * Sends the browser to Expo web when configured.
+ * If not configured, stays on Vite (viteFallbackPath) instead of /open/app.
  */
 export default function ExpoWebRedirect({
   path,
-  fallbackSitePath,
+  viteFallbackPath = "/user/auth",
   forwardQuery = true,
 }: ExpoWebRedirectProps) {
   const [searchParams] = useSearchParams();
 
   const target = useMemo(() => {
-    let url = expoWebUrl(path, fallbackSitePath);
+    if (!isExpoWebConfigured) return null;
+    let url = expoWebUrl(path);
+    if (!url) return null;
     if (forwardQuery) {
       const qs = searchParams.toString();
       if (qs) {
@@ -30,11 +33,17 @@ export default function ExpoWebRedirect({
       }
     }
     return url;
-  }, [path, fallbackSitePath, forwardQuery, searchParams]);
+  }, [path, forwardQuery, searchParams]);
 
   useEffect(() => {
-    window.location.replace(target);
+    if (target) {
+      window.location.replace(target);
+    }
   }, [target]);
+
+  if (!isExpoWebConfigured || !target) {
+    return <Navigate to={viteFallbackPath} replace />;
+  }
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center gap-3 px-6">

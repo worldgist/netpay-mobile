@@ -33,7 +33,7 @@ export default function BottomNav() {
             <button
               key={item.expoPath}
               type="button"
-              onClick={() => goExpoWeb(item.expoPath, "/open/app")}
+              onClick={() => goExpoWeb(item.expoPath, "/user/auth")}
               className="flex flex-col items-center justify-center flex-1 h-full transition-colors"
             >
               <Icon className={`w-6 h-6 mb-1 ${isActive ? "text-brand" : "text-gray-400"}`} />

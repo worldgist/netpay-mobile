@@ -5,9 +5,11 @@ site_url = "https://netppay.com"
 additional_redirect_urls = [
   "https://netppay.com/**",
   "https://www.netppay.com/**",
+  "https://app.netppay.com/**",
   "netpay://**",
   "http://127.0.0.1:3000/**",
   "http://localhost:3000/**",
+  "http://localhost:8081/**",
 ]
 
 [auth.email]

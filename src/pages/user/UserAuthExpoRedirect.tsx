@@ -1,9 +1,13 @@
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import ExpoWebRedirect from "./ExpoWebRedirect";
-import { expoWebRoutes } from "@/config/site";
+import UserAuth from "./UserAuth";
+import { expoWebRoutes, isExpoWebConfigured } from "@/config/site";
 
-/** /user/auth → Expo login or signup based on ?mode= */
+/**
+ * Customer auth: Expo web when VITE_EXPO_WEB_URL is set.
+ * Otherwise Vite UserAuth (never the /open/app native interstitial).
+ */
 export default function UserAuthExpoRedirect() {
   const [params] = useSearchParams();
   const mode = (params.get("mode") || "").toLowerCase();
@@ -12,11 +16,9 @@ export default function UserAuthExpoRedirect() {
     [mode],
   );
 
-  return (
-    <ExpoWebRedirect
-      path={path}
-      fallbackSitePath={mode === "signup" || mode === "sign-up" ? "/open/signup" : "/open/app"}
-      forwardQuery={false}
-    />
-  );
+  if (!isExpoWebConfigured) {
+    return <UserAuth />;
+  }
+
+  return <ExpoWebRedirect path={path} forwardQuery={false} />;
 }
