@@ -19,8 +19,6 @@ module.exports = {
   scheme: 'netpay',
   userInterfaceStyle: 'automatic',
   web: {
-    // SPA export for Vercel (app.netppay.com) — single index.html + client router
-    output: 'single',
     bundler: 'metro',
     favicon: './assets/images/logo-icon-1024.png',
   },

@@ -1,4 +1,4 @@
-import { Alert , Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as SecureStore from '@/utils/secure-store';
 
 import Constants from 'expo-constants';
@@ -79,6 +79,12 @@ export const promptEnableNotifications = async (options: PromptOptions = {}) => 
   } = options;
 
   try {
+    // Alert.alert multi-button prompts hang forever on web — skip.
+    if (Platform.OS === 'web') {
+      await markPromptSeen();
+      return;
+    }
+
     if (isAndroidExpoGo) {
       // Android remote push is not supported in Expo Go (SDK 53+).
       return;

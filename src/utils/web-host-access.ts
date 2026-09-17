@@ -1,4 +1,4 @@
-/** Hostnames where the public marketing site is served. */
+/** Hostnames where optional marketing-only rules can apply (via env). */
 const DEFAULT_MARKETING_ONLY_HOSTS = ["netppay.com", "www.netppay.com"];
 
 /** App deep-link paths on netppay.com (always allowed). */
@@ -38,9 +38,8 @@ export function isMarketingOnlyHost(hostname?: string): boolean {
 }
 
 /**
- * Customer wallet Vite UIs are removed — `/user/*` always redirects to Expo in App.tsx.
- * Admin (`/auth`, `/dashboard`, …) stays on Vite and is never blocked.
- * This helper remains for deep-link / future host rules; currently never blocks `/user`.
+ * Path blocking is disabled — customer `/user/*` and admin share the Vite site.
+ * Kept for deep-link / future host rules.
  */
 export function isWebAppPathBlockedOnHost(pathname: string, hostname?: string): boolean {
   if (!isMarketingOnlyHost(hostname)) return false;
@@ -51,7 +50,6 @@ export function isWebAppPathBlockedOnHost(pathname: string, hostname?: string): 
   );
   if (isDeepLinkAllowed) return false;
 
-  // Never block — customer routes redirect to Expo; admin must stay reachable.
   void path;
   return false;
 }

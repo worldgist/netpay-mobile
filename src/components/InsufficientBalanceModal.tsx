@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { AlertCircle, Wallet, ArrowRight } from "lucide-react";
 import { formatNaira } from "@/lib/currency";
-import { goExpoWeb, expoWebRoutes } from "@/config/site";
+import { useNavigate } from "react-router-dom";
 
 interface InsufficientBalanceModalProps {
   open: boolean;
@@ -19,9 +19,11 @@ export function InsufficientBalanceModal({
   requiredAmount,
   message,
 }: InsufficientBalanceModalProps) {
+  const navigate = useNavigate();
+
   const handleFundWallet = () => {
     onOpenChange(false);
-    goExpoWeb(expoWebRoutes.addMoney, "/user/auth");
+    navigate("/user/add-money");
   };
 
   const defaultMessage = requiredAmount && requiredAmount > 0

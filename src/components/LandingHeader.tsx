@@ -9,7 +9,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { expoWebUrl, expoWebRoutes, shouldRedirectToExpoWeb } from "@/config/site";
 
 const NAV_ITEMS = [
   { label: "Home", path: "/" },
@@ -26,30 +25,6 @@ export function LandingHeader() {
   const go = (path: string) => {
     setOpen(false);
     navigate(path);
-  };
-
-  const goLogin = () => {
-    setOpen(false);
-    if (shouldRedirectToExpoWeb()) {
-      const url = expoWebUrl(expoWebRoutes.login);
-      if (url) {
-        window.location.assign(url);
-        return;
-      }
-    }
-    navigate("/user/auth");
-  };
-
-  const goSignup = () => {
-    setOpen(false);
-    if (shouldRedirectToExpoWeb()) {
-      const url = expoWebUrl(expoWebRoutes.signup);
-      if (url) {
-        window.location.assign(url);
-        return;
-      }
-    }
-    navigate("/user/auth?mode=signup");
   };
 
   return (
@@ -91,72 +66,43 @@ export function LandingHeader() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <Button
-            type="button"
-            variant="ghost"
-            className="hidden sm:inline-flex text-white hover:bg-white/15 hover:text-white"
-            onClick={goLogin}
-          >
-            Login
-          </Button>
-          <Button
-            type="button"
-            className="hidden sm:inline-flex bg-white text-orange-700 hover:bg-orange-50 font-semibold shadow-sm"
-            onClick={goSignup}
-          >
-            Sign up
-          </Button>
-
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="text-white hover:bg-white/15 hover:text-white"
-                aria-label="Open menu"
-              >
-                <Menu className="h-6 w-6" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-72 sm:max-w-sm p-0">
-              <SheetHeader className="border-b border-orange-200/60 bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 px-6 py-5 text-left">
-                <SheetTitle className="text-white">Menu</SheetTitle>
-              </SheetHeader>
-              <nav className="flex flex-col p-4 gap-1">
-                {NAV_ITEMS.map((item) => {
-                  const active = location.pathname === item.path;
-                  return (
-                    <button
-                      key={item.path}
-                      type="button"
-                      onClick={() => go(item.path)}
-                      className={`rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
-                        active
-                          ? "bg-orange-50 text-orange-700"
-                          : "text-foreground hover:bg-orange-50/70"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
-                <div className="my-2 border-t border-border" />
-                <Button type="button" variant="outline" className="justify-start" onClick={goLogin}>
-                  Login
-                </Button>
-                <Button
-                  type="button"
-                  className="justify-start bg-orange-600 text-white hover:bg-orange-700"
-                  onClick={goSignup}
-                >
-                  Sign up
-                </Button>
-              </nav>
-            </SheetContent>
-          </Sheet>
-        </div>
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/15 hover:text-white"
+              aria-label="Open menu"
+            >
+              <Menu className="h-6 w-6" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-72 sm:max-w-sm p-0">
+            <SheetHeader className="border-b border-orange-200/60 bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 px-6 py-5 text-left">
+              <SheetTitle className="text-white">Menu</SheetTitle>
+            </SheetHeader>
+            <nav className="flex flex-col p-4 gap-1">
+              {NAV_ITEMS.map((item) => {
+                const active = location.pathname === item.path;
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => go(item.path)}
+                    className={`rounded-lg px-4 py-3 text-left text-sm font-medium transition-colors ${
+                      active
+                        ? "bg-orange-50 text-orange-700"
+                        : "text-foreground hover:bg-orange-50/70"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </SheetContent>
+        </Sheet>
       </div>
     </header>
   );

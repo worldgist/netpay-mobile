@@ -4,8 +4,6 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start --clear --lan --go",
-    "start:web": "expo start --web --clear",
-    "export:web": "expo export -p web",
     "start:dev": "expo start --clear --lan --dev-client",
     "start:usb": "powershell -ExecutionPolicy Bypass -File ./scripts/connect-android-usb.ps1",
     "reset-project": "node ./scripts/reset-project.js",

@@ -1,0 +1,19 @@
+# Keep Vite CLI deploys lean — mobile app is separate (native only)
+node_modules
+mobile
+dist
+backups
+backup
+data
+.git
+.github
+.vscode
+*.log
+.env
+.env.*
+!.env.example
+**/*.apk
+**/*.aab
+**/*.ipa
+**/*.jks
+**/*.keystore

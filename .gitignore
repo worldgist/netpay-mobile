@@ -41,3 +41,6 @@ backups/
 .env.bak
 *.env.backup
 *.env.bak
+
+.vercel
+.env*

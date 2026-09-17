@@ -4,10 +4,7 @@ type Props = {
   children: ReactNode;
 };
 
-/**
- * Customer wallet is Expo web; Vite serves marketing + admin only.
- * Path blocking is unused — `/user/*` redirects to Expo in App routes.
- */
+/** Passthrough — marketing, admin, and customer Vite UIs share this host. */
 export function WebHostAccessGuard({ children }: Props) {
   return <>{children}</>;
 }

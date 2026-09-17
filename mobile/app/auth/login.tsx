@@ -30,6 +30,7 @@ import {
   isBiometricLoginEnabledLocally,
   setBiometricLoginEnabled,
 } from '@/utils/biometric-login-preference';
+import { showAlert } from '@/utils/show-alert';
 import { hasCompletedOnboarding } from '@/utils/onboarding';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
@@ -124,14 +125,23 @@ export default function LoginScreen() {
         const storedEmailRaw = await SecureStore.getItemAsync(EMAIL_KEY);
         const storedEmail = storedEmailRaw?.trim().toLowerCase() || '';
         const biometricEnabledLocally = await isBiometricLoginEnabledLocally();
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
 
         if (!active) return;
 
         if (storedEmail) {
           setEmail(storedEmail);
         }
+
+        // Biometrics are native-only; skip hardware checks on web (can hang).
+        if (Platform.OS === 'web') {
+          setShowBiometricLogin(false);
+          return;
+        }
+
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
+
+        if (!active) return;
 
         const canOfferBiometric = !pending && storedEmail.length > 0;
         setShowBiometricLogin(canOfferBiometric);
@@ -158,17 +168,17 @@ export default function LoginScreen() {
     const trimmedEmail = email.trim().toLowerCase();
 
     if (!trimmedEmail || !password) {
-      Alert.alert('Sign In', 'Please enter both email and password.');
+      showAlert('Sign In', 'Please enter both email and password.');
       return;
     }
 
     // Check if Supabase is configured
     if (!isSupabaseInitialized()) {
       const configStatus = getSupabaseConfigStatus();
-      Alert.alert(
+      showAlert(
         'Configuration Error',
-        configStatus.message + '\n\nThis usually means the app was built without the required environment variables. Please contact support or rebuild the app with proper configuration.',
-        [{ text: 'OK' }]
+        configStatus.message +
+          '\n\nThis usually means the app was built without the required environment variables. Please contact support or rebuild the app with proper configuration.',
       );
       return;
     }
@@ -181,27 +191,29 @@ export default function LoginScreen() {
       });
 
       if (error) {
-        setLoading(false);
-
         const message = error.message || 'Unable to sign in. Please try again.';
-        
+
         // Check for network/configuration errors
         const errorMessage = message.toLowerCase();
-        if (errorMessage.includes('network') || 
-            errorMessage.includes('fetch') || 
-            errorMessage.includes('connection') ||
-            errorMessage.includes('failed to send') ||
-            errorMessage.includes('placeholder')) {
-          Alert.alert(
+        if (
+          errorMessage.includes('network') ||
+          errorMessage.includes('fetch') ||
+          errorMessage.includes('connection') ||
+          errorMessage.includes('failed to send') ||
+          errorMessage.includes('placeholder')
+        ) {
+          showAlert(
             'Connection Error',
             'Unable to connect to the server. This may be due to:\n\n• Missing app configuration\n• Network connectivity issues\n• Server maintenance\n\nPlease check your internet connection and try again. If the problem persists, contact support.',
-            [{ text: 'OK' }]
           );
           return;
         }
-        
+
         if (message.toLowerCase().includes('email not confirmed')) {
-          Alert.alert('Email Not Verified', 'Please verify your email to continue. We will redirect you to the verification screen.');
+          showAlert(
+            'Email Not Verified',
+            'Please verify your email to continue. We will redirect you to the verification screen.',
+          );
           router.push(buildRouteHref('/email-verification', { email: trimmedEmail }));
           return;
         }
@@ -211,14 +223,12 @@ export default function LoginScreen() {
           return;
         }
 
-        Alert.alert('Sign In Failed', message);
+        showAlert('Sign In Failed', message);
         return;
       }
 
-      setLoading(false);
-
       if (!data.session) {
-        Alert.alert('Sign In', 'No active session was returned. Please verify your email and try again.');
+        showAlert('Sign In', 'No active session was returned. Please verify your email and try again.');
         router.push(buildRouteHref('/email-verification', { email: trimmedEmail }));
         return;
       }
@@ -247,7 +257,7 @@ export default function LoginScreen() {
           JSON.stringify({
             access_token: data.session.access_token,
             refresh_token: data.session.refresh_token,
-          })
+          }),
         );
         await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
       } catch (storageError) {
@@ -272,13 +282,14 @@ export default function LoginScreen() {
 
       await navigateAfterAuthenticatedSession(router);
     } catch (err) {
-      setLoading(false);
       const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
       if (isInvalidCredentialsError(message)) {
         openInvalidCredentialsModal();
         return;
       }
-      Alert.alert('Sign In Error', message);
+      showAlert('Sign In Error', message);
+    } finally {
+      setLoading(false);
     }
   };
 
