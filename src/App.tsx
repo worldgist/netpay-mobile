@@ -91,7 +91,9 @@ const App = () => (
             <Route path="/pay" element={<AppLinkRedirect />} />
             <Route path="/open/*" element={<AppLinkRedirect />} />
 
-            {/* Admin (Vite only) */}
+            {/* Admin (Vite only) — /auth is admin; /auth/login|signup are customer */}
+            <Route path="/auth/login" element={<UserAuthExpoRedirect />} />
+            <Route path="/auth/signup" element={<UserAuthExpoRedirect />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/smeplug" element={<Smeplug />} />
