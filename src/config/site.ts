@@ -34,6 +34,23 @@ export const NETPAY_EXPO_WEB_URL = (() => {
 
 export const isExpoWebConfigured = Boolean(NETPAY_EXPO_WEB_URL);
 
+/**
+ * True only when we should leave this Vite page for a different Expo host.
+ * Prevents infinite "Opening NetPay…" when app.netppay.com still serves Vite.
+ */
+export function shouldRedirectToExpoWeb(): boolean {
+  if (!NETPAY_EXPO_WEB_URL) return false;
+  if (typeof window === "undefined") return false;
+  try {
+    const expoOrigin = new URL(NETPAY_EXPO_WEB_URL).origin;
+    // Already on that host (often mis-pointed Vite) — do not redirect to self.
+    if (window.location.origin === expoOrigin) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const NETPAY_APP_SCHEME = "netpay";
 
 export function siteUrl(path = ""): string {
@@ -49,10 +66,16 @@ export function expoWebUrl(path: string): string | null {
   return `${NETPAY_EXPO_WEB_URL}${normalized}`;
 }
 
-/** Navigate to Expo web when configured; otherwise stay on the given Vite path. */
+/** Navigate to Expo web when on a different origin; otherwise Vite fallback. */
 export function goExpoWeb(path: string, viteFallbackPath = "/user/auth"): void {
-  const expo = expoWebUrl(path);
-  window.location.assign(expo || viteFallbackPath);
+  if (shouldRedirectToExpoWeb()) {
+    const expo = expoWebUrl(path);
+    if (expo) {
+      window.location.assign(expo);
+      return;
+    }
+  }
+  window.location.assign(viteFallbackPath);
 }
 
 /**

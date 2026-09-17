@@ -2,11 +2,11 @@ import { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import ExpoWebRedirect from "./ExpoWebRedirect";
 import UserAuth from "./UserAuth";
-import { expoWebRoutes, isExpoWebConfigured } from "@/config/site";
+import { expoWebRoutes, shouldRedirectToExpoWeb } from "@/config/site";
 
 /**
- * Customer auth: Expo web when VITE_EXPO_WEB_URL is a separate host.
- * Otherwise Vite UserAuth. Also handles /auth/login and /auth/signup on Vite.
+ * Customer auth: Expo web only when VITE_EXPO_WEB_URL is a different live host.
+ * If Expo URL points at this same Vite deployment, show UserAuth (no redirect loop).
  */
 export default function UserAuthExpoRedirect() {
   const location = useLocation();
@@ -22,7 +22,7 @@ export default function UserAuthExpoRedirect() {
     [isSignup],
   );
 
-  if (!isExpoWebConfigured) {
+  if (!shouldRedirectToExpoWeb()) {
     return <UserAuth />;
   }
 

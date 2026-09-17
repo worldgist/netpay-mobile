@@ -1,19 +1,19 @@
 import { useEffect, useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
-import { expoWebUrl, isExpoWebConfigured } from "@/config/site";
+import { expoWebUrl, shouldRedirectToExpoWeb } from "@/config/site";
 
 type ExpoWebRedirectProps = {
   /** Expo Router path, e.g. /pay-bills or /auth/login */
   path: string;
-  /** Vite path when Expo web URL is not configured */
+  /** Vite path when Expo web should not redirect */
   viteFallbackPath?: string;
   /** Forward current Vite query string to Expo (default true) */
   forwardQuery?: boolean;
 };
 
 /**
- * Sends the browser to Expo web when configured.
- * If not configured, stays on Vite (viteFallbackPath) instead of /open/app.
+ * Leave Vite for Expo only when Expo is on a different origin.
+ * Same-origin (misconfigured app.netppay.com) → Vite fallback, no spinner loop.
  */
 export default function ExpoWebRedirect({
   path,
@@ -21,9 +21,10 @@ export default function ExpoWebRedirect({
   forwardQuery = true,
 }: ExpoWebRedirectProps) {
   const [searchParams] = useSearchParams();
+  const canRedirect = shouldRedirectToExpoWeb();
 
   const target = useMemo(() => {
-    if (!isExpoWebConfigured) return null;
+    if (!canRedirect) return null;
     let url = expoWebUrl(path);
     if (!url) return null;
     if (forwardQuery) {
@@ -33,7 +34,7 @@ export default function ExpoWebRedirect({
       }
     }
     return url;
-  }, [path, forwardQuery, searchParams]);
+  }, [path, forwardQuery, searchParams, canRedirect]);
 
   useEffect(() => {
     if (target) {
@@ -41,7 +42,7 @@ export default function ExpoWebRedirect({
     }
   }, [target]);
 
-  if (!isExpoWebConfigured || !target) {
+  if (!canRedirect || !target) {
     return <Navigate to={viteFallbackPath} replace />;
   }
 

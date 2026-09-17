@@ -9,7 +9,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { expoWebUrl, expoWebRoutes, isExpoWebConfigured } from "@/config/site";
+import { expoWebUrl, expoWebRoutes, shouldRedirectToExpoWeb } from "@/config/site";
 
 const NAV_ITEMS = [
   { label: "Home", path: "/" },
@@ -30,20 +30,24 @@ export function LandingHeader() {
 
   const goLogin = () => {
     setOpen(false);
-    if (isExpoWebConfigured) {
+    if (shouldRedirectToExpoWeb()) {
       const url = expoWebUrl(expoWebRoutes.login);
-      if (url) window.location.assign(url);
-      return;
+      if (url) {
+        window.location.assign(url);
+        return;
+      }
     }
     navigate("/user/auth");
   };
 
   const goSignup = () => {
     setOpen(false);
-    if (isExpoWebConfigured) {
+    if (shouldRedirectToExpoWeb()) {
       const url = expoWebUrl(expoWebRoutes.signup);
-      if (url) window.location.assign(url);
-      return;
+      if (url) {
+        window.location.assign(url);
+        return;
+      }
     }
     navigate("/user/auth?mode=signup");
   };
