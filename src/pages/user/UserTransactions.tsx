@@ -1,8 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import BottomNav from "@/components/BottomNav";
 import { Phone, Wifi, Tv, GraduationCap, ArrowUpRight, ArrowDownLeft, Wallet, Receipt, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const getNetworkLogo = (network: string) => {
   const networkLower = network.toLowerCase();
@@ -18,6 +28,8 @@ export default function UserTransactions() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     const fetchAllTransactions = async () => {
@@ -235,6 +247,20 @@ export default function UserTransactions() {
            txn.transaction_type?.includes('credit');
   };
 
+  const totalCount = transactions.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTransactions = useMemo(
+    () => transactions.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize),
+    [transactions, safeCurrentPage, pageSize],
+  );
+  const pageStart = totalCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalCount);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [pageSize]);
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
@@ -260,7 +286,30 @@ export default function UserTransactions() {
             <p className="text-gray-500">No transactions yet</p>
           </div>
         ) : (
-          transactions.map((txn: any) => {
+          <>
+            <div className="flex items-center justify-between gap-3 px-1 pb-2">
+              <p className="text-sm text-gray-500">
+                Showing {pageStart}-{pageEnd} of {totalCount}
+              </p>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => {
+                  setPageSize(Number(value));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[110px] h-8 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 / page</SelectItem>
+                  <SelectItem value="20">20 / page</SelectItem>
+                  <SelectItem value="50">50 / page</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {paginatedTransactions.map((txn: any) => {
             const status = getTransactionStatus(txn);
             const credit = isCredit(txn);
             
@@ -315,7 +364,78 @@ export default function UserTransactions() {
                 </div>
               </button>
             );
-          })
+          })}
+
+            {totalPages > 1 && (
+              <div className="flex flex-col items-center gap-3 pt-4 pb-2">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage((page) => Math.max(1, page - 1));
+                        }}
+                        className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: totalPages }, (_, index) => index + 1)
+                      .filter((page) => {
+                        if (totalPages <= 5) return true;
+                        return Math.abs(page - safeCurrentPage) <= 1 || page === 1 || page === totalPages;
+                      })
+                      .map((page, index, visiblePages) => {
+                        const previousPage = visiblePages[index - 1];
+                        const showEllipsis = previousPage != null && page - previousPage > 1;
+                        return (
+                          <span key={page} className="flex items-center">
+                            {showEllipsis ? (
+                              <PaginationItem>
+                                <span className="px-2 text-muted-foreground">…</span>
+                              </PaginationItem>
+                            ) : null}
+                            <PaginationItem>
+                              <PaginationLink
+                                href="#"
+                                isActive={page === safeCurrentPage}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setCurrentPage(page);
+                                }}
+                                className="cursor-pointer"
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          </span>
+                        );
+                      })}
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage((page) => Math.min(totalPages, page + 1));
+                        }}
+                        className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-gray-500"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                >
+                  Page {safeCurrentPage} of {totalPages}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

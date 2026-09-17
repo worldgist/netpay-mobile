@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import {
+  isTransientPurchaseNetworkError,
+  parsePurchaseResponse,
+} from '@/utils/purchase-flow';
 import * as Clipboard from 'expo-clipboard';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
@@ -70,7 +79,21 @@ export default function EducationScreen() {
   const { balance, setBalance, refreshBalance } = useWalletBalance();
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
   const [fetchingPrice, setFetchingPrice] = useState(false);
+
+  const showPurchaseOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setIsProcessing(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
   const [fetchedPrices, setFetchedPrices] = useState<Record<string, number>>({});
   const [fetchedChargeFees, setFetchedChargeFees] = useState<Record<string, number>>({});
   const [fetchedTotalAmounts, setFetchedTotalAmounts] = useState<Record<string, number>>({}); // Store exact total_amount from API
@@ -845,6 +868,16 @@ export default function EducationScreen() {
       }
 
       const finalData = responseData || data;
+      const purchaseOutcome = parsePurchaseResponse(finalData, true);
+      if (purchaseOutcome.kind === 'pending') {
+        showPurchaseOutcome('pending', purchaseOutcome.message);
+        return;
+      }
+      if (purchaseOutcome.kind === 'connection_uncertain') {
+        showPurchaseOutcome('connection_uncertain', purchaseOutcome.message);
+        return;
+      }
+
       if (!finalData?.success) {
         const errorMessage = finalData?.error || finalData?.message || 'Purchase failed';
         console.error('Education purchase failed:', errorMessage);
@@ -915,12 +948,8 @@ export default function EducationScreen() {
                             errorName === 'TypeError' ||
                             purchaseError?.code === 'NETWORK_ERROR';
       
-      if (isNetworkError) {
-        Alert.alert(
-          'Connection Error',
-          'Network connection failed. Please check your internet connection and try again.',
-          [{ text: 'OK' }]
-        );
+      if (isTransientPurchaseNetworkError(purchaseError) || isNetworkError) {
+        showPurchaseOutcome('connection_uncertain');
         return;
       }
 
@@ -1276,8 +1305,9 @@ export default function EducationScreen() {
       {selectedService && selectedServiceLogo && (
         <ConfirmPaymentModal
           visible={showConfirmModal}
-          onClose={() => setShowConfirmModal(false)}
+          onClose={() => !isProcessing && setShowConfirmModal(false)}
           onConfirm={handleConfirmPayment}
+          loading={isProcessing}
           amount={purchaseAmount}
           charges={chargeFee}
           quantity={selectedService.examType === 'JAMB' ? 1 : quantity}
@@ -1287,6 +1317,19 @@ export default function EducationScreen() {
           serviceType={`Education • ${selectedService.examType}${selectedService.examType === 'JAMB' ? ` • ${jambServiceType}` : ''}`}
         />
       )}
+
+      <PurchaseProgressOverlay visible={isProcessing} />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
+      />
 
       {/* Insufficient Balance Modal */}
       <InsufficientBalanceModal

@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { LandingHeader } from "@/components/LandingHeader";
+import { IosAddToHomeScreen } from "@/components/IosAddToHomeScreen";
 import {
   Phone,
   CreditCard,
@@ -105,6 +106,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand/10 via-orange-50/30 to-white text-foreground">
       <LandingHeader />
+      <IosAddToHomeScreen />
 
       {/* Hero */}
       <section className="container mx-auto px-4 py-16 md:py-24">

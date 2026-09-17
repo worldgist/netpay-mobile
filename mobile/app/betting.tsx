@@ -14,6 +14,15 @@ import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InvalidAccountModal } from '@/components/invalid-account-modal';
 import { NetworkUnavailableModal } from '@/components/network-unavailable-modal';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import {
+  isTransientPurchaseNetworkError,
+  parsePurchaseResponse,
+} from '@/utils/purchase-flow';
 import Constants from 'expo-constants';
 
 type BettingProvider = {
@@ -106,7 +115,21 @@ export default function BettingScreen() {
   const [showInvalidAccountModal, setShowInvalidAccountModal] = useState(false);
   const [invalidAccountError, setInvalidAccountError] = useState<string>('');
   const [showNetworkUnavailableModal, setShowNetworkUnavailableModal] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
   const isMounted = useRef(true);
+
+  const showPurchaseOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setPurchasing(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
   
   // Check if we're in production (not Expo Go)
   // In production builds, executionEnvironment will be 'standalone' or 'bare'
@@ -372,6 +395,15 @@ export default function BettingScreen() {
         }
 
         if (data) {
+          const invokeOutcome = parsePurchaseResponse(data, true);
+          if (invokeOutcome.kind === 'pending') {
+            showPurchaseOutcome('pending', invokeOutcome.message);
+            return;
+          }
+          if (invokeOutcome.kind === 'connection_uncertain') {
+            showPurchaseOutcome('connection_uncertain', invokeOutcome.message);
+            return;
+          }
           if (data.success === false || data.error) {
             const errorMsg = data.error || data.message || 'Betting purchase failed';
             console.error('Error in response data:', { errorMsg, data });
@@ -463,6 +495,16 @@ export default function BettingScreen() {
         hasData: !!responseData?.data,
         message: responseData?.message,
       });
+
+      const finalOutcome = parsePurchaseResponse(responseData, true);
+      if (finalOutcome.kind === 'pending') {
+        showPurchaseOutcome('pending', finalOutcome.message);
+        return;
+      }
+      if (finalOutcome.kind === 'connection_uncertain') {
+        showPurchaseOutcome('connection_uncertain', finalOutcome.message);
+        return;
+      }
 
       if (responseData?.success === false || responseData?.error) {
         const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
@@ -556,13 +598,8 @@ export default function BettingScreen() {
         return;
       }
       
-      // Handle network errors (show connection error)
-      if (isNetworkError) {
-        Alert.alert(
-          'Connection Error',
-          'Network connection failed. Please check your internet connection and try again.',
-          [{ text: 'OK' }]
-        );
+      if (isTransientPurchaseNetworkError(purchaseError) || isNetworkError) {
+        showPurchaseOutcome('connection_uncertain');
         return;
       }
       
@@ -714,6 +751,19 @@ export default function BettingScreen() {
           />
         );
       })()}
+
+      <PurchaseProgressOverlay visible={purchasing} />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
+      />
 
       {/* Invalid Account Modal */}
       {selectedProvider && (() => {

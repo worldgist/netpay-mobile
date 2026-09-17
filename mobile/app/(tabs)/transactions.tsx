@@ -23,6 +23,11 @@ import {
 } from '@/contexts/transactions-context';
 import { getWalletTransactionLabel, getTransactionDisplayDateTime, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
 import { buildTransactionDetailsHref } from '@/utils/transaction-navigation';
+import {
+  isTransactionStatusFailed,
+  isTransactionStatusPending,
+  normalizeTransactionStatusLabel,
+} from '@/utils/purchase-flow';
 
 const NETWORK_LOGOS: Record<string, ImageSourcePropType> = {
   NGN: NGN_LOGO,
@@ -200,18 +205,13 @@ const getTransactionTheme = (transaction: MobileTransaction): TransactionTheme =
 };
 
 const getStatusLabel = (transaction: MobileTransaction) => {
-  const status = (transaction.status || '').toLowerCase();
-  if (status.includes('success')) return 'Success';
-  if (status.includes('complete')) return 'Completed';
-  if (status.includes('fail') || status.includes('cancel') || status.includes('reject')) {
-    return toTitle(transaction.status);
-  }
+  const status = transaction.status || '';
   if (isFundWalletTransaction(transaction)) return 'Completed';
   if (transaction.category === 'transfer_sent' || transaction.category === 'transfer_received') {
     return 'Completed';
   }
-  if (transaction.type === 'credit') return 'Completed';
-  return 'Success';
+  if (transaction.type === 'credit' && !status) return 'Completed';
+  return normalizeTransactionStatusLabel(status);
 };
 
 const applyFilter = (transactions: MobileTransaction[], filter: TransactionFilter) => {
@@ -341,9 +341,8 @@ export default function TransactionsScreen() {
         ? NGN_LOGO
         : getLogo(transaction.serviceType, transaction.provider);
       const statusLabel = getStatusLabel(transaction);
-      const isFailed =
-        (transaction.status || '').toLowerCase().includes('fail') ||
-        (transaction.status || '').toLowerCase().includes('cancel');
+      const isFailed = isTransactionStatusFailed(transaction.status);
+      const isPending = isTransactionStatusPending(transaction.status);
 
       return (
         <TouchableOpacity
@@ -388,18 +387,28 @@ export default function TransactionsScreen() {
                 style={[
                   styles.statusBadge,
                   {
-                    backgroundColor: isFailed ? '#FFEBEE' : theme.statusBackground,
+                    backgroundColor: isFailed
+                      ? '#FFEBEE'
+                      : isPending
+                        ? '#FFF3E0'
+                        : theme.statusBackground,
                   },
                 ]}>
                 <MaterialIcons
-                  name={isFailed ? 'error-outline' : 'check-circle'}
+                  name={isFailed ? 'error-outline' : isPending ? 'hourglass-top' : 'check-circle'}
                   size={14}
-                  color={isFailed ? APP_COLORS.error : theme.statusColor}
+                  color={isFailed ? APP_COLORS.error : isPending ? '#E65100' : theme.statusColor}
                 />
                 <ThemedText
                   style={[
                     styles.statusBadgeText,
-                    { color: isFailed ? APP_COLORS.error : theme.statusColor },
+                    {
+                      color: isFailed
+                        ? APP_COLORS.error
+                        : isPending
+                          ? '#E65100'
+                          : theme.statusColor,
+                    },
                   ]}
                   numberOfLines={1}>
                   {statusLabel}

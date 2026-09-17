@@ -16,9 +16,75 @@ import {
   ChevronRight,
   User,
   Fingerprint,
-  Lock,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { LucideIcon } from "lucide-react";
+
+type MenuRowProps = {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  onClick?: () => void;
+  right?: React.ReactNode;
+  destructive?: boolean;
+  showDivider?: boolean;
+  disabled?: boolean;
+};
+
+function ProfileMenuRow({
+  icon: Icon,
+  title,
+  description,
+  onClick,
+  right,
+  destructive = false,
+  showDivider = false,
+  disabled = false,
+}: MenuRowProps) {
+  const content = (
+    <>
+      {showDivider ? <div className="ml-[68px] h-px bg-gray-100" /> : null}
+      <div
+        className={`flex items-center gap-3 px-4 py-3.5 ${disabled ? "opacity-50" : ""}`}
+      >
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+            destructive ? "bg-red-50" : "bg-orange-50"
+          }`}
+        >
+          <Icon className={`h-5 w-5 ${destructive ? "text-red-500" : "text-brand"}`} />
+        </div>
+        <div className="min-w-0 flex-1 text-left">
+          <p className={`font-semibold ${destructive ? "text-red-500" : "text-gray-900"}`}>
+            {title}
+          </p>
+          <p className={`text-xs mt-0.5 ${destructive ? "text-red-400" : "text-gray-500"}`}>
+            {description}
+          </p>
+        </div>
+        {right ?? (
+          <ChevronRight className={`h-5 w-5 shrink-0 ${destructive ? "text-red-400" : "text-gray-300"}`} />
+        )}
+      </div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className="w-full hover:bg-gray-50/80 transition-colors disabled:pointer-events-none"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div>{content}</div>;
+}
 
 export default function UserProfile() {
   const navigate = useNavigate();
@@ -27,9 +93,9 @@ export default function UserProfile() {
   const [userEmail, setUserEmail] = useState("");
   const [userId, setUserId] = useState("");
   const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [pinEnabled, setPinEnabled] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notificationsUpdating, setNotificationsUpdating] = useState(false);
+  const [biometricUpdating, setBiometricUpdating] = useState(false);
   const [isSupportAdmin, setIsSupportAdmin] = useState(false);
 
   const NOTIFICATIONS_ENABLED_KEY = "@netpay_notifications_enabled";
@@ -38,7 +104,9 @@ export default function UserProfile() {
     const checkAuth = async () => {
       try {
         setLoading(true);
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!session) {
           navigate("/user/auth");
           return;
@@ -47,16 +115,13 @@ export default function UserProfile() {
         setUserEmail(session.user.email || "");
         setUserId(session.user.id);
 
-        // Ensure profile exists
         const profile = await ensureProfileExists(session.user);
 
         if (profile) {
-          setUserName(profile.full_name || session.user.email?.split('@')[0] || 'User');
+          setUserName(profile.full_name || session.user.email?.split("@")[0] || "User");
           setBiometricEnabled(profile.biometric_enabled || false);
-          setPinEnabled(profile.pin_enabled || false);
         } else {
-          // Fallback if profile creation failed
-          setUserName(session.user.email?.split('@')[0] || 'User');
+          setUserName(session.user.email?.split("@")[0] || "User");
           toast.error("Failed to load profile. Please refresh the page.");
         }
 
@@ -78,41 +143,39 @@ export default function UserProfile() {
 
         setIsSupportAdmin(Boolean(adminRole));
       } catch (error: any) {
-        console.error('Error loading profile:', error);
+        console.error("Error loading profile:", error);
         toast.error(error.message || "Failed to load profile");
       } finally {
         setLoading(false);
       }
     };
 
-    checkAuth();
+    void checkAuth();
   }, [navigate]);
 
   const handleToggleBiometric = async (enabled: boolean) => {
+    if (!userId || biometricUpdating) return;
+    const previous = biometricEnabled;
+    setBiometricEnabled(enabled);
+    setBiometricUpdating(true);
     try {
       const { error } = await supabase
-        .from('profiles')
+        .from("profiles")
         .update({ biometric_enabled: enabled })
-        .eq('id', userId);
+        .eq("id", userId);
 
       if (error) throw error;
-
-      setBiometricEnabled(enabled);
       toast.success(enabled ? "Biometric enabled" : "Biometric disabled");
     } catch (error: any) {
+      setBiometricEnabled(previous);
       toast.error(error.message || "Failed to update biometric setting");
+    } finally {
+      setBiometricUpdating(false);
     }
   };
 
-  const handleManagePin = () => {
-    navigate("/user/setup-pin");
-  };
-
-  const handleResetPassword = () => {
-    navigate("/user/forgot-password");
-  };
-
   const handleToggleNotifications = async (enabled: boolean) => {
+    if (notificationsUpdating) return;
     setNotificationsUpdating(true);
     const previousValue = notificationsEnabled;
     setNotificationsEnabled(enabled);
@@ -134,28 +197,13 @@ export default function UserProfile() {
     navigate("/user/auth");
   };
 
-  const menuItems = [
-    { icon: Edit, label: "Edit Profile", onClick: () => navigate("/user/edit-profile"), color: "text-brand" },
-    { icon: Bell, label: "Notification Inbox", onClick: () => navigate("/user/notifications"), color: "text-brand" },
-    { icon: Users, label: "Referral", onClick: () => navigate("/user/referrals"), color: "text-brand" },
-    { icon: Mail, label: "Contact us", onClick: () => navigate("/user/contact"), color: "text-brand" },
-    { icon: FileText, label: "Statement", onClick: () => navigate("/user/statement-of-account"), color: "text-brand" },
-    { icon: Lock, label: "Reset Password", onClick: handleResetPassword, color: "text-brand" },
-    { icon: FileText, label: "Terms & Conditions", onClick: () => navigate("/user/terms"), color: "text-brand" },
-    { icon: Shield, label: "Privacy Policy", onClick: () => navigate("/user/privacy"), color: "text-brand" },
-    ...(isSupportAdmin
-      ? [{ icon: Mail, label: "Support Center", onClick: () => navigate("/support-admin"), color: "text-brand" }]
-      : []),
-    { icon: Trash2, label: "Delete Account", onClick: () => navigate("/user/delete-account"), color: "text-red-500" },
-  ];
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 pb-20 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="relative h-12 w-12">
-            <div className="absolute inset-0 rounded-full border-4 border-orange-100"></div>
-            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-brand animate-spin"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-orange-100" />
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-brand animate-spin" />
           </div>
           <p className="text-sm text-gray-600">Loading profile...</p>
         </div>
@@ -164,102 +212,169 @@ export default function UserProfile() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Profile Header */}
-      <div className="bg-white px-6 pt-8 pb-6 text-center">
-        <div className="w-24 h-24 bg-brand rounded-full flex items-center justify-center mx-auto mb-4">
-          <User className="w-12 h-12 text-white" />
-        </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">{userName || 'User'}</h2>
-        <p className="text-gray-600">{userEmail || ''}</p>
+    <div className="min-h-screen bg-gray-50 pb-24">
+      <div className="bg-white px-4 py-4 border-b border-gray-100 flex items-center">
+        <button
+          type="button"
+          onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/user/dashboard"))}
+          className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-gray-50"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-5 w-5 text-gray-900" />
+        </button>
+        <h1 className="flex-1 text-center text-lg font-bold text-gray-900">My Profile</h1>
+        <div className="w-10" />
       </div>
 
-      {/* Security Section */}
-      <div className="px-4 py-4">
-        <h3 className="text-sm font-semibold text-gray-500 mb-3 px-2">SECURITY</h3>
-        <div className="bg-white rounded-xl divide-y divide-gray-100">
-          {/* Biometric Toggle */}
-          <div className="px-4 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Fingerprint className="w-5 h-5 text-brand" />
-              <div>
-                <span className="font-medium text-gray-900 block">Biometric Login</span>
-                <span className="text-xs text-gray-500">Use fingerprint or face ID</span>
+      <div className="px-4 pt-4 space-y-4">
+        <div className="flex items-center gap-3.5 rounded-2xl bg-brand p-4 shadow-sm">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white">
+            <User className="h-8 w-8 text-gray-300" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-lg font-bold text-white">{userName || "User"}</p>
+            <p className="truncate text-sm text-white/90">{userEmail || ""}</p>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <ProfileMenuRow
+            icon={Edit}
+            title="Edit Profile"
+            description="Update your personal account information"
+            onClick={() => navigate("/user/edit-profile")}
+          />
+
+          <ProfileMenuRow
+            icon={Bell}
+            title="Notifications"
+            description={
+              notificationsEnabled
+                ? "Notifications are enabled"
+                : "Enable notifications for updates and alerts"
+            }
+            showDivider
+            disabled={notificationsUpdating || !userId}
+            right={
+              <div
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <Switch
+                  checked={notificationsEnabled}
+                  onCheckedChange={handleToggleNotifications}
+                  disabled={notificationsUpdating || !userId}
+                />
               </div>
-            </div>
-            <Switch
-              checked={biometricEnabled}
-              onCheckedChange={handleToggleBiometric}
+            }
+            onClick={() => {
+              if (notificationsUpdating || !userId) return;
+              void handleToggleNotifications(!notificationsEnabled);
+            }}
+          />
+
+          <ProfileMenuRow
+            icon={Users}
+            title="Referral"
+            description="Invite friends and earn referral rewards"
+            showDivider
+            onClick={() => navigate("/user/referrals")}
+          />
+
+          <ProfileMenuRow
+            icon={Mail}
+            title="Contact us"
+            description="Reach our team for help and feedback"
+            showDivider
+            onClick={() => navigate("/user/contact")}
+          />
+
+          <ProfileMenuRow
+            icon={FileText}
+            title="Statement"
+            description="View, download or email your transaction statement"
+            showDivider
+            onClick={() => navigate("/user/statement-of-account")}
+          />
+
+          <ProfileMenuRow
+            icon={Shield}
+            title="Security"
+            description="Manage change PIN and change password"
+            showDivider
+            onClick={() => navigate("/user/security")}
+          />
+
+          <ProfileMenuRow
+            icon={Fingerprint}
+            title="Biometric Login"
+            description={
+              biometricEnabled
+                ? "Use fingerprint or Face ID to sign in"
+                : "Enable fingerprint or Face ID sign in"
+            }
+            showDivider
+            disabled={biometricUpdating || !userId}
+            right={
+              <div
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <Switch
+                  checked={biometricEnabled}
+                  onCheckedChange={handleToggleBiometric}
+                  disabled={biometricUpdating || !userId}
+                />
+              </div>
+            }
+            onClick={() => {
+              if (biometricUpdating || !userId) return;
+              void handleToggleBiometric(!biometricEnabled);
+            }}
+          />
+
+          <ProfileMenuRow
+            icon={FileText}
+            title="Terms & Conditions"
+            description="Read the rules and terms for using NetPay"
+            showDivider
+            onClick={() => navigate("/user/terms")}
+          />
+
+          <ProfileMenuRow
+            icon={FileText}
+            title="Privacy Policy"
+            description="See how your personal data is collected and used"
+            showDivider
+            onClick={() => navigate("/user/privacy")}
+          />
+
+          {isSupportAdmin ? (
+            <ProfileMenuRow
+              icon={Mail}
+              title="Support Center"
+              description="Open the admin support inbox"
+              showDivider
+              onClick={() => navigate("/support-admin")}
             />
-          </div>
+          ) : null}
 
-          {/* PIN Management */}
-          <button
-            onClick={handleManagePin}
-            className="w-full px-4 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <Lock className="w-5 h-5 text-brand" />
-              <div className="text-left">
-                <span className="font-medium text-gray-900 block">PIN Code</span>
-                <span className="text-xs text-gray-500">
-                  {pinEnabled ? "Change your PIN" : "Set up PIN"}
-                </span>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-      </div>
-
-      {/* Menu Items */}
-      <div className="px-4 py-4 space-y-1">
-        <h3 className="text-sm font-semibold text-gray-500 mb-3 px-2">ACCOUNT</h3>
-
-        <div className="w-full bg-white rounded-xl px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Bell className="w-5 h-5 text-brand" />
-            <div>
-              <span className="font-medium text-gray-900 block">Notifications</span>
-              <span className="text-xs text-gray-500">
-                {notificationsEnabled ? "Notifications are enabled" : "Notifications are disabled"}
-              </span>
-            </div>
-          </div>
-          <Switch
-            checked={notificationsEnabled}
-            onCheckedChange={handleToggleNotifications}
-            disabled={notificationsUpdating}
+          <ProfileMenuRow
+            icon={Trash2}
+            title="Delete Account"
+            description="Permanently delete your account and all data"
+            destructive
+            showDivider
+            onClick={() => navigate("/user/delete-account")}
           />
         </div>
 
-        {menuItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.label}
-              onClick={item.onClick}
-              className="w-full bg-white rounded-xl px-4 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Icon className={`w-5 h-5 ${item.color}`} />
-                <span className={`font-medium ${item.color === "text-red-500" ? "text-red-500" : "text-gray-900"}`}>
-                  {item.label}
-                </span>
-              </div>
-              <ChevronRight className="w-5 h-5 text-gray-400" />
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Logout Button */}
-      <div className="px-4 mt-4">
         <button
+          type="button"
           onClick={handleLogout}
-          className="w-full bg-white border-2 border-red-500 text-red-500 rounded-xl px-4 py-4 flex items-center justify-center gap-2 font-medium hover:bg-red-50 transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-red-500 bg-white px-4 py-4 font-semibold text-red-500 hover:bg-red-50 transition-colors"
         >
-          <LogOut className="w-5 h-5" />
+          <LogOut className="h-5 w-5" />
           Logout
         </button>
       </div>

@@ -8,6 +8,12 @@ import { buildRouteHref } from '@/utils/router-href';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { ConfirmTransferModal } from '@/components/confirm-transfer-modal';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import { isTransientPurchaseNetworkError, parsePurchaseResponse } from '@/utils/purchase-flow';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +47,20 @@ export default function TransferScreen() {
   const [showUserNotFoundModal, setShowUserNotFoundModal] = useState(false);
   const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
+
+  const showTransferOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setTransferLoading(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
 
   const amountValue = useMemo(() => parseFloat(amount) || 0, [amount]);
   const transferFee = useMemo(() => calculateTransferFee(amountValue), [amountValue]);
@@ -265,7 +285,23 @@ export default function TransferScreen() {
           : undefined,
       });
 
-      if (transferError) throw transferError;
+      if (transferError) {
+        if (isTransientPurchaseNetworkError(transferError)) {
+          showTransferOutcome('connection_uncertain');
+          return;
+        }
+        throw transferError;
+      }
+
+      const transferOutcome = parsePurchaseResponse(data, true);
+      if (transferOutcome.kind === 'pending') {
+        showTransferOutcome('pending', transferOutcome.message);
+        return;
+      }
+      if (transferOutcome.kind === 'connection_uncertain') {
+        showTransferOutcome('connection_uncertain', transferOutcome.message);
+        return;
+      }
 
       if (!data?.success) {
         const message = data?.error || 'Transfer failed. Please try again later.';
@@ -309,11 +345,12 @@ export default function TransferScreen() {
                             errorName === 'TypeError' ||
                             err?.code === 'NETWORK_ERROR';
       
-      const message = isNetworkError
-        ? 'Network connection failed. Please check your internet connection and try again.'
-        : errorMessage || 'Transfer failed. Please try again later.';
-      
-      Alert.alert(isNetworkError ? 'Connection Error' : 'Transfer Failed', message);
+      if (isTransientPurchaseNetworkError(err) || isNetworkError) {
+        showTransferOutcome('connection_uncertain');
+        return;
+      }
+
+      Alert.alert('Transfer Failed', errorMessage || 'Transfer failed. Please try again later.');
     } finally {
       setTransferLoading(false);
     }
@@ -526,6 +563,19 @@ export default function TransferScreen() {
         description={description.trim() || undefined}
         transferFee={transferFee}
         loading={transferLoading}
+      />
+
+      <PurchaseProgressOverlay visible={transferLoading} />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
       />
 
       {/* Insufficient Balance Modal */}

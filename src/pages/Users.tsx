@@ -1231,9 +1231,21 @@ export default function Users() {
               </div>
 
               <Card>
-                <CardHeader>
-                  <CardTitle>Recent Transactions</CardTitle>
-                  <CardDescription>Last 100 wallet transactions for this user</CardDescription>
+                <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+                  <div>
+                    <CardTitle>Recent Transactions</CardTitle>
+                    <CardDescription>Last 5 wallet transactions for this user</CardDescription>
+                  </div>
+                  {userTransactions.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={handleOpenStatementPreview}
+                    >
+                      View all
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {userTransactions.length === 0 ? (
@@ -1248,7 +1260,7 @@ export default function Users() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {userTransactions.map((tx) => (
+                      {userTransactions.slice(0, 5).map((tx) => (
                         <div
                           key={tx.id}
                           className="flex items-center justify-between gap-4 rounded-lg border p-3"

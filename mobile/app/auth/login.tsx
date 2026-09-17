@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { supabase, isSupabaseInitialized, getSupabaseConfigStatus } from '@/lib/supabase';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/utils/secure-store';
 import {
   clearPendingBiometricReenrollment,
   isPendingBiometricReenrollment,

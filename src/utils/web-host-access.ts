@@ -1,20 +1,15 @@
-/** Hostnames where the public marketing site is served (customer web wallet stays off). */
+/** Hostnames where the public marketing site is served. */
 const DEFAULT_MARKETING_ONLY_HOSTS = ["netppay.com", "www.netppay.com"];
 
-/** App deep-link paths on netppay.com (allowed even when the web wallet is disabled). */
+/** App deep-link paths on netppay.com (always allowed). */
 const ALLOWED_DEEP_LINK_PATH_PREFIXES = [
   "/reset-password",
   "/pay",
   "/open",
 ];
 
-/** Customer web-wallet routes only. Admin login lives at /auth and must work in production. */
-const BLOCKED_PATH_PREFIXES = [
-  "/user",
-];
-
 export const WEB_APP_BLOCKED_ON_HOST_MESSAGE =
-  "The NetPay customer wallet is not available on this website. Please use the official NetPay mobile app to sign in, pay bills, and manage your wallet.";
+  "Customer account features open in the NetPay app. Admin tools remain available on this website at /auth.";
 
 function parseHostList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
@@ -42,6 +37,11 @@ export function isMarketingOnlyHost(hostname?: string): boolean {
   return getMarketingOnlyHosts().includes(host);
 }
 
+/**
+ * Customer wallet Vite UIs are removed — `/user/*` always redirects to Expo in App.tsx.
+ * Admin (`/auth`, `/dashboard`, …) stays on Vite and is never blocked.
+ * This helper remains for deep-link / future host rules; currently never blocks `/user`.
+ */
 export function isWebAppPathBlockedOnHost(pathname: string, hostname?: string): boolean {
   if (!isMarketingOnlyHost(hostname)) return false;
 
@@ -51,7 +51,7 @@ export function isWebAppPathBlockedOnHost(pathname: string, hostname?: string): 
   );
   if (isDeepLinkAllowed) return false;
 
-  return BLOCKED_PATH_PREFIXES.some(
-    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
-  );
+  // Never block — customer routes redirect to Expo; admin must stay reachable.
+  void path;
+  return false;
 }

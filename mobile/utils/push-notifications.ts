@@ -28,6 +28,11 @@ const initializeNotifications = () => {
     console.warn('Android push notifications are not available in Expo Go. Use a development build for full functionality.');
     return null;
   }
+
+  // Web push needs VAPID config; NetPay uses native Expo push only for now.
+  if (Platform.OS === 'web') {
+    return null;
+  }
   
   try {
     // Use require to avoid import-time errors
@@ -111,6 +116,9 @@ const setupAndroidChannels = async (notifications: typeof import('expo-notificat
 
 /** Returns a user-facing reason when push cannot work in the current environment. */
 export function getPushEnvironmentBlocker(): string | null {
+  if (Platform.OS === 'web') {
+    return 'Push notifications are not available in the web app. Use the NetPay iOS or Android app for alerts.';
+  }
   if (isAndroidExpoGo) {
     return 'Android push notifications are not available in Expo Go. Install a development or production build of NetPay on your phone, then open the app from that build (not Expo Go).';
   }

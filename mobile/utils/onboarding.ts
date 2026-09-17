@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/utils/secure-store';
 
 /** Bumped when onboarding UI changes so existing installs see the new flow once. */
 export const ONBOARDING_COMPLETED_KEY = 'onboarding_v4_completed';

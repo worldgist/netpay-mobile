@@ -1,6 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/utils/secure-store';
 import { isBrowser, supabaseAuthStorage } from '@/lib/auth-storage';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -35,8 +34,8 @@ export const supabase = supabaseInstance;
 const SESSION_KEY = 'supabase_session';
 const EMAIL_KEY = 'supabase_email';
 
-// SecureStore is native-only; skip during SSR and on web.
-if (isBrowser() && Platform.OS !== 'web') {
+// Persist email/session helpers for PIN login (web uses AsyncStorage via secure-store wrapper).
+if (isBrowser()) {
   supabase.auth.onAuthStateChange(async (event, session) => {
     try {
       // Skip if using placeholder client

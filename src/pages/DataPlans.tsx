@@ -2243,14 +2243,14 @@ const DataPlans = () => {
 
             {/* Edit Plan Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-              <DialogContent>
-                <DialogHeader>
+              <DialogContent className="flex max-h-[90vh] w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+                <DialogHeader className="shrink-0 border-b px-6 py-4 pr-12">
                   <DialogTitle>Edit Data Plan</DialogTitle>
                   <DialogDescription>
                     Update the data plan details below
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-plan-name">Plan Name</Label>
                     <Input
@@ -2296,7 +2296,7 @@ const DataPlans = () => {
                       maxLength={100}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="edit-plan-type">Plan Type</Label>
                       <Input
@@ -2316,7 +2316,7 @@ const DataPlans = () => {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="edit-vendor-price">Vendor Price (₦)</Label>
                       <Input
@@ -2346,7 +2346,7 @@ const DataPlans = () => {
                   </div>
                   <div className="space-y-2">
                     <Label className="text-sm font-semibold">Vendor Codes</Label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <div className="space-y-1">
                         <Label htmlFor="edit-vtpass-code" className="text-xs">VTpass Code</Label>
                         <Input
@@ -2410,8 +2410,10 @@ const DataPlans = () => {
                       Plan is active
                     </Label>
                   </div>
-                  <Button 
-                    onClick={updatePlan} 
+                </div>
+                <div className="shrink-0 border-t px-6 py-4">
+                  <Button
+                    onClick={updatePlan}
                     className="w-full"
                   >
                     Save Changes

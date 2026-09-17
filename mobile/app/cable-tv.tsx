@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal } from 'react-native';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import {
+  isTransientPurchaseNetworkError,
+  parsePurchaseResponse,
+} from '@/utils/purchase-flow';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -124,7 +132,21 @@ export default function CableTVScreen() {
   const [showTryAgainLaterModal, setShowTryAgainLaterModal] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
   const [plansLoading, setPlansLoading] = useState(false);
+
+  const showPurchaseOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setIsProcessing(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
   const plansFetchRef = useRef<string | null>(null);
 
   const fetchPackagesForProvider = useCallback(async (providerName: string) => {
@@ -808,22 +830,31 @@ export default function CableTVScreen() {
       });
 
       const responseJson = await response.json();
-      const responseData = responseJson?.data || responseJson;
+      // Keep top-level success/pending/error flags — nested `data` alone drops them and can
+      // mis-classify failed refunds as success.
+      const responseData =
+        responseJson && typeof responseJson === 'object'
+          ? {
+              ...(typeof responseJson.data === 'object' && responseJson.data && !Array.isArray(responseJson.data)
+                ? (responseJson.data as Record<string, unknown>)
+                : {}),
+              ...responseJson,
+              data: responseJson.data,
+            }
+          : responseJson;
 
-      if (responseData?.pending === true) {
-        Alert.alert(
-          'Transaction Processing',
-          responseData?.message ||
-            'Your cable TV subscription is being processed. You will be notified when completed.',
-          [
-            {
-              text: 'View Transactions',
-              onPress: () => router.push('/(tabs)/transactions'),
-            },
-            { text: 'OK' },
-          ],
-        );
-        setIsProcessing(false);
+      const outcome = parsePurchaseResponse(
+        { ...responseData, httpStatus: response.status },
+        response.ok,
+      );
+
+      if (outcome.kind === 'pending') {
+        showPurchaseOutcome('pending', outcome.message);
+        return;
+      }
+
+      if (outcome.kind === 'connection_uncertain') {
+        showPurchaseOutcome('connection_uncertain', outcome.message);
         return;
       }
 
@@ -928,8 +959,11 @@ export default function CableTVScreen() {
         throw new Error(errorMessage);
       }
 
-      // Success - navigate to success screen
-      const reference = responseData?.data?.reference || '';
+      if (outcome.kind !== 'success') {
+        throw new Error(outcome.message || 'Purchase failed');
+      }
+
+      const reference = outcome.reference || responseData?.data?.reference || '';
       
       router.push(buildRouteHref('/payment-success', {
         amount: totalAmount.toString(),
@@ -987,12 +1021,8 @@ export default function CableTVScreen() {
                            errorMessage.toLowerCase().includes('incorrect') ||
                            errorMessage.toLowerCase().includes('invalid card');
 
-      if (isNetworkError) {
-        Alert.alert(
-          'Connection Error',
-          'Network connection failed. Please check your internet connection and try again.',
-          [{ text: 'OK' }]
-        );
+      if (isTransientPurchaseNetworkError(purchaseError) || isNetworkError) {
+        showPurchaseOutcome('connection_uncertain');
       } else if (isMobileNigInsufficientBalance) {
         // Show try again later modal for MobileNig insufficient balance
         setShowTryAgainLaterModal(true);
@@ -1225,20 +1255,18 @@ export default function CableTVScreen() {
         />
       )}
 
-      {/* Processing Overlay */}
-      {isProcessing && (
-        <Modal
-          visible={isProcessing}
-          transparent={true}
-          animationType="fade"
-        >
-          <View style={styles.processingOverlay}>
-            <View style={styles.processingContent}>
-              <NetpayLoadingAnimation message="Processing purchase…" />
-            </View>
-          </View>
-        </Modal>
-      )}
+      <PurchaseProgressOverlay visible={isProcessing} />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
+      />
 
       {/* Service Unavailable Modal */}
       <Modal

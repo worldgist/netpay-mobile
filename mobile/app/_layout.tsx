@@ -73,11 +73,14 @@ export default function RootLayout() {
 
   useEffect(() => {
     void SplashScreen.hideAsync();
-    void preparePushNotificationEnvironment();
 
-    const environmentBlocker = getPushEnvironmentBlocker();
-    if (Platform.OS === 'android' && environmentBlocker) {
-      maybeShowPushSetupAlert(environmentBlocker);
+    if (Platform.OS !== 'web') {
+      void preparePushNotificationEnvironment();
+
+      const environmentBlocker = getPushEnvironmentBlocker();
+      if (Platform.OS === 'android' && environmentBlocker) {
+        maybeShowPushSetupAlert(environmentBlocker);
+      }
     }
 
     const subscription = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
@@ -92,8 +95,12 @@ export default function RootLayout() {
     return () => subscription.remove();
   }, []);
 
-  // Register for push notifications when user is authenticated
+  // Register for push notifications when user is authenticated (native only)
   useEffect(() => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
     let notificationListeners: ReturnType<typeof setupNotificationListeners> | null = null;
 
     const checkAndRegisterPush = async () => {

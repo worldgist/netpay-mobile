@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/utils/secure-store';
 
 const KEY = 'biometric_login_enabled';
 

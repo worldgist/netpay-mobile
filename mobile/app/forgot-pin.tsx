@@ -17,7 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
 import * as Crypto from 'expo-crypto';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/utils/secure-store';
 import { supabase } from '@/lib/supabase';
 
 const PIN_LENGTH = 4;

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import {
+  isTransientPurchaseNetworkError,
+  parsePurchaseResponse,
+} from '@/utils/purchase-flow';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -155,6 +164,21 @@ export default function ElectricityScreen() {
   const [amount, setAmount] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [purchaseInFlight, setPurchaseInFlight] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
+
+  const showPurchaseOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setPurchaseInFlight(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
   const [verificationLoading, setVerificationLoading] = useState(false);
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
   const [verifiedAddress, setVerifiedAddress] = useState<string | null>(null);
@@ -674,6 +698,8 @@ export default function ElectricityScreen() {
     const providerEntry = providers.find((p) => p.id === selectedProvider);
     const providerName = providerEntry?.name || selectedProvider;
 
+    setPurchaseInFlight(true);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -923,6 +949,16 @@ export default function ElectricityScreen() {
         throw new Error('No data received from server');
       }
 
+      const purchaseOutcome = parsePurchaseResponse(responseData, true);
+      if (purchaseOutcome.kind === 'pending') {
+        showPurchaseOutcome('pending', purchaseOutcome.message);
+        return;
+      }
+      if (purchaseOutcome.kind === 'connection_uncertain') {
+        showPurchaseOutcome('connection_uncertain', purchaseOutcome.message);
+        return;
+      }
+
       console.log('Final responseData check:', {
         success: responseData?.success,
         hasData: !!responseData?.data,
@@ -1151,14 +1187,8 @@ export default function ElectricityScreen() {
                             errorName === 'TypeError' ||
                             purchaseError?.code === 'NETWORK_ERROR';
       
-      if (isNetworkError) {
-        Alert.alert(
-          'Connection Error',
-          'Network connection failed. Please check your internet connection and try again.',
-          [{ text: 'OK' }]
-        );
-        setShowConfirmModal(false);
-        setTransactionStatus('Failed');
+      if (isTransientPurchaseNetworkError(purchaseError) || isNetworkError) {
+        showPurchaseOutcome('connection_uncertain');
         return;
       }
 
@@ -1318,6 +1348,8 @@ export default function ElectricityScreen() {
       }
       
       setTransactionStatus('Failed');
+    } finally {
+      setPurchaseInFlight(false);
     }
   }, [amount, balance, fetchBalance, handleVerifyMeter, isDemoUser, meterInfo, meterNumber, meterType, providers, router, selectedProvider, verifiedName, verifiedAddress]);
 
@@ -1642,8 +1674,9 @@ export default function ElectricityScreen() {
         return (
           <ConfirmPaymentModal
             visible={showConfirmModal}
-            onClose={() => setShowConfirmModal(false)}
+            onClose={() => !purchaseInFlight && setShowConfirmModal(false)}
             onConfirm={handleConfirmPayment}
+            loading={purchaseInFlight}
             amount={purchaseAmount}
             charges={chargeFee}
             network={selectedProviderName}
@@ -1654,6 +1687,19 @@ export default function ElectricityScreen() {
           />
         );
       })()}
+
+      <PurchaseProgressOverlay visible={purchaseInFlight} />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
+      />
 
       {/* Invalid Meter Number Modal */}
       <Modal

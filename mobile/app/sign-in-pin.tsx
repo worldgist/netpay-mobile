@@ -14,7 +14,7 @@ import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { useRouter } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/utils/secure-store';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';

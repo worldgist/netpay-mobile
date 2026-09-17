@@ -8,7 +8,7 @@ module.exports = {
   name: 'Netpay',
   slug: 'netpay',
   version: '1.0.0',
-  platforms: ['ios', 'android'],
+  platforms: ['ios', 'android', 'web'],
   orientation: 'portrait',
   icon: './assets/images/logo-icon-1024.png',
   splash: {
@@ -112,6 +112,8 @@ module.exports = {
     ],
     'expo-secure-store',
     'expo-sharing',
+    'expo-image',
+    'expo-web-browser',
     '@react-native-community/datetimepicker',
   ],
   experiments: {

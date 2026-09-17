@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ImageSourcePropType, Modal } from 'react-native';
-import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import {
+  isTransientPurchaseNetworkError,
+  parsePurchaseResponse,
+} from '@/utils/purchase-flow';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -173,7 +181,21 @@ export default function DataPurchaseScreen() {
   const [selectedPlanCache, setSelectedPlanCache] = useState<DataPlan | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
   const { balance, refreshBalance } = useWalletBalance();
+
+  const showPurchaseOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setIsProcessing(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
   const [networks, setNetworks] = useState<NetworkOption[]>(DEFAULT_NETWORKS);
   const [plansByNetwork, setPlansByNetwork] = useState<Record<string, DataPlan[]>>({});
 const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
@@ -723,32 +745,32 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         extractedData: responseData
       });
 
+      const outcome = parsePurchaseResponse(
+        { ...responseData, httpStatus: response.status },
+        response.ok,
+      );
+
+      if (outcome.kind === 'pending') {
+        showPurchaseOutcome('pending', outcome.message);
+        return;
+      }
+
+      if (outcome.kind === 'connection_uncertain') {
+        showPurchaseOutcome('connection_uncertain', outcome.message);
+        return;
+      }
+
       if (!response.ok) {
-        // Extract error message from response
-        const errorMessage = responseData?.error || responseData?.message || responseJson?.error || `HTTP ${response.status}: ${response.statusText}`;
+        const errorMessage =
+          responseData?.error ||
+          responseData?.message ||
+          responseJson?.error ||
+          `HTTP ${response.status}: ${response.statusText}`;
         throw new Error(errorMessage);
       }
 
       // Check if transaction failed
       if (responseData?.success === false) {
-        if (responseData?.pending === true) {
-          setShowConfirmModal(false);
-          Alert.alert(
-            'Transaction Processing',
-            responseData?.message ||
-              'Your data purchase is being processed. You will be notified when completed.',
-            [
-              {
-                text: 'View Transactions',
-                onPress: () => router.push('/(tabs)/transactions'),
-              },
-              { text: 'OK' },
-            ],
-          );
-          setIsProcessing(false);
-          return;
-        }
-
         const detail =
           responseData?.details?.message ||
           responseData?.details?.error ||
@@ -806,34 +828,13 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         throw new Error(message);
       }
 
-      // Only navigate to success when purchase is fully completed
-      const transactionStatus = responseData?.data?.status || 'success';
-      const isPending =
-        responseData?.pending === true ||
-        transactionStatus?.toLowerCase() === 'pending' ||
-        transactionStatus?.toLowerCase() === 'processing' ||
-        transactionStatus?.toLowerCase() === 'queued';
+      if (outcome.kind !== 'success') {
+        throw new Error(outcome.message || 'Unable to complete data purchase.');
+      }
 
       setShowConfirmModal(false);
 
-      if (isPending) {
-        Alert.alert(
-          'Transaction Processing',
-          responseData?.message ||
-            'Your data purchase is being processed. You will be notified when completed.',
-          [
-            {
-              text: 'View Transactions',
-              onPress: () => router.push('/(tabs)/transactions'),
-            },
-            { text: 'OK' },
-          ],
-        );
-        setIsProcessing(false);
-        return;
-      }
-
-      const reference = responseData?.data?.reference || '';
+      const reference = outcome.reference || responseData?.data?.reference || '';
 
       router.push(buildRouteHref('/payment-success', {
         amount: getEffectivePrice(selectedPlan).toString(),
@@ -850,19 +851,13 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         message = purchaseError.message || message;
       }
 
-      // Check for network errors
+      if (isTransientPurchaseNetworkError(purchaseError)) {
+        showPurchaseOutcome('connection_uncertain');
+        return;
+      }
+
       const errorMessage = purchaseError?.message || String(purchaseError);
-      const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
-      const isNetworkError = errorMessage.includes('Network request failed') ||
-                            errorMessage.includes('Failed to send a request to the Edge Function') ||
-                            errorMessage.includes('Failed to fetch') ||
-                            errorMessage.includes('ERR_INTERNET_DISCONNECTED') ||
-                            errorMessage.includes('ERR_NETWORK_CHANGED') ||
-                            errorMessage.includes('TypeError') ||
-                            errorName === 'FunctionsFetchError' ||
-                            errorName === 'TypeError' ||
-                            purchaseError?.code === 'NETWORK_ERROR';
-      
+
       // Check for vendor failures
       const isVendorFailure = errorMessage.includes('All vendors') ||
                              errorMessage.includes('all failed') ||
@@ -876,10 +871,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                            errorMessage.includes('missing') ||
                            errorMessage.includes('Service temporarily unavailable');
       
-      if (isNetworkError) {
-        message = 'Network connection failed. Please check your internet connection and try again.';
-        Alert.alert('Connection Error', message);
-      } else if (isVendorFailure) {
+      if (isVendorFailure) {
         // Vendor failures are already handled with user-friendly message in the response check
         Alert.alert(
           'Purchase Unavailable', 
@@ -1072,13 +1064,18 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         />
       )}
 
-      {isProcessing && (
-        <View style={styles.processingOverlay}>
-          <View style={styles.processingCard}>
-            <NetpayLoadingAnimation message="Processing payment…" />
-          </View>
-        </View>
-      )}
+      <PurchaseProgressOverlay visible={isProcessing} />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
+      />
 
       <Modal
         animationType="slide"
