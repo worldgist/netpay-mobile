@@ -1,7 +1,6 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
@@ -89,12 +88,12 @@ const App = () => (
     >
       <WebHostAccessGuard>
       <Routes>
-        <Route path="/" element={<Index />} />
+        <Route path="/" element={<Navigate to="/auth" replace />} />
         <Route path="/reset-password" element={<AppLinkRedirect />} />
         <Route path="/pay" element={<AppLinkRedirect />} />
         <Route path="/open/*" element={<AppLinkRedirect />} />
-        <Route path="/auth/login" element={<Navigate to="/user/auth" replace />} />
-        <Route path="/auth/signup" element={<Navigate to="/user/auth?mode=signup" replace />} />
+        <Route path="/auth/login" element={<Navigate to="/auth" replace />} />
+        <Route path="/auth/signup" element={<Navigate to="/auth" replace />} />
         <Route path="/auth" element={<Auth />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/smeplug" element={<Smeplug />} />

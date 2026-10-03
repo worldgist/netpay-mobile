@@ -11,6 +11,7 @@ import { checkSignupAvailability } from '@/utils/signup-availability';
 import { authRedirectUrls } from '@/constants/site';
 import { isExistingUnconfirmedSignup, sendVerificationCode } from '@/utils/email-verification';
 import { buildRouteHref } from '@/utils/router-href';
+import { SeoHead } from '@/components/seo-head';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -307,7 +308,9 @@ export default function SignupScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
+    <>
+      <SeoHead page="signup" />
+      <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -526,6 +529,7 @@ export default function SignupScreen() {
         </ThemedView>
       </ScrollView>
     </KeyboardAvoidingView>
+    </>
   );
 }
 

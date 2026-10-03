@@ -8,6 +8,8 @@ module.exports = {
   name: 'Netpay',
   slug: 'netpay',
   version: '1.0.0',
+  description:
+    'Pay airtime, data, electricity, cable TV, education and more from one secure NetPay wallet.',
   platforms: ['ios', 'android', 'web'],
   orientation: 'portrait',
   icon: './assets/images/logo-icon-1024.png',
@@ -19,8 +21,18 @@ module.exports = {
   scheme: 'netpay',
   userInterfaceStyle: 'automatic',
   web: {
+    // SPA export for Vercel — single index.html + client router
+    output: 'single',
     bundler: 'metro',
-    favicon: './assets/images/logo-icon-1024.png',
+    favicon: './assets/images/logo.png',
+    name: 'NetPay',
+    shortName: 'NetPay',
+    description:
+      'Pay airtime, data, electricity, cable TV, education and more from one secure NetPay wallet.',
+    themeColor: '#FF7F00',
+    backgroundColor: '#FFFFFF',
+    display: 'standalone',
+    startUrl: '/sign-in-pin',
   },
   ios: {
     supportsTablet: true,

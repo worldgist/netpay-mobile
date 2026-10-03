@@ -1,0 +1,29 @@
+User-agent: *
+Allow: /
+Allow: /landing
+Allow: /features
+Allow: /services
+Allow: /about-us
+Allow: /contact-us
+Allow: /faq
+Allow: /privacy-policy
+Allow: /terms-and-conditions
+Allow: /support
+Allow: /auth/login
+Allow: /auth/signup
+
+Disallow: /(tabs)
+Disallow: /sign-in-pin
+Disallow: /setup-pin
+Disallow: /setup-biometric
+Disallow: /change-pin
+Disallow: /change-password
+Disallow: /delete-account
+Disallow: /transaction-details
+Disallow: /transfer
+Disallow: /add-money
+
+User-agent: Googlebot
+Allow: /
+
+Sitemap: https://netppay.com/sitemap.xml

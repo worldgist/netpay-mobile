@@ -32,6 +32,7 @@ import {
 } from '@/utils/biometric-login-preference';
 import { showAlert } from '@/utils/show-alert';
 import { hasCompletedOnboarding } from '@/utils/onboarding';
+import { SeoHead } from '@/components/seo-head';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
 const SESSION_KEY = 'supabase_session';
@@ -116,7 +117,7 @@ export default function LoginScreen() {
       (async () => {
         const completedOnboarding = await hasCompletedOnboarding();
         if (!active) return;
-        if (!completedOnboarding) {
+        if (!completedOnboarding && Platform.OS !== 'web') {
           router.replace('/onboarding');
           return;
         }
@@ -530,7 +531,9 @@ export default function LoginScreen() {
   handleBiometricRef.current = handleBiometric;
 
   return (
-    <KeyboardAvoidingView
+    <>
+      <SeoHead page="login" />
+      <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -621,6 +624,13 @@ export default function LoginScreen() {
           <TouchableOpacity style={styles.linkContainer} onPress={() => router.push('/forget-password')}>
             <ThemedText style={styles.linkText}>Forgot Password?</ThemedText>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.signUpButton}
+            onPress={() => router.push('/auth/signup')}
+            activeOpacity={0.8}>
+            <ThemedText style={styles.signUpButtonText}>Sign Up</ThemedText>
+          </TouchableOpacity>
         </ThemedView>
       </ScrollView>
 
@@ -668,6 +678,7 @@ export default function LoginScreen() {
         </View>
       </Modal>
     </KeyboardAvoidingView>
+    </>
   );
 }
 
@@ -852,6 +863,21 @@ const styles = StyleSheet.create({
   linkContainer: {
     marginBottom: 16,
     alignItems: 'center',
+  },
+  signUpButton: {
+    borderWidth: 1.5,
+    borderColor: '#FF7F00',
+    borderRadius: 12,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginBottom: 8,
+  },
+  signUpButtonText: {
+    color: '#FF7F00',
+    fontSize: 16,
+    fontWeight: '700',
   },
   linkText: {
     color: '#FF7F00',

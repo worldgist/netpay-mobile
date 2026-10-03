@@ -221,9 +221,11 @@ const styles = StyleSheet.create({
   },
   iconStage: {
     flex: 1,
+    minHeight: 260,
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 12,
+    overflow: 'visible',
   },
   copyCard: {
     backgroundColor: BRAND.white,

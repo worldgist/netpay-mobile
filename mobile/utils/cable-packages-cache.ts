@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CACHE_KEY = '@netpay_cable_packages_v1';
+const CACHE_KEY = '@netpay_cable_packages_v2';
 
 export type CachedCablePlan = {
   id: string;
@@ -34,6 +34,10 @@ export async function writeCachedCablePackages(
   plansByProvider: Record<string, CachedCablePlan[]>,
 ): Promise<void> {
   try {
+    // Never persist empty maps — they poison the next hydrate.
+    const hasAny = Object.values(plansByProvider).some((list) => (list?.length || 0) > 0);
+    if (!hasAny) return;
+
     const payload: CachedCablePackages = {
       vendingProvider,
       plansByProvider,

@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { promptEnableNotifications, hasSeenNotificationPrompt } from '@/utils/notification-prompt';
 import { needsDeviceWelcomeSetup, markDeviceWelcomeSetupComplete } from '@/utils/device-welcome';
 import { buildRouteHref } from '@/utils/router-href';
+import { markOnboardingCompleted } from '@/utils/onboarding';
 import type { Href } from 'expo-router';
 
 /**
@@ -21,6 +22,7 @@ export async function navigateAfterAuthenticatedSession(router: { replace: (href
   }
 
   if (Platform.OS === 'web') {
+    await markOnboardingCompleted();
     await markDeviceWelcomeSetupComplete(session.user.id);
     router.replace('/(tabs)');
     return;

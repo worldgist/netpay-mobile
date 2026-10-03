@@ -74,14 +74,7 @@ export default function ContentManagement() {
       return;
     }
 
-    // Filter out only about_us, faq, and support pages
-    // Include terms_conditions and privacy_policy from mobile app
-    const excludedTypes = ['about_us', 'faq', 'support'];
-    const filteredPages = (data || []).filter(
-      (page) => !excludedTypes.includes(page.page_type.toLowerCase())
-    );
-
-    setPages(filteredPages);
+    setPages(data || []);
   };
 
   const handleEdit = (page: ContentPage) => {

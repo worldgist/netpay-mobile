@@ -21,6 +21,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import '@/utils/error-handler'; // Initialize error handler
 import { Alert, LogBox } from 'react-native';
 import { OnboardingGate } from '@/components/onboarding-gate';
+import { registerNetpayServiceWorker } from '@/components/landing/add-to-home-screen';
 
 // Suppress handled network errors in development
 if (__DEV__) {
@@ -73,6 +74,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     void SplashScreen.hideAsync();
+    registerNetpayServiceWorker();
 
     if (Platform.OS !== 'web') {
       void preparePushNotificationEnvironment();
@@ -229,6 +231,9 @@ export default function RootLayout() {
           <Stack.Screen name="payment-success" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="transaction-details" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="splash" options={{ headerShown: false }} />
+          <Stack.Screen name="landing" options={{ headerShown: false }} />
+          <Stack.Screen name="features" options={{ headerShown: false }} />
+          <Stack.Screen name="services" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
           <Stack.Screen name="auth/login" options={{ headerShown: false }} />
           <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
@@ -244,6 +249,9 @@ export default function RootLayout() {
           <Stack.Screen name="forgot-pin" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="terms-and-conditions" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="privacy-policy" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="about-us" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="faq" options={{ headerShown: false, presentation: 'card' }} />
+          <Stack.Screen name="support" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="email-verification" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="open/verify-email" options={{ headerShown: false, presentation: 'card' }} />
           <Stack.Screen name="setup-pin" options={{ headerShown: false, presentation: 'card' }} />

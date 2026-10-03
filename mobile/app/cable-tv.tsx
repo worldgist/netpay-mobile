@@ -9,6 +9,7 @@ import {
   isTransientPurchaseNetworkError,
   parsePurchaseResponse,
 } from '@/utils/purchase-flow';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -22,7 +23,7 @@ import { WrongSmartCardModal } from '@/components/wrong-smart-card-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import {
   isInvalidSmartCardError,
-  WRONG_SMART_CARD_DEFAULT_MESSAGE,
+  sanitizeSmartCardErrorMessage,
 } from '@/utils/cable-smart-card-errors';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -75,28 +76,29 @@ function getCableFetchConfig(vendingProvider: string, providerName: string) {
 
 function mapCablePackagesFromApi(providerName: string, data: any[]): CablePlan[] {
   const rawPackages: CablePlan[] = data.map((pkg: any) => {
-    const packageName = pkg.package_name || pkg.name || pkg.variation_name || pkg.variation_code || 'Unknown Package';
-    const price = pkg.price || pkg.variation_amount || pkg.custom_price || 0;
-    const id = pkg.api_code || pkg.variation_id || `${providerName}-${packageName}`;
+    const bouquet = pkg.package_bouquet || pkg.package_name || pkg.name || pkg.variation_name || '';
+    let packageName = String(bouquet || pkg.variation_code || 'Unknown Package').trim();
+    if (
+      providerName === 'DSTV' &&
+      packageName &&
+      !packageName.toUpperCase().startsWith('DSTV')
+    ) {
+      packageName = `DSTV ${packageName}`;
+    }
+    const priceRaw = pkg.price ?? pkg.variation_amount ?? pkg.custom_price ?? 0;
+    const price =
+      typeof priceRaw === 'number'
+        ? priceRaw
+        : parseFloat(String(priceRaw).replace(/,/g, '')) || 0;
+    const id = String(pkg.api_code ?? pkg.variation_id ?? `${providerName}-${packageName}`);
     return { id, packageName, price };
   });
 
   const seenIds = new Set<string>();
-  const seenPackageNames = new Set<string>();
-
   return rawPackages.filter((pkg) => {
-    const normalizedName = (pkg.packageName || '').toLowerCase().trim();
-
-    if (pkg.id && seenIds.has(pkg.id)) {
-      return false;
-    }
-
-    if (providerName === 'DSTV' && normalizedName && seenPackageNames.has(normalizedName)) {
-      return false;
-    }
-
-    if (pkg.id) seenIds.add(pkg.id);
-    if (normalizedName) seenPackageNames.add(normalizedName);
+    if (!pkg.id || pkg.price <= 0) return false;
+    if (seenIds.has(pkg.id)) return false;
+    seenIds.add(pkg.id);
     return true;
   });
 }
@@ -203,8 +205,14 @@ export default function CableTVScreen() {
 
       if (isMounted.current) {
         setPlansByProvider((prev) => {
+          // Don't wipe a good list with an empty failed fetch.
+          if (packages.length === 0 && (prev[providerName]?.length || 0) > 0) {
+            return prev;
+          }
           const next = { ...prev, [providerName]: packages };
-          void writeCachedCablePackages(vendingProvider, next);
+          if (packages.length > 0) {
+            void writeCachedCablePackages(vendingProvider, next);
+          }
           return next;
         });
       }
@@ -299,50 +307,12 @@ export default function CableTVScreen() {
           });
 
           if (response.ok && responseData?.success && responseData?.data?.length > 0) {
-            console.log(`Raw package data for ${provider.name}:`, JSON.stringify(responseData.data.slice(0, 2), null, 2));
-            
-            const rawPackages: CablePlan[] = responseData.data.map((pkg: any) => {
-              const packageName = pkg.package_name || pkg.name || pkg.variation_name || pkg.variation_code || 'Unknown Package';
-              const price = pkg.price || pkg.variation_amount || pkg.custom_price || 0;
-              const id = pkg.api_code || pkg.variation_id || `${provider.name}-${packageName}`;
-              
-              console.log(`Package mapping for ${provider.name}:`, {
-                raw: pkg,
-                mapped: { id, packageName, price },
-              });
-              
-              return {
-                id,
-                packageName,
-                price,
-              };
-            });
-
-            // Deduplicate packages by normalized package name (especially for DSTV after price validation)
-            const seenIds = new Set<string>();
-            const seenPackageNames = new Set<string>();
-            const packages = rawPackages.filter((pkg) => {
-              const normalizedName = (pkg.packageName || '').toLowerCase().trim();
-              
-              // Check for duplicate by ID first
-              if (pkg.id && seenIds.has(pkg.id)) {
-                console.log(`Removing duplicate package by ID: ${pkg.packageName} (ID: ${pkg.id})`);
-                return false;
-              }
-              
-              // Check for duplicate by normalized package name (for DSTV after price validation)
-              if (provider.name === 'DSTV' && normalizedName && seenPackageNames.has(normalizedName)) {
-                console.log(`Removing duplicate package by name: ${pkg.packageName} (ID: ${pkg.id})`);
-                return false;
-              }
-              
-              if (pkg.id) seenIds.add(pkg.id);
-              if (normalizedName) seenPackageNames.add(normalizedName);
-              return true;
-            });
-
+            const packages = mapCablePackagesFromApi(provider.name, responseData.data);
             grouped[provider.name] = packages;
-            console.log(`Fetched ${rawPackages.length} packages for ${provider.name} (${packages.length} unique):`, packages.map(p => ({ name: p.packageName, price: p.price })));
+            console.log(
+              `Fetched ${packages.length} packages for ${provider.name}:`,
+              packages.map((p) => ({ name: p.packageName, price: p.price })),
+            );
           } else {
             // Filter out SSL certificate errors from warnings (vendor-side issue)
             const errorMessage = responseData?.error || responseData?.message || 'Unknown error';
@@ -353,16 +323,22 @@ export default function CableTVScreen() {
             } else {
               console.log(`No packages found for ${provider.name}: Vendor SSL certificate issue (temporary)`);
             }
-            grouped[provider.name] = [];
           }
         } catch (error: any) {
           console.error(`Error fetching packages for ${provider.name}:`, error);
-          grouped[provider.name] = [];
         }
       }
 
       if (isMounted.current) {
-        setPlansByProvider(grouped);
+        setPlansByProvider((prev) => {
+          const next = { ...prev };
+          for (const [name, list] of Object.entries(grouped)) {
+            if ((list?.length || 0) > 0) {
+              next[name] = list;
+            }
+          }
+          return next;
+        });
       }
       await writeCachedCablePackages(vendingProvider, grouped);
     } catch (error: any) {
@@ -382,9 +358,17 @@ export default function CableTVScreen() {
   const hydratePackagesFromCache = useCallback(async () => {
     const vendingProvider = cableVendingProvider || 'mobilenig';
     const cached = await readCachedCablePackages(vendingProvider);
-    if (cached && isMounted.current) {
-      setPlansByProvider(cached);
-    }
+    if (!cached || !isMounted.current) return;
+    setPlansByProvider((prev) => {
+      // Prefer in-memory / freshly fetched plans over stale cache.
+      const next = { ...cached };
+      for (const [name, list] of Object.entries(prev)) {
+        if ((list?.length || 0) > 0) {
+          next[name] = list;
+        }
+      }
+      return next;
+    });
   }, [cableVendingProvider]);
 
   const loadData = useCallback(async () => {
@@ -668,9 +652,7 @@ export default function CableTVScreen() {
         setVerifiedName(null);
         
         if (isInvalidSmartCardError(errorMessage, errorType)) {
-          setInvalidCardMessage(
-            errorMessage || 'Wrong card number. Please check the card number and try again.',
-          );
+          setInvalidCardMessage(sanitizeSmartCardErrorMessage(errorMessage));
           setShowInvalidCardModal(true);
         } else {
           setShowServiceUnavailableModal(true);
@@ -699,7 +681,7 @@ export default function CableTVScreen() {
           [{ text: 'OK' }]
         );
       } else if (isInvalidSmartCardError(errorMessage)) {
-        setInvalidCardMessage(errorMessage || WRONG_SMART_CARD_DEFAULT_MESSAGE);
+        setInvalidCardMessage(sanitizeSmartCardErrorMessage(errorMessage));
         setShowInvalidCardModal(true);
       } else {
         setShowServiceUnavailableModal(true);
@@ -899,7 +881,7 @@ export default function CableTVScreen() {
         }
         
         if (isInvalidCardError) {
-          setInvalidCardMessage(errorMessage || WRONG_SMART_CARD_DEFAULT_MESSAGE);
+          setInvalidCardMessage(sanitizeSmartCardErrorMessage(errorMessage));
           setShowInvalidCardModal(true);
           setIsProcessing(false);
           return;
@@ -950,7 +932,7 @@ export default function CableTVScreen() {
         }
         
         if (isInvalidCardError) {
-          setInvalidCardMessage(errorMessage || WRONG_SMART_CARD_DEFAULT_MESSAGE);
+          setInvalidCardMessage(sanitizeSmartCardErrorMessage(errorMessage));
           setShowInvalidCardModal(true);
           setIsProcessing(false);
           return;
@@ -1027,7 +1009,7 @@ export default function CableTVScreen() {
         // Show try again later modal for MobileNig insufficient balance
         setShowTryAgainLaterModal(true);
       } else if (isInvalidCard) {
-        setInvalidCardMessage(message || WRONG_SMART_CARD_DEFAULT_MESSAGE);
+        setInvalidCardMessage(sanitizeSmartCardErrorMessage(message));
         setShowInvalidCardModal(true);
       } else {
         Alert.alert('Purchase Failed', message, [{ text: 'OK' }]);

@@ -1,0 +1,28 @@
+{
+  "buildCommand": "npx expo export -p web && node ./scripts/fix-expo-web-fonts.js && node ./scripts/write-seo-files.js",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "framework": null,
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!_expo/|assets/|robots\\.txt|sitemap\\.xml|og-image\\.png|logo\\.png|favicon\\.ico|manifest\\.webmanifest|sw\\.js|pwa-192\\.png|pwa-512\\.png|apple-touch-icon\\.png).*)",
+      "destination": "/"
+    }
+  ]
+}

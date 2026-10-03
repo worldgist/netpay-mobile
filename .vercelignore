@@ -1,7 +1,6 @@
-# Keep Vite CLI deploys lean — mobile app is separate (native only)
+# Used only if you deploy from the repo root. Prefer: npm run deploy (uploads dist/).
 node_modules
 mobile
-dist
 backups
 backup
 data

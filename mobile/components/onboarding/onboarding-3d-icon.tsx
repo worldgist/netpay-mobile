@@ -327,6 +327,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
+    overflow: 'visible',
+    position: 'relative',
   },
   glow: {
     position: 'absolute',
@@ -338,8 +340,10 @@ const styles = StyleSheet.create({
   compose: {
     width: '100%',
     height: '100%',
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
   mainTilePosition: {
     position: 'absolute',

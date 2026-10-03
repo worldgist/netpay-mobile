@@ -1,7 +1,7 @@
 import { Tabs, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
@@ -12,6 +12,10 @@ export default function TabLayout() {
   const router = useRouter();
 
   useEffect(() => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
     let active = true;
 
     const guardTabs = async () => {

@@ -258,27 +258,27 @@ export async function verifyEBillsCableCustomer(
     if (!response.ok) {
       try {
         errorData = JSON.parse(responseText) as EBillsErrorResponse;
-        console.error('eBills cable verification error:', {
-          status: response.status,
-          error: errorData,
-          service_id: serviceId,
-        });
-        let errorMessage = errorData.message || `Verification failed: ${response.status}`;
-        const lowerMessage = errorMessage.toLowerCase();
-        if (lowerMessage.includes('service currently not available') || lowerMessage.includes('service not available')) {
-          errorMessage = `Service currently not available for ${serviceId}. Please try again later or contact support.`;
-        } else if (lowerMessage.includes('invalid') && lowerMessage.includes('service')) {
-          errorMessage = `Invalid service ID: ${serviceId}. Please contact support.`;
-        }
-        throw new Error(errorMessage);
-      } catch (jsonError) {
+      } catch {
         console.error('Failed to parse eBills error response:', {
-          error: jsonError,
           responseText: responseText.substring(0, 200),
           status: response.status,
         });
         throw new Error(`eBills API error (Status: ${response.status}): ${responseText.substring(0, 200)}`);
       }
+
+      console.error('eBills cable verification error:', {
+        status: response.status,
+        error: errorData,
+        service_id: serviceId,
+      });
+      let errorMessage = errorData.message || `Verification failed: ${response.status}`;
+      const lowerMessage = errorMessage.toLowerCase();
+      if (lowerMessage.includes('service currently not available') || lowerMessage.includes('service not available')) {
+        errorMessage = `Service currently not available for ${serviceId}. Please try again later or contact support.`;
+      } else if (lowerMessage.includes('invalid') && lowerMessage.includes('service')) {
+        errorMessage = `Invalid service ID: ${serviceId}. Please contact support.`;
+      }
+      throw new Error(errorMessage.trim());
     }
 
     try {
@@ -308,12 +308,10 @@ export async function verifyEBillsCableCustomer(
 
     return data;
   } catch (error) {
-    // Re-throw custom errors
-    if (error instanceof Error && (error.message.includes('eBills API') || error.message.includes('Service currently not available') || error.message.includes('Invalid service ID'))) {
+    if (error instanceof Error) {
       throw error;
     }
-    // Wrap other errors
-    throw new Error(`Failed to verify cable customer: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to verify cable customer: ${String(error)}`);
   }
 }
 
@@ -476,10 +474,13 @@ export interface EBillsTVVariationsResponse {
   code: string;
   message: string;
   data: Array<{
-    variation_id: string;
+    variation_id: string | number;
+    package_bouquet?: string;
     name?: string;
     variation_name?: string;
-    variation_amount: number;
+    variation_amount?: number | string;
+    price?: number | string;
+    availability?: string;
     variation_code?: string;
     [key: string]: any; // Allow additional fields
   }>;
@@ -864,25 +865,24 @@ export async function purchaseEBillsElectricity(
     if (!response.ok) {
       try {
         errorData = JSON.parse(responseText) as EBillsErrorResponse;
-        console.error('eBills electricity purchase error:', {
-          status: response.status,
-          errorCode: errorData.code,
-          errorMessage: errorData.message,
-          service_id: serviceId,
-          fullResponse: responseText,
-        });
-        
-        const errorMessage = mapEBillsElectricityError(errorData, response.status);
-        throw new Error(errorMessage);
-      } catch (jsonError) {
+      } catch {
         console.error('Failed to parse eBills error response:', {
-          jsonError,
           responseText: responseText.substring(0, 500),
           status: response.status,
           service_id: serviceId,
         });
         throw new Error(`eBills API error (Status: ${response.status}): ${responseText.substring(0, 200)}`);
       }
+
+      console.error('eBills electricity purchase error:', {
+        status: response.status,
+        errorCode: errorData.code,
+        errorMessage: errorData.message,
+        service_id: serviceId,
+        fullResponse: responseText,
+      });
+
+      throw new Error(mapEBillsElectricityError(errorData, response.status));
     }
 
     try {
@@ -1053,38 +1053,34 @@ export async function verifyEBillsBettingCustomer(
     if (!response.ok) {
       try {
         errorData = JSON.parse(responseText) as EBillsErrorResponse;
-        console.error('eBills API error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorCode: errorData.code,
-          errorMessage: errorData.message,
-          service_id: serviceId,
-          fullResponse: responseText,
-        });
-        
-        // Extract the actual error message
-        let errorMessage = errorData.message || `Verification failed: ${response.status}`;
-        
-        // Handle "Service currently not available" specifically
-        const lowerMessage = errorMessage.toLowerCase();
-        if (lowerMessage.includes('service currently not available') || 
-            lowerMessage.includes('service not available')) {
-          errorMessage = `Service currently not available for ${serviceId}. Please try again later or contact support.`;
-        } else if (lowerMessage.includes('invalid') && lowerMessage.includes('service')) {
-          errorMessage = `Invalid service ID: ${serviceId}. Please contact support.`;
-        }
-        
-        throw new Error(errorMessage);
-      } catch (jsonError) {
-        // If JSON parsing fails, return the raw response text as error
+      } catch {
         console.error('Failed to parse eBills error response as JSON:', {
-          jsonError,
           responseText: responseText.substring(0, 500),
           status: response.status,
           service_id: serviceId,
         });
         throw new Error(`eBills API error (Status: ${response.status}): ${responseText.substring(0, 200)}`);
       }
+
+      console.error('eBills API error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorCode: errorData.code,
+        errorMessage: errorData.message,
+        service_id: serviceId,
+        fullResponse: responseText,
+      });
+
+      let errorMessage = errorData.message || `Verification failed: ${response.status}`;
+      const lowerMessage = errorMessage.toLowerCase();
+      if (lowerMessage.includes('service currently not available') ||
+          lowerMessage.includes('service not available')) {
+        errorMessage = `Service currently not available for ${serviceId}. Please try again later or contact support.`;
+      } else if (lowerMessage.includes('invalid') && lowerMessage.includes('service')) {
+        errorMessage = `Invalid service ID: ${serviceId}. Please contact support.`;
+      }
+
+      throw new Error(errorMessage.trim());
     }
 
     try {
@@ -1223,55 +1219,55 @@ export async function purchaseEBillsBetting(
     if (!response.ok) {
       try {
         errorData = JSON.parse(responseText) as EBillsErrorResponse;
-        console.error('eBills API error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorCode: errorData.code,
-          errorMessage: errorData.message,
-          service_id: serviceId,
-          fullResponse: responseText,
-        });
-        
-        // Map HTTP status codes to specific error messages
-        let errorMessage = errorData.message || `Betting purchase failed: ${response.status}`;
-        
-        if (response.status === 400) {
-          // Handle specific 400 error codes from API
-          if (errorData.code === 'missing_fields') {
-            errorMessage = 'Required parameters missing';
-          } else if (errorData.code === 'invalid_service_id') {
-            errorMessage = `Invalid service ID: ${serviceId}`;
-          } else if (errorData.code === 'below_minimum_amount') {
-            errorMessage = 'Amount below minimum (₦100)';
-          } else if (errorData.code === 'above_maximum_amount') {
-            errorMessage = 'Amount above maximum (₦100,000)';
-          }
-        } else if (response.status === 402) {
-          if (errorData.code === 'insufficient_funds') {
-            errorMessage = 'Insufficient wallet balance';
-          }
-        } else if (response.status === 403) {
-          if (errorData.code === 'rest_forbidden') {
-            errorMessage = 'Unauthorized access. Please check your API credentials.';
-          }
-        } else if (response.status === 409) {
-          if (errorData.code === 'duplicate_request_id') {
-            errorMessage = 'Duplicate request ID';
-          } else if (errorData.code === 'duplicate_order') {
-            errorMessage = 'Duplicate order within 3 minutes';
-          }
-        }
-        
-        throw new Error(errorMessage);
-      } catch (jsonError) {
+      } catch {
         console.error('Failed to parse eBills error response as JSON:', {
-          jsonError,
           responseText: responseText.substring(0, 500),
           status: response.status,
           service_id: serviceId,
         });
         throw new Error(`eBills API error (Status: ${response.status}): ${responseText.substring(0, 200)}`);
       }
+
+      console.error('eBills API error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorCode: errorData.code,
+        errorMessage: errorData.message,
+        service_id: serviceId,
+        fullResponse: responseText,
+      });
+
+      // Map HTTP status codes to specific error messages
+      let errorMessage = errorData.message || `Betting purchase failed: ${response.status}`;
+
+      if (response.status === 400) {
+        // Handle specific 400 error codes from API
+        if (errorData.code === 'missing_fields') {
+          errorMessage = 'Required parameters missing';
+        } else if (errorData.code === 'invalid_service_id') {
+          errorMessage = `Invalid service ID: ${serviceId}`;
+        } else if (errorData.code === 'below_minimum_amount') {
+          errorMessage = 'Amount below minimum (₦100)';
+        } else if (errorData.code === 'above_maximum_amount') {
+          errorMessage = 'Amount above maximum (₦100,000)';
+        }
+      } else if (response.status === 402) {
+        if (errorData.code === 'insufficient_funds') {
+          errorMessage = 'Insufficient wallet balance';
+        }
+      } else if (response.status === 403) {
+        if (errorData.code === 'rest_forbidden') {
+          errorMessage = 'Unauthorized access. Please check your API credentials.';
+        }
+      } else if (response.status === 409) {
+        if (errorData.code === 'duplicate_request_id') {
+          errorMessage = 'Duplicate request ID';
+        } else if (errorData.code === 'duplicate_order') {
+          errorMessage = 'Duplicate order within 3 minutes';
+        }
+      }
+
+      throw new Error(errorMessage.trim());
     }
 
     try {

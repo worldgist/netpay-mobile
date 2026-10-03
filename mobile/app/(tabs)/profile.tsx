@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
 import { setBiometricLoginEnabled } from '@/utils/biometric-login-preference';
 import { clearAppCache } from '@/utils/clear-app-cache';
+import { showAlert, showConfirm } from '@/utils/show-alert';
 
 import { useProfile } from '@/contexts/profile-context';
 
@@ -359,48 +360,22 @@ export default function ProfileScreen() {
     await refresh();
   }, [refresh]);
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
+    const confirmed = await showConfirm('Logout', 'Are you sure you want to logout?', {
+      confirmText: 'Logout',
+      cancelText: 'Cancel',
+    });
+    if (!confirmed) return;
 
-    Alert.alert(
-
-      'Logout',
-
-      'Are you sure you want to logout?',
-
-      [
-
-        { text: 'Cancel', style: 'cancel' },
-
-        {
-
-          text: 'Logout',
-
-          style: 'destructive',
-
-          onPress: async () => {
-            try {
-              await clearAppCache();
-              await supabase.auth.signOut();
-              router.replace('/auth/login');
-
-            } catch (error) {
-
-              console.error('Failed to logout:', error);
-
-              const message = error instanceof Error ? error.message : 'Unable to log out. Please try again.';
-
-              Alert.alert('Logout', message);
-
-            }
-
-          },
-
-        },
-
-      ]
-
-    );
-
+    try {
+      await clearAppCache();
+      await supabase.auth.signOut();
+      router.replace('/auth/login');
+    } catch (error) {
+      console.error('Failed to logout:', error);
+      const message = error instanceof Error ? error.message : 'Unable to log out. Please try again.';
+      showAlert('Logout', message);
+    }
   }, [router]);
 
 

@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { supabase } from '@/lib/supabase';
+import { SeoHead } from '@/components/seo-head';
 
 const toWhatsAppNumber = (phone: string) => {
   const digits = phone.replace(/\D/g, '');
@@ -38,13 +39,15 @@ export default function ContactUsScreen() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
+        // Landing/web visitors can open Contact without signing in.
+        if (Platform.OS !== 'web') {
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) throw sessionError;
 
-        const session = sessionData.session;
-        if (!session) {
-          router.replace('/auth/login');
-          return;
+          if (!sessionData.session) {
+            router.replace('/auth/login');
+            return;
+          }
         }
 
         if (!isMounted.current) return;
@@ -148,6 +151,7 @@ export default function ContactUsScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <SeoHead page="contact" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#000" />

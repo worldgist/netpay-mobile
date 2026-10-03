@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "deploy": "npm run build && vercel deploy ./dist --prod --yes",
+    "deploy:preview": "npm run build && vercel deploy ./dist --yes",
     "lint": "eslint .",
     "preview": "vite preview",
     "supabase": "supabase",

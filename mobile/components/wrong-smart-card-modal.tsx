@@ -1,7 +1,10 @@
 import { Modal, StyleSheet, View, TouchableOpacity } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
-import { WRONG_SMART_CARD_DEFAULT_MESSAGE } from '@/utils/cable-smart-card-errors';
+import {
+  sanitizeSmartCardErrorMessage,
+  WRONG_SMART_CARD_DEFAULT_MESSAGE,
+} from '@/utils/cable-smart-card-errors';
 
 interface WrongSmartCardModalProps {
   visible: boolean;
@@ -26,6 +29,8 @@ export function WrongSmartCardModal({
     }
   };
 
+  const displayMessage = sanitizeSmartCardErrorMessage(message) || WRONG_SMART_CARD_DEFAULT_MESSAGE;
+
   return (
     <Modal
       visible={visible}
@@ -41,9 +46,7 @@ export function WrongSmartCardModal({
 
           <ThemedText style={styles.modalTitle}>Invalid Smart Card Number</ThemedText>
 
-          <ThemedText style={styles.modalMessage}>
-            {message || WRONG_SMART_CARD_DEFAULT_MESSAGE}
-          </ThemedText>
+          <ThemedText style={styles.modalMessage}>{displayMessage}</ThemedText>
 
           <View style={styles.tipsBox}>
             <ThemedText style={styles.tipsTitle}>Tips:</ThemedText>
