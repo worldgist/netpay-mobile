@@ -587,6 +587,23 @@ serve(async (req) => {
         // Extract customer details if available
         const customerName = purchaseResult.data.customer_name || customer_name || null;
         const customerAddress = purchaseResult.data.customer_address || customer_address || null;
+        const purchaseData = purchaseResult.data as Record<string, unknown>;
+        const purchaseDetails = purchaseData.details && typeof purchaseData.details === "object"
+          ? purchaseData.details as Record<string, unknown>
+          : {};
+        const readCustomerField = (value: unknown) => {
+          const text = String(value ?? "").trim();
+          if (!text || text.toLowerCase() === "null" || text.toLowerCase() === "undefined") return "";
+          return text;
+        };
+        const customerId =
+          readCustomerField(purchaseData.account_number) ||
+          readCustomerField(purchaseDetails.account_number) ||
+          readCustomerField(purchaseData.customer_number) ||
+          readCustomerField(purchaseDetails.customer_number) ||
+          readCustomerField(purchaseData.customer_id) ||
+          readCustomerField(purchaseDetails.customer_id) ||
+          null;
         const units = purchaseResult.data.units || null;
 
         console.log('Extracted transaction details:', {
@@ -775,6 +792,8 @@ serve(async (req) => {
               meterNumber: meter_number,
               meterType: meter_type,
               customerName: customerName,
+              customerAddress: customerAddress,
+              customerId: customerId,
               reference: reference,
               purchasedAt: new Date().toISOString(),
               balanceBefore: debitResult.balanceBefore,

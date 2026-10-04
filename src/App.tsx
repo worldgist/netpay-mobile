@@ -27,16 +27,8 @@ import VirtualAccounts from "./pages/VirtualAccounts";
 import DataPlans from "./pages/DataPlans";
 import AirtimeProviders from "./pages/AirtimeProviders";
 import ImportCableTransactions from "./pages/ImportCableTransactions";
-import ContactLanding from "./pages/ContactLanding";
-import PrivacyLanding from "./pages/PrivacyLanding";
-import TermsLanding from "./pages/TermsLanding";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsAndConditions from "./pages/TermsAndConditions";
-import About from "./pages/About";
-import Careers from "./pages/Careers";
-import Pricing from "./pages/Pricing";
-import FAQ from "./pages/FAQ";
-import Security from "./pages/Security";
 import HrManager from "./pages/HrManager";
 import ComplianceOfficer from "./pages/ComplianceOfficer";
 import NotFound from "./pages/NotFound";
@@ -128,15 +120,15 @@ const App = () => (
         <Route path="/admin/ledger/" element={<Navigate to="/ledger" replace />} />
         <Route path="/data-plans" element={<DataPlans />} />
         <Route path="/airtime" element={<AirtimeProviders />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/careers" element={<Careers />} />
-        <Route path="/pricing" element={<Pricing />} />
+        <Route path="/about" element={<Navigate to="/auth" replace />} />
+        <Route path="/careers" element={<Navigate to="/auth" replace />} />
+        <Route path="/pricing" element={<Navigate to="/auth" replace />} />
         <Route path="/support-admin" element={<SupportAdmin />} />
-        <Route path="/contact-us" element={<ContactLanding />} />
-        <Route path="/privacy" element={<PrivacyLanding />} />
-        <Route path="/terms" element={<TermsLanding />} />
-        <Route path="/faq" element={<FAQ />} />
-        <Route path="/security" element={<Security />} />
+        <Route path="/contact-us" element={<Navigate to="/auth" replace />} />
+        <Route path="/privacy" element={<Navigate to="/auth" replace />} />
+        <Route path="/terms" element={<Navigate to="/auth" replace />} />
+        <Route path="/faq" element={<Navigate to="/auth" replace />} />
+        <Route path="/security" element={<Navigate to="/auth" replace />} />
         <Route path="/compliance" element={<ComplianceOfficer />} />
         <Route path="/admin/privacy" element={<PrivacyPolicy />} />
         <Route path="/admin/terms" element={<TermsAndConditions />} />

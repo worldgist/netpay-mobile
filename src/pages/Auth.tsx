@@ -95,7 +95,6 @@ const Auth = () => {
   const [initializing, setInitializing] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const handlingAuthRef = useRef(false);
 
@@ -187,83 +186,39 @@ const Auth = () => {
 
       const trimmedEmail = email.trim().toLowerCase();
 
-      if (isSignUp) {
-        const { data: signUpData, error } = await supabase.auth.signUp({
+      const signInOnce = () =>
+        supabase.auth.signInWithPassword({
           email: trimmedEmail,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
-          },
         });
 
-        if (error) {
-          if (error.message.includes("already registered")) {
-            throw new Error("This email is already registered. Please sign in instead.");
-          }
-          throw error;
-        }
-
-        if (signUpData.user) {
-          try {
-            const { error: profileError } = await supabase
-              .from("profiles")
-              .upsert({
-                id: signUpData.user.id,
-                email: trimmedEmail,
-                full_name: trimmedEmail.split("@")[0],
-                balance: 0,
-                status: "active",
-              }, {
-                onConflict: "id",
-              });
-
-            if (profileError) {
-              console.error("Profile creation error:", profileError);
-            }
-          } catch (profileErr) {
-            console.error("Error ensuring profile exists:", profileErr);
-          }
-        }
-
-        toast.success("Account created! Check your email to verify your account.");
-        setIsSignUp(false);
-        setEmail("");
-        setPassword("");
-      } else {
-        const signInOnce = () =>
-          supabase.auth.signInWithPassword({
-            email: trimmedEmail,
-            password,
-          });
-
-        let { data, error } = await signInOnce();
-        if (error?.message?.toLowerCase().includes("failed to fetch")) {
-          ({ data, error } = await signInOnce());
-        }
-
-        if (error) {
-          throw new Error(authErrorMessage(error));
-        }
-
-        const user = data.user ?? data.session?.user;
-        if (!user) {
-          throw new Error("Sign in failed. Please try again.");
-        }
-
-        const access = await resolveAdminAccess(user);
-        if (access.allowed) {
-          toast.success("Signed in successfully!");
-          navigate("/dashboard");
-          return;
-        }
-
-        if (access.queryFailed) {
-          throw new Error("Could not verify admin access. Please try again.");
-        }
-
-        await supabase.auth.signOut();
-        throw new Error("Admin access required. Contact administrator.");
+      let { data, error } = await signInOnce();
+      if (error?.message?.toLowerCase().includes("failed to fetch")) {
+        ({ data, error } = await signInOnce());
       }
+
+      if (error) {
+        throw new Error(authErrorMessage(error));
+      }
+
+      const user = data.user ?? data.session?.user;
+      if (!user) {
+        throw new Error("Sign in failed. Please try again.");
+      }
+
+      const access = await resolveAdminAccess(user);
+      if (access.allowed) {
+        toast.success("Signed in successfully!");
+        navigate("/dashboard");
+        return;
+      }
+
+      if (access.queryFailed) {
+        throw new Error("Could not verify admin access. Please try again.");
+      }
+
+      await supabase.auth.signOut();
+      throw new Error("Admin access required. Contact administrator.");
     } catch (error: any) {
       setValidationError(error.message || "An error occurred during authentication");
     } finally {
@@ -296,7 +251,7 @@ const Auth = () => {
             NetPay Admin
           </CardTitle>
           <CardDescription className="text-base">
-            {isSignUp ? "Create your admin account" : "Sign in to your account"}
+            Sign in to your account
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -339,13 +294,8 @@ const Auth = () => {
                 disabled={loading}
                 minLength={6}
                 className="transition-smooth"
-                autoComplete={isSignUp ? "new-password" : "current-password"}
+                autoComplete="current-password"
               />
-              {isSignUp && (
-                <p className="text-xs text-muted-foreground">
-                  Password must be at least 6 characters long
-                </p>
-              )}
             </div>
             <Button
               type="submit"
@@ -358,20 +308,8 @@ const Auth = () => {
                   Processing...
                 </>
               ) : (
-                <>{isSignUp ? "Create Admin Account" : "Sign In to Dashboard"}</>
+                <>Sign In to Dashboard</>
               )}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setValidationError(null);
-              }}
-              disabled={loading}
-            >
-              {isSignUp ? "Already have an account? Sign in" : "Need an account? Sign up"}
             </Button>
           </form>
         </CardContent>

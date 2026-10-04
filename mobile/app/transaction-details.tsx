@@ -6,11 +6,13 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
+import { readElectricityCustomerAddress } from '@/utils/electricity-customer';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
 import { NGN_LOGO, FUND_WALLET_LABEL, buildTransactionTimestampFields, extractFundWalletBankName, formatBankDisplayName, formatTransactionDateTime, getFundWalletDepositLabel, getTransactionDisplayDateTime, getWalletTransactionLabel, isFundWalletTransaction } from '@/utils/transaction-display';
 import { buildTransactionReportMessage, submitTransactionReport } from '@/utils/report-transaction';
@@ -720,12 +722,13 @@ type DetailRowProps = {
   icon: keyof typeof MaterialIcons.glyphMap;
   label: string;
   value: string;
+  subtitle?: string;
   onCopy?: () => void;
   multiline?: boolean;
   isLast?: boolean;
 };
 
-function DetailRow({ icon, label, value, onCopy, multiline, isLast }: DetailRowProps) {
+function DetailRow({ icon, label, value, subtitle, onCopy, multiline, isLast }: DetailRowProps) {
   return (
     <View style={[styles.detailRow, isLast && styles.detailRowLast]}>
       <View style={styles.detailIconBox}>
@@ -733,9 +736,16 @@ function DetailRow({ icon, label, value, onCopy, multiline, isLast }: DetailRowP
       </View>
       <ThemedText style={styles.detailLabel}>{label}</ThemedText>
       <View style={styles.detailValueWrap}>
-        <ThemedText style={styles.detailValue} numberOfLines={multiline ? 3 : 2}>
-          {value}
-        </ThemedText>
+        <View style={styles.detailValueColumn}>
+          <ThemedText style={styles.detailValue} numberOfLines={multiline ? 3 : 2}>
+            {value}
+          </ThemedText>
+          {subtitle ? (
+            <ThemedText style={styles.detailSubtitle} numberOfLines={3}>
+              {subtitle}
+            </ThemedText>
+          ) : null}
+        </View>
         {onCopy ? (
           <TouchableOpacity onPress={onCopy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <MaterialIcons name="content-copy" size={18} color="#FF7F00" />
@@ -978,7 +988,7 @@ function TransactionDetailsScreen() {
       } else if (category === 'electricity') {
         const { data, error } = await supabase
           .from('electricity_transactions')
-          .select('id, amount, status, reference, created_at, provider, meter_number, meter_type, token, customer_name, api_response, user_id')
+          .select('id, amount, status, reference, created_at, provider, meter_number, meter_type, token, customer_name, customer_address, api_response, user_id')
           .eq('id', initialTransaction.id)
           .eq('user_id', userId)
           .maybeSingle();
@@ -987,7 +997,10 @@ function TransactionDetailsScreen() {
         if (data) {
           // Extract token - check database field first, then api_response
           let extractedToken = data.token;
-          let extractedAddress = (data as any)?.metadata?.customer_address || null;
+          const extractedAddress =
+            readElectricityCustomerAddress(data as any) ||
+            initialTransaction.metadata?.customerAddress ||
+            null;
           
           console.log('Transaction details - Electricity token extraction:', {
             hasDbToken: !!extractedToken,
@@ -997,22 +1010,6 @@ function TransactionDetailsScreen() {
           
           if ((data as any).api_response) {
             const apiResponse = (data as any).api_response;
-
-            if (!extractedAddress) {
-              extractedAddress =
-                apiResponse?.data?.customer_address ||
-                apiResponse?.data?.address ||
-                apiResponse?.customer_address ||
-                apiResponse?.address ||
-                null;
-
-              if (extractedAddress) {
-                extractedAddress = String(extractedAddress).trim();
-                if (extractedAddress === '' || extractedAddress.toLowerCase() === 'null') {
-                  extractedAddress = null;
-                }
-              }
-            }
 
             if (!extractedToken) {
               // Check multiple possible locations in api_response
@@ -1358,6 +1355,21 @@ function TransactionDetailsScreen() {
               font-weight: 600;
               text-align: right;
             }
+            .info-value-stack {
+              display: flex;
+              flex-direction: column;
+              align-items: flex-end;
+              max-width: 62%;
+            }
+            .info-subvalue {
+              display: block;
+              margin-top: 4px;
+              font-size: 12px;
+              font-weight: 500;
+              color: #667085;
+              text-align: right;
+              line-height: 1.4;
+            }
             .amount-section {
               background: #F5F5F5;
               border-radius: 8px;
@@ -1504,10 +1516,12 @@ function TransactionDetailsScreen() {
               ${transaction.metadata?.customerName ? `
               <div class="info-row">
                 <span class="info-label">Customer</span>
-                <span class="info-value">${transaction.metadata.customerName}</span>
+                <span class="info-value info-value-stack">
+                  <span>${transaction.metadata.customerName}</span>
+                  ${transaction.metadata?.customerAddress ? `<span class="info-subvalue">${transaction.metadata.customerAddress}</span>` : ''}
+                </span>
               </div>
-              ` : ''}
-              ${transaction.metadata?.customerAddress ? `
+              ` : transaction.metadata?.customerAddress ? `
               <div class="info-row">
                 <span class="info-label">Address</span>
                 <span class="info-value">${transaction.metadata.customerAddress}</span>
@@ -1696,12 +1710,24 @@ function TransactionDetailsScreen() {
         height: 792,
       });
 
+      const safeId = String(transaction.id || 'receipt').replace(/[^a-zA-Z0-9-]/g, '');
+      const cacheDir = FileSystem.cacheDirectory;
+      let shareUri = uri;
+      if (cacheDir) {
+        const targetUri = `${cacheDir}netpay-receipt-${safeId}.pdf`;
+        if (uri !== targetUri) {
+          await FileSystem.copyAsync({ from: uri, to: targetUri });
+        }
+        shareUri = targetUri;
+      }
+
       const isAvailable = await Sharing.isAvailableAsync();
 
       if (isAvailable) {
-        await Sharing.shareAsync(uri, {
+        await Sharing.shareAsync(shareUri, {
           mimeType: 'application/pdf',
           dialogTitle,
+          UTI: 'com.adobe.pdf',
         });
       } else {
         Alert.alert('Success', 'Receipt generated successfully!', [{ text: 'OK' }]);
@@ -1936,9 +1962,13 @@ function TransactionDetailsScreen() {
                     <DetailRow icon="school" label="Exam" value={transaction.metadata.examType} />
                   ) : null}
                   {transaction.metadata?.customerName ? (
-                    <DetailRow icon="badge" label="Customer" value={transaction.metadata.customerName} />
-                  ) : null}
-                  {transaction.metadata?.customerAddress ? (
+                    <DetailRow
+                      icon="badge"
+                      label="Customer"
+                      value={transaction.metadata.customerName}
+                      subtitle={transaction.metadata.customerAddress || undefined}
+                    />
+                  ) : transaction.metadata?.customerAddress ? (
                     <DetailRow
                       icon="home"
                       label="Address"
@@ -2318,12 +2348,23 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
-  detailValue: {
+  detailValueColumn: {
     flex: 1,
+    minWidth: 0,
+  },
+  detailValue: {
     fontSize: 13,
     fontWeight: '600',
     color: '#1A2B4A',
     textAlign: 'right',
+  },
+  detailSubtitle: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#667085',
+    textAlign: 'right',
+    lineHeight: 15,
   },
   highlightCard: {
     backgroundColor: '#FFF5E6',

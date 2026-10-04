@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readElectricityCustomerAddress } from '@/utils/electricity-customer';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
 import { buildTransactionTimestampFields, formatBankDisplayName } from '@/utils/transaction-display';
 
@@ -133,7 +134,7 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
         .limit(50),
       supabase
         .from('electricity_transactions')
-        .select('id, amount, provider, status, reference, created_at, meter_number, meter_type, token, customer_name, api_response, vending_provider')
+        .select('id, amount, provider, status, reference, created_at, meter_number, meter_type, token, customer_name, customer_address, api_response, vending_provider')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(50),
@@ -203,24 +204,10 @@ export async function loadMobileTransactions(userId: string): Promise<MobileTran
 
   const electricityTransactions: MobileTransaction[] = (electricityRes.data || []).map((txn) => {
     let extractedToken = txn.token;
-    let extractedAddress: string | null = null;
+    const extractedAddress = readElectricityCustomerAddress(txn as any);
 
     if ((txn as any).api_response) {
       const apiResponse = (txn as any).api_response;
-
-      extractedAddress =
-        apiResponse?.data?.customer_address ||
-        apiResponse?.data?.address ||
-        apiResponse?.customer_address ||
-        apiResponse?.address ||
-        null;
-
-      if (extractedAddress) {
-        extractedAddress = String(extractedAddress).trim();
-        if (extractedAddress === '' || extractedAddress.toLowerCase() === 'null') {
-          extractedAddress = null;
-        }
-      }
 
       if (!extractedToken) {
         extractedToken =

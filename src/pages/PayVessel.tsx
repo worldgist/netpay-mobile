@@ -185,11 +185,18 @@ export default function PayVessel() {
         let errorMessage = error.message || 'Failed to invoke PayVessel transactions function';
         
         // Try multiple ways to extract the error message
-        if (error.context) {
+        if (error.context && typeof error.context.json === 'function') {
+          try {
+            const errorBody = await error.context.json();
+            errorMessage = errorBody.error || errorBody.message || errorMessage;
+          } catch (e) {
+            console.error('Failed to parse error body:', e);
+          }
+        } else if (error.context) {
           console.error('Error context keys:', Object.keys(error.context));
           
           // Check if error has a response body
-          if (error.context.body) {
+          if (error.context.body && typeof error.context.body !== 'object') {
             try {
               const errorBody = typeof error.context.body === 'string' 
                 ? JSON.parse(error.context.body) 
@@ -291,9 +298,9 @@ export default function PayVessel() {
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <Wallet className="h-5 w-5 text-primary" />
-                    <CardTitle>Wallet Balance</CardTitle>
+                    <CardTitle>Available Balance</CardTitle>
                   </div>
-                  <CardDescription>Your current PayVessel wallet balance</CardDescription>
+                  <CardDescription>PayVessel funds available for transfer</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {loading ? (

@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { encodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 import { generateReceiptPDF, type ReceiptData } from "../_shared/pdf-receipt.ts";
+import { NETPAY_SITE_URL } from "../_shared/site-url.ts";
 import {
   getResendFromAddress,
   ResendApiError,
@@ -24,6 +26,8 @@ type ElectricityEmailPayload = {
   meterNumber: string;
   meterType?: string;
   customerName?: string;
+  customerAddress?: string;
+  customerId?: string;
   reference?: string;
   purchasedAt?: string;
   balanceBefore?: number;
@@ -109,9 +113,77 @@ const formatTimestamp = (value?: string) => {
   }
 };
 
+const ELECTRICITY_PROVIDER_LABELS: Record<string, string> = {
+  ABUJA: "ABUJA ELECTRICITY DISTRIBUTION COMPANY (AEDC)",
+  AEDC: "ABUJA ELECTRICITY DISTRIBUTION COMPANY (AEDC)",
+  IKEJA: "IKEJA ELECTRICITY DISTRIBUTION COMPANY (IKEDC)",
+  IKEDC: "IKEJA ELECTRICITY DISTRIBUTION COMPANY (IKEDC)",
+  EKO: "EKO ELECTRICITY DISTRIBUTION COMPANY (EKEDC)",
+  EKEDC: "EKO ELECTRICITY DISTRIBUTION COMPANY (EKEDC)",
+  KADUNA: "KADUNA ELECTRICITY DISTRIBUTION COMPANY (KAEDCO)",
+  KAEDC: "KADUNA ELECTRICITY DISTRIBUTION COMPANY (KAEDCO)",
+  KAEDCO: "KADUNA ELECTRICITY DISTRIBUTION COMPANY (KAEDCO)",
+  IBADAN: "IBADAN ELECTRICITY DISTRIBUTION COMPANY (IBEDC)",
+  IBEDC: "IBADAN ELECTRICITY DISTRIBUTION COMPANY (IBEDC)",
+  KANO: "KANO ELECTRICITY DISTRIBUTION COMPANY (KEDCO)",
+  KEDCO: "KANO ELECTRICITY DISTRIBUTION COMPANY (KEDCO)",
+  PORTHARCOURT: "PORT HARCOURT ELECTRICITY DISTRIBUTION COMPANY (PHED)",
+  "PORT-HARCOURT": "PORT HARCOURT ELECTRICITY DISTRIBUTION COMPANY (PHED)",
+  PHED: "PORT HARCOURT ELECTRICITY DISTRIBUTION COMPANY (PHED)",
+  PHEDC: "PORT HARCOURT ELECTRICITY DISTRIBUTION COMPANY (PHED)",
+  JOS: "JOS ELECTRICITY DISTRIBUTION COMPANY (JED)",
+  JED: "JOS ELECTRICITY DISTRIBUTION COMPANY (JED)",
+  BENIN: "BENIN ELECTRICITY DISTRIBUTION COMPANY (BEDC)",
+  BEDC: "BENIN ELECTRICITY DISTRIBUTION COMPANY (BEDC)",
+  YOLA: "YOLA ELECTRICITY DISTRIBUTION COMPANY (YEDC)",
+  YEDC: "YOLA ELECTRICITY DISTRIBUTION COMPANY (YEDC)",
+  ENUGU: "ENUGU ELECTRICITY DISTRIBUTION COMPANY (EEDC)",
+  EEDC: "ENUGU ELECTRICITY DISTRIBUTION COMPANY (EEDC)",
+  ABA: "ABA ELECTRICITY DISTRIBUTION COMPANY (ABEDC)",
+};
+
+const displayElectricityProvider = (provider: string) => {
+  const key = provider.trim().toUpperCase().replace(/\s+/g, "");
+  return ELECTRICITY_PROVIDER_LABELS[key] || provider.trim().toUpperCase();
+};
+
+const formatElectricityToken = (token: string) => {
+  const trimmed = token.trim();
+  if (!trimmed || trimmed.toLowerCase() === "processing...") return trimmed;
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 8) return trimmed;
+  return (digits.match(/.{1,4}/g) || [trimmed]).join(" - ");
+};
+
+const formatReceiptTimestamp = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Lagos",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(date);
+    const pick = (type: string) => parts.find((part) => part.type === type)?.value || "";
+    return `${pick("day")} ${pick("month")} ${pick("year")}, ${pick("hour")}:${pick("minute")}`;
+  } catch {
+    return formatTimestamp(value);
+  }
+};
+
+const titleCaseWord = (value: string) => {
+  const text = value.trim();
+  if (!text) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+};
+
 const buildElectricityEmail = (payload: ElectricityEmailPayload) => {
   const {
-    fullName,
     provider,
     token,
     amount,
@@ -119,100 +191,130 @@ const buildElectricityEmail = (payload: ElectricityEmailPayload) => {
     meterNumber,
     meterType,
     customerName,
+    customerAddress,
+    customerId,
     reference,
     purchasedAt,
   } = payload;
 
   const friendlyAmount = formatCurrency(amount);
   const friendlyUnits = typeof units === "number" && !Number.isNaN(units) ? `${units.toFixed(2)} kWh` : "";
-  const timestamp = formatTimestamp(purchasedAt);
+  const timestamp = formatReceiptTimestamp(purchasedAt);
+  const providerLabel = displayElectricityProvider(provider);
+  const formattedToken = formatElectricityToken(token);
+  const meterTypeLabel = meterType ? titleCaseWord(meterType) : "";
+  const addressHtml = customerAddress
+    ? escapeHtml(customerAddress).replace(/\r?\n/g, "<br>")
+    : "";
 
-  const subject = `Electricity Token - ${provider}`;
+  const subject = "Electricity Token Purchase Successful";
+
+  const detailRow = (label: string, value: string) => `
+    <tr>
+      <td style="padding: 14px 4px; border-bottom: 1px solid #F3E7DC;">
+        <div style="font-size: 11px; letter-spacing: 0.14em; color: #FF7A00; font-weight: 700;">${escapeHtml(label)}</div>
+        <div style="margin-top: 4px; font-size: 15px; line-height: 1.4; color: #1B2430; font-weight: 700;">${value}</div>
+      </td>
+    </tr>
+  `;
+
+  const rows = [
+    customerName ? detailRow("CUSTOMER NAME", escapeHtml(customerName)) : "",
+    customerId ? detailRow("CUSTOMER ID", escapeHtml(customerId)) : "",
+    detailRow("PROVIDER", escapeHtml(providerLabel)),
+    detailRow("METER NUMBER", escapeHtml(meterNumber)),
+    meterTypeLabel ? detailRow("METER TYPE", escapeHtml(meterTypeLabel)) : "",
+    friendlyAmount ? detailRow("AMOUNT PAID", escapeHtml(friendlyAmount)) : "",
+    friendlyUnits ? detailRow("UNITS", escapeHtml(friendlyUnits)) : "",
+    timestamp ? detailRow("PURCHASED", escapeHtml(timestamp)) : "",
+    reference ? detailRow("REFERENCE", escapeHtml(reference)) : "",
+    addressHtml ? detailRow("CUSTOMER ADDRESS", addressHtml) : "",
+  ].join("");
+
+  const logoUrl = Deno.env.get("NETPAY_LOGO_URL")
+    || (NETPAY_SITE_URL.replace(/\/$/, "") === "https://netppay.com"
+      ? "https://www.netppay.com/logo.png"
+      : `${NETPAY_SITE_URL.replace(/\/$/, "")}/logo.png`);
+
+  const tokenBlock = token.toLowerCase() === "processing..."
+    ? `<p style="margin: 0; font-size: 20px; font-weight: 700; color: #1B2430;">Processing...</p>
+       <p style="margin: 8px 0 0; font-size: 13px; color: #6B7280;">Your token will be available shortly. We will send an update once it is ready.</p>`
+    : `<p style="margin: 0; font-size: 22px; line-height: 1.35; font-weight: 800; color: #1B2430; letter-spacing: 0.04em;">${escapeHtml(formattedToken)}</p>
+       <p style="margin: 10px 0 0; font-size: 13px; color: #6B7280;">Enter this token on your meter to load your electricity.</p>`;
 
   const html = `
-    <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f2933; background-color: #fef2e8; padding: 32px;">
-      <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 22px; padding: 0; box-shadow: 0 24px 65px rgba(255,127,0,0.28); border: 1px solid rgba(255,127,0,0.16); overflow: hidden;">
-        <div style="background: linear-gradient(135deg, #ff7f00, #ff9f3f); padding: 30px 32px;">
-          <p style="margin: 0; font-size: 12px; letter-spacing: 0.42em; text-transform: uppercase; color: rgba(255,255,255,0.65); font-weight: 600;">NetPay Electricity</p>
-          <h1 style="margin: 12px 0 0; font-size: 24px; color: #ffffff;">Your Electricity Token</h1>
-          <p style="margin: 10px 0 0; color: rgba(255,255,255,0.85);">Thank you${fullName ? `, ${escapeHtml(fullName)}` : ""}! Here are the details of your purchase.</p>
-        </div>
-
-        <div style="padding: 32px;">
-        <div style="border-radius: 16px; background: linear-gradient(135deg, #ff9f3f, #ff7f00); padding: 22px; margin-bottom: 28px; box-shadow: 0 18px 38px rgba(255,127,0,0.28);">
-          <p style="margin: 0 0 10px; font-size: 13px; color: rgba(255,255,255,0.9); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600;">Token</p>
-          ${token === 'Processing...' ? `
-            <p style="margin: 0; font-size: 20px; font-weight: 600; color: #ffffff;">Processing...</p>
-            <p style="margin: 8px 0 0; font-size: 13px; color: rgba(255,255,255,0.85);">Your token will be available shortly. We'll send you an update once it's ready.</p>
-          ` : `
-            <p style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: 0.28em;">${escapeHtml(token)}</p>
-          `}
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 28px;">
-          ${customerName ? `
-            <div style="background: rgba(255,255,255,0.7); padding: 18px; border-radius: 14px; border: 1px solid rgba(255,127,0,0.18);">
-              <p style="margin: 0 0 8px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,127,0,0.7); font-weight: 600;">Customer Name</p>
-              <p style="margin: 0; font-size: 16px; color: #3b2f1d; font-weight: 600;">${escapeHtml(customerName)}</p>
-            </div>
-          ` : ""}
-          <div style="background: rgba(255,255,255,0.7); padding: 18px; border-radius: 14px; border: 1px solid rgba(255,127,0,0.18);">
-            <p style="margin: 0 0 8px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,127,0,0.7); font-weight: 600;">Provider</p>
-            <p style="margin: 0; font-size: 16px; color: #3b2f1d; font-weight: 600;">${escapeHtml(provider)}</p>
-          </div>
-          <div style="background: rgba(255,255,255,0.7); padding: 18px; border-radius: 14px; border: 1px solid rgba(255,127,0,0.18);">
-            <p style="margin: 0 0 8px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,127,0,0.7); font-weight: 600;">Meter Number</p>
-            <p style="margin: 0; font-size: 16px; color: #3b2f1d; font-weight: 600;">${escapeHtml(meterNumber)}</p>
-          </div>
-          ${meterType ? `
-            <div style="background: rgba(255,255,255,0.7); padding: 18px; border-radius: 14px; border: 1px solid rgba(255,127,0,0.18);">
-              <p style="margin: 0 0 8px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,127,0,0.7); font-weight: 600;">Meter Type</p>
-              <p style="margin: 0; font-size: 16px; color: #3b2f1d; font-weight: 600;">${escapeHtml(meterType)}</p>
-            </div>
-          ` : ""}
-          ${friendlyAmount ? `
-            <div style="background: rgba(255,255,255,0.7); padding: 18px; border-radius: 14px; border: 1px solid rgba(255,127,0,0.18);">
-              <p style="margin: 0 0 8px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,127,0,0.7); font-weight: 600;">Amount Paid</p>
-              <p style="margin: 0; font-size: 16px; color: #3b2f1d; font-weight: 600;">${friendlyAmount}</p>
-            </div>
-          ` : ""}
-          ${friendlyUnits ? `
-            <div style="background: rgba(255,255,255,0.7); padding: 18px; border-radius: 14px; border: 1px solid rgba(255,127,0,0.18);">
-              <p style="margin: 0 0 8px; text-transform: uppercase; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,127,0,0.7); font-weight: 600;">Units</p>
-              <p style="margin: 0; font-size: 16px; color: #3b2f1d; font-weight: 600;">${friendlyUnits}</p>
-            </div>
-          ` : ""}
-        </div>
-
-        ${(reference || timestamp) ? `
-          <div style="border-radius: 16px; background-color: rgba(255,127,0,0.08); padding: 18px; margin-bottom: 26px; border: 1px dashed rgba(255,127,0,0.32);">
-            ${reference ? `
-              <p style="margin: 0 0 6px; font-size: 13px; color: rgba(61,43,13,0.85);"><strong>Reference:</strong> ${escapeHtml(reference)}</p>
-            ` : ""}
-            ${timestamp ? `
-              <p style="margin: 0; font-size: 13px; color: rgba(61,43,13,0.85);"><strong>Purchased:</strong> ${escapeHtml(timestamp)}</p>
-            ` : ""}
-          </div>
-        ` : ""}
-
-        <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,127,0,0.12); border-radius: 16px; padding: 16px;">
-          <p style="margin: 0; font-size: 13px; color: rgba(50,30,8,0.85);">Need help? Reply to this email or contact NetPay support.</p>
-          <div style="width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #ffb347, #ff7f00); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;">NP</div>
-        </div>
-        </div>
-      </div>
+    <div style="margin: 0; padding: 24px 12px; background-color: #FFF7F0; font-family: 'Segoe UI', Arial, sans-serif;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 28px; overflow: hidden; border: 1px solid #FFE0C2;">
+        <tr>
+          <td style="background: #FF7A00; padding: 28px 28px 32px;">
+            <table role="presentation" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="background: #ffffff; border-radius: 16px; padding: 8px 12px;">
+                  <img src="${logoUrl}" width="148" alt="NetPay" style="display: block; border: 0; width: 148px; max-width: 148px; height: auto;">
+                </td>
+                <td style="padding-left: 14px; vertical-align: middle;">
+                  <div style="font-size: 11px; letter-spacing: 0.16em; color: rgba(255,255,255,0.92); font-weight: 700;">BILL PAYMENTS MADE EASY</div>
+                </td>
+              </tr>
+            </table>
+            <h1 style="margin: 28px 0 0; font-size: 32px; line-height: 1.15; color: #ffffff; font-weight: 800;">Electricity Token<br>Purchase Successful</h1>
+            <p style="margin: 14px 0 0; max-width: 360px; font-size: 15px; line-height: 1.5; color: rgba(255,255,255,0.92);">Your electricity token has been successfully generated and your payment was completed.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 22px 22px 8px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #FFF6EE; border-radius: 18px;">
+              <tr>
+                <td style="padding: 18px 18px 16px;">
+                  <div style="font-size: 12px; letter-spacing: 0.16em; color: #FF7A00; font-weight: 800;">ELECTRICITY TOKEN</div>
+                  <div style="margin-top: 8px;">${tokenBlock}</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 22px 8px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+              ${rows}
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 18px 22px 24px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #FAFAFA; border-radius: 18px;">
+              <tr>
+                <td style="padding: 18px;">
+                  <div style="font-size: 14px; font-weight: 800; color: #1B2430;">NetPay</div>
+                  <div style="margin-top: 8px; font-size: 13px; line-height: 1.5; color: #6B7280;">
+                    <a href="mailto:support@netppay.com" style="color: #6B7280; text-decoration: none;">support@netppay.com</a><br>
+                    <a href="https://netppay.com" style="color: #6B7280; text-decoration: none;">www.netppay.com</a><br>
+                    Your receipt is attached as a PDF.
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     </div>
   `;
 
   const text = `
-Electricity Token Details
+Electricity Token Purchase Successful
 
-Token: ${token}
-Provider: ${provider}
-${customerName ? `Customer Name: ${customerName}\n` : ""}Meter Number: ${meterNumber}
-${meterType ? `Meter Type: ${meterType}\n` : ""}${friendlyAmount ? `Amount Paid: ${friendlyAmount}\n` : ""}${friendlyUnits ? `Units: ${friendlyUnits}\n` : ""}${reference ? `Reference: ${reference}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}
+Your electricity token has been successfully generated and your payment was completed.
 
-Thank you for using NetPay.
+Token: ${formattedToken}
+${customerName ? `Customer Name: ${customerName}\n` : ""}${customerId ? `Customer ID: ${customerId}\n` : ""}Provider: ${providerLabel}
+Meter Number: ${meterNumber}
+${meterTypeLabel ? `Meter Type: ${meterTypeLabel}\n` : ""}${friendlyAmount ? `Amount Paid: ${friendlyAmount}\n` : ""}${friendlyUnits ? `Units: ${friendlyUnits}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}${reference ? `Reference: ${reference}\n` : ""}${customerAddress ? `Customer Address: ${customerAddress}\n` : ""}
+Enter this token on your meter to load your electricity.
+Your receipt is attached as a PDF.
+
+NetPay
+support@netppay.com
+https://netppay.com
   `.trim();
 
   return { subject, html, text };
@@ -486,6 +588,8 @@ const parseRequest = async (req: Request): Promise<PurchaseEmailPayload> => {
       meterNumber: normalizeString(body?.meterNumber),
       meterType: normalizeString(body?.meterType),
       customerName: normalizeString(body?.customerName),
+      customerAddress: normalizeString(body?.customerAddress ?? body?.customer_address),
+      customerId: normalizeString(body?.customerId ?? body?.customer_id ?? body?.account_number),
       reference: normalizeString(body?.reference),
       purchasedAt: normalizeString(body?.purchasedAt),
       balanceBefore: typeof body?.balanceBefore === "number" ? body.balanceBefore : Number(body?.balanceBefore),
@@ -573,6 +677,8 @@ serve(async (req) => {
         meterNumber: payload.meterNumber,
         meterType: payload.meterType,
         customerName: payload.customerName,
+        customerAddress: payload.customerAddress,
+        customerId: payload.customerId,
         token: payload.token,
         units: payload.units,
         chargeFee: payload.chargeFee,
@@ -607,12 +713,12 @@ serve(async (req) => {
       };
 
       const pdfBytes = await generateReceiptPDF(receiptData);
-      // Convert Uint8Array to base64
-      const pdfBase64 = btoa(String.fromCharCode.apply(null, Array.from(pdfBytes)));
-      const fileName = `NetPay-${payload.type}-${payload.reference || Date.now()}.pdf`;
+      const fileName = payload.type === "electricity"
+        ? `NetPay-Electricity-Receipt-${payload.reference || Date.now()}.pdf`
+        : `NetPay-${payload.type}-${payload.reference || Date.now()}.pdf`;
       pdfAttachment = {
         filename: fileName,
-        content: pdfBase64,
+        content: encodeBase64(pdfBytes),
       };
     } catch (pdfError) {
       console.error("Error generating PDF receipt:", pdfError);
@@ -627,7 +733,11 @@ serve(async (req) => {
       text,
       tags: [{ name: "notification_type", value: payload.type }],
       attachments: pdfAttachment
-        ? [{ filename: pdfAttachment.filename, content: pdfAttachment.content }]
+        ? [{
+          filename: pdfAttachment.filename,
+          content: pdfAttachment.content,
+          content_type: "application/pdf",
+        }]
         : undefined,
     });
 

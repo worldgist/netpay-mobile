@@ -90,60 +90,113 @@ serve(async (req) => {
       );
     }
 
-    console.log('Fetching PayVessel account balance...');
+    console.log('Fetching PayVessel available balance...');
 
-    // Fetch balance from PayVessel API
-    // Note: Adjust the endpoint based on PayVessel API documentation
-    const balanceResponse = await fetch('https://api.payvessel.com/pms/api/external/account/balance', {
-      method: 'GET',
-      headers: {
-        'api-key': payvesselApiKey,
-        'api-secret': `Bearer ${payvesselSecretKey}`,
-        'Content-Type': 'application/json',
-      },
+    const apiKey = payvesselApiKey.trim().replace(/^['"]|['"]$/g, '');
+    const apiSecret = payvesselSecretKey.trim().replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '').trim();
+
+    const readMoney = (value: unknown): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string') {
+        const parsed = Number(value.replace(/₦|ngn|,|\s/gi, '').trim());
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    const collectMoney = (value: unknown, found: Array<{ key: string; amount: number }>, depth = 0) => {
+      if (depth > 6 || value == null) return;
+      if (Array.isArray(value)) {
+        for (const item of value) collectMoney(item, found, depth + 1);
+        return;
+      }
+      if (typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        const amount = readMoney(child);
+        if (amount != null && /balance|amount/i.test(key) && !/limit|used|fee|charge/i.test(key)) {
+          found.push({ key, amount });
+        }
+        if (child && typeof child === 'object') collectMoney(child, found, depth + 1);
+      }
+    };
+
+    const businessId = payvesselBusinessId.trim();
+    const loadPayvessel = async (url: string, secretHeader: string) => {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'api-key': apiKey,
+          'api-secret': secretHeader,
+          'Authorization': secretHeader.startsWith('Bearer ') ? secretHeader : `Bearer ${secretHeader}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const responseText = await response.text();
+      let body: Record<string, any> | null = null;
+      try {
+        body = JSON.parse(responseText);
+      } catch {
+        body = null;
+      }
+      const failed = !response.ok || body?.success === false || body?.status === false || body?.status === 'error';
+      const fields: Array<{ key: string; amount: number }> = [];
+      if (!failed) collectMoney(body, fields);
+      return { failed, status: response.status, body, fields, message: body?.message || body?.error || responseText.slice(0, 180) };
+    };
+
+    const businessProfileUrl = (id: string) => `https://api.payvessel.com/ums/api/v2/business/${encodeURIComponent(id)}/`;
+    const balanceUrl = 'https://api.payvessel.com/pms/api/external/request/wallet/balance/';
+    const walletUrl = 'https://api.payvessel.com/pms/api/external/request/wallet/get-or-create/';
+    const [businessResult, balanceResult, walletResult] = await Promise.all([
+      loadPayvessel(businessProfileUrl(businessId), `Bearer ${apiSecret}`),
+      loadPayvessel(balanceUrl, apiSecret),
+      loadPayvessel(walletUrl, `Bearer ${apiSecret}`),
+    ]);
+
+    const walletBusinessId = walletResult.body?.data?.business_id;
+    const linkedBusinessResult = walletBusinessId && walletBusinessId !== businessId
+      ? await loadPayvessel(businessProfileUrl(String(walletBusinessId)), `Bearer ${apiSecret}`)
+      : null;
+
+    const results = [businessResult, linkedBusinessResult, balanceResult, walletResult].filter(Boolean);
+    const fields = results.flatMap((result) => result.fields);
+    const dashboardHit = fields.find((field) => field.key === 'wallet_balance');
+    const availableHit = fields.find((field) => /available_?balance/i.test(field.key) && field.amount > 0);
+    const balanceHit = fields.find((field) => field.key === 'balance' && field.amount > 0);
+    const amount = dashboardHit?.amount ?? availableHit?.amount ?? balanceHit?.amount ?? fields.find((field) => /available_?balance/i.test(field.key))?.amount;
+
+    if (amount == null) {
+      const errorMsg = businessResult.message || balanceResult.message || walletResult.message || 'Failed to fetch PayVessel available balance';
+      console.error('PayVessel API error:', errorMsg);
+      return new Response(
+        JSON.stringify({ success: false, error: errorMsg }),
+        { status: balanceResult.status || 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const walletBody = (!walletResult.failed ? walletResult.body : null)?.data;
+    const wallet = walletBody && typeof walletBody === 'object' && !Array.isArray(walletBody) ? walletBody : null;
+    const businessBody = (!businessResult.failed ? businessResult.body : linkedBusinessResult?.body)?.data;
+    const business = businessBody?.data && typeof businessBody.data === 'object' ? businessBody.data : businessBody;
+    const balanceData = (!balanceResult.failed ? balanceResult.body : null)?.data;
+
+    console.log('PayVessel available balance parsed:', {
+      statuses: results.map((result) => result.status),
+      fields: fields.map((field) => ({ key: field.key, amount: field.amount })),
+      amount,
     });
-
-    const responseText = await balanceResponse.text();
-    let balanceData;
-    
-    try {
-      balanceData = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse PayVessel response:', responseText);
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: `Invalid response from PayVessel API: ${responseText.substring(0, 200)}`
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('PayVessel balance response:', balanceData);
-
-    // Check if API returned an error
-    if (!balanceResponse.ok || balanceData.success === false) {
-      const errorMsg = balanceData.message || balanceData.error || 'Failed to fetch balance from PayVessel';
-      console.error('PayVessel API error:', errorMsg, balanceData);
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: errorMsg,
-          details: balanceData
-        }),
-        { status: balanceResponse.status || 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     const responseData = {
       success: true,
       balance: {
-        amount: parseFloat(balanceData.balance || balanceData.availableBalance || balanceData.data?.balance || '0'),
-        currency: balanceData.currency || balanceData.data?.currency || 'NGN',
+        amount,
+        availableBalance: amount,
+        currency: balanceData?.currency || wallet?.currency || 'NGN',
       },
       account: {
-        businessName: balanceData.businessName || balanceData.data?.businessName || 'PayVessel Account',
+        businessName: business?.name || wallet?.wallet_name || wallet?.account_name || 'PayVessel Account',
         businessId: payvesselBusinessId,
+        bankName: wallet?.bank_name || null,
       },
     };
 

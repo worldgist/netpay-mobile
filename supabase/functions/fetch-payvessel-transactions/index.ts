@@ -98,77 +98,101 @@ serve(async (req) => {
     }
     const { page = 1, per_page = 10, trans_id } = body;
 
-    let url: string;
-    if (trans_id) {
-      // Search by transaction ID
-      url = `https://api.payvessel.com/pms/api/external/transactions?transaction_id=${trans_id}`;
-      console.log('Searching transaction history for transaction:', trans_id);
-    } else {
-      // Get paginated transactions
-      url = `https://api.payvessel.com/pms/api/external/transactions?page=${page}&limit=${per_page}`;
-      console.log('Fetching transaction history - page:', page, 'per_page:', per_page);
-    }
+    const apiKey = payvesselApiKey.trim().replace(/^['"]|['"]$/g, '');
+    const apiSecret = payvesselSecretKey.trim().replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '');
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'api-key': payvesselApiKey,
-        'api-secret': `Bearer ${payvesselSecretKey}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const extractTransactions = (payload: any): any[] | null => {
+      const nested = payload?.data;
+      if (Array.isArray(payload)) return payload;
+      if (Array.isArray(nested)) return nested;
+      if (Array.isArray(nested?.transactions)) return nested.transactions;
+      if (Array.isArray(nested?.results)) return nested.results;
+      if (Array.isArray(payload?.transactions)) return payload.transactions;
+      if (Array.isArray(payload?.results)) return payload.results;
+      if (trans_id && nested && typeof nested === 'object') return [nested];
+      return null;
+    };
 
-    const responseText = await response.text();
-    let data;
-    
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse PayVessel response:', responseText);
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: `Invalid response from PayVessel API: ${responseText.substring(0, 200)}`
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('PayVessel transaction history response:', data);
-
-    // Check if API returned an error
-    if (!response.ok || data.success === false) {
-      const errorMsg = data.message || data.error || 'Failed to fetch transactions from PayVessel';
-      console.error('PayVessel API error:', errorMsg, data);
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: errorMsg,
-          details: data
-        }),
-        { status: response.status || 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Transform PayVessel response to match expected format
-    let transactions = [];
-    if (data.success && data.data) {
-      if (Array.isArray(data.data)) {
-        transactions = data.data;
-      } else if (trans_id) {
-        transactions = [data.data];
+    const loadPayvessel = async (url: string, secretHeader: string) => {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'api-key': apiKey,
+          'api-secret': secretHeader,
+          'Content-Type': 'application/json',
+        },
+      });
+      const responseText = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        data = null;
       }
-    } else if (data.transactions && Array.isArray(data.transactions)) {
-      transactions = data.transactions;
-    } else if (Array.isArray(data)) {
-      transactions = data;
+      const failed = !response.ok || data?.success === false || data?.status === false || data?.status === 'error';
+      return { failed, status: response.status, data, message: data?.message || data?.error || responseText.slice(0, 180) };
+    };
+
+    const walletResult = await loadPayvessel(
+      'https://api.payvessel.com/pms/api/external/request/wallet/get-or-create/',
+      `Bearer ${apiSecret}`,
+    );
+    const walletId = walletResult.data?.data?.id;
+    const pageQuery = `page=${encodeURIComponent(String(page))}&per_page=${encodeURIComponent(String(per_page))}`;
+    const referenceQuery = trans_id ? `&reference=${encodeURIComponent(String(trans_id))}` : '';
+    const urls = [
+      `https://api.payvessel.com/pms/api/external/request/wallet/transactions/?${pageQuery}${referenceQuery}`,
+      walletId ? `https://api.payvessel.com/pms/wallets/${walletId}/statement` : '',
+    ].filter(Boolean);
+
+    let transactions: any[] | null = null;
+    let lastError = 'Failed to fetch transactions from PayVessel';
+    for (const url of urls) {
+      for (const secretHeader of [`Bearer ${apiSecret}`, apiSecret]) {
+        const result = await loadPayvessel(url, secretHeader);
+        const extracted = extractTransactions(result.data);
+        if (!result.failed && extracted) {
+          transactions = extracted;
+          break;
+        }
+        lastError = result.message || lastError;
+        console.error('PayVessel transactions attempt failed:', { status: result.status, url: url.split('?')[0] });
+      }
+      if (transactions) break;
     }
+
+    if (!transactions) {
+      return new Response(
+        JSON.stringify({ success: false, error: lastError }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const normalized = transactions.map((transaction) => ({
+      ...transaction,
+      id: transaction.id || transaction.transaction_id || transaction.trans_id,
+      transaction_id: transaction.transaction_id || transaction.trans_id || transaction.id,
+      reference: transaction.reference || transaction.trans_id || transaction.session_id || transaction.id,
+      type: transaction.type || transaction.transaction_type || transaction.entry_type,
+      description: transaction.description || transaction.narration || transaction.gateway_response || transaction.message,
+      amount: transaction.amount,
+      status: transaction.status || 'success',
+      date: transaction.date || transaction.created_at || transaction.created_datetime || transaction.paid_at,
+      created_at: transaction.created_at || transaction.created_datetime || transaction.date || transaction.paid_at,
+    }));
+    const filtered = trans_id
+      ? normalized.filter((transaction) => {
+          const needle = String(trans_id).toLowerCase();
+          return [transaction.reference, transaction.transaction_id, transaction.id]
+            .some((value) => String(value || '').toLowerCase().includes(needle));
+        })
+      : normalized;
 
     const responseData = {
       success: true,
-      transactions: transactions,
-      message: data.message || 'Success',
-      statusCode: data.statusCode || 200,
+      transactions: filtered,
+      message: 'Success',
+      statusCode: 200,
     };
 
     return new Response(

@@ -483,13 +483,16 @@ export default function Treasury() {
     }
 
     if (payvesselRes.data?.success && payvesselRes.data.balance) {
-      const amount = Number(payvesselRes.data.balance.amount) || 0;
+      const amount = Number(
+        payvesselRes.data.balance.availableBalance ?? payvesselRes.data.balance.amount,
+      );
+      const available = Number.isFinite(amount) ? amount : 0;
       nextWallets[3] = {
         ...nextWallets[3],
-        balance: amount,
+        balance: available,
         currency: payvesselRes.data.balance.currency || "NGN",
-        status: walletStatusForBalance(amount, threshold),
-        subtitle: payvesselRes.data.account?.businessName || "Funding gateway",
+        status: walletStatusForBalance(available, threshold),
+        subtitle: "Available balance",
       };
     } else if (
       payvesselRes.data?.error?.toLowerCase?.().includes("not configured") ||

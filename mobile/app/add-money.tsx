@@ -99,6 +99,8 @@ export default function AddMoneyScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
+  const [virtualAccounts, setVirtualAccounts] = useState<VirtualAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
   const [nin, setNin] = useState('');
   const [savedNin, setSavedNin] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -190,13 +192,11 @@ export default function AddMoneyScreen() {
           return;
         }
 
-        const { data: accountData, error: accountError } = await supabase
+        const { data: accountRows, error: accountError } = await supabase
           .from('virtual_accounts')
-          .select('account_number, bank_name, account_name, bank_code, tracking_reference')
+          .select('account_number, bank_name, account_name, bank_code, tracking_reference, provider, updated_at')
           .eq('user_id', session.user.id)
-          .eq('provider', FLUTTERWAVE_PROVIDER)
-          .eq('bank_code', FLUTTERWAVE_BANK_CODE)
-          .maybeSingle();
+          .order('updated_at', { ascending: false });
 
         const { data: ninData } = await supabase
           .from('user_nin')
@@ -208,12 +208,27 @@ export default function AddMoneyScreen() {
           throw accountError;
         }
 
+        const accounts = ((accountRows || []) as Array<VirtualAccount & { provider?: string | null; updated_at?: string }>)
+          .filter((row) => String(row.account_number || '').replace(/\D/g, '').length >= 10)
+          .sort((a, b) => {
+            const aFlutterwave = String(a.provider || '').toLowerCase() === FLUTTERWAVE_PROVIDER ? 0 : 1;
+            const bFlutterwave = String(b.provider || '').toLowerCase() === FLUTTERWAVE_PROVIDER ? 0 : 1;
+            return aFlutterwave - bFlutterwave;
+          })
+          .map((row) => ({
+            account_number: row.account_number,
+            bank_name: row.bank_name,
+            account_name: row.account_name,
+            bank_code: row.bank_code,
+            tracking_reference: row.tracking_reference,
+          }));
+
         if (isMounted.current) {
           setSavedNin(ninData?.nin || null);
-          if (accountData) {
-            const account = accountData as VirtualAccount;
-            setVirtualAccount(account);
-            await writeCachedVirtualAccount(session.user.id, account);
+          setVirtualAccounts(accounts);
+          if (accounts.length > 0) {
+            setVirtualAccount(accounts[0]);
+            await writeCachedVirtualAccount(session.user.id, accounts[0]);
           } else {
             setVirtualAccount(null);
             await writeCachedVirtualAccount(session.user.id, null);
@@ -224,6 +239,7 @@ export default function AddMoneyScreen() {
       } finally {
         if (isMounted.current) {
           setRefreshing(false);
+          setAccountsLoading(false);
         }
       }
     },
@@ -240,8 +256,10 @@ export default function AddMoneyScreen() {
 
         if (userId) {
           const cachedAccount = await readCachedVirtualAccount(userId);
-          if (cachedAccount) {
+          if (cachedAccount?.account_number) {
             setVirtualAccount(cachedAccount);
+            setVirtualAccounts((current) => (current.length > 0 ? current : [cachedAccount]));
+            setAccountsLoading(false);
           }
         }
 
@@ -354,6 +372,10 @@ export default function AddMoneyScreen() {
           tracking_reference: account.tracking_reference || null,
         };
         setVirtualAccount(accountDetails);
+        setVirtualAccounts((current) => {
+          const withoutSame = current.filter((item) => item.account_number !== accountDetails.account_number);
+          return [accountDetails, ...withoutSame];
+        });
         await writeCachedVirtualAccount(userId, accountDetails);
         setNin('');
         setSavedNin(effectiveNin);
@@ -395,27 +417,12 @@ export default function AddMoneyScreen() {
     }
   };
 
-  const renderVirtualAccountCard = () => {
-    if (!virtualAccount) return null;
-
-    const bankName = virtualAccount.bank_name || 'Flutterwave';
+  const renderVirtualAccountCard = (account: VirtualAccount) => {
+    const bankName = account.bank_name || 'Bank';
 
     return (
       <View style={styles.vaHeroCard}>
         <View style={styles.vaHeroPatternTop} />
-        <View style={styles.vaHeroPatternBottom} />
-
-        <View style={styles.vaHeroTopRow}>
-          <View style={styles.vaHeroTopLeft}>
-            <View style={styles.vaHeroIconWrap}>
-              <MaterialIcons name="account-balance" size={22} color="#FF7F00" />
-            </View>
-            <View style={styles.vaActiveBadge}>
-              <View style={styles.vaActiveDot} />
-              <ThemedText style={styles.vaActiveText}>Active</ThemedText>
-            </View>
-          </View>
-        </View>
 
         <View style={styles.vaHeroBankRow}>
           <View style={styles.vaBankLogo}>
@@ -423,7 +430,13 @@ export default function AddMoneyScreen() {
           </View>
           <View style={styles.vaHeroField}>
             <ThemedText style={styles.vaHeroFieldLabel}>Bank</ThemedText>
-            <ThemedText style={styles.vaHeroFieldValue}>{bankName}</ThemedText>
+            <ThemedText style={styles.vaHeroFieldValue} numberOfLines={1}>
+              {bankName}
+            </ThemedText>
+          </View>
+          <View style={styles.vaActiveBadge}>
+            <View style={styles.vaActiveDot} />
+            <ThemedText style={styles.vaActiveText}>Active</ThemedText>
           </View>
         </View>
 
@@ -432,30 +445,30 @@ export default function AddMoneyScreen() {
         <View style={styles.vaHeroDetailRow}>
           <View style={styles.vaHeroField}>
             <ThemedText style={styles.vaHeroFieldLabel}>Account Number</ThemedText>
-            <ThemedText style={styles.vaHeroAccountNumber}>
-              {formatAccountNumber(virtualAccount.account_number)}
+            <ThemedText style={styles.vaHeroAccountNumber} numberOfLines={1}>
+              {formatAccountNumber(account.account_number)}
             </ThemedText>
           </View>
           <TouchableOpacity
             style={styles.vaHeroCopyIcon}
-            onPress={() => handleCopy(virtualAccount.account_number, 'Account number')}
+            onPress={() => handleCopy(account.account_number, 'Account number')}
             activeOpacity={0.85}>
-            <MaterialIcons name="content-copy" size={18} color="#fff" />
+            <MaterialIcons name="content-copy" size={16} color="#fff" />
           </TouchableOpacity>
         </View>
-
-        <View style={styles.vaHeroDivider} />
 
         <View style={styles.vaHeroDetailRow}>
           <View style={styles.vaHeroField}>
             <ThemedText style={styles.vaHeroFieldLabel}>Account Name</ThemedText>
-            <ThemedText style={styles.vaHeroFieldValue}>{virtualAccount.account_name}</ThemedText>
+            <ThemedText style={styles.vaHeroFieldValue} numberOfLines={1}>
+              {account.account_name}
+            </ThemedText>
           </View>
           <TouchableOpacity
             style={styles.vaHeroCopyIcon}
-            onPress={() => handleCopy(virtualAccount.account_name, 'Account name')}
+            onPress={() => handleCopy(account.account_name, 'Account name')}
             activeOpacity={0.85}>
-            <MaterialIcons name="content-copy" size={18} color="#fff" />
+            <MaterialIcons name="content-copy" size={16} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -574,11 +587,23 @@ export default function AddMoneyScreen() {
     </View>
   );
 
+  const hasVirtualAccount = virtualAccounts.length > 0 || Boolean(virtualAccount?.account_number);
+  const accountsToShow = virtualAccounts.length > 0 ? virtualAccounts : virtualAccount ? [virtualAccount] : [];
+
   const renderVirtualAccountScreen = () => (
     <>
-      {virtualAccount ? (
+      {accountsLoading && !hasVirtualAccount ? (
+        <View style={styles.autoCheckRow}>
+          <ActivityIndicator size="small" color="#FF7F00" />
+          <ThemedText style={styles.autoCheckText}>Loading your account number…</ThemedText>
+        </View>
+      ) : hasVirtualAccount ? (
         <>
-          {renderVirtualAccountCard()}
+          {accountsToShow.map((account) => (
+            <View key={`${account.bank_code}-${account.account_number}`}>
+              {renderVirtualAccountCard(account)}
+            </View>
+          ))}
 
           <View style={styles.infoBanner}>
             <View style={styles.infoIconContainer}>
@@ -624,7 +649,7 @@ export default function AddMoneyScreen() {
           <MaterialIcons name="arrow-back" size={24} color="#1A2B4A" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>
-          {virtualAccount ? 'Virtual Account' : 'Fund Wallet'}
+          {hasVirtualAccount ? 'Virtual Account' : 'Fund Wallet'}
         </ThemedText>
         <TouchableOpacity
           onPress={() => router.push('/contact-us')}
@@ -648,9 +673,11 @@ export default function AddMoneyScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF7F00" colors={['#FF7F00']} />
           }>
           <ThemedText style={styles.pageSubtitle} lightColor="#667085">
-            {virtualAccount
+            {hasVirtualAccount
               ? 'Use this account to fund your wallet'
-              : 'Set up your virtual account to fund your wallet'}
+              : accountsLoading
+                ? 'Loading your account number'
+                : 'Set up your virtual account to fund your wallet'}
           </ThemedText>
 
           {error ? (
@@ -716,87 +743,56 @@ const styles = StyleSheet.create({
   },
   vaHeroCard: {
     backgroundColor: '#FF7F00',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
     overflow: 'hidden',
   },
   vaHeroPatternTop: {
     position: 'absolute',
-    right: -20,
-    top: -30,
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    right: -16,
+    top: -24,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  vaHeroPatternBottom: {
-    position: 'absolute',
-    left: -40,
-    bottom: -50,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  vaHeroTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-  vaHeroTopLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 8,
-    paddingRight: 8,
-  },
-  vaHeroIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   vaActiveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    gap: 4,
   },
   vaActiveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#2E7D32',
   },
   vaActiveText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#1A2B4A',
   },
   vaHeroBankRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 4,
+    gap: 8,
   },
   vaBankLogo: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   vaBankLogoText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '800',
     color: '#FF7F00',
   },
@@ -805,31 +801,32 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   vaHeroFieldLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 4,
+    marginBottom: 1,
   },
   vaHeroFieldValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: '#fff',
   },
   vaHeroAccountNumber: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '800',
     color: '#fff',
-    letterSpacing: 0.8,
+    letterSpacing: 0.4,
   },
   vaHeroDivider: {
     height: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.22)',
-    marginVertical: 14,
+    marginVertical: 8,
   },
   vaHeroDetailRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
+    marginTop: 6,
   },
   vaHeroCopyIcon: {
     padding: 4,

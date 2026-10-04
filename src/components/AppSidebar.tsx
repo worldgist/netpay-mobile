@@ -16,7 +16,6 @@ import {
   Gift,
   FileText,
   UserCog,
-  LifeBuoy,
   ShieldCheck,
   Mail,
   Dices,
@@ -107,7 +106,6 @@ const menuSections: MenuSection[] = [
     label: "Support & Comms",
     items: [
       { title: "Live Support", url: "/support-admin", icon: Headset },
-      { title: "Contact Forms", url: "/contact-us", icon: LifeBuoy },
       { title: "Notifications", url: "/notifications", icon: Bell },
       { title: "Email Notifications", url: "/email-notifications", icon: Mail },
     ],

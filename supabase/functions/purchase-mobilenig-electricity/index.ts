@@ -481,6 +481,16 @@ serve(async (req) => {
                 meterNumber: sanitizedMeter,
                 meterType: meter_type,
                 customerName: customer_name,
+                customerAddress: customer_address,
+                customerId: String(
+                  details.details?.account_number ||
+                  details.account_number ||
+                  details.details?.customer_number ||
+                  details.customer_number ||
+                  details.details?.customer_id ||
+                  details.customer_id ||
+                  ""
+                ).trim() || undefined,
                 reference: apiReference,
                 purchasedAt: new Date().toISOString(),
                 balanceBefore: debitResult.balanceBefore,
