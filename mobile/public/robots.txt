@@ -3,6 +3,8 @@ Allow: /
 Allow: /landing
 Allow: /features
 Allow: /services
+Allow: /search
+Allow: /buy/
 Allow: /about-us
 Allow: /contact-us
 Allow: /faq

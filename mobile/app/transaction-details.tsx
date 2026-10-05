@@ -1,4 +1,4 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert, Share, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert, Modal, TextInput, KeyboardAvoidingView } from 'react-native';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -6,9 +6,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
@@ -16,6 +13,7 @@ import { readElectricityCustomerAddress } from '@/utils/electricity-customer';
 import { parseEducationPurchaseMetadata } from '@/utils/education';
 import { NGN_LOGO, FUND_WALLET_LABEL, buildTransactionTimestampFields, extractFundWalletBankName, formatBankDisplayName, formatTransactionDateTime, getFundWalletDepositLabel, getTransactionDisplayDateTime, getWalletTransactionLabel, isFundWalletTransaction } from '@/utils/transaction-display';
 import { buildTransactionReportMessage, submitTransactionReport } from '@/utils/report-transaction';
+import { shareTransactionReceiptPdf } from '@/utils/transaction-receipt-pdf';
 
 type DetailTransaction = {
   id: string;
@@ -146,11 +144,13 @@ const getStatusColor = (status: string) => {
 
 const getStatusLabel = (status: string) => {
   const normalized = status.toLowerCase();
+  if (normalized.includes('refund')) return 'Refunded';
+  if (normalized.includes('review')) return 'Requires review';
   if (normalized.includes('fail') || normalized.includes('cancel')) {
     return toTitle(status);
   }
-  if (normalized.includes('pending')) {
-    return 'Pending';
+  if (normalized.includes('pending') || normalized.includes('processing') || normalized.includes('queued')) {
+    return 'Processing';
   }
   return 'Completed';
 };
@@ -815,6 +815,7 @@ function TransactionDetailsScreen() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportMessage, setReportMessage] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [sharingReceipt, setSharingReceipt] = useState(false);
 
   const handleCopy = async (text: string, label: string) => {
     try {
@@ -1516,12 +1517,10 @@ function TransactionDetailsScreen() {
               ${transaction.metadata?.customerName ? `
               <div class="info-row">
                 <span class="info-label">Customer</span>
-                <span class="info-value info-value-stack">
-                  <span>${transaction.metadata.customerName}</span>
-                  ${transaction.metadata?.customerAddress ? `<span class="info-subvalue">${transaction.metadata.customerAddress}</span>` : ''}
-                </span>
+                <span class="info-value">${transaction.metadata.customerName}</span>
               </div>
-              ` : transaction.metadata?.customerAddress ? `
+              ` : ''}
+              ${transaction.metadata?.customerAddress ? `
               <div class="info-row">
                 <span class="info-label">Address</span>
                 <span class="info-value">${transaction.metadata.customerAddress}</span>
@@ -1694,52 +1693,61 @@ function TransactionDetailsScreen() {
     return lines.join('\n');
   };
 
-  const shareHtmlReceipt = async (dialogTitle = 'Share Transaction Receipt') => {
+  const shareHtmlReceipt = async () => {
+    if (sharingReceipt) return;
+    const pins = Array.isArray(transaction.metadata?.pins) ? transaction.metadata.pins : [];
+    const pinText = pins
+      .map((entry, index) => {
+        const pin = entry?.Pin?.trim();
+        if (!pin) return '';
+        const serial = entry?.Serial?.trim();
+        const label = pins.length > 1 ? `PIN ${index + 1}` : 'PIN';
+        return serial ? `${label}: ${pin} (Serial ${serial})` : `${label}: ${pin}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+    const amountText = `${transaction.type === 'credit' ? '+' : '-'} NGN ${Math.abs(transaction.amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const safeName = String(transaction.reference || transaction.id || 'receipt').replace(/[^a-zA-Z0-9-]/g, '');
+
     try {
-      const html = generateReceiptHTML();
-
-      if (Platform.OS === 'web') {
-        await Share.share({ message: buildShareMessage() });
-        return;
-      }
-
-      const { uri } = await Print.printToFileAsync({
-        html,
-        base64: false,
-        width: 612,
-        height: 792,
+      setSharingReceipt(true);
+      await shareTransactionReceiptPdf({
+        title: getTransactionTitle(category, transaction),
+        amountText,
+        status: getStatusLabel(transaction.status),
+        fileName: `NetPay-Receipt-${safeName}.pdf`,
+        rows: [
+          { label: 'Service', value: getServiceDisplayTitle(category, transaction) },
+          { label: 'Provider', value: transaction.provider || '' },
+          { label: 'Customer name', value: transaction.metadata?.customerName || '' },
+          { label: 'Customer address', value: transaction.metadata?.customerAddress || '' },
+          { label: 'Meter number', value: transaction.metadata?.meterNumber || '' },
+          { label: 'Meter type', value: transaction.metadata?.meterType || '' },
+          { label: 'Electricity token', value: transaction.metadata?.token || '' },
+          { label: 'Phone number', value: transaction.phoneNumber || '' },
+          { label: 'Plan', value: transaction.planName ? `${transaction.planName}${transaction.planValidity ? ` (${transaction.planValidity})` : ''}` : '' },
+          { label: 'Exam', value: transaction.metadata?.examType || '' },
+          { label: 'PIN', value: pinText || transaction.metadata?.educationPin || '' },
+          { label: 'Serial', value: pinText ? '' : transaction.metadata?.educationSerial || '' },
+          { label: 'Sender', value: transaction.sender || '' },
+          { label: 'Recipient', value: transaction.recipient || '' },
+          { label: 'Account number', value: transaction.metadata?.accountNumber || transaction.metadata?.account_number || '' },
+          { label: 'Bank', value: transaction.metadata?.bankName || '' },
+          { label: 'Date', value: getTransactionDisplayDateTime(transaction) },
+          { label: 'Reference', value: transaction.reference || '' },
+          { label: 'Transaction ID', value: transaction.id },
+        ],
       });
-
-      const safeId = String(transaction.id || 'receipt').replace(/[^a-zA-Z0-9-]/g, '');
-      const cacheDir = FileSystem.cacheDirectory;
-      let shareUri = uri;
-      if (cacheDir) {
-        const targetUri = `${cacheDir}netpay-receipt-${safeId}.pdf`;
-        if (uri !== targetUri) {
-          await FileSystem.copyAsync({ from: uri, to: targetUri });
-        }
-        shareUri = targetUri;
-      }
-
-      const isAvailable = await Sharing.isAvailableAsync();
-
-      if (isAvailable) {
-        await Sharing.shareAsync(shareUri, {
-          mimeType: 'application/pdf',
-          dialogTitle,
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        Alert.alert('Success', 'Receipt generated successfully!', [{ text: 'OK' }]);
-      }
     } catch (error) {
       console.error('Error sharing receipt:', error);
-      Alert.alert('Error', 'Failed to share receipt. Please try again.');
+      Alert.alert('Share', 'Failed to create the PDF receipt. Please try again.');
+    } finally {
+      setSharingReceipt(false);
     }
   };
 
   const handleShare = async () => {
-    await shareHtmlReceipt('Share Transaction Receipt');
+    await shareHtmlReceipt();
   };
 
   const statusLabel = getStatusLabel(transaction.status);
@@ -1820,8 +1828,11 @@ function TransactionDetailsScreen() {
           <MaterialIcons name="arrow-back" size={24} color="#FF7F00" />
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>Transaction Details</ThemedText>
-        <TouchableOpacity onPress={handleShare} style={styles.headerSideButton}>
-          <MaterialIcons name="share" size={22} color="#FF7F00" />
+        <TouchableOpacity
+          onPress={handleShare}
+          disabled={sharingReceipt || loading}
+          style={styles.headerSideButton}>
+          <MaterialIcons name={sharingReceipt ? 'hourglass-top' : 'share'} size={22} color="#FF7F00" />
         </TouchableOpacity>
       </View>
 
@@ -1966,9 +1977,9 @@ function TransactionDetailsScreen() {
                       icon="badge"
                       label="Customer"
                       value={transaction.metadata.customerName}
-                      subtitle={transaction.metadata.customerAddress || undefined}
                     />
-                  ) : transaction.metadata?.customerAddress ? (
+                  ) : null}
+                  {transaction.metadata?.customerAddress ? (
                     <DetailRow
                       icon="home"
                       label="Address"

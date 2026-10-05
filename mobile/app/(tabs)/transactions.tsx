@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Platform,
   Modal,
+  Alert,
 } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -23,6 +24,7 @@ import {
 } from '@/contexts/transactions-context';
 import { getWalletTransactionLabel, getTransactionDisplayDateTime, isFundWalletTransaction, NGN_LOGO } from '@/utils/transaction-display';
 import { buildTransactionDetailsHref } from '@/utils/transaction-navigation';
+import { shareTransactionReceiptPdf } from '@/utils/transaction-receipt-pdf';
 import {
   isTransactionStatusFailed,
   isTransactionStatusPending,
@@ -310,6 +312,50 @@ export default function TransactionsScreen() {
   const showInitialLoading = loading && transactions.length === 0;
   const activeFilterLabel = FILTER_OPTIONS.find((option) => option.id === activeFilter)?.label ?? 'All Transactions';
 
+  const shareHistoryReceipt = useCallback(async (transaction: MobileTransaction) => {
+    const extra = transaction.extra || {};
+    const amount = Math.abs(Number(transaction.amount) || 0);
+    const pins = Array.isArray(extra.pins) ? extra.pins : [];
+    const pinText = pins
+      .map((entry: { Pin?: string; Serial?: string }, index: number) => {
+        const pin = String(entry?.Pin || '').trim();
+        if (!pin) return '';
+        const serial = String(entry?.Serial || '').trim();
+        const label = pins.length > 1 ? `PIN ${index + 1}` : 'PIN';
+        return serial ? `${label}: ${pin} (Serial ${serial})` : `${label}: ${pin}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+    const safeName = String(transaction.reference || transaction.id).replace(/[^a-zA-Z0-9-]/g, '');
+
+    try {
+      await shareTransactionReceiptPdf({
+        title: renderTransactionTitle(transaction),
+        amountText: `${transaction.type === 'credit' ? '+' : '-'} NGN ${amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        status: getStatusLabel(transaction),
+        fileName: `NetPay-Receipt-${safeName}.pdf`,
+        rows: [
+          { label: 'Service', value: transaction.serviceType || '' },
+          { label: 'Provider', value: transaction.provider || '' },
+          { label: 'Customer name', value: String(extra.customerName || extra.customer_name || '') },
+          { label: 'Customer address', value: String(extra.customerAddress || extra.customer_address || '') },
+          { label: 'Meter number', value: String(extra.meter_number || '') },
+          { label: 'Meter type', value: String(extra.meterType || '') },
+          { label: 'Electricity token', value: String(extra.token || '') },
+          { label: 'Phone number', value: String(extra.phone_number || '') },
+          { label: 'Exam', value: String(extra.examType || '') },
+          { label: 'PIN', value: pinText || String(extra.educationPin || '') },
+          { label: 'Date', value: getTransactionDisplayDateTime(transaction) },
+          { label: 'Reference', value: transaction.reference || '' },
+          { label: 'Transaction ID', value: transaction.id },
+        ],
+      });
+    } catch (error) {
+      console.error('Error sharing transaction receipt:', error);
+      Alert.alert('Share', 'Failed to create the PDF receipt. Please try again.');
+    }
+  }, []);
+
   const content = useMemo(() => {
     if (showInitialLoading) {
       return (
@@ -375,6 +421,16 @@ export default function TransactionsScreen() {
             </View>
 
             <View style={styles.transactionAmountContainer}>
+              <TouchableOpacity
+                onPress={(event) => {
+                  event.stopPropagation();
+                  void shareHistoryReceipt(transaction);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.shareButton}
+                accessibilityLabel="Share PDF receipt">
+                <MaterialIcons name="share" size={18} color={APP_COLORS.brand} />
+              </TouchableOpacity>
               <ThemedText
                 style={[
                   styles.transactionAmount,
@@ -419,7 +475,7 @@ export default function TransactionsScreen() {
         </TouchableOpacity>
       );
     });
-  }, [activeFilter, handleTransactionPress, paginatedTransactions, showInitialLoading, totalCount]);
+  }, [activeFilter, handleTransactionPress, paginatedTransactions, shareHistoryReceipt, showInitialLoading, totalCount]);
 
   return (
     <ThemedView style={styles.container}>
@@ -698,6 +754,15 @@ const styles = StyleSheet.create({
   transactionAmountContainer: {
     alignItems: 'flex-end',
     flexShrink: 0,
+  },
+  shareButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: APP_COLORS.brandLight,
+    marginBottom: 6,
   },
   transactionAmount: {
     fontSize: 15,

@@ -6,10 +6,11 @@ import {
   extractEducationInstructions,
   sendEducationPinEmail,
 } from "../_shared/education-pin-email.ts";
+import { beginBillPurchase, purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, idempotency-key',
 };
 
 // MobileNig Service IDs for Education
@@ -152,24 +153,33 @@ serve(async (req) => {
       );
     }
 
-    // Create Supabase client
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: authHeader },
-        },
-      }
-    );
-
-    // Verify authentication
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+    const replayUserId = queuedUserId(req);
+    let supabaseClient;
+    let user: { id: string };
+    if (replayUserId) {
+      supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       );
+      user = { id: replayUserId };
+    } else {
+      supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        {
+          global: {
+            headers: { Authorization: authHeader },
+          },
+        }
+      );
+      const { data: { user: authUser }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     // Parse request body
@@ -198,6 +208,28 @@ serve(async (req) => {
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    const educationFee = Math.round(purchaseAmount * 0.07 * 100) / 100;
+    const { data: educationProfile } = await supabaseClient.from('profiles').select('balance').eq('id', user.id).maybeSingle();
+    const educationBalance = Number(educationProfile?.balance) || 0;
+    const queuedEducation = await beginBillPurchase({
+      req,
+      supabase: supabaseClient,
+      userId: user.id,
+      service: 'education',
+      body: body as unknown as Record<string, unknown>,
+      amount: purchaseAmount + educationFee,
+      pendingRow: {
+        purchase_amount: purchaseAmount,
+        charge_fee: educationFee,
+        balance_before: educationBalance,
+        balance_after: educationBalance,
+        exam_type: String(exam_type).toUpperCase(),
+        phone_number: phone_number || null,
+        performed_by: user.id,
+      },
+    });
+    if (queuedEducation) return queuedEducation;
 
     // Get education service details (optional - if not found, use exam_type to derive service_id)
     let educationService: any = null;
@@ -260,7 +292,7 @@ serve(async (req) => {
 
     // serviceId already determined above
     const transId = generateTransId();
-    const reference = `EDU-${transId}-${Date.now()}`;
+    const reference = purchaseReference(req, body as { __queued_reference?: unknown }, `EDU-${transId}-${Date.now()}`);
 
     console.log('Purchasing education service:', {
       exam_type: exam_type.toUpperCase(),

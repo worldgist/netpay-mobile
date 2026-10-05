@@ -29,58 +29,57 @@ export const LANDING_SERVICES: {
   icon: IconName;
   subtitle?: string;
   description: string;
+  slug?: string;
 }[] = [
   {
     title: 'Airtime Top-up',
     icon: 'smartphone',
     description: 'Instant top-ups for MTN, Airtel, Glo, 9mobile and more at competitive rates.',
+    slug: 'airtime',
   },
   {
     title: 'Data Bundles',
     icon: 'wifi',
     description: 'Daily, weekly and monthly data plans for every lifestyle and budget.',
+    slug: 'data',
   },
   {
     title: 'Electricity Bills',
     icon: 'bolt',
     description: 'Buy prepaid tokens and settle electricity bills across major discos nationwide.',
+    slug: 'electricity',
   },
   {
     title: 'Cable TV',
     icon: 'tv',
     subtitle: 'DStv, GOtv, Startimes',
     description: 'Renew DStv, GOtv, Startimes and other entertainment packages in seconds.',
+    slug: 'cable-tv',
   },
   {
     title: 'Education',
     icon: 'school',
     subtitle: 'WAEC, NECO, JAMB',
     description: 'Get WAEC, NECO, JAMB and result checker PINs without the stress.',
+    slug: 'education',
   },
   {
     title: 'Betting Funding',
     icon: 'casino',
     description: 'Fund Bet9ja, SportyBet, BetKing and other top platforms instantly.',
+    slug: 'betting',
   },
   {
-    title: 'Internet & Subscriptions',
-    icon: 'language',
-    description: 'Pay for broadband, Wi-Fi and digital subscriptions from one wallet.',
+    title: 'Fund Wallet',
+    icon: 'account-balance-wallet',
+    description: 'Fund your NetPay wallet with a dedicated virtual account number.',
+    slug: 'wallet',
   },
   {
-    title: 'Water Bills',
-    icon: 'opacity',
-    description: 'Settle water and municipal utility payments quickly and securely.',
-  },
-  {
-    title: 'Event Tickets',
-    icon: 'confirmation-number',
-    description: 'Buy tickets for events and experiences without leaving the app.',
-  },
-  {
-    title: 'More Services',
-    icon: 'apps',
-    description: 'Transfers, wallet funding and more everyday payment tools in one place.',
+    title: 'Transfers',
+    icon: 'send',
+    description: 'Send money to other NetPay users from your wallet.',
+    slug: 'transfer',
   },
 ];
 

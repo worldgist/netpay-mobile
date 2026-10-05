@@ -12,6 +12,7 @@ import {
 import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { resolveEbillsPurchaseResult } from "../_shared/ebills-reconcile.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -47,13 +48,19 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     let parsedBody: Record<string, unknown> = {};
@@ -358,7 +365,7 @@ serve(async (req) => {
     const orderStatus = resolved.orderStatus;
 
     const orderData = purchaseResult.data || {};
-    const reference = String(orderData.request_id || requestId);
+    const reference = purchaseReference(req, parsedBody, String(orderData.request_id || requestId));
     const orderId = orderData.order_id;
 
     if (orderStatus.shouldRefund) {

@@ -165,6 +165,7 @@ export default function ElectricityScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [purchaseInFlight, setPurchaseInFlight] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [outcomeSheet, setOutcomeSheet] = useState<{
     visible: boolean;
     variant: PurchaseOutcomeSheetVariant;
@@ -708,19 +709,24 @@ export default function ElectricityScreen() {
       }
 
       let responseData: any = null;
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = `elec-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
+      const purchaseBody = {
+        meter_number: sanitizedMeter,
+        provider: selectedProvider,
+        meter_type: meterType,
+        amount: purchaseAmount,
+        customer_name: verifiedName || undefined,
+        customer_address: verifiedAddress || undefined,
+        minimum_vend: meterInfo?.minimum_vend || undefined,
+        idempotency_key: idempotencyKeyRef.current,
+      };
 
       // Use the unified purchase-electricity endpoint which routes based on admin settings
       try {
         const { data, error } = await supabase.functions.invoke('purchase-electricity', {
-          body: {
-            meter_number: sanitizedMeter,
-            provider: selectedProvider,
-            meter_type: meterType,
-            amount: purchaseAmount,
-            customer_name: verifiedName || undefined,
-            customer_address: verifiedAddress || undefined,
-            minimum_vend: meterInfo?.minimum_vend || undefined,
-          },
+          body: purchaseBody,
         });
 
         if (error) {
@@ -824,15 +830,7 @@ export default function ElectricityScreen() {
             'Authorization': `Bearer ${refreshedSession.access_token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            meter_number: sanitizedMeter,
-            provider: selectedProvider,
-            meter_type: meterType,
-            amount: purchaseAmount,
-            customer_name: verifiedName || undefined,
-            customer_address: verifiedAddress || undefined,
-            minimum_vend: meterInfo?.minimum_vend || undefined,
-          }),
+          body: JSON.stringify(purchaseBody),
         });
 
         const responseText = await response.text();
@@ -951,6 +949,8 @@ export default function ElectricityScreen() {
 
       const purchaseOutcome = parsePurchaseResponse(responseData, true);
       if (purchaseOutcome.kind === 'pending') {
+        idempotencyKeyRef.current = null;
+        void fetchBalance();
         showPurchaseOutcome('pending', purchaseOutcome.message);
         return;
       }
@@ -1688,7 +1688,11 @@ export default function ElectricityScreen() {
         );
       })()}
 
-      <PurchaseProgressOverlay visible={purchaseInFlight} />
+      <PurchaseProgressOverlay
+        visible={purchaseInFlight}
+        title="Processing electricity purchase..."
+        hint="You can leave this screen. Your token will show in Transactions and by email."
+      />
 
       <PurchaseOutcomeSheet
         visible={outcomeSheet.visible}

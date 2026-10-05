@@ -30,6 +30,9 @@ export function readElectricityCustomerAddress(source: {
     api?.details?.customer_address,
     api?.details?.customerAddress,
     api?.details?.address,
+    api?.details?.details?.customerAddress,
+    api?.details?.details?.address,
+    api?.details?.details?.customer_address,
   ];
 
   for (const candidate of candidates) {

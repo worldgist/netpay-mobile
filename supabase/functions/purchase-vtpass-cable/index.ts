@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -104,12 +105,19 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      user = authUser;
     }
 
     let parsedBody: Record<string, unknown> | null = null;
@@ -341,7 +349,7 @@ serve(async (req) => {
       );
     }
 
-    const reference = vtpassRequestId;
+    const reference = purchaseReference(req, parsedBody, vtpassRequestId);
 
     // Debit wallet (debit total amount including fee)
     const debitResult = await debitUserWallet({

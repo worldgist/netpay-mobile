@@ -5,7 +5,7 @@
   "scripts": {
     "start": "expo start --clear --lan --go",
     "export:web": "expo export -p web && node ./scripts/fix-expo-web-fonts.js && node ./scripts/write-seo-files.js",
-    "deploy:web": "npm run export:web && node -e \"require('fs').writeFileSync('dist/vercel.json', JSON.stringify({framework:null,headers:[{source:'/sw.js',headers:[{key:'Cache-Control',value:'no-cache, no-store, must-revalidate'},{key:'Service-Worker-Allowed',value:'/'}]},{source:'/manifest.webmanifest',headers:[{key:'Content-Type',value:'application/manifest+json'}]}],rewrites:[{source:'/((?!_expo/|assets/|robots\\\\.txt|sitemap\\\\.xml|og-image\\\\.png|logo\\\\.png|favicon\\\\.ico|manifest\\\\.webmanifest|sw\\\\.js|pwa-192\\\\.png|pwa-512\\\\.png|apple-touch-icon\\\\.png).*)',destination:'/'}]},null,2)+'\\n')\" && npx vercel deploy dist --prod --yes --scope netpayuser-2571s-projects --project netpay-expo",
+    "deploy:web": "npm run export:web && node -e \"require('fs').writeFileSync('dist/vercel.json', JSON.stringify({framework:null,headers:[{source:'/sw.js',headers:[{key:'Cache-Control',value:'no-cache, no-store, must-revalidate'},{key:'Service-Worker-Allowed',value:'/'}]},{source:'/manifest.webmanifest',headers:[{key:'Content-Type',value:'application/manifest+json'}]}],rewrites:[{source:'/((?!_expo/|assets/|robots\\\\.txt|sitemap\\\\.xml|og-image\\\\.png|logo\\\\.png|favicon\\\\.ico|manifest\\\\.webmanifest|sw\\\\.js|pwa-192\\\\.png|pwa-512\\\\.png|apple-touch-icon\\\\.png|buy/(?:airtime|data|electricity|cable-tv|education|betting|wallet|transfer)|search).*)',destination:'/'}]},null,2)+'\\n')\" && npx vercel deploy dist --prod --yes --scope netpayuser-2571s-projects --project netpay-expo",
     "start:dev": "expo start --clear --lan --dev-client",
     "start:usb": "powershell -ExecutionPolicy Bypass -File ./scripts/connect-android-usb.ps1",
     "reset-project": "node ./scripts/reset-project.js",
@@ -34,6 +34,7 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "@supabase/supabase-js": "^2.80.0",
+    "@vercel/analytics": "^2.0.1",
     "expo": "~57.0.26",
     "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.17",

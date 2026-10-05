@@ -427,6 +427,16 @@ const PurchaseElectricity = () => {
         business_unit: meterInfo?.business_unit,
       });
 
+      const queuedStatus = String(result.status || result.data?.status || "").toUpperCase();
+      if (result.success && (queuedStatus === "PROCESSING" || queuedStatus === "REQUIRES_REVIEW")) {
+        toast({
+          title: queuedStatus === "REQUIRES_REVIEW" ? "Purchase needs review" : "Processing electricity purchase",
+          description: result.message || "You can leave this page. Your token will show in Transactions and by email.",
+        });
+        setPurchasing(false);
+        return;
+      }
+
       if (result.success) {
         setTransactionDetails(result.data);
       setShowSuccess(true);

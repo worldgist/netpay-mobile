@@ -9,6 +9,8 @@ import {
   goLandingLogin,
   useLandingLayout,
 } from '@/components/landing/landing-shell';
+import { FeatureSearch } from '@/components/landing/feature-search';
+import { featurePath } from '@/constants/seo-features';
 import {
   LANDING_BRAND as BRAND,
   LANDING_PROVIDERS,
@@ -29,6 +31,7 @@ export default function ServicesPage() {
           Pay airtime, data, electricity, cable TV, education, betting and more from a single secure
           wallet — anytime you need it.
         </ThemedText>
+        <FeatureSearch />
         <Pressable style={styles.cta} onPress={() => void goLandingLogin(router)}>
           <ThemedText style={styles.ctaText}>Start paying</ThemedText>
           <MaterialIcons name="arrow-forward" size={18} color="#fff" />
@@ -41,7 +44,13 @@ export default function ServicesPage() {
             <Pressable
               key={service.title}
               style={[styles.card, { width: cardWidth }]}
-              onPress={() => void goLandingLogin(router)}>
+              onPress={() => {
+                if (service.slug) {
+                  router.push(featurePath(service.slug) as never);
+                  return;
+                }
+                void goLandingLogin(router);
+              }}>
               <View style={styles.iconWrap}>
                 <MaterialIcons name={service.icon} size={26} color={BRAND.orange} />
               </View>

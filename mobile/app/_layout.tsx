@@ -21,6 +21,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import '@/utils/error-handler'; // Initialize error handler
 import { Alert, LogBox } from 'react-native';
 import { OnboardingGate } from '@/components/onboarding-gate';
+import { WebAnalytics } from '@/components/web-analytics';
 import { registerNetpayServiceWorker } from '@/components/landing/add-to-home-screen';
 
 // Suppress handled network errors in development
@@ -234,6 +235,8 @@ export default function RootLayout() {
           <Stack.Screen name="landing" options={{ headerShown: false }} />
           <Stack.Screen name="features" options={{ headerShown: false }} />
           <Stack.Screen name="services" options={{ headerShown: false }} />
+          <Stack.Screen name="buy/[feature]" options={{ headerShown: false }} />
+          <Stack.Screen name="search" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false }} />
           <Stack.Screen name="auth/login" options={{ headerShown: false }} />
           <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
@@ -261,6 +264,7 @@ export default function RootLayout() {
           <Stack.Screen name="sign-in-pin" options={{ headerShown: false, presentation: 'card' }} />
         </Stack>
         <StatusBar style="auto" />
+        <WebAnalytics />
         </ThemeProvider>
         </TransactionsProvider>
         </ServiceLogosProvider>

@@ -2,10 +2,17 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import {
+  beginBillPurchase,
+  forwardPurchaseFields,
+  forwardPurchaseHeaders,
+  purchaseReference,
+  queuedUserId,
+} from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, idempotency-key',
 };
 
 serve(async (req) => {
@@ -53,22 +60,28 @@ serve(async (req) => {
       );
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      console.error('Authentication error:', {
-        error: authError?.message,
-        code: authError?.status,
-        hasUser: !!user
-      });
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Unauthorized - Please sign in to continue',
-          details: authError?.message 
-        }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        console.error('Authentication error:', {
+          error: authError?.message,
+          code: authError?.status,
+          hasUser: !!authUser
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Unauthorized - Please sign in to continue',
+            details: authError?.message
+          }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     console.log('User authenticated successfully:', user.id);
@@ -155,6 +168,30 @@ serve(async (req) => {
     const vendingProvider = providerSetting?.setting_value?.provider || plan.vending_provider || 'mobilenig';
     console.log('Cable vending provider:', vendingProvider, 'for plan:', plan_id);
 
+    const cableFee = Math.round(parsedPrice * 0.02 * 100) / 100;
+    const { data: cableProfile } = await supabase.from('profiles').select('balance').eq('id', user.id).maybeSingle();
+    const cableBalance = Number(cableProfile?.balance) || 0;
+    const queuedCable = await beginBillPurchase({
+      req,
+      supabase,
+      userId: user.id,
+      service: 'cable',
+      body,
+      amount: parsedPrice + cableFee,
+      pendingRow: {
+        smartcard_number: card_number,
+        provider,
+        plan_name: plan.package_name,
+        package_name: plan.package_name,
+        purchase_amount: parsedPrice,
+        charge_fee: cableFee,
+        balance_before: cableBalance,
+        balance_after: cableBalance,
+        performed_by: user.id,
+      },
+    });
+    if (queuedCable) return queuedCable;
+
     // If using Flutterwave, route to Flutterwave handler
     if (vendingProvider === 'flutterwave') {
       const functionUrl = `${supabaseUrl}/functions/v1/purchase-flutterwave-cable`;
@@ -162,11 +199,8 @@ serve(async (req) => {
       try {
         const flutterwaveResponse = await fetch(functionUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+          headers: forwardPurchaseHeaders(req, authHeader),
+          body: JSON.stringify(forwardPurchaseFields(req, body, {
             card_number,
             provider,
             customer_number,
@@ -175,7 +209,7 @@ serve(async (req) => {
             price: plan.custom_price || plan.original_price || plan.price,
             api_code: plan.api_code || api_code,
             plan_id,
-          }),
+          })),
         });
 
         const flutterwaveResult = await flutterwaveResponse.json();
@@ -205,11 +239,8 @@ serve(async (req) => {
       try {
         const ebillsResponse = await fetch(functionUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+          headers: forwardPurchaseHeaders(req, authHeader),
+          body: JSON.stringify(forwardPurchaseFields(req, body, {
             card_number,
             provider,
             customer_number,
@@ -218,7 +249,7 @@ serve(async (req) => {
             price: plan.custom_price || plan.original_price || plan.price,
             api_code: plan.api_code || api_code,
             plan_id,
-          }),
+          })),
         });
 
         const ebillsResult = await ebillsResponse.json();
@@ -250,11 +281,8 @@ serve(async (req) => {
       try {
         const vtpassResponse = await fetch(functionUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+          headers: forwardPurchaseHeaders(req, authHeader),
+          body: JSON.stringify(forwardPurchaseFields(req, body, {
             billersCode: card_number,
             card_number: card_number,
             smartcard_number: card_number,
@@ -265,7 +293,7 @@ serve(async (req) => {
             package_name: plan.package_name,
             api_code: plan.api_code,
             variation_code: plan.api_code,
-          }),
+          })),
         });
 
         const vtpassResult = await vtpassResponse.json();
@@ -323,7 +351,7 @@ serve(async (req) => {
         );
       }
 
-      const reference = `CABLE-${Date.now()}-${user.id.substring(0, 8)}`;
+      const reference = purchaseReference(req, body, `CABLE-${Date.now()}-${user.id.substring(0, 8)}`);
 
       // Debit wallet using shared function (debit total amount including fee)
       const { debitUserWallet } = await import('../_shared/wallet.ts');
@@ -428,7 +456,7 @@ serve(async (req) => {
       );
     }
 
-    const reference = `CABLE-${Date.now()}-${user.id.substring(0, 8)}`;
+    const reference = purchaseReference(req, body, `CABLE-${Date.now()}-${user.id.substring(0, 8)}`);
     // Generate trans_id as a number (10-12 digits as shown in API examples)
     // MobileNig requires a unique trans_id - use timestamp + random to ensure uniqueness
     const trans_id = parseInt(Date.now().toString().slice(-10) + Math.floor(Math.random() * 1000).toString().padStart(3, '0')) || Date.now();

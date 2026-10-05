@@ -79,12 +79,13 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: "User not found" });
     }
 
-    const [transactionResult, rolesResult] = await Promise.all([
+    const [transactionResult, rolesResult, taskResult] = await Promise.all([
       supabase
         .from("user_transactions")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId),
       supabase.from("user_roles").select("role").eq("user_id", userId),
+      supabase.from("admin_task_assignments").select("task_key").eq("user_id", userId),
     ]);
 
     if (transactionResult.error) {
@@ -92,6 +93,9 @@ serve(async (req) => {
     }
     if (rolesResult.error) {
       console.warn("admin-get-user-details roles warning:", rolesResult.error);
+    }
+    if (taskResult.error) {
+      console.warn("admin-get-user-details tasks warning:", taskResult.error);
     }
 
     const emailConfirmedAt = authUser?.email_confirmed_at ?? null;
@@ -113,6 +117,7 @@ serve(async (req) => {
             }
           : null,
         roles: (rolesResult.data || []).map((entry) => entry.role),
+        admin_tasks: (taskResult.data || []).map((entry) => entry.task_key),
         transaction_count: transactionResult.count ?? 0,
         email_verified: Boolean(emailConfirmedAt),
       },

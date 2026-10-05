@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw, BarChart3, Wallet, ArrowDownLeft, TrendingUp, ArrowUp, ArrowDown, Inbox, UserPlus } from "lucide-react";
+import { Search, DollarSign, Ban, CheckCircle, Users as UsersIcon, CalendarDays, CalendarRange, Calendar, Printer, Download, ShieldCheck, Trash2, MailCheck, KeyRound, Link2, ArrowLeft, Eye, EyeOff, RefreshCw, BarChart3, Wallet, ArrowDownLeft, TrendingUp, ArrowUp, ArrowDown, Inbox, UserPlus, UserCog } from "lucide-react";
+import { ADMIN_TASKS, adminTaskSections } from "@/config/admin-tasks";
+import { useAdminAccess } from "@/context/AdminAccessContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
@@ -72,6 +74,7 @@ interface AdminUserDetails {
   last_sign_in_at: string | null;
   transaction_count: number;
   roles: string[];
+  adminTasks: string[];
 }
 
 function getFunctionErrorMessage(error: unknown, data: unknown, fallback: string): string {
@@ -162,6 +165,11 @@ export default function Users() {
   const [createNote, setCreateNote] = useState("");
   const [createSendEmail, setCreateSendEmail] = useState(true);
   const [creatingUser, setCreatingUser] = useState(false);
+  const [isAssignAdminOpen, setIsAssignAdminOpen] = useState(false);
+  const [assignTaskKeys, setAssignTaskKeys] = useState<string[]>([]);
+  const [loadingAssignTasks, setLoadingAssignTasks] = useState(false);
+  const [savingAdminTasks, setSavingAdminTasks] = useState(false);
+  const { isSuperAdmin, session } = useAdminAccess();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -389,6 +397,71 @@ export default function Users() {
     window.URL.revokeObjectURL(url);
   };
 
+  const canAssignAdmin = isSuperAdmin && selectedUser?.id !== session?.user?.id;
+
+  const openAssignAdminDialog = async (user: UserProfile) => {
+    if (!isSuperAdmin || user.id === session?.user?.id) return;
+    setSelectedUser(user);
+    setAssignTaskKeys([]);
+    setIsAssignAdminOpen(true);
+    setLoadingAssignTasks(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-get-user-details", {
+        body: { userId: user.id },
+      });
+      if (error || !data?.success) {
+        throw new Error(getFunctionErrorMessage(error, data, "Failed to load admin tasks"));
+      }
+      const tasks = Array.isArray(data.data?.admin_tasks) ? data.data.admin_tasks : [];
+      setAssignTaskKeys(tasks.filter((task: unknown): task is string => typeof task === "string"));
+    } catch (error) {
+      toast({
+        title: "Could not load admin tasks",
+        description: error instanceof Error ? error.message : "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingAssignTasks(false);
+    }
+  };
+
+  const toggleAssignTask = (taskKey: string, checked: boolean) => {
+    setAssignTaskKeys((current) => {
+      if (checked) return current.includes(taskKey) ? current : [...current, taskKey];
+      return current.filter((key) => key !== taskKey);
+    });
+  };
+
+  const saveAdminTasks = async (tasks: string[]) => {
+    if (!selectedUser || !canAssignAdmin) return;
+    setSavingAdminTasks(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-assign-admin-tasks", {
+        body: { userId: selectedUser.id, tasks },
+      });
+      if (error || !data?.success) {
+        throw new Error(getFunctionErrorMessage(error, data, "Failed to update admin access"));
+      }
+      toast({
+        title: tasks.length > 0 ? "Admin access saved" : "Admin access removed",
+        description: tasks.length > 0
+          ? `${selectedUser.full_name || selectedUser.email} can now use the selected admin tasks.`
+          : `${selectedUser.full_name || selectedUser.email} is no longer an admin.`,
+      });
+      setAssignTaskKeys(tasks);
+      setIsAssignAdminOpen(false);
+      await fetchAdminUserDetails(selectedUser.id);
+    } catch (error) {
+      toast({
+        title: "Could not update admin access",
+        description: error instanceof Error ? error.message : "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingAdminTasks(false);
+    }
+  };
+
   const fetchAdminUserDetails = async (userId: string) => {
     setLoadingUserDetails(true);
     try {
@@ -403,6 +476,7 @@ export default function Users() {
           last_sign_in_at: data.data.auth?.last_sign_in_at ?? null,
           transaction_count: Number(data.data.transaction_count || 0),
           roles: Array.isArray(data.data.roles) ? data.data.roles : [],
+          adminTasks: Array.isArray(data.data.admin_tasks) ? data.data.admin_tasks : [],
         });
         return;
       }
@@ -1167,6 +1241,15 @@ export default function Users() {
                             </Badge>
                           ))}
                         </div>
+                        {userDetails?.adminTasks?.length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {userDetails.adminTasks.map((taskKey) => (
+                              <Badge key={taskKey} variant="outline">
+                                {ADMIN_TASKS.find((task) => task.key === taskKey)?.title ?? taskKey}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
                         <UserDetailField label="Total Transactions">
                           {loadingUserDetails
                             ? "Loading…"
@@ -1372,6 +1455,16 @@ export default function Users() {
                     <KeyRound className="h-4 w-4 mr-2" />
                     Reset Password
                   </Button>
+                  {isSuperAdmin && selectedUser.id !== session?.user?.id && (
+                    <Button
+                      variant="outline"
+                      onClick={() => openAssignAdminDialog(selectedUser)}
+                      disabled={savingAdminTasks}
+                    >
+                      <UserCog className="h-4 w-4 mr-2" />
+                      Assign Admin Tasks
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={handleVerifyUserEmail}
@@ -1526,6 +1619,15 @@ export default function Users() {
                             >
                               View Details
                             </Button>
+                            {isSuperAdmin && user.id !== session?.user?.id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openAssignAdminDialog(user)}
+                              >
+                                Make Admin
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))
@@ -1847,6 +1949,81 @@ export default function Users() {
             >
               {creatingUser ? "Creating…" : "Create Account"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAssignAdminOpen} onOpenChange={setIsAssignAdminOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Assign admin tasks</DialogTitle>
+            <DialogDescription>
+              Choose the tasks {selectedUser?.full_name || selectedUser?.email || "this user"} can manage.
+              Saving at least one task makes them an admin. Only a super admin can change this.
+            </DialogDescription>
+          </DialogHeader>
+          {loadingAssignTasks ? (
+            <p className="text-sm text-muted-foreground">Loading current tasks…</p>
+          ) : (
+            <div className="space-y-5">
+              {adminTaskSections().map((section) => {
+                const sectionKeys = section.tasks.map((task) => task.key);
+                const allSelected = sectionKeys.every((key) => assignTaskKeys.includes(key));
+                return (
+                  <div key={section.section} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold">{section.section}</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setAssignTaskKeys((current) => {
+                            if (allSelected) {
+                              return current.filter((key) => !sectionKeys.includes(key));
+                            }
+                            return Array.from(new Set([...current, ...sectionKeys]));
+                          });
+                        }}
+                      >
+                        {allSelected ? "Clear section" : "Select section"}
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {section.tasks.map((task) => (
+                        <label key={task.key} className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={assignTaskKeys.includes(task.key)}
+                            onCheckedChange={(checked) => toggleAssignTask(task.key, checked === true)}
+                          />
+                          <span>{task.title}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              variant="destructive"
+              onClick={() => saveAdminTasks([])}
+              disabled={savingAdminTasks || loadingAssignTasks}
+            >
+              Remove admin access
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setIsAssignAdminOpen(false)} disabled={savingAdminTasks}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => saveAdminTasks(assignTaskKeys)}
+                disabled={savingAdminTasks || loadingAssignTasks || assignTaskKeys.length === 0}
+              >
+                {savingAdminTasks ? "Saving…" : "Save admin access"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

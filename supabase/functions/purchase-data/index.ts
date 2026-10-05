@@ -1,9 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  beginBillPurchase,
+  forwardPurchaseFields,
+  forwardPurchaseHeaders,
+  purchaseReference,
+  queuedUserId,
+} from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, idempotency-key',
 };
 
 serve(async (req) => {
@@ -25,18 +32,24 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     // Parse request body
     const bodyText = await req.text();
-    let requestBody: { phone_number?: string; plan_id?: string } = {};
+    let requestBody: Record<string, unknown> = {};
     
     if (bodyText && bodyText.trim().length > 0) {
       try {
@@ -50,7 +63,8 @@ serve(async (req) => {
       }
     }
 
-    const { phone_number, plan_id } = requestBody;
+    const phone_number = typeof requestBody.phone_number === "string" ? requestBody.phone_number : "";
+    const plan_id = typeof requestBody.plan_id === "string" ? requestBody.plan_id : "";
 
     if (!phone_number || !plan_id) {
       return new Response(
@@ -58,6 +72,43 @@ serve(async (req) => {
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    const { data: queuedPlan } = await supabase
+      .from('data_plans')
+      .select('plan_name, network, validity, price, custom_price, original_price')
+      .eq('id', plan_id)
+      .maybeSingle();
+    const queuedAmount = Number(queuedPlan?.custom_price ?? queuedPlan?.original_price ?? queuedPlan?.price) || 0;
+    const { data: queuedProfile } = await supabase
+      .from('profiles')
+      .select('balance')
+      .eq('id', user.id)
+      .maybeSingle();
+    const queuedBalance = Number(queuedProfile?.balance) || 0;
+    if (requestBody.__process_now !== true && (!queuedPlan || queuedAmount <= 0)) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Data plan not found' }),
+        { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+    const queuedResponse = await beginBillPurchase({
+      req,
+      supabase,
+      userId: user.id,
+      service: 'data',
+      body: requestBody,
+      amount: queuedAmount,
+      pendingRow: queuedPlan ? {
+        phone_number,
+        network: queuedPlan.network || 'DATA',
+        plan_name: queuedPlan.plan_name || 'Data',
+        plan_validity: queuedPlan.validity || 'N/A',
+        balance_before: queuedBalance,
+        balance_after: queuedBalance,
+        performed_by: user.id,
+      } : null,
+    });
+    if (queuedResponse) return queuedResponse;
 
     // Check if user is demo user - get profile to check email
     const { data: profile, error: profileError } = await supabase
@@ -86,7 +137,7 @@ serve(async (req) => {
         .eq('id', plan_id)
         .single();
 
-      const reference = `DATA-${Date.now()}-${user.id.slice(0, 8)}`;
+      const reference = purchaseReference(req, requestBody, `DATA-${Date.now()}-${user.id.slice(0, 8)}`);
       const planName = dataPlan?.plan_name || 'Data Plan';
       const planAmount = dataPlan?.price || 0;
 
@@ -212,14 +263,11 @@ serve(async (req) => {
 
         const response = await fetch(functionUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+          headers: forwardPurchaseHeaders(req, `Bearer ${token}`),
+          body: JSON.stringify(forwardPurchaseFields(req, requestBody, {
             phone_number,
             plan_id,
-          }),
+          })),
         });
 
         const responseData = await response.json();

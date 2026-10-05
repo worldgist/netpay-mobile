@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureProfileExists } from "@/utils/profile";
@@ -39,6 +39,7 @@ const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
 
 const PurchaseEducation = () => {
   const navigate = useNavigate();
+  const idempotencyKeyRef = useRef<string | null>(null);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
@@ -200,6 +201,7 @@ const PurchaseEducation = () => {
         education_service_id: selectedServiceData.id,
         amount: selectedServiceData.price,
         quantity: 1,
+        idempotency_key: idempotencyKeyRef.current || (idempotencyKeyRef.current = `edu-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`),
       };
 
       // Pass variation_code if available (function will use vtpass_code from DB if not provided)
@@ -233,10 +235,22 @@ const PurchaseEducation = () => {
 
       if (error) throw error;
 
+      const queuedStatus = String(data?.status || data?.data?.status || "").toUpperCase();
+      if (queuedStatus === "PROCESSING" || queuedStatus === "REQUIRES_REVIEW" || data?.pending === true) {
+        idempotencyKeyRef.current = null;
+        toast({
+          title: queuedStatus === "REQUIRES_REVIEW" ? "Purchase needs review" : "Processing education purchase",
+          description: data?.message || "You can leave this page. Your PIN will show in Transactions and by email.",
+        });
+        setPurchasing(false);
+        return;
+      }
+
       if (!data?.success) {
         throw new Error(data?.error || 'Purchase failed');
       }
 
+      idempotencyKeyRef.current = null;
       setTransactionDetails(data.data);
       setShowSuccess(true);
 

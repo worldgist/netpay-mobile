@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getMobilenigSecretKey } from "../_shared/mobilenig-api.ts";
 import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { sendElectricityReceiptEmail } from "../_shared/electricity-receipt-email.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -82,12 +84,19 @@ serve(async (req) => {
     const token = authHeader.startsWith('Bearer ')
       ? authHeader.substring(7).trim()
       : authHeader.trim();
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabaseClient.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     // Parse request body
@@ -230,7 +239,7 @@ serve(async (req) => {
     const finalServiceIds = serviceIds || defaultServiceIds;
     const serviceId = finalMeterType === 'prepaid' ? finalServiceIds.prepaid : finalServiceIds.postpaid;
     const transId = generateTransId();
-    const reference = `MB-${transId}-${Date.now()}`;
+    const reference = purchaseReference(req, body as { __queued_reference?: unknown }, `MB-${transId}-${Date.now()}`);
 
     // For demo users, return mock successful response (but still debit wallet)
     if (isDemoUser) {
@@ -407,6 +416,17 @@ serve(async (req) => {
         const details = data.details || {};
         const token = details.details?.token || details.token || null;
         const apiReference = details.details?.reference || details.reference || reference;
+        const providerAddress = [
+          details.details?.customerAddress,
+          details.details?.address,
+          details.customerAddress,
+          details.address,
+          details.details?.customer_address,
+          details.customer_address,
+        ]
+          .map((value) => String(value ?? '').trim())
+          .find((value) => value && value.toLowerCase() !== 'null' && value.toLowerCase() !== 'undefined');
+        const receiptAddress = (providerAddress || finalCustomerAddress || '').replace(/\s+,/g, ',').replace(/,\s*,/g, ',').trim();
 
         // Calculate transaction amounts
         const purchaseAmountNum = Number(purchaseAmount);
@@ -426,6 +446,7 @@ serve(async (req) => {
             provider: canonicalProvider,
             meter_type: meter_type,
             customer_name: customer_name,
+            customer_address: receiptAddress || null,
             token: token,
             status: 'completed',
             reference: apiReference,
@@ -460,48 +481,33 @@ serve(async (req) => {
           }
         );
 
-        // Send email with PDF receipt (non-blocking)
-        if (profile.email && token) {
-          try {
-            const supabaseService = createClient(
-              Deno.env.get('SUPABASE_URL') ?? '',
-              Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-            );
-            
-            await supabaseService.functions.invoke('send-purchase-email', {
-              body: {
-                type: 'electricity',
-                email: profile.email,
-                fullName: profile.full_name,
-                provider: canonicalProvider,
-                token: token,
-                amount: totalAmount,
-                purchaseAmount: purchaseAmountNum,
-                chargeFee: chargeFeeNum,
-                meterNumber: sanitizedMeter,
-                meterType: meter_type,
-                customerName: customer_name,
-                customerAddress: customer_address,
-                customerId: String(
-                  details.details?.account_number ||
-                  details.account_number ||
-                  details.details?.customer_number ||
-                  details.customer_number ||
-                  details.details?.customer_id ||
-                  details.customer_id ||
-                  ""
-                ).trim() || undefined,
-                reference: apiReference,
-                purchasedAt: new Date().toISOString(),
-                balanceBefore: debitResult.balanceBefore,
-                balanceAfter: debitResult.balanceAfter,
-              },
-            });
-          } catch (emailError) {
-            console.error('Failed to send email receipt:', emailError);
-            // Don't fail the transaction if email fails
-          }
-        }
+        // Wait for the token email. A nested functions.invoke can fail without throwing,
+        // and the purchase response must not return until the mail request finishes.
+        await sendElectricityReceiptEmail({
+          email: profile.email || user.email,
+          fullName: profile.full_name,
+          provider: canonicalProvider,
+          token,
+          amount: totalAmount,
+          purchaseAmount: purchaseAmountNum,
+          chargeFee: chargeFeeNum,
+          meterNumber: sanitizedMeter,
+          meterType: meter_type,
+          customerName: customer_name,
+          customerAddress: receiptAddress,
+          customerId: String(
+            details.details?.account_number ||
+            details.account_number ||
+            details.details?.customer_number ||
+            details.customer_number ||
+            details.details?.customer_id ||
+            details.customer_id ||
+            ""
+          ).trim() || undefined,
+          reference: apiReference,
+          balanceBefore: debitResult.balanceBefore,
+          balanceAfter: debitResult.balanceAfter,
+        });
 
         return new Response(
           JSON.stringify({
@@ -512,6 +518,8 @@ serve(async (req) => {
               meter_number: sanitizedMeter,
               provider: canonicalProvider,
               meter_type: meter_type,
+              customer_name: customer_name,
+              customer_address: receiptAddress,
               amount: purchaseAmountNum,
               charge_fee: chargeFeeNum,
               total_amount: totalAmount,

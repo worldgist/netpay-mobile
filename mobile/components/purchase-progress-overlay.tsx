@@ -5,9 +5,12 @@ import { ThemedText } from '@/components/themed-text';
 
 type PurchaseProgressOverlayProps = {
   visible: boolean;
+  title?: string;
+  subtitle?: string;
+  hint?: string;
 };
 
-export function PurchaseProgressOverlay({ visible }: PurchaseProgressOverlayProps) {
+export function PurchaseProgressOverlay({ visible, title: titleOverride, subtitle: subtitleOverride, hint }: PurchaseProgressOverlayProps) {
   const [phase, setPhase] = useState<'submitting' | 'verifying'>('submitting');
 
   useEffect(() => {
@@ -19,11 +22,13 @@ export function PurchaseProgressOverlay({ visible }: PurchaseProgressOverlayProp
     return () => clearTimeout(timer);
   }, [visible]);
 
-  const title = phase === 'submitting' ? 'Payment submitted' : 'Verifying transaction';
-  const subtitle =
-    phase === 'submitting'
-      ? 'Sending your payment securely…'
-      : '⏳ Confirming status with the provider…';
+  const title = titleOverride || (phase === 'submitting' ? 'Payment submitted' : 'Verifying transaction');
+  const subtitle = subtitleOverride
+    || (titleOverride
+      ? 'Your purchase is queued. You can leave this screen.'
+      : phase === 'submitting'
+        ? 'Sending your payment securely…'
+        : '⏳ Confirming status with the provider…');
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
@@ -31,7 +36,9 @@ export function PurchaseProgressOverlay({ visible }: PurchaseProgressOverlayProp
         <View style={styles.card}>
           <NetpayLoadingAnimation message={title} />
           <ThemedText style={styles.subtitle}>{subtitle}</ThemedText>
-          <ThemedText style={styles.hint}>Please keep the app open until we finish.</ThemedText>
+          <ThemedText style={styles.hint}>
+            {hint || 'Please keep the app open until we finish.'}
+          </ThemedText>
         </View>
       </View>
     </Modal>

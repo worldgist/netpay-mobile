@@ -79,6 +79,7 @@ export default function EducationScreen() {
   const { balance, setBalance, refreshBalance } = useWalletBalance();
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [outcomeSheet, setOutcomeSheet] = useState<{
     visible: boolean;
     variant: PurchaseOutcomeSheetVariant;
@@ -711,11 +712,15 @@ export default function EducationScreen() {
 
       // Prepare request body - pass purchase_amount (base price without fee)
       // The backend will calculate and add the charge fee
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = `edu-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
       const requestBody: any = {
         exam_type: selectedService.examType,
         education_service_id: selectedService.id,
         amount: purchaseAmount, // Pass base purchase amount, backend adds charge fee
         quantity: selectedService.examType === 'JAMB' ? 1 : (quantity || 1), // JAMB always uses quantity 1
+        idempotency_key: idempotencyKeyRef.current,
       };
 
       // For JAMB, pass the service type (UTME or DE) as api_code
@@ -870,6 +875,8 @@ export default function EducationScreen() {
       const finalData = responseData || data;
       const purchaseOutcome = parsePurchaseResponse(finalData, true);
       if (purchaseOutcome.kind === 'pending') {
+        idempotencyKeyRef.current = null;
+        void refreshBalance();
         showPurchaseOutcome('pending', purchaseOutcome.message);
         return;
       }
@@ -896,6 +903,7 @@ export default function EducationScreen() {
       
       // Navigate to success screen with PIN details
       // Show total amount (purchase amount + charge fee) in success screen
+      idempotencyKeyRef.current = null;
       router.push(buildRouteHref('/payment-success', {
         amount: totalAmount.toString(),
         network: selectedServiceName,
@@ -957,6 +965,7 @@ export default function EducationScreen() {
         message = purchaseError.message || message;
       }
 
+      idempotencyKeyRef.current = null;
       Alert.alert('Education Purchase Failed', message);
     } finally {
       setIsProcessing(false);
@@ -1318,7 +1327,11 @@ export default function EducationScreen() {
         />
       )}
 
-      <PurchaseProgressOverlay visible={isProcessing} />
+      <PurchaseProgressOverlay
+        visible={isProcessing}
+        title="Processing education purchase..."
+        hint="You can leave this screen. Your PIN will show in Transactions and by email."
+      />
 
       <PurchaseOutcomeSheet
         visible={outcomeSheet.visible}

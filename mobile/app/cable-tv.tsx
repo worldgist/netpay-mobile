@@ -109,7 +109,7 @@ export default function CableTVScreen() {
   const { providers: vendingSettings } = useVendingSettings();
   const { getLogoSource } = useServiceLogos();
   const cableVendingProvider = vendingSettings.cable;
-  const { balance } = useWalletBalance();
+  const { balance, refreshBalance } = useWalletBalance();
   const providers = useMemo<CableProvider[]>(
     () =>
       STATIC_PROVIDER_NAMES.map((name) => ({
@@ -134,6 +134,7 @@ export default function CableTVScreen() {
   const [showTryAgainLaterModal, setShowTryAgainLaterModal] = useState(false);
   const [isDemoUser, setIsDemoUser] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [outcomeSheet, setOutcomeSheet] = useState<{
     visible: boolean;
     variant: PurchaseOutcomeSheetVariant;
@@ -808,6 +809,7 @@ export default function CableTVScreen() {
           package_name: selectedPlan.packageName,
           price: selectedPlan.price,
           api_code: selectedPlan.id,
+          idempotency_key: idempotencyKeyRef.current || (idempotencyKeyRef.current = `cable-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`),
         }),
       });
 
@@ -831,6 +833,8 @@ export default function CableTVScreen() {
       );
 
       if (outcome.kind === 'pending') {
+        idempotencyKeyRef.current = null;
+        void refreshBalance();
         showPurchaseOutcome('pending', outcome.message);
         return;
       }
@@ -945,6 +949,7 @@ export default function CableTVScreen() {
         throw new Error(outcome.message || 'Purchase failed');
       }
 
+      idempotencyKeyRef.current = null;
       const reference = outcome.reference || responseData?.data?.reference || '';
       
       router.push(buildRouteHref('/payment-success', {
@@ -1006,12 +1011,15 @@ export default function CableTVScreen() {
       if (isTransientPurchaseNetworkError(purchaseError) || isNetworkError) {
         showPurchaseOutcome('connection_uncertain');
       } else if (isMobileNigInsufficientBalance) {
+        idempotencyKeyRef.current = null;
         // Show try again later modal for MobileNig insufficient balance
         setShowTryAgainLaterModal(true);
       } else if (isInvalidCard) {
+        idempotencyKeyRef.current = null;
         setInvalidCardMessage(sanitizeSmartCardErrorMessage(message));
         setShowInvalidCardModal(true);
       } else {
+        idempotencyKeyRef.current = null;
         Alert.alert('Purchase Failed', message, [{ text: 'OK' }]);
       }
     }
@@ -1237,7 +1245,11 @@ export default function CableTVScreen() {
         />
       )}
 
-      <PurchaseProgressOverlay visible={isProcessing} />
+      <PurchaseProgressOverlay
+        visible={isProcessing}
+        title="Processing cable TV purchase..."
+        hint="You can leave this screen. The purchase continues and shows in Transactions."
+      />
 
       <PurchaseOutcomeSheet
         visible={outcomeSheet.visible}

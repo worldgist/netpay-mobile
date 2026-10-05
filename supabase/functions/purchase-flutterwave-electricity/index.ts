@@ -7,6 +7,8 @@ import {
 } from "../_shared/flutterwave-bills.ts";
 import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { extractElectricityToken, sendElectricityReceiptEmail } from "../_shared/electricity-receipt-email.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -39,12 +41,19 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      user = authUser;
     }
 
     const body = await req.json();
@@ -68,7 +77,7 @@ serve(async (req) => {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("balance, email")
+      .select("balance, email, full_name")
       .eq("id", user.id)
       .single();
 
@@ -85,7 +94,7 @@ serve(async (req) => {
     const totalAmount = purchaseAmount + chargeFee;
     const balanceBefore = Number(profile.balance) || 0;
     const isDemoUser = profile.email === "demo@netppay.com";
-    const reference = `ELEC-FLW-${Date.now()}-${user.id.slice(0, 8)}`;
+    const reference = purchaseReference(req, body, `ELEC-FLW-${Date.now()}-${user.id.slice(0, 8)}`);
 
     if (!isDemoUser && balanceBefore < totalAmount) {
       return new Response(JSON.stringify({ success: false, error: "Insufficient balance" }), {
@@ -149,6 +158,8 @@ serve(async (req) => {
       }
     }
 
+    const electricityToken = extractElectricityToken(paymentResult.vendorResponse);
+
     await supabase.from("electricity_transactions").insert({
       user_id: user.id,
       amount: totalAmount,
@@ -160,6 +171,7 @@ serve(async (req) => {
       provider,
       meter_type,
       customer_name,
+      token: electricityToken || null,
       status: "completed",
       reference: paymentResult.reference || reference,
       performed_by: user.id,
@@ -171,8 +183,25 @@ serve(async (req) => {
         user.id,
         "Electricity Purchase Successful",
         `₦${purchaseAmount.toFixed(2)} electricity token purchased for meter ${meter_number}.`,
-        { type: "electricity_purchase", reference },
+        { type: "electricity_purchase", reference, token: electricityToken || undefined },
       );
+
+      await sendElectricityReceiptEmail({
+        email: profile.email || user.email,
+        fullName: profile.full_name,
+        provider,
+        token: electricityToken,
+        amount: totalAmount,
+        purchaseAmount,
+        chargeFee,
+        meterNumber: meter_number,
+        meterType: meter_type,
+        customerName: customer_name,
+        customerAddress: customer_address,
+        reference: paymentResult.reference || reference,
+        balanceBefore: debitResult?.balanceBefore ?? balanceBefore,
+        balanceAfter: debitResult?.balanceAfter ?? balanceBefore - totalAmount,
+      });
     }
 
     return new Response(JSON.stringify({

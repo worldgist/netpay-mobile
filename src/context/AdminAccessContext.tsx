@@ -12,9 +12,13 @@ interface AdminAccessContextValue {
   loading: boolean;
   isAuthenticated: boolean;
   session: Session | null;
+  hasDbAdminRole: boolean;
+  isSuperAdmin: boolean;
+  taskKeys: string[];
   refresh: () => Promise<StaffRole[]>;
   hasRole: (role: StaffRole) => boolean;
   canAccess: (allowed?: AllowedRoles) => boolean;
+  canAccessTask: (taskKey: string) => boolean;
 }
 
 const AdminAccessContext = createContext<AdminAccessContextValue | undefined>(undefined);
@@ -42,6 +46,9 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [hasDbAdminRole, setHasDbAdminRole] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [taskKeys, setTaskKeys] = useState<string[]>([]);
 
   const deriveRolesFromMetadata = (userSession: Session | null): StaffRole[] => {
     if (!userSession?.user) return [];
@@ -89,6 +96,9 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
     if (!currentSession) {
       setRoles([]);
       setIsAuthenticated(false);
+      setHasDbAdminRole(false);
+      setIsSuperAdmin(false);
+      setTaskKeys([]);
       setLoading(false);
       return [];
     }
@@ -118,14 +128,30 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
       const metadataRoles = deriveRolesFromMetadata(currentSession);
 
       const combined = Array.from(new Set<StaffRole>([...dbRoles, ...metadataRoles]));
+      const dbAdmin = dbRoles.includes("admin");
+
+      const { data: taskRows, error: taskError } = await supabase
+        .from("admin_task_assignments")
+        .select("task_key")
+        .eq("user_id", currentSession.user.id);
+
+      const assignedTasks = taskError
+        ? []
+        : (taskRows ?? []).map((row) => row.task_key).filter((key): key is string => Boolean(key));
 
       setRoles(combined);
+      setHasDbAdminRole(dbAdmin);
+      setTaskKeys(assignedTasks);
+      setIsSuperAdmin(dbAdmin && assignedTasks.length === 0);
       setIsAuthenticated(combined.some((role) => ALLOWED_LOGIN_ROLES.includes(role)));
       return combined;
     } catch (err) {
       console.error("AdminAccess: unexpected error loading roles", err);
       setRoles([]);
       setIsAuthenticated(false);
+      setHasDbAdminRole(false);
+      setIsSuperAdmin(false);
+      setTaskKeys([]);
       return [];
     } finally {
       setLoading(false);
@@ -151,6 +177,15 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
     [roles],
   );
 
+  const canAccessTask = useCallback(
+    (taskKey: string) => {
+      if (!hasDbAdminRole) return true;
+      if (isSuperAdmin) return true;
+      return taskKeys.includes(taskKey);
+    },
+    [hasDbAdminRole, isSuperAdmin, taskKeys],
+  );
+
   const canAccess = useCallback(
     (allowed: AllowedRoles = "all") => {
       if (!isAuthenticated) return false;
@@ -169,11 +204,15 @@ export const AdminAccessProvider = ({ children }: { children: ReactNode }) => {
       loading,
       isAuthenticated,
       session,
+      hasDbAdminRole,
+      isSuperAdmin,
+      taskKeys,
       refresh: fetchRoles,
       hasRole,
       canAccess,
+      canAccessTask,
     }),
-    [roles, loading, isAuthenticated, session, fetchRoles, hasRole, canAccess],
+    [roles, loading, isAuthenticated, session, hasDbAdminRole, isSuperAdmin, taskKeys, fetchRoles, hasRole, canAccess, canAccessTask],
   );
 
   return <AdminAccessContext.Provider value={contextValue}>{children}</AdminAccessContext.Provider>;

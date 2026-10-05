@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
-import { generateReceiptPDF, type ReceiptData } from "../_shared/pdf-receipt.ts";
+import { EMAIL_INLINE_IMAGES } from "../_shared/email-images.ts";
+import { buildPlainReceiptPdf } from "../_shared/plain-pdf.ts";
 import { NETPAY_SITE_URL } from "../_shared/site-url.ts";
 import {
   getResendFromAddress,
   ResendApiError,
+  type ResendAttachment,
   sendResendEmail,
 } from "../_shared/resend.ts";
 
@@ -208,89 +209,190 @@ const buildElectricityEmail = (payload: ElectricityEmailPayload) => {
     : "";
 
   const subject = "Electricity Token Purchase Successful";
-
-  const detailRow = (label: string, value: string) => `
-    <tr>
-      <td style="padding: 14px 4px; border-bottom: 1px solid #F3E7DC;">
-        <div style="font-size: 11px; letter-spacing: 0.14em; color: #FF7A00; font-weight: 700;">${escapeHtml(label)}</div>
-        <div style="margin-top: 4px; font-size: 15px; line-height: 1.4; color: #1B2430; font-weight: 700;">${value}</div>
-      </td>
-    </tr>
-  `;
-
-  const rows = [
-    customerName ? detailRow("CUSTOMER NAME", escapeHtml(customerName)) : "",
-    customerId ? detailRow("CUSTOMER ID", escapeHtml(customerId)) : "",
-    detailRow("PROVIDER", escapeHtml(providerLabel)),
-    detailRow("METER NUMBER", escapeHtml(meterNumber)),
-    meterTypeLabel ? detailRow("METER TYPE", escapeHtml(meterTypeLabel)) : "",
-    friendlyAmount ? detailRow("AMOUNT PAID", escapeHtml(friendlyAmount)) : "",
-    friendlyUnits ? detailRow("UNITS", escapeHtml(friendlyUnits)) : "",
-    timestamp ? detailRow("PURCHASED", escapeHtml(timestamp)) : "",
-    reference ? detailRow("REFERENCE", escapeHtml(reference)) : "",
-    addressHtml ? detailRow("CUSTOMER ADDRESS", addressHtml) : "",
-  ].join("");
-
   const logoUrl = Deno.env.get("NETPAY_LOGO_URL")
     || (NETPAY_SITE_URL.replace(/\/$/, "") === "https://netppay.com"
       ? "https://www.netppay.com/logo.png"
       : `${NETPAY_SITE_URL.replace(/\/$/, "")}/logo.png`);
+  const processing = token.toLowerCase() === "processing...";
+  const tokenHtml = processing
+    ? `<div style="font-size: 16px; line-height: 1.3; font-weight: 800; color: #1A2B4A; text-align: center;">Processing...</div>
+       <div style="margin-top: 8px; font-size: 12px; color: #667085; text-align: center;">Your token will be available shortly. We will send an update once it is ready.</div>`
+    : `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+         <tr>
+           <td nowrap align="center" style="font-size: 16px; line-height: 22px; font-weight: 800; color: #1A2B4A; letter-spacing: 0; white-space: nowrap;">${escapeHtml(formattedToken)}</td>
+         </tr>
+       </table>
+       <div style="margin-top: 8px; font-size: 12px; color: #667085; text-align: center;">Enter this token on your meter to load your electricity.</div>
+       <div style="margin-top: 4px; font-size: 12px; color: #667085; text-align: center;">Your PDF receipt is attached to this email.</div>`;
 
-  const tokenBlock = token.toLowerCase() === "processing..."
-    ? `<p style="margin: 0; font-size: 20px; font-weight: 700; color: #1B2430;">Processing...</p>
-       <p style="margin: 8px 0 0; font-size: 13px; color: #6B7280;">Your token will be available shortly. We will send an update once it is ready.</p>`
-    : `<p style="margin: 0; font-size: 22px; line-height: 1.35; font-weight: 800; color: #1B2430; letter-spacing: 0.04em;">${escapeHtml(formattedToken)}</p>
-       <p style="margin: 10px 0 0; font-size: 13px; color: #6B7280;">Enter this token on your meter to load your electricity.</p>`;
+  const iconCell = (symbol: string) => `
+    <td width="36" valign="top" style="width: 36px;">
+      <div style="width: 32px; height: 32px; background: #FFF3E8; border-radius: 16px; text-align: center; line-height: 32px; color: #FF7F00; font-size: 15px;">${symbol}</div>
+    </td>`;
+
+  const detailCell = (symbol: string, label: string, value: string) => `
+    <td width="50%" valign="top" style="width: 50%; padding: 8px 8px 14px;">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          ${iconCell(symbol)}
+          <td valign="top" style="padding-left: 8px;">
+            <div style="font-size: 10px; letter-spacing: 0.12em; color: #FF7F00; font-weight: 700;">${escapeHtml(label)}</div>
+            <div style="margin-top: 3px; font-size: 13px; line-height: 1.35; color: #1A2B4A; font-weight: 700;">${value}</div>
+          </td>
+        </tr>
+      </table>
+    </td>`;
+
+  const detailPairs: Array<[string, string, string, string, string, string]> = [
+    ["&#128100;", "CUSTOMER NAME", customerName ? escapeHtml(customerName) : "—", "&#127968;", "CUSTOMER ADDRESS", addressHtml || "—"],
+    ["&#9889;", "PROVIDER", escapeHtml(providerLabel), "&#128246;", "METER NUMBER", escapeHtml(meterNumber)],
+    ["&#9201;", "METER TYPE", meterTypeLabel ? escapeHtml(meterTypeLabel) : "—", "&#128181;", "AMOUNT PAID", friendlyAmount ? escapeHtml(friendlyAmount) : "—"],
+    ["&#128197;", "PURCHASED", timestamp ? escapeHtml(timestamp) : "—", "&#128196;", "REFERENCE", reference ? escapeHtml(reference) : "—"],
+  ];
+  if (customerId || friendlyUnits) {
+    detailPairs.push([
+      "&#128273;",
+      "CUSTOMER ID",
+      customerId ? escapeHtml(customerId) : "—",
+      "&#9889;",
+      "UNITS",
+      friendlyUnits ? escapeHtml(friendlyUnits) : "—",
+    ]);
+  }
+  const detailRows = detailPairs.map(([leftSymbol, leftLabel, leftValue, rightSymbol, rightLabel, rightValue]) => `
+    <tr>
+      ${detailCell(leftSymbol, leftLabel, leftValue)}
+      ${detailCell(rightSymbol, rightLabel, rightValue)}
+    </tr>`).join("");
+
+  const serviceIcon = (symbol: string, label: string) => `
+    <td align="center" style="padding: 0 8px;">
+      <div style="width: 42px; height: 42px; background: #FFF3E8; border-radius: 21px; text-align: center; line-height: 42px; font-size: 18px;">${symbol}</div>
+      <div style="margin-top: 6px; font-size: 11px; color: #667085;">${label}</div>
+    </td>`;
 
   const html = `
-    <div style="margin: 0; padding: 24px 12px; background-color: #FFF7F0; font-family: 'Segoe UI', Arial, sans-serif;">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 28px; overflow: hidden; border: 1px solid #FFE0C2;">
+    <div style="margin: 0; padding: 24px 12px; background-color: #F4F6F8; font-family: 'Segoe UI', Arial, sans-serif;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 640px; margin: 0 auto; background: #ffffff; border: 1px solid #E8EDF2; border-radius: 16px;">
         <tr>
-          <td style="background: #FF7A00; padding: 28px 28px 32px;">
-            <table role="presentation" cellpadding="0" cellspacing="0">
+          <td style="padding: 22px 24px 8px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
               <tr>
-                <td style="background: #ffffff; border-radius: 16px; padding: 8px 12px;">
-                  <img src="${logoUrl}" width="148" alt="NetPay" style="display: block; border: 0; width: 148px; max-width: 148px; height: auto;">
+                <td valign="middle">
+                  <img src="${logoUrl}" width="132" alt="NetPay" style="display: block; border: 0; width: 132px; max-width: 132px; height: auto;">
                 </td>
-                <td style="padding-left: 14px; vertical-align: middle;">
-                  <div style="font-size: 11px; letter-spacing: 0.16em; color: rgba(255,255,255,0.92); font-weight: 700;">BILL PAYMENTS MADE EASY</div>
+                <td valign="middle" align="right" style="font-size: 11px; letter-spacing: 0.14em; color: #98A2B3; font-weight: 700;">
+                  BILL PAYMENTS<br>MADE EASY
                 </td>
               </tr>
             </table>
-            <h1 style="margin: 28px 0 0; font-size: 32px; line-height: 1.15; color: #ffffff; font-weight: 800;">Electricity Token<br>Purchase Successful</h1>
-            <p style="margin: 14px 0 0; max-width: 360px; font-size: 15px; line-height: 1.5; color: rgba(255,255,255,0.92);">Your electricity token has been successfully generated and your payment was completed.</p>
           </td>
         </tr>
         <tr>
-          <td style="padding: 22px 22px 8px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #FFF6EE; border-radius: 18px;">
+          <td style="padding: 8px 20px 0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" bgcolor="#FF7F00" style="background: #FF7F00; border-radius: 18px;">
+              <tr>
+                <td style="padding: 22px 18px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                    <tr>
+                      <td width="72" valign="middle" style="width: 72px;">
+                        <div style="width: 58px; height: 58px; background: #ffffff; border-radius: 29px; text-align: center; line-height: 58px; font-size: 28px;">&#128161;</div>
+                      </td>
+                      <td valign="middle" style="padding-left: 8px;">
+                        <div style="font-size: 26px; line-height: 1.15; color: #ffffff; font-weight: 800;">Electricity Token<br>Purchase Successful</div>
+                        <div style="margin-top: 8px; font-size: 14px; line-height: 1.45; color: #FFF6EE;">Your electricity token has been successfully generated and your payment was completed.</div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 16px 20px 0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #FFF8F3; border: 1px solid #F3E4D6; border-radius: 16px;">
               <tr>
                 <td style="padding: 18px 18px 16px;">
-                  <div style="font-size: 12px; letter-spacing: 0.16em; color: #FF7A00; font-weight: 800;">ELECTRICITY TOKEN</div>
-                  <div style="margin-top: 8px;">${tokenBlock}</div>
+                  <div style="font-size: 11px; letter-spacing: 0.16em; color: #FF7F00; font-weight: 800;">ELECTRICITY TOKEN</div>
+                  <div style="margin-top: 10px;">${tokenHtml}</div>
                 </td>
               </tr>
             </table>
           </td>
         </tr>
         <tr>
-          <td style="padding: 8px 22px 8px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-              ${rows}
+          <td style="padding: 16px 20px 0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border: 1px solid #EEF2F6; border-radius: 16px;">
+              <tr>
+                <td style="padding: 16px 10px 6px;">
+                  <div style="padding: 0 8px 8px; font-size: 12px; letter-spacing: 0.14em; color: #FF7F00; font-weight: 800;">TRANSACTION DETAILS</div>
+                  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                    ${detailRows}
+                  </table>
+                </td>
+              </tr>
             </table>
           </td>
         </tr>
         <tr>
-          <td style="padding: 18px 22px 24px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #FAFAFA; border-radius: 18px;">
+          <td style="padding: 16px 20px 22px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F8FAFC" style="background: #F8FAFC; border-radius: 16px;">
               <tr>
-                <td style="padding: 18px;">
-                  <div style="font-size: 14px; font-weight: 800; color: #1B2430;">NetPay</div>
-                  <div style="margin-top: 8px; font-size: 13px; line-height: 1.5; color: #6B7280;">
-                    <a href="mailto:support@netppay.com" style="color: #6B7280; text-decoration: none;">support@netppay.com</a><br>
-                    <a href="https://netppay.com" style="color: #6B7280; text-decoration: none;">www.netppay.com</a><br>
-                    Your receipt is attached as a PDF.
+                <td valign="top" style="padding: 18px; width: 52%;">
+                  <div style="font-size: 16px; font-weight: 800; color: #1A2B4A;">NETPAY</div>
+                  <div style="margin-top: 2px; font-size: 12px; color: #667085;">Bill Payments Made Easy</div>
+                  <div style="margin-top: 12px; font-size: 13px; line-height: 1.5; color: #667085;">Thank you for using NetPay. We are committed to making your bill payments simple, fast and secure.</div>
+                  <div style="margin-top: 14px; font-size: 13px; line-height: 1.7; color: #344054;">
+                    <a href="mailto:support@netppay.com" style="color: #344054; text-decoration: none;">support@netppay.com</a><br>
+                    <a href="https://www.netppay.com" style="color: #344054; text-decoration: none;">www.netppay.com</a><br>
+                    +234 706 739 8399
                   </div>
+                </td>
+                <td valign="top" style="padding: 18px 12px 18px 0;">
+                  <div style="font-size: 12px; letter-spacing: 0.12em; color: #FF7F00; font-weight: 800;">OUR SERVICES</div>
+                  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
+                    <tr>
+                      ${serviceIcon("&#9889;", "Electricity")}
+                      ${serviceIcon("&#128241;", "Airtime")}
+                      ${serviceIcon("&#128246;", "Data")}
+                      ${serviceIcon("&#128250;", "Cable TV")}
+                    </tr>
+                  </table>
+                  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 14px;">
+                    <tr>
+                      <td style="padding-right: 8px;">
+                        <a href="https://apps.apple.com/search?term=NetPay" style="text-decoration: none;">
+                          <img src="cid:app-store-badge" width="120" height="36" alt="Download on the App Store" style="display: block; border: 0; width: 120px; height: 36px;">
+                        </a>
+                      </td>
+                      <td>
+                        <a href="https://play.google.com/store/search?q=NetPay&amp;c=apps" style="text-decoration: none;">
+                          <img src="cid:google-play-badge" width="120" height="36" alt="Get it on Google Play" style="display: block; border: 0; width: 120px; height: 36px;">
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
+                    <tr>
+                      <td valign="middle" style="font-size: 12px; color: #667085; padding-right: 8px;">Connect with us</td>
+                      <td style="padding-right: 8px;">
+                        <a href="https://facebook.com/netpay" style="text-decoration: none;">
+                          <img src="cid:social-facebook" width="32" height="32" alt="Facebook" style="display: block; border: 0; width: 32px; height: 32px;">
+                        </a>
+                      </td>
+                      <td style="padding-right: 8px;">
+                        <a href="https://twitter.com/netpay" style="text-decoration: none;">
+                          <img src="cid:social-x" width="32" height="32" alt="X" style="display: block; border: 0; width: 32px; height: 32px;">
+                        </a>
+                      </td>
+                      <td>
+                        <a href="https://instagram.com/netpay" style="text-decoration: none;">
+                          <img src="cid:social-instagram" width="32" height="32" alt="Instagram" style="display: block; border: 0; width: 32px; height: 32px;">
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
                 </td>
               </tr>
             </table>
@@ -306,18 +408,26 @@ Electricity Token Purchase Successful
 Your electricity token has been successfully generated and your payment was completed.
 
 Token: ${formattedToken}
-${customerName ? `Customer Name: ${customerName}\n` : ""}${customerId ? `Customer ID: ${customerId}\n` : ""}Provider: ${providerLabel}
+${customerName ? `Customer Name: ${customerName}\n` : ""}${customerAddress ? `Customer Address: ${customerAddress}\n` : ""}${customerId ? `Customer ID: ${customerId}\n` : ""}Provider: ${providerLabel}
 Meter Number: ${meterNumber}
-${meterTypeLabel ? `Meter Type: ${meterTypeLabel}\n` : ""}${friendlyAmount ? `Amount Paid: ${friendlyAmount}\n` : ""}${friendlyUnits ? `Units: ${friendlyUnits}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}${reference ? `Reference: ${reference}\n` : ""}${customerAddress ? `Customer Address: ${customerAddress}\n` : ""}
+${meterTypeLabel ? `Meter Type: ${meterTypeLabel}\n` : ""}${friendlyAmount ? `Amount Paid: ${friendlyAmount}\n` : ""}${friendlyUnits ? `Units: ${friendlyUnits}\n` : ""}${timestamp ? `Purchased: ${timestamp}\n` : ""}${reference ? `Reference: ${reference}\n` : ""}
 Enter this token on your meter to load your electricity.
-Your receipt is attached as a PDF.
+Your PDF receipt is attached to this email.
 
 NetPay
 support@netppay.com
-https://netppay.com
+https://www.netppay.com
++234 706 739 8399
   `.trim();
 
-  return { subject, html, text };
+  const attachments: ResendAttachment[] = EMAIL_INLINE_IMAGES.map((image) => ({
+    filename: image.filename,
+    content: image.content,
+    content_type: "image/png",
+    content_id: image.contentId,
+  }));
+
+  return { subject, html, text, attachments };
 };
 
 const buildEducationEmail = (payload: EducationEmailPayload) => {
@@ -529,7 +639,14 @@ Thank you for using NetPay.
   return { subject, html, text };
 };
 
-const buildEmailContent = (payload: PurchaseEmailPayload) => {
+type BuiltEmail = {
+  subject: string;
+  html: string;
+  text: string;
+  attachments?: ResendAttachment[];
+};
+
+const buildEmailContent = (payload: PurchaseEmailPayload): BuiltEmail => {
   if (payload.type === "electricity") {
     if (!payload.provider || !payload.meterNumber) {
       throw new Error("provider and meterNumber are required for electricity notifications");
@@ -643,6 +760,94 @@ const parseRequest = async (req: Request): Promise<PurchaseEmailPayload> => {
   };
 };
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function buildPdfAttachment(payload: PurchaseEmailPayload): Promise<{
+  attachment: ResendAttachment | null;
+  error?: string;
+}> {
+  try {
+    const purchasedAt = payload.purchasedAt || new Date().toISOString();
+    const amount = typeof payload.amount === "number" && Number.isFinite(payload.amount) ? payload.amount : 0;
+    const reference = payload.reference || "";
+    const amountText = amount > 0
+      ? `NGN ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : "";
+    const purchasedText = payload.type === "electricity"
+      ? formatReceiptTimestamp(purchasedAt)
+      : formatTimestamp(purchasedAt);
+    const rows: Array<[string, string]> = [];
+    let title = "NetPay Purchase Receipt";
+    let subtitle = "Your payment was completed.";
+    let highlightLabel = "";
+    let highlightValue = "";
+
+    if (payload.type === "electricity") {
+      title = "Electricity Token Purchase Successful";
+      subtitle = "Your electricity token has been successfully generated and your payment was completed.";
+      highlightLabel = "ELECTRICITY TOKEN";
+      highlightValue = formatElectricityToken(payload.token);
+      if (payload.customerName) rows.push(["CUSTOMER NAME", payload.customerName]);
+      if (payload.customerAddress) rows.push(["CUSTOMER ADDRESS", payload.customerAddress]);
+      if (payload.customerId) rows.push(["CUSTOMER ID", payload.customerId]);
+      rows.push(["PROVIDER", displayElectricityProvider(payload.provider)]);
+      rows.push(["METER NUMBER", payload.meterNumber]);
+      if (payload.meterType) rows.push(["METER TYPE", titleCaseWord(payload.meterType)]);
+      if (amountText) rows.push(["AMOUNT PAID", amountText]);
+      if (typeof payload.units === "number" && Number.isFinite(payload.units)) {
+        rows.push(["UNITS", `${payload.units.toFixed(2)} kWh`]);
+      }
+      if (purchasedText) rows.push(["PURCHASED", purchasedText]);
+      if (reference) rows.push(["REFERENCE", reference]);
+    } else if (payload.type === "education") {
+      title = `${payload.examType.toUpperCase()} PIN Ready`;
+      highlightLabel = "PIN";
+      highlightValue = payload.pin;
+      rows.push(["EXAM", payload.examType]);
+      if (payload.serial) rows.push(["SERIAL", payload.serial]);
+      if (payload.phoneNumber) rows.push(["PHONE NUMBER", payload.phoneNumber]);
+      if (amountText) rows.push(["AMOUNT", amountText]);
+      if (purchasedText) rows.push(["PURCHASED", purchasedText]);
+      if (reference) rows.push(["REFERENCE", reference]);
+    } else {
+      title = "Airtime Purchase Successful";
+      rows.push(["NETWORK", payload.network]);
+      rows.push(["PHONE NUMBER", payload.phoneNumber]);
+      if (amountText) rows.push(["AMOUNT", amountText]);
+      if (purchasedText) rows.push(["PURCHASED", purchasedText]);
+      if (reference) rows.push(["REFERENCE", reference]);
+    }
+
+    const bytes = buildPlainReceiptPdf({
+      title,
+      subtitle,
+      highlightLabel,
+      highlightValue,
+      rows,
+      footer: ["support@netppay.com", "www.netppay.com", "+234 706 739 8399"],
+    });
+    const safeReference = (reference || "receipt").replace(/[^\w.-]+/g, "-");
+    return {
+      attachment: {
+        filename: `NetPay-Receipt-${safeReference}.pdf`,
+        content: bytesToBase64(bytes),
+        content_type: "application/pdf",
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Purchase PDF receipt skipped:", message);
+    return { attachment: null, error: message.slice(0, 300) };
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -659,90 +864,40 @@ serve(async (req) => {
     const FROM_ADDRESS = getResendFromAddress();
 
     const payload = await parseRequest(req);
-    const { subject, html, text } = buildEmailContent(payload);
+    const { subject, html, text, attachments } = buildEmailContent(payload);
+    const pdfResult = await buildPdfAttachment(payload);
+    const pdfAttachment = pdfResult.attachment;
+    const attachmentsWithPdf = pdfAttachment
+      ? [...(attachments ?? []), pdfAttachment]
+      : attachments;
 
-    // Generate PDF receipt
-    let pdfAttachment: { filename: string; content: string } | null = null;
+    let resendJson;
     try {
-      const receiptData: ReceiptData = payload.type === "electricity" ? {
-        type: "electricity",
-        userEmail: payload.email,
-        userName: payload.fullName,
-        amount: payload.amount || 0,
-        reference: payload.reference || "",
-        purchasedAt: payload.purchasedAt || new Date().toISOString(),
-        balanceBefore: payload.balanceBefore || 0,
-        balanceAfter: payload.balanceAfter || 0,
-        provider: payload.provider,
-        meterNumber: payload.meterNumber,
-        meterType: payload.meterType,
-        customerName: payload.customerName,
-        customerAddress: payload.customerAddress,
-        customerId: payload.customerId,
-        token: payload.token,
-        units: payload.units,
-        chargeFee: payload.chargeFee,
-        purchaseAmount: payload.purchaseAmount,
-      } : payload.type === "education" ? {
-        type: "education",
-        userEmail: payload.email,
-        userName: payload.fullName,
-        amount: payload.amount || 0,
-        reference: payload.reference || "",
-        purchasedAt: payload.purchasedAt || new Date().toISOString(),
-        balanceBefore: payload.balanceBefore || 0,
-        balanceAfter: payload.balanceAfter || 0,
-        examType: payload.examType,
-        pin: payload.pin,
-        serial: payload.serial,
-        pins: payload.pins,
-        phoneNumber: payload.phoneNumber,
-        chargeFee: payload.chargeFee,
-        purchaseAmount: payload.purchaseAmount,
-      } : {
-        type: "airtime",
-        userEmail: payload.email,
-        userName: payload.fullName,
-        amount: payload.amount,
-        reference: payload.reference || "",
-        purchasedAt: payload.purchasedAt || new Date().toISOString(),
-        balanceBefore: payload.balanceBefore || 0,
-        balanceAfter: payload.balanceAfter || 0,
-        network: payload.network,
-        phoneNumber: payload.phoneNumber,
-      };
-
-      const pdfBytes = await generateReceiptPDF(receiptData);
-      const fileName = payload.type === "electricity"
-        ? `NetPay-Electricity-Receipt-${payload.reference || Date.now()}.pdf`
-        : `NetPay-${payload.type}-${payload.reference || Date.now()}.pdf`;
-      pdfAttachment = {
-        filename: fileName,
-        content: encodeBase64(pdfBytes),
-      };
-    } catch (pdfError) {
-      console.error("Error generating PDF receipt:", pdfError);
-      // Continue without PDF attachment if generation fails
+      resendJson = await sendResendEmail({
+        from: FROM_ADDRESS,
+        to: [payload.email],
+        subject,
+        html,
+        text,
+        tags: [{ name: "notification_type", value: payload.type }],
+        attachments: attachmentsWithPdf,
+      });
+    } catch (sendError) {
+      if (!pdfAttachment) throw sendError;
+      console.error("Email with PDF was rejected. Sending the notification without the PDF.", sendError);
+      resendJson = await sendResendEmail({
+        from: FROM_ADDRESS,
+        to: [payload.email],
+        subject,
+        html,
+        text,
+        tags: [{ name: "notification_type", value: payload.type }],
+        attachments,
+      });
     }
 
-    const resendJson = await sendResendEmail({
-      from: FROM_ADDRESS,
-      to: [payload.email],
-      subject,
-      html,
-      text,
-      tags: [{ name: "notification_type", value: payload.type }],
-      attachments: pdfAttachment
-        ? [{
-          filename: pdfAttachment.filename,
-          content: pdfAttachment.content,
-          content_type: "application/pdf",
-        }]
-        : undefined,
-    });
-
     return new Response(
-      JSON.stringify({ success: true, data: resendJson }),
+      JSON.stringify({ success: true, pdfAttached: Boolean(pdfAttachment), data: resendJson }),
       { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
     );
   } catch (error) {

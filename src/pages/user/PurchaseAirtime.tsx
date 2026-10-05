@@ -140,6 +140,7 @@ const PurchaseAirtime = () => {
   const { providers: vendingSettings } = useVendingSettings();
   const airtimeVendingProvider = vendingSettings.airtime || 'smeplug';
   const providerRef = useRef<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     providerRef.current = selectedNetwork || null;
@@ -374,6 +375,9 @@ const PurchaseAirtime = () => {
   };
 
   const handleConfirmPayment = async () => {
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = `air-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+    }
     setPurchasing(true);
     setShowSummary(false);
 
@@ -405,6 +409,7 @@ const PurchaseAirtime = () => {
         service_id: normalizedNetworkId,
         provider_id: network.id,
         item_code: network.apiCode,
+        idempotency_key: idempotencyKeyRef.current,
       };
 
       const { data, error } = await supabase.functions.invoke(purchaseFunction, {
@@ -437,6 +442,28 @@ const PurchaseAirtime = () => {
         throw new Error(error.message || 'Failed to connect to server');
       }
 
+      const purchaseStatus = String(data?.status || data?.data?.status || "").toUpperCase();
+      if (purchaseStatus === "PROCESSING" || purchaseStatus === "REQUIRES_REVIEW") {
+        idempotencyKeyRef.current = null;
+        const reference = String(data?.reference || data?.data?.reference || "");
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (currentSession) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("balance")
+            .eq("id", currentSession.user.id)
+            .single();
+          if (profile) setBalance(profile.balance || 0);
+        }
+        toast({
+          title: "Processing airtime purchase...",
+          description: reference
+            ? `Reference: ${reference}. You can leave this page. The status updates in Transactions.`
+            : "You can leave this page. The status updates in Transactions.",
+        });
+        return;
+      }
+
       if (!data?.success) {
         const detailMessage =
           data?.details?.message ||
@@ -448,6 +475,7 @@ const PurchaseAirtime = () => {
         throw new Error(errorMessage);
       }
 
+      idempotencyKeyRef.current = null;
       setTransactionDetails(data.data);
       setShowSuccess(true);
 

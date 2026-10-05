@@ -181,6 +181,7 @@ export default function DataPurchaseScreen() {
   const [selectedPlanCache, setSelectedPlanCache] = useState<DataPlan | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [outcomeSheet, setOutcomeSheet] = useState<{
     visible: boolean;
     variant: PurchaseOutcomeSheetVariant;
@@ -706,9 +707,13 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       }
 
       // Use the new unified purchase-data endpoint with automatic fallback
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = `data-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
       const requestBody = {
         phone_number: sanitizedPhoneNumber,
         plan_id: effectivePlanId,
+        idempotency_key: idempotencyKeyRef.current,
       };
       console.log('Prepared request body:', requestBody);
 
@@ -751,6 +756,8 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
       );
 
       if (outcome.kind === 'pending') {
+        idempotencyKeyRef.current = null;
+        void refreshBalance();
         showPurchaseOutcome('pending', outcome.message);
         return;
       }
@@ -832,6 +839,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         throw new Error(outcome.message || 'Unable to complete data purchase.');
       }
 
+      idempotencyKeyRef.current = null;
       setShowConfirmModal(false);
 
       const reference = outcome.reference || responseData?.data?.reference || '';
@@ -855,6 +863,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         showPurchaseOutcome('connection_uncertain');
         return;
       }
+      idempotencyKeyRef.current = null;
 
       const errorMessage = purchaseError?.message || String(purchaseError);
 
@@ -892,7 +901,7 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
     } finally {
       setIsProcessing(false);
     }
-  }, [dataProvider, networkIdMap, phoneNumber, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
+  }, [dataProvider, networkIdMap, phoneNumber, refreshBalance, router, selectedNetwork, selectedNetworkName, selectedPlan, selectedPlanLabel]);
 
   return (
     <ThemedView style={styles.container}>
@@ -1064,7 +1073,11 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
         />
       )}
 
-      <PurchaseProgressOverlay visible={isProcessing} />
+      <PurchaseProgressOverlay
+        visible={isProcessing}
+        title="Processing data purchase..."
+        hint="You can leave this screen. The purchase continues and shows in Transactions."
+      />
 
       <PurchaseOutcomeSheet
         visible={outcomeSheet.visible}

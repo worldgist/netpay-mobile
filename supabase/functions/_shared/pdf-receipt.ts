@@ -1,6 +1,27 @@
-import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
-
 export type ReceiptType = "electricity" | "education" | "airtime";
+
+/** Loaded on demand so a PDF library problem cannot stop the email function from booting. */
+async function loadPdfLib(): Promise<{
+  PDFDocument: {
+    create: () => Promise<{
+      embedFont: (font: unknown) => Promise<{ widthOfTextAtSize: (value: string, size: number) => number }>;
+      embedPng: (bytes: Uint8Array) => Promise<{ width: number; height: number }>;
+      addPage: (size: [number, number]) => {
+        drawRectangle: (options: Record<string, unknown>) => void;
+        drawImage: (image: { width: number; height: number }, options: Record<string, unknown>) => void;
+        drawText: (text: string, options: Record<string, unknown>) => void;
+        drawLine: (options: Record<string, unknown>) => void;
+        getSize: () => { width: number; height: number };
+      };
+      save: () => Promise<Uint8Array>;
+    }>;
+  };
+  rgb: (r: number, g: number, b: number) => unknown;
+  StandardFonts: { Helvetica: unknown; HelveticaBold: unknown };
+}> {
+  const specifier = ["https://esm.sh/", "pdf-lib@1.17.1"].join("");
+  return await import(specifier);
+}
 
 export interface BaseReceiptData {
   userEmail: string;
@@ -158,6 +179,7 @@ function formatReceiptDate(value: string): string {
 }
 
 async function generateElectricityReceiptPDF(data: ElectricityReceiptData): Promise<Uint8Array> {
+  const { PDFDocument, rgb, StandardFonts } = await loadPdfLib();
   const pdfDoc = await PDFDocument.create();
   const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -173,9 +195,11 @@ async function generateElectricityReceiptPDF(data: ElectricityReceiptData): Prom
   const contentWidth = pageWidth - margin * 2;
 
   let page = pdfDoc.addPage([pageWidth, pageHeight]);
-  let logoImage: Awaited<ReturnType<PDFDocument["embedPng"]>> | null = null;
+  let logoImage: { width: number; height: number } | null = null;
   try {
-    const logoResponse = await fetch("https://www.netppay.com/logo.png");
+    const logoResponse = await fetch("https://www.netppay.com/logo.png", {
+      signal: AbortSignal.timeout(4000),
+    });
     if (logoResponse.ok) {
       logoImage = await pdfDoc.embedPng(new Uint8Array(await logoResponse.arrayBuffer()));
     }
@@ -298,6 +322,7 @@ async function generateElectricityReceiptPDF(data: ElectricityReceiptData): Prom
     : "";
   const rows: Array<[string, string]> = [];
   if (data.customerName) rows.push(["CUSTOMER NAME", data.customerName]);
+  if (data.customerAddress) rows.push(["CUSTOMER ADDRESS", data.customerAddress]);
   if (data.customerId) rows.push(["CUSTOMER ID", data.customerId]);
   rows.push(["PROVIDER", displayElectricityProvider(data.provider)]);
   rows.push(["METER NUMBER", data.meterNumber]);
@@ -308,7 +333,6 @@ async function generateElectricityReceiptPDF(data: ElectricityReceiptData): Prom
   }
   if (data.purchasedAt) rows.push(["PURCHASED", formatReceiptDate(data.purchasedAt)]);
   if (data.reference) rows.push(["REFERENCE", data.reference]);
-  if (data.customerAddress) rows.push(["CUSTOMER ADDRESS", data.customerAddress]);
 
   for (const [label, value] of rows) {
     const valueLines = wrapPdfText(value, boldFont, 12, contentWidth);
@@ -349,6 +373,7 @@ export async function generateReceiptPDF(data: ReceiptData): Promise<Uint8Array>
     return generateElectricityReceiptPDF(data);
   }
 
+  const { PDFDocument, rgb, StandardFonts } = await loadPdfLib();
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595, 842]); // A4 size
   const { width, height } = page.getSize();

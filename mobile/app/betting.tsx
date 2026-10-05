@@ -110,6 +110,7 @@ export default function BettingScreen() {
   const { balance, refreshBalance } = useWalletBalance();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [customerName, setCustomerName] = useState<string>('');
   const [verifyingCustomer, setVerifyingCustomer] = useState(false);
   const [showInvalidAccountModal, setShowInvalidAccountModal] = useState(false);
@@ -357,7 +358,10 @@ export default function BettingScreen() {
       let responseData: any = null;
 
       try {
-        const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
+        if (!idempotencyKeyRef.current) {
+          idempotencyKeyRef.current = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+        }
+        const requestId = idempotencyKeyRef.current;
 
         console.log('Calling purchase-ebills-betting with:', {
           customer_id: sanitizedAccountId,
@@ -397,6 +401,8 @@ export default function BettingScreen() {
         if (data) {
           const invokeOutcome = parsePurchaseResponse(data, true);
           if (invokeOutcome.kind === 'pending') {
+            idempotencyKeyRef.current = null;
+            void refreshBalance();
             showPurchaseOutcome('pending', invokeOutcome.message);
             return;
           }
@@ -427,7 +433,7 @@ export default function BettingScreen() {
                            (supabase as any).supabaseUrl ||
                            'https://xrpuvnhmdmpgelfxpdcx.supabase.co';
 
-        const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}_${Math.random().toString(36).substring(7)}`;
+        const requestId = idempotencyKeyRef.current || `bet-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 
         console.log('Direct fetch to:', `${supabaseUrl}/functions/v1/purchase-ebills-betting`);
 
@@ -498,6 +504,8 @@ export default function BettingScreen() {
 
       const finalOutcome = parsePurchaseResponse(responseData, true);
       if (finalOutcome.kind === 'pending') {
+        idempotencyKeyRef.current = null;
+        void refreshBalance();
         showPurchaseOutcome('pending', finalOutcome.message);
         return;
       }
@@ -752,7 +760,11 @@ export default function BettingScreen() {
         );
       })()}
 
-      <PurchaseProgressOverlay visible={purchasing} />
+      <PurchaseProgressOverlay
+        visible={purchasing}
+        title="Processing betting purchase..."
+        hint="You can leave this screen. The purchase continues and shows in Transactions."
+      />
 
       <PurchaseOutcomeSheet
         visible={outcomeSheet.visible}

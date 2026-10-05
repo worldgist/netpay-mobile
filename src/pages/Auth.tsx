@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Loader2, DollarSign, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { z } from "zod";
+import { resolveAdminHomePath } from "@/lib/admin-home";
 
 const authSchema = z.object({
   email: z.string().trim().email("Invalid email address").max(255, "Email too long"),
@@ -113,7 +114,7 @@ const Auth = () => {
 
       if (access.allowed) {
         clearTimeout(timeoutId);
-        navigate("/dashboard");
+        navigate(await resolveAdminHomePath(user.id));
         return access;
       }
 
@@ -209,7 +210,7 @@ const Auth = () => {
       const access = await resolveAdminAccess(user);
       if (access.allowed) {
         toast.success("Signed in successfully!");
-        navigate("/dashboard");
+        navigate(await resolveAdminHomePath(user.id));
         return;
       }
 

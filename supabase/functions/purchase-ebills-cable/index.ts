@@ -11,6 +11,7 @@ import { debitUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { resolveEbillsPurchaseResult } from "../_shared/ebills-reconcile.ts";
 import { getEbillsOrderStatus, refundPurchaseWallet } from "../_shared/purchase-refund.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -47,10 +48,16 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) {
-      return json({ success: false, error: "Unauthorized" }, 401);
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return json({ success: false, error: "Unauthorized" }, 401);
+      }
+      user = authUser;
     }
 
     let body: Record<string, unknown> = {};
@@ -104,8 +111,9 @@ serve(async (req) => {
       return json({ success: false, error: "Insufficient balance" }, 400);
     }
 
-    // eBills requires req_* request IDs (same format as airtime/data/betting).
-    const reference = generateEBillsRequestId(user.id);
+    // eBills requires req_* request IDs. The wallet and history row use the queued reference.
+    const providerRequestId = generateEBillsRequestId(user.id);
+    const reference = purchaseReference(req, body, providerRequestId);
     const serviceId = getEBillsServiceId(provider);
 
     const refundWallet = async (reason: string, refSuffix: string) => {
@@ -226,7 +234,7 @@ serve(async (req) => {
       ebillsToken = await getEBillsToken();
       purchaseResult = await purchaseEBillsCableTV(
         ebillsToken,
-        reference,
+        providerRequestId,
         card_number,
         serviceId,
         api_code,
@@ -265,7 +273,7 @@ serve(async (req) => {
       });
     }
 
-    let resolved = await resolveEbillsPurchaseResult(ebillsToken, reference, purchaseResult);
+    let resolved = await resolveEbillsPurchaseResult(ebillsToken, providerRequestId, purchaseResult);
     purchaseResult = resolved.purchaseResult;
     let orderStatus = resolved.orderStatus;
 
@@ -273,7 +281,7 @@ serve(async (req) => {
     // instead of leaving the user debited in limbo.
     if (resolved.timedOut && !orderStatus.isCompleted && !orderStatus.shouldRefund) {
       try {
-        purchaseResult = await requeryEBillsOrder(ebillsToken, reference);
+        purchaseResult = await requeryEBillsOrder(ebillsToken, providerRequestId);
         orderStatus = getEbillsOrderStatus(purchaseResult);
         resolved = { ...resolved, purchaseResult, orderStatus, timedOut: true };
       } catch (finalRequeryError) {

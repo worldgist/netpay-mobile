@@ -21,7 +21,7 @@
   ],
   "rewrites": [
     {
-      "source": "/((?!_expo/|assets/|robots\\.txt|sitemap\\.xml|og-image\\.png|logo\\.png|favicon\\.ico|manifest\\.webmanifest|sw\\.js|pwa-192\\.png|pwa-512\\.png|apple-touch-icon\\.png).*)",
+      "source": "/((?!_expo/|assets/|robots\\.txt|sitemap\\.xml|og-image\\.png|logo\\.png|favicon\\.ico|manifest\\.webmanifest|sw\\.js|pwa-192\\.png|pwa-512\\.png|apple-touch-icon\\.png|buy/(?:airtime|data|electricity|cable-tv|education|betting|wallet|transfer)|search).*)",
       "destination": "/"
     }
   ]

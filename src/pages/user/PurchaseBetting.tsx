@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureProfileExists } from "@/utils/profile";
@@ -80,6 +80,7 @@ const isValidNigerianPhone = (value: string) => /^0\d{10}$/.test(value);
 
 const PurchaseBetting = () => {
   const navigate = useNavigate();
+  const idempotencyKeyRef = useRef<string | null>(null);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
@@ -260,7 +261,10 @@ const PurchaseBetting = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Session expired");
 
-      const requestId = `req_${Date.now()}_${session.user.id.substring(0, 8)}`;
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
+      const requestId = idempotencyKeyRef.current;
       const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
         body: {
           customer_id: accountNumber.trim(),
@@ -274,9 +278,21 @@ const PurchaseBetting = () => {
         throw new Error(error.message || 'Unable to process betting purchase');
       }
 
+      const queuedStatus = String(data?.status || data?.data?.status || "").toUpperCase();
+      if (queuedStatus === "PROCESSING" || queuedStatus === "REQUIRES_REVIEW" || data?.pending === true) {
+        idempotencyKeyRef.current = null;
+        toast({
+          title: queuedStatus === "REQUIRES_REVIEW" ? "Purchase needs review" : "Processing betting purchase",
+          description: data?.message || "You can leave this page. The purchase continues and shows in Transactions.",
+        });
+        setPurchasing(false);
+        return;
+      }
+
       if (!data?.success) {
         throw new Error(data?.error || data?.message || 'Betting purchase failed');
       }
+      idempotencyKeyRef.current = null;
 
       const purchaseData = data.data || {};
 

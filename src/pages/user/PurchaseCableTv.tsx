@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ const PurchaseCableTv = () => {
   const { providers: vendingSettings } = useVendingSettings();
   const cableVendingProvider = vendingSettings.cable;
   const [loading, setLoading] = useState(true);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [balance, setBalance] = useState(0);
   const [cablePlans, setCablePlans] = useState<CablePlan[]>([]);
   const [selectedProvider, setSelectedProvider] = useState("");
@@ -822,6 +823,7 @@ const PurchaseCableTv = () => {
           package_name: plan.package_name,
           price: plan.price,
           api_code: plan.api_code,
+          idempotency_key: idempotencyKeyRef.current || (idempotencyKeyRef.current = `cable-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`),
         },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -841,11 +843,12 @@ const PurchaseCableTv = () => {
       }
 
       // Handle pending transactions
-      if (data?.pending === true || (data?.success === false && data?.error?.includes('pending'))) {
+      const queuedStatus = String(data?.status || data?.data?.status || "").toUpperCase();
+      if (queuedStatus === "PROCESSING" || queuedStatus === "REQUIRES_REVIEW" || data?.pending === true || (data?.success === false && data?.error?.includes('pending'))) {
+        if (queuedStatus === "PROCESSING" || queuedStatus === "REQUIRES_REVIEW") idempotencyKeyRef.current = null;
         toast({
-          title: "Transaction Pending",
-          description: data?.error || "Transaction is pending confirmation from MobileNig. Your wallet has not been debited. Please try again in a few moments.",
-          variant: "default",
+          title: queuedStatus === "REQUIRES_REVIEW" ? "Purchase needs review" : "Processing cable TV purchase",
+          description: data?.message || data?.error || "You can leave this page. The purchase continues and shows in Transactions.",
         });
         setPurchasing(false);
         return;
@@ -855,6 +858,7 @@ const PurchaseCableTv = () => {
         throw new Error(data?.error || 'Purchase failed');
       }
 
+      idempotencyKeyRef.current = null;
       setTransactionDetails(data.data);
       setShowSuccess(true);
 

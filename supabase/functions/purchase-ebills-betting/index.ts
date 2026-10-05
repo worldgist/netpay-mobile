@@ -3,10 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getEBillsToken, verifyEBillsBettingCustomer, purchaseEBillsBetting, getEBillsBettingServiceId } from "../_shared/ebills-api.ts";
 import { debitUserWallet, creditUserWallet, getUserLedgerBalance } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { beginBillPurchase, purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, idempotency-key',
 };
 
 serve(async (req) => {
@@ -28,12 +29,19 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     // Parse request body
@@ -81,6 +89,29 @@ serve(async (req) => {
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    const bettingAmount = Number(amount);
+    const bettingFee = Math.round(bettingAmount * 0.1 * 100) / 100;
+    const bettingBalance = await getUserLedgerBalance(supabase, user.id);
+    const queuedBetting = await beginBillPurchase({
+      req,
+      supabase,
+      userId: user.id,
+      service: 'betting',
+      body: parsedBody,
+      amount: bettingAmount + bettingFee,
+      pendingRow: {
+        betting_provider,
+        account_number: customer_id,
+        purchase_amount: bettingAmount,
+        charge_fee: bettingFee,
+        balance_before: bettingBalance,
+        balance_after: bettingBalance,
+        vending_provider: 'ebills',
+        performed_by: user.id,
+      },
+    });
+    if (queuedBetting) return queuedBetting;
 
     // Get user balance
     const { data: profile, error: profileError } = await supabase
@@ -191,7 +222,7 @@ serve(async (req) => {
 
     // For demo users or demo accounts, return mock successful response
     if (isDemoUser || isDemoAccount) {
-      const reference = requestId || `BET-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`;
+      const reference = purchaseReference(req, parsedBody, requestId || `BET-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`);
 
       const debitResult = await debitUserWallet({
         supabase,
@@ -328,7 +359,7 @@ serve(async (req) => {
         throw vendorError;
       }
 
-      const reference = purchaseResult.data.request_id || requestId;
+      const reference = purchaseReference(req, parsedBody, purchaseResult.data.request_id || requestId);
       const orderId = purchaseResult.data.order_id;
 
       const isProcessing = purchaseResult.data.status === 'processing-api' || purchaseResult.message === 'ORDER PROCESSING';

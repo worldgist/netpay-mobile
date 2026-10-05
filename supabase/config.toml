@@ -28,6 +28,9 @@ content_path = "./supabase/templates/reset-password.html"
 [functions.admin-get-user-details]
 verify_jwt = true
 
+[functions.admin-assign-admin-tasks]
+verify_jwt = true
+
 [functions.admin-verify-user]
 verify_jwt = true
 
@@ -141,6 +144,15 @@ verify_jwt = true
 
 [functions.purchase-airtime]
 verify_jwt = true
+
+[functions.process-airtime-queue]
+verify_jwt = true
+
+[functions.process-purchase-queue]
+verify_jwt = true
+
+[functions.airtime-provider-webhook]
+verify_jwt = false
 
 [functions.purchase-mobilenig-airtime]
 verify_jwt = true

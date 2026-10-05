@@ -126,15 +126,16 @@ export const SEO_PAGES: Record<SeoPageKey, SeoDefinition> = {
 
 export function resolveSeo(
   key: SeoPageKey,
-  overrides?: Partial<Pick<SeoDefinition, 'title' | 'description' | 'keywords'>>,
+  overrides?: Partial<Pick<SeoDefinition, 'title' | 'description' | 'keywords' | 'path'>>,
 ): SeoDefinition & { canonical: string; url: string } {
   const page = SEO_PAGES[key];
-  const path = page.path;
+  const path = overrides?.path || page.path;
   return {
     ...page,
     title: overrides?.title || page.title,
     description: overrides?.description || page.description,
     keywords: overrides?.keywords || page.keywords || SEO_DEFAULT_KEYWORDS,
+    path,
     canonical: siteUrl(path === '/landing' ? '/' : path),
     url: siteUrl(path === '/landing' ? '/' : path),
   };
@@ -184,6 +185,14 @@ export function websiteJsonLd() {
         '@type': 'ImageObject',
         url: siteUrl('/og-image.png'),
       },
+    },
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${NETPAY_SITE_URL}/search?q={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
     },
   };
 }

@@ -200,6 +200,8 @@ export default function AirtimePurchaseScreen() {
 
   const isMounted = useRef(true);
   const providerRef = useRef<string | null>(null);
+  const purchaseLockRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
@@ -425,9 +427,14 @@ export default function AirtimePurchaseScreen() {
   };
 
   const handleConfirmPayment = useCallback(async () => {
+    if (purchaseLockRef.current) return;
     const currentSelectedProviderDetails = selectedProvider ? providers.find((provider) => provider.id === selectedProvider) : undefined;
     if (!currentSelectedProviderDetails) return;
 
+    purchaseLockRef.current = true;
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = `air-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+    }
     setIsProcessing(true);
 
     try {
@@ -477,6 +484,7 @@ export default function AirtimePurchaseScreen() {
         service_id: normalizedNetworkId,
         provider_id: currentSelectedProviderDetails.id,
         item_code: currentSelectedProviderDetails.apiCode,
+        idempotency_key: idempotencyKeyRef.current,
       };
 
       const { data, error } = await supabase.functions.invoke(purchaseFunction, {
@@ -500,7 +508,15 @@ export default function AirtimePurchaseScreen() {
       const outcome = parsePurchaseResponse(data, true);
 
       if (outcome.kind === 'pending') {
-        showPurchaseOutcome('pending', outcome.message);
+        const reference = String(data?.reference || data?.data?.reference || outcome.reference || '');
+        showPurchaseOutcome(
+          'pending',
+          reference
+            ? `Processing airtime purchase...\nReference: ${reference}`
+            : 'Processing airtime purchase...',
+        );
+        idempotencyKeyRef.current = null;
+        await refreshBalance();
         return;
       }
 
@@ -528,6 +544,7 @@ export default function AirtimePurchaseScreen() {
       }
 
       setShowConfirmModal(false);
+      idempotencyKeyRef.current = null;
 
       await refreshBalance();
 
@@ -593,7 +610,9 @@ export default function AirtimePurchaseScreen() {
       }
 
       Alert.alert('Airtime Purchase', message);
+      idempotencyKeyRef.current = null;
     } finally {
+      purchaseLockRef.current = false;
       setIsProcessing(false);
     }
   }, [amount, phoneNumber, router, selectedProvider, providers, airtimeVendingProvider, refreshBalance]);
@@ -781,7 +800,7 @@ export default function AirtimePurchaseScreen() {
           <TouchableOpacity
             style={[styles.continueButton, (isContinueDisabled) && styles.continueButtonDisabled]}
             onPress={handleContinue}
-            disabled={isContinueDisabled}>
+            disabled={isContinueDisabled || isProcessing}>
             <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
           </TouchableOpacity>
         </View>
@@ -802,7 +821,12 @@ export default function AirtimePurchaseScreen() {
         />
       )}
 
-      <PurchaseProgressOverlay visible={isProcessing} />
+      <PurchaseProgressOverlay
+        visible={isProcessing}
+        title="Processing airtime purchase..."
+        subtitle="Your wallet is reserved and the airtime request is queued."
+        hint="You can leave this screen. The purchase continues and shows in Transactions."
+      />
 
       <PurchaseOutcomeSheet
         visible={outcomeSheet.visible}

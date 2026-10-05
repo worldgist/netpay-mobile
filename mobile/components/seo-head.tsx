@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import Head from 'expo-router/head';
 import {
   GOOGLE_SITE_VERIFICATION,
@@ -10,13 +12,32 @@ import {
 
 type SeoHeadProps = {
   page: SeoPageKey;
+  path?: string;
   title?: string;
   description?: string;
   keywords?: string;
 };
 
-export function SeoHead({ page, title, description, keywords }: SeoHeadProps) {
-  const seo = resolveSeo(page, { title, description, keywords });
+export function SeoHead({ page, path, title, description, keywords }: SeoHeadProps) {
+  const seo = resolveSeo(page, { title, description, keywords, path });
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    document.title = seo.title;
+    const setContent = (selector: string, value: string) => {
+      const element = document.querySelector(selector);
+      if (element) element.setAttribute('content', value);
+    };
+    setContent('meta[name="description"]', seo.description);
+    setContent('meta[name="keywords"]', seo.keywords || '');
+    setContent('meta[property="og:title"]', seo.title);
+    setContent('meta[property="og:description"]', seo.description);
+    setContent('meta[property="og:url"]', seo.url);
+    setContent('meta[name="twitter:title"]', seo.title);
+    setContent('meta[name="twitter:description"]', seo.description);
+    const canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical) canonical.setAttribute('href', seo.canonical);
+  }, [seo.title, seo.description, seo.keywords, seo.canonical, seo.url]);
 
   return (
     <Head>

@@ -7,6 +7,7 @@ import {
 } from "../_shared/flutterwave-bills.ts";
 import { creditUserWallet, debitUserWallet } from "../_shared/wallet.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -39,12 +40,19 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
+      user = authUser;
     }
 
     const body = await req.json();
@@ -80,7 +88,7 @@ serve(async (req) => {
 
     const balanceBefore = Number(profile.balance) || 0;
     const isDemoUser = profile.email === "demo@netppay.com";
-    const reference = `CABLE-FLW-${Date.now()}-${user.id.slice(0, 8)}`;
+    const reference = purchaseReference(req, body, `CABLE-FLW-${Date.now()}-${user.id.slice(0, 8)}`);
 
     if (!isDemoUser && balanceBefore < price) {
       return new Response(JSON.stringify({ success: false, error: "Insufficient balance" }), {

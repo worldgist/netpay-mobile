@@ -14,6 +14,8 @@ import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { LandingFooter } from '@/components/landing/landing-footer';
 import { supabase } from '@/lib/supabase';
+import { FeatureSearch } from '@/components/landing/feature-search';
+import { featurePath } from '@/constants/seo-features';
 import {
   LANDING_BRAND as BRAND,
   LANDING_FEATURES,
@@ -190,6 +192,8 @@ export function WebLandingPage() {
                 one secure and reliable platform.
               </ThemedText>
 
+              <FeatureSearch />
+
               <View style={styles.heroCtas}>
                 <Pressable style={styles.primaryBtn} onPress={goLogin}>
                   <MaterialIcons name="person" size={18} color="#fff" />
@@ -233,7 +237,13 @@ export function WebLandingPage() {
                   <Pressable
                     key={service.title}
                     style={[styles.serviceCard, { width: serviceCardWidth }]}
-                    onPress={goLogin}>
+                    onPress={() => {
+                      if (service.slug) {
+                        router.push(featurePath(service.slug) as never);
+                        return;
+                      }
+                      goLogin();
+                    }}>
                     <View style={styles.serviceIconWrap}>
                       <MaterialIcons name={service.icon} size={26} color={BRAND.orange} />
                     </View>

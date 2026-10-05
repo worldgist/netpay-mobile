@@ -4,6 +4,7 @@ export type ResendAttachment = {
   filename: string;
   content: string;
   content_type?: string;
+  content_id?: string;
 };
 
 export type ResendEmailOptions = {

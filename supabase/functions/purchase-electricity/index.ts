@@ -3,10 +3,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
 import { getEbillsOrderStatus } from "../_shared/purchase-refund.ts";
 import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { sendElectricityReceiptEmail } from "../_shared/electricity-receipt-email.ts";
+import {
+  beginBillPurchase,
+  forwardPurchaseFields,
+  forwardPurchaseHeaders,
+  purchaseReference,
+  queuedUserId,
+} from "../_shared/purchase-queue.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, idempotency-key',
 };
 
 serve(async (req) => {
@@ -32,13 +40,19 @@ serve(async (req) => {
       ? authHeader.substring(7).trim() 
       : authHeader.trim();
     
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized - Please sign in to continue' }),
-        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized - Please sign in to continue' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
     }
 
     // Parse request body
@@ -71,6 +85,29 @@ serve(async (req) => {
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    const vendAmount = Number(amount);
+    const { data: electricityProfile } = await supabase.from('profiles').select('balance').eq('id', user.id).maybeSingle();
+    const electricityBalance = Number(electricityProfile?.balance) || 0;
+    const queuedElectricity = await beginBillPurchase({
+      req,
+      supabase,
+      userId: user.id,
+      service: 'electricity',
+      body,
+      amount: vendAmount,
+      pendingRow: Number.isFinite(vendAmount) && vendAmount > 0 ? {
+        meter_number,
+        provider,
+        meter_type,
+        balance_before: electricityBalance,
+        balance_after: electricityBalance,
+        customer_name: customer_name || null,
+        customer_address: customer_address || null,
+        performed_by: user.id,
+      } : null,
+    });
+    if (queuedElectricity) return queuedElectricity;
 
     // Get the active electricity vending provider from app_settings
     // This MUST be set by admin - no default fallback to ensure admin control
@@ -202,11 +239,8 @@ serve(async (req) => {
       try {
         const mobilenigResponse = await fetch(functionUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+          headers: forwardPurchaseHeaders(req, authHeader),
+          body: JSON.stringify(forwardPurchaseFields(req, body, {
             meter_number,
             provider,
             meter_type,
@@ -214,7 +248,7 @@ serve(async (req) => {
             customer_name,
             customer_address,
             minimum_vend,
-          }),
+          })),
         });
 
         const mobilenigResult = await mobilenigResponse.json();
@@ -307,7 +341,7 @@ serve(async (req) => {
 
         // For demo users, return mock successful response
         if (isDemoUser) {
-          const reference = `ELEC-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`;
+          const reference = purchaseReference(req, body, `ELEC-EBILLS-${Date.now()}-${user.id.substring(0, 8)}`);
           const balanceBefore = Number(profile.balance) || 0;
 
           const debitResult = await debitUserWallet({
@@ -369,7 +403,7 @@ serve(async (req) => {
         // Get eBills service ID and debit wallet before calling provider
         const serviceId = getEBillsElectricityServiceId(provider);
         const requestId = generateEBillsRequestId(user.id);
-        const reference = requestId;
+        const reference = purchaseReference(req, body, requestId);
 
         const refundWallet = async (reason: string, refSuffix: string) => {
           try {
@@ -764,81 +798,31 @@ serve(async (req) => {
           }
         );
 
-        // Send email receipt notification
-        // Always send email receipt, even if token is processing (will show "Processing...")
-        if (profile.email) {
-          try {
-            const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-            const emailFunctionUrl = `${supabaseUrl}/functions/v1/send-purchase-email`;
-            
-            // Get user's full name if available
-            const { data: userProfile } = await supabase
-              .from('profiles')
-              .select('full_name')
-              .eq('id', user.id)
-              .single();
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .single();
+        const emailToken = token && token.trim() !== '' ? token : 'Processing...';
 
-            // Use token if available, otherwise use placeholder
-            const emailToken = token && token.trim() !== '' ? token : 'Processing...';
-
-            const emailPayload = {
-              type: 'electricity',
-              email: profile.email,
-              fullName: userProfile?.full_name || null,
-              provider: provider,
-              token: emailToken,
-              amount: totalAmount,
-              units: units ? parseFloat(units) : null,
-              meterNumber: meter_number,
-              meterType: meter_type,
-              customerName: customerName,
-              customerAddress: customerAddress,
-              customerId: customerId,
-              reference: reference,
-              purchasedAt: new Date().toISOString(),
-              balanceBefore: debitResult.balanceBefore,
-              balanceAfter: debitResult.balanceAfter,
-              chargeFee: chargeFee,
-              purchaseAmount: purchaseAmount,
-            };
-
-            console.log('Sending email receipt:', {
-              email: profile.email,
-              reference,
-              token: token ? 'provided' : 'processing',
-              hasToken: !!token,
-            });
-
-            // Send email asynchronously (don't wait for response to avoid blocking)
-            fetch(emailFunctionUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-              },
-              body: JSON.stringify(emailPayload),
-            }).then(async (emailResponse) => {
-              if (!emailResponse.ok) {
-                const errorText = await emailResponse.text();
-                console.error('Email receipt send failed:', {
-                  status: emailResponse.status,
-                  error: errorText,
-                });
-              } else {
-                console.log('Email receipt sent successfully:', {
-                  email: profile.email,
-                  reference,
-                });
-              }
-            }).catch((emailError) => {
-              console.error('Error sending email receipt (non-blocking):', emailError);
-              // Don't throw - email failure shouldn't fail the purchase
-            });
-          } catch (emailError) {
-            console.error('Error preparing email receipt (non-blocking):', emailError);
-            // Don't throw - email failure shouldn't fail the purchase
-          }
-        }
+        await sendElectricityReceiptEmail({
+          email: profile.email || user.email,
+          fullName: userProfile?.full_name || null,
+          provider,
+          token: emailToken,
+          amount: totalAmount,
+          units: units ? parseFloat(String(units)) : null,
+          meterNumber: meter_number,
+          meterType: meter_type,
+          customerName,
+          customerAddress,
+          customerId,
+          reference,
+          balanceBefore: debitResult.balanceBefore,
+          balanceAfter: debitResult.balanceAfter,
+          chargeFee,
+          purchaseAmount,
+        });
 
         return new Response(
           JSON.stringify({
@@ -887,11 +871,8 @@ serve(async (req) => {
       try {
         const flutterwaveResponse = await fetch(functionUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+          headers: forwardPurchaseHeaders(req, authHeader),
+          body: JSON.stringify(forwardPurchaseFields(req, body, {
             meter_number,
             provider,
             meter_type,
@@ -899,7 +880,7 @@ serve(async (req) => {
             customer_name,
             customer_address,
             minimum_vend,
-          }),
+          })),
         });
 
         const flutterwaveResult = await flutterwaveResponse.json();

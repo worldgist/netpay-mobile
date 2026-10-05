@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_task_assignments: {
+        Row: {
+          created_at: string
+          granted_by: string | null
+          id: string
+          task_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          task_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          task_key?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       airtime_providers: {
         Row: {
           api_code: string

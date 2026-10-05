@@ -41,12 +41,15 @@ export interface PurchaseElectricityParams {
   outstanding_amount?: number;
   customer_category?: string;
   business_unit?: string;
+  idempotency_key?: string;
 }
 
 export interface PurchaseElectricityResponse {
   success: boolean;
   data?: any;
   error?: string;
+  message?: string;
+  status?: string;
   transaction_id?: string;
   reference?: string;
   token?: string;
@@ -275,15 +278,19 @@ class ElectricityService {
   async purchaseElectricity(
     params: PurchaseElectricityParams
   ): Promise<PurchaseElectricityResponse> {
+    const withKey: PurchaseElectricityParams & { idempotency_key: string } = {
+      ...params,
+      idempotency_key: `elec-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`,
+    };
     // Try supabase.functions.invoke first
     try {
-      return await this.purchaseElectricityWithInvoke(params);
+      return await this.purchaseElectricityWithInvoke(withKey);
     } catch (invokeError: any) {
       console.log('Supabase invoke failed, trying direct fetch:', invokeError);
       
       // Fallback to direct fetch
       try {
-        return await this.purchaseElectricityWithFetch(params);
+        return await this.purchaseElectricityWithFetch(withKey);
       } catch (fetchError: any) {
         console.error('Both methods failed:', { invokeError, fetchError });
         throw this.normalizeError(fetchError || invokeError);
@@ -321,6 +328,7 @@ class ElectricityService {
           outstanding_amount: params.outstanding_amount || undefined,
           customer_category: params.customer_category || undefined,
           business_unit: params.business_unit || undefined,
+          idempotency_key: params.idempotency_key,
         },
       });
 
@@ -349,6 +357,8 @@ class ElectricityService {
           return {
             success: true,
             data: responseData.data,
+            status: responseData.status || responseData.data?.status,
+            message: responseData.message,
             transaction_id: responseData.data?.transaction_id || responseData.transaction_id,
             reference: responseData.data?.reference || responseData.reference,
             token: responseData.data?.token || responseData.data?.energyToken || responseData.token,
@@ -412,6 +422,7 @@ class ElectricityService {
           outstanding_amount: params.outstanding_amount || undefined,
           customer_category: params.customer_category || undefined,
           business_unit: params.business_unit || undefined,
+          idempotency_key: params.idempotency_key,
         }),
         signal: controller.signal,
       });
@@ -444,6 +455,8 @@ class ElectricityService {
         return {
           success: true,
           data: responseData.data,
+          status: responseData.status || responseData.data?.status,
+          message: responseData.message,
           transaction_id: responseData.data?.transaction_id || responseData.transaction_id,
           reference: responseData.data?.reference || responseData.reference,
           token: responseData.data?.token || responseData.data?.energyToken || responseData.token,

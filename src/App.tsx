@@ -64,6 +64,7 @@ import DeleteAccount from "./pages/user/DeleteAccount";
 import StatementOfAccount from "./pages/user/StatementOfAccount";
 import UserSecurity from "./pages/user/UserSecurity";
 import { WebHostAccessGuard } from "@/components/WebHostAccessGuard";
+import { AdminTaskGuard } from "@/components/admin-task-guard";
 import AppLinkRedirect from "@/pages/AppLinkRedirect";
 import { VendingSettingsProvider } from "@/contexts/VendingSettingsContext";
 
@@ -79,6 +80,7 @@ const App = () => (
       }}
     >
       <WebHostAccessGuard>
+      <AdminTaskGuard>
       <Routes>
         <Route path="/" element={<Navigate to="/auth" replace />} />
         <Route path="/reset-password" element={<AppLinkRedirect />} />
@@ -164,6 +166,7 @@ const App = () => (
         
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </AdminTaskGuard>
       </WebHostAccessGuard>
     </BrowserRouter>
     </VendingSettingsProvider>

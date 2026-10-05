@@ -40,90 +40,58 @@ import {
 } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { ADMIN_TASKS } from "@/config/admin-tasks";
+import { useAdminAccess } from "@/context/AdminAccessContext";
 
-type MenuItem = {
-  title: string;
-  url: string;
-  icon: LucideIcon;
-  end?: boolean;
+const TASK_ICONS: Record<string, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  analytics: TrendingUp,
+  treasury: Banknote,
+  wallets: Wallet,
+  virtual_accounts: CreditCard,
+  ledger: BookOpen,
+  transactions: CreditCard,
+  platform_revenue: DollarSign,
+  airtime: Smartphone,
+  data_plans: Wifi,
+  electricity: Zap,
+  cable_tv: Tv,
+  education: GraduationCap,
+  betting: Dices,
+  smeplug: Globe,
+  ebills: Globe,
+  payvessel: Wallet,
+  flutterwave: CreditCard,
+  users: Users,
+  deleted_accounts: Trash2,
+  referrals: Gift,
+  staff: UserCog,
+  hr: Users,
+  support: Headset,
+  notifications: Bell,
+  email_notifications: Mail,
+  compliance: ShieldCheck,
+  content: FileText,
+  settings: Settings,
 };
-
-type MenuSection = {
-  label: string;
-  items: MenuItem[];
-};
-
-const menuSections: MenuSection[] = [
-  {
-    label: "Overview",
-    items: [
-      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, end: true },
-      { title: "Analytics", url: "/analytics", icon: TrendingUp },
-    ],
-  },
-  {
-    label: "Finance",
-    items: [
-      { title: "Treasury", url: "/treasury", icon: Banknote },
-      { title: "Wallets", url: "/wallets", icon: Wallet },
-      { title: "Virtual Accounts", url: "/virtual-accounts", icon: CreditCard },
-      { title: "Ledger", url: "/ledger", icon: BookOpen },
-      { title: "Transactions", url: "/transactions", icon: CreditCard },
-      { title: "Platform Revenue", url: "/platform-revenue", icon: DollarSign },
-    ],
-  },
-  {
-    label: "Vending Services",
-    items: [
-      { title: "Airtime", url: "/airtime", icon: Smartphone },
-      { title: "Data Plans", url: "/data-plans", icon: Wifi },
-      { title: "Electricity", url: "/electricity", icon: Zap },
-      { title: "Cable TV", url: "/cable-tv", icon: Tv },
-      { title: "Education", url: "/education", icon: GraduationCap },
-      { title: "Betting", url: "/betting", icon: Dices },
-    ],
-  },
-  {
-    label: "Payment Providers",
-    items: [
-      { title: "SMEPLUG", url: "/smeplug", icon: Globe },
-      { title: "eBills Africa", url: "/ebills", icon: Globe },
-      { title: "PayVessel", url: "/payvessel", icon: Wallet },
-      { title: "Flutterwave", url: "/flutterwave", icon: CreditCard },
-    ],
-  },
-  {
-    label: "Users & Team",
-    items: [
-      { title: "Users", url: "/users", icon: Users },
-      { title: "Deleted Accounts", url: "/deleted-accounts", icon: Trash2 },
-      { title: "Referrals", url: "/referrals", icon: Gift },
-      { title: "Staff", url: "/staff", icon: UserCog },
-      { title: "HR Manager", url: "/hr", icon: Users },
-    ],
-  },
-  {
-    label: "Support & Comms",
-    items: [
-      { title: "Live Support", url: "/support-admin", icon: Headset },
-      { title: "Notifications", url: "/notifications", icon: Bell },
-      { title: "Email Notifications", url: "/email-notifications", icon: Mail },
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
-      { title: "Compliance", url: "/compliance", icon: ShieldCheck },
-      { title: "Content", url: "/content", icon: FileText },
-      { title: "Settings", url: "/settings", icon: Settings },
-    ],
-  },
-];
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const navigate = useNavigate();
+  const { loading, hasDbAdminRole, isSuperAdmin, taskKeys } = useAdminAccess();
   const isCollapsed = state === "collapsed";
+  const menuSections = ADMIN_TASKS.reduce<Array<{ label: string; items: typeof ADMIN_TASKS }>>((sections, task) => {
+    if (loading) return sections;
+    const allowed = !hasDbAdminRole || isSuperAdmin || taskKeys.includes(task.key);
+    if (!allowed) return sections;
+    const section = sections.find((entry) => entry.label === task.section);
+    if (section) {
+      section.items.push(task);
+    } else {
+      sections.push({ label: task.section, items: [task] });
+    }
+    return sections;
+  }, []);
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -155,12 +123,14 @@ export function AppSidebar() {
             <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {section.items.map((item) => (
-                  <SidebarMenuItem key={item.url}>
+                {section.items.map((item) => {
+                  const Icon = TASK_ICONS[item.key] ?? LayoutDashboard;
+                  return (
+                  <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton asChild>
                       <NavLink
-                        to={item.url}
-                        end={item.end}
+                        to={item.path}
+                        end={item.path === "/dashboard"}
                         className={({ isActive }) =>
                           `flex items-center gap-3 px-3 py-2 rounded-lg transition-smooth ${
                             isActive
@@ -169,12 +139,13 @@ export function AppSidebar() {
                           }`
                         }
                       >
-                        <item.icon className="h-4 w-4 flex-shrink-0" />
+                        <Icon className="h-4 w-4 flex-shrink-0" />
                         {!isCollapsed && <span>{item.title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                ))}
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

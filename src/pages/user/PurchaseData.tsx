@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureProfileExists } from "@/utils/profile";
@@ -99,6 +99,7 @@ const PurchaseData = () => {
   const { providers: vendingSettings } = useVendingSettings();
   const dataProvider = vendingSettings.data;
   const [loading, setLoading] = useState(true);
+  const idempotencyKeyRef = useRef<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [balance, setBalance] = useState(0);
   const [networks, setNetworks] = useState<Network[]>([]);
@@ -500,9 +501,13 @@ const PurchaseData = () => {
       if (normalizedPhone !== phoneNumber) {
         setPhoneNumber(normalizedPhone);
       }
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = `data-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      }
       const requestBody = {
         phone_number: normalizedPhone,
         plan_id: plan.id,
+        idempotency_key: idempotencyKeyRef.current,
       };
 
       // Direct fetch call for better error handling
@@ -582,21 +587,23 @@ const PurchaseData = () => {
       const reference = responseData?.data?.reference;
       const vendor = responseData?.data?.vendor || 'vendor';
       
+      if (isPending) {
+        idempotencyKeyRef.current = null;
+        toast({
+          title: "Processing data purchase",
+          description: responseData?.message || `You can leave this page. Reference: ${reference}. It will show in Transactions.`,
+        });
+        setPurchasing(false);
+        return;
+      }
+
+      idempotencyKeyRef.current = null;
       setTransactionDetails(responseData.data || { reference, amount: effectivePrice });
       setShowSuccess(true);
-      
-      // Show appropriate message based on transaction status
-      if (isPending) {
-        toast({
-          title: "Transaction Processing",
-          description: `Your data purchase is being processed via ${vendor}. Reference: ${reference}. You will be notified when completed.`,
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: `Data purchased successfully via ${vendor}. Reference: ${reference}.`,
-        });
-      }
+      toast({
+        title: "Success",
+        description: `Data purchased successfully via ${vendor}. Reference: ${reference}.`,
+      });
 
       // Refresh balance
       const { data: { session: refreshedSession } } = await supabase.auth.getSession();
