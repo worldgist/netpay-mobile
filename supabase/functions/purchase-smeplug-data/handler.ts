@@ -1,0 +1,587 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { debitUserWallet, creditUserWallet } from "../_shared/wallet.ts";
+import { refundPurchaseWallet } from "../_shared/purchase-refund.ts";
+import { sendPushNotification } from "../_shared/push-notifications.ts";
+import { runAfterResponse } from "../_shared/run-after-response.ts";
+import { purchaseReference, queuedUserId } from "../_shared/purchase-queue.ts";
+import { requireSmeplugSecretKey } from "../_shared/vendor-secrets.ts";
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+export async function handlePurchase(req: Request): Promise<Response> {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const SECRET_KEY = await requireSmeplugSecretKey(supabase);
+
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const replayUserId = queuedUserId(req);
+    let user: { id: string };
+    if (replayUserId) {
+      user = { id: replayUserId };
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authUser) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Unauthorized' }),
+          { status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+        );
+      }
+      user = authUser;
+    }
+
+    let rawBody: Record<string, unknown> | null = null;
+    let phone_number: unknown;
+    let plan_id: unknown;
+    let network_id: unknown;
+    let network_name: unknown;
+    let resolved_network_key: unknown;
+
+    const bodyText = await req.text();
+    console.log('Raw request body text for purchase-smeplug-data:', bodyText);
+    if (bodyText && bodyText.trim().length > 0) {
+      try {
+        rawBody = JSON.parse(bodyText);
+      } catch (parseRequestError) {
+        console.error('Unable to parse request body for purchase-smeplug-data. Treating as empty payload.', {
+          error: parseRequestError,
+          bodyText,
+        });
+        rawBody = null;
+      }
+    }
+
+    if (rawBody && typeof rawBody === 'object') {
+      ({ phone_number, plan_id, network_id, network_name, resolved_network_key } = rawBody as Record<string, unknown>);
+    }
+
+    console.log('Incoming data purchase payload:', JSON.stringify(rawBody, null, 2));
+
+    const resolveNetworkId = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (/^\d+$/.test(trimmed)) {
+          return Number(trimmed);
+        }
+
+        const normalized = trimmed.toUpperCase();
+        const mapping: Record<string, number> = {
+          MTN: 1,
+          'MTN NIGERIA': 1,
+          AIRTEL: 2,
+          'AIRTEL NIGERIA': 2,
+          '9MOBILE': 3,
+          '9 MOBILE': 3,
+          ETISALAT: 3,
+          GLO: 4,
+          GLOBACOM: 4,
+        };
+
+        if (mapping[normalized]) {
+          return mapping[normalized];
+        }
+      }
+
+      return null;
+    };
+
+    // Normalize phone number (remove spaces, handle +234 format)
+    let sanitizedPhone = typeof phone_number === 'string' ? phone_number.trim().replace(/\s+/g, '') : '';
+    
+    // Handle +234 format (convert to 0xxx format)
+    if (sanitizedPhone.startsWith('+234')) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(4);
+    } else if (sanitizedPhone.startsWith('234') && sanitizedPhone.length === 13) {
+      sanitizedPhone = '0' + sanitizedPhone.slice(3);
+    }
+    
+    // Remove any remaining non-digit characters except leading 0
+    sanitizedPhone = sanitizedPhone.replace(/[^0-9]/g, '');
+
+    // Basic validation - let API handle network-specific validation
+    if (!sanitizedPhone || sanitizedPhone.length < 10 || sanitizedPhone.length > 11) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Please enter a valid phone number (10-11 digits)',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!plan_id) {
+      console.error('Invalid data purchase payload:', {
+        phone_number: sanitizedPhone ? '***hidden***' : sanitizedPhone,
+        plan_id,
+        network_id,
+        resolved_network_key,
+        resolvedNetworkId: null,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'phone_number and plan_id are required',
+          details: {
+            phone_number: Boolean(sanitizedPhone),
+            plan_id,
+            network_id,
+            resolved_network_key,
+            resolvedNetworkId: null,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Fetch data plan details from database
+    const { data: dataPlan, error: planError } = await supabase
+      .from('data_plans')
+      .select('*')
+      .eq('id', plan_id)
+      .single();
+
+    if (planError || !dataPlan) {
+      console.error('Error fetching data plan:', planError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Data plan not found' }),
+        { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Fetch user's balance
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('balance, full_name, email')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      console.error('Error fetching user profile:', profileError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to fetch user profile' }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const effectiveNetworkKey =
+      (typeof network_id === 'string' && network_id.trim().length > 0 ? network_id.trim() : null) ??
+      (typeof resolved_network_key === 'string' && resolved_network_key.trim().length > 0
+        ? resolved_network_key.trim()
+        : null) ??
+      (typeof network_name === 'string' && network_name.trim().length > 0 ? network_name.trim() : null) ??
+      (typeof dataPlan.network === 'string' && dataPlan.network.trim().length > 0
+        ? dataPlan.network.trim()
+        : null);
+
+    const smeplugNetworkId =
+      resolveNetworkId(effectiveNetworkKey) ??
+      resolveNetworkId(dataPlan.network);
+
+    if (smeplugNetworkId === null) {
+      console.error('Unable to resolve SMEPLUG network ID', {
+        network_id,
+        resolved_network_key,
+        network_name,
+        data_plan_network: dataPlan.network,
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Unable to resolve network ID for this provider',
+          details: {
+            network_id,
+            resolved_network_key,
+            network_name,
+            data_plan_network: dataPlan.network,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const resolvedNetworkName =
+      typeof network_name === 'string' && network_name.trim().length > 0
+        ? network_name.trim()
+        : dataPlan.network || effectiveNetworkKey || '';
+
+    const balanceBefore = Number(profile.balance) || 0;
+    
+    // Calculate pricing: user pays admin-set price, API gets original price
+    // userCharged = what user pays (custom_price or original_price)
+    // apiCost = what SMEPLUG charges for this plan (original_price, the actual API cost)
+    // adminRevenue = difference (userCharged - apiCost)
+    const userCharged = dataPlan.custom_price ?? dataPlan.original_price ?? dataPlan.price;
+    const apiCost = dataPlan.original_price ?? dataPlan.price;
+    const userChargedAmount = Number(userCharged) || 0;
+    const apiCostAmount = Number(apiCost) || 0;
+    const adminRevenue = userChargedAmount - apiCostAmount; // Can be negative if admin sets price lower than API cost
+
+    console.log('Pricing breakdown:', {
+      custom_price: dataPlan.custom_price,
+      original_price: dataPlan.original_price,
+      price: dataPlan.price,
+      userCharged: userChargedAmount,
+      apiCost: apiCostAmount,
+      adminRevenue: adminRevenue
+    });
+
+    if (balanceBefore < userChargedAmount) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Insufficient balance' }),
+        { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const reference = purchaseReference(req, rawBody, `DATA-${Date.now()}-${user.id.slice(0, 8)}`);
+    const formattedAmount = `₦${userChargedAmount.toFixed(2)}`;
+
+    console.log(
+      `Purchasing data: ${dataPlan.plan_name} for ${sanitizedPhone} on network ${smeplugNetworkId} (resolved from ${network_id ?? resolved_network_key ?? resolvedNetworkName})`
+    );
+
+    let debitResult: Awaited<ReturnType<typeof debitUserWallet>>;
+    try {
+      debitResult = await debitUserWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        transactionType: 'data_purchase',
+        description: `Data purchase (pending vendor) - ${dataPlan.plan_name} for ${sanitizedPhone}`,
+        reference,
+        performedBy: user.id,
+        balanceBefore,
+      });
+    } catch (debitError) {
+      console.error('Debit failed before SMEPlug data purchase:', debitError);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: debitError instanceof Error
+            ? debitError.message
+            : 'Could not debit wallet for data purchase',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const refundWallet = async (reason: string, refSuffix: string) => {
+      await refundPurchaseWallet({
+        supabase,
+        userId: user.id,
+        amount: userChargedAmount,
+        purchaseReference: reference,
+        productLabel: 'Data purchase',
+        reason,
+        refSuffix,
+        performedBy: user.id,
+      });
+    };
+
+    const recordDataFailure = async (apiPayload: unknown, status: string) => {
+      const baseTransactionData = {
+        user_id: user.id,
+        phone_number: sanitizedPhone,
+        network: dataPlan.network || String(network_id),
+        plan_name: dataPlan.plan_name,
+        plan_validity: dataPlan.validity || 'N/A',
+        amount: userChargedAmount,
+        balance_before: debitResult.balanceBefore,
+        balance_after: debitResult.balanceBefore,
+        status,
+        reference,
+        api_response: apiPayload ?? null,
+        performed_by: user.id,
+        provider: 'smeplug',
+      };
+
+      const result = await supabase.from('data_transactions').insert({
+        ...baseTransactionData,
+        api_cost: apiCostAmount,
+        admin_revenue: adminRevenue,
+      });
+
+      if (result.error) {
+        await supabase.from('data_transactions').insert(baseTransactionData);
+      }
+    };
+
+    // Purchase data via SMEPLUG API
+    let response: Response;
+    let apiResponse: Record<string, unknown>;
+    try {
+      response = await fetch('https://smeplug.ng/api/v1/data/purchase', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          network_id: smeplugNetworkId,
+          plan_id: parseInt(dataPlan.api_code),
+          phone: sanitizedPhone,
+          customer_reference: reference,
+        }),
+      });
+
+      const responseText = await response.text();
+      if (responseText.trim().length === 0) {
+        throw new Error('Empty response from SMEPLUG data endpoint');
+      }
+      apiResponse = JSON.parse(responseText) as Record<string, unknown>;
+    } catch (vendorError) {
+      console.error('SMEPLUG data vendor call failed after debit:', vendorError);
+      const reason = vendorError instanceof Error ? vendorError.message : 'provider request failed';
+      await refundWallet(reason, 'VENDOR-FAIL');
+      await recordDataFailure({ message: reason }, 'failed');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: reason || 'Data purchase failed. Your wallet has been credited back.',
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    console.log('SMEPLUG data purchase response:', JSON.stringify(apiResponse, null, 2));
+
+    const status = apiResponse?.status || (apiResponse?.data as Record<string, unknown> | undefined)?.status || '';
+    const statusLower = (typeof status === 'string' ? status : String(status || '')).toLowerCase();
+    const success = apiResponse?.success;
+    const dataSuccess = (apiResponse?.data as Record<string, unknown> | undefined)?.success;
+
+    const statusIsTrue = status === true || status === 'true';
+
+    const isDelivered =
+      statusIsTrue ||
+      statusLower === 'success' ||
+      statusLower === 'delivered' ||
+      success === true ||
+      dataSuccess === true;
+
+    const isPending =
+      statusLower === 'pending' ||
+      statusLower === 'processing' ||
+      statusLower === 'queued';
+
+    const isFailed =
+      !response.ok ||
+      statusLower === 'failed' ||
+      statusLower === 'error' ||
+      success === false ||
+      dataSuccess === false ||
+      status === false;
+
+    if (isFailed) {
+      const errorMessage =
+        (typeof apiResponse.message === 'string' ? apiResponse.message : null) ||
+        (typeof apiResponse.error === 'string' ? apiResponse.error : null) ||
+        (typeof (apiResponse.data as Record<string, unknown> | undefined)?.message === 'string'
+          ? (apiResponse.data as Record<string, unknown>).message as string
+          : null) ||
+        (typeof (apiResponse.data as Record<string, unknown> | undefined)?.error === 'string'
+          ? (apiResponse.data as Record<string, unknown>).error as string
+          : null) ||
+        (typeof apiResponse.response_description === 'string' ? apiResponse.response_description : null) ||
+        (typeof apiResponse.status_message === 'string' ? apiResponse.status_message : null) ||
+        `Data purchase failed${status ? ` (status: ${status})` : ''}`;
+
+      console.error('SMEPLUG data API error:', {
+        errorMessage,
+        httpStatus: response.status,
+        responseOk: response.ok,
+        status,
+        statusLower,
+        success,
+        dataSuccess,
+        isDelivered,
+        isPending,
+        isFailed,
+        fullResponse: JSON.stringify(apiResponse, null, 2),
+      });
+
+      await refundWallet('provider reported failure or non-success', 'REF');
+      await recordDataFailure(apiResponse, 'failed');
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `${errorMessage}. Your wallet has been credited back.`,
+          details: {
+            status,
+            statusCode: response.status,
+            apiResponse,
+          },
+        }),
+        { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    const transactionStatus = isDelivered ? 'success' : 'pending';
+    console.log('Transaction status determined:', {
+      status,
+      statusLower,
+      success,
+      dataSuccess,
+      isDelivered,
+      isPending,
+      isFailed,
+      transactionStatus,
+    });
+
+    // Record transaction with admin revenue tracking - CRITICAL: This must succeed
+    // Try with all columns first, fallback if api_cost/admin_revenue don't exist
+    let insertedTransaction = null;
+    let dataTxnError = null;
+    
+    const baseTransactionData = {
+      user_id: user.id,
+      phone_number: sanitizedPhone,
+      network: dataPlan.network || String(network_id),
+      plan_name: dataPlan.plan_name,
+      plan_validity: dataPlan.validity || "N/A",
+      amount: userChargedAmount,
+      balance_before: debitResult.balanceBefore,
+      balance_after: debitResult.balanceAfter,
+      status: transactionStatus,
+      reference,
+      api_response: apiResponse,
+      performed_by: user.id,
+      provider: 'smeplug',
+    };
+
+    // First attempt: try with api_cost and admin_revenue
+    const result = await supabase
+      .from('data_transactions')
+      .insert({
+        ...baseTransactionData,
+        api_cost: apiCostAmount,
+        admin_revenue: adminRevenue,
+      })
+      .select()
+      .single();
+
+    dataTxnError = result.error;
+    insertedTransaction = result.data;
+
+    // If error is about missing columns, retry without them
+    if (dataTxnError && (
+      dataTxnError.code === '42703' ||
+      dataTxnError.message?.toLowerCase().includes('column') ||
+      dataTxnError.message?.toLowerCase().includes('does not exist') ||
+      dataTxnError.message?.toLowerCase().includes('api_cost') ||
+      dataTxnError.message?.toLowerCase().includes('admin_revenue')
+    )) {
+      console.warn('api_cost/admin_revenue columns not found, inserting without them:', dataTxnError.message);
+      const fallbackResult = await supabase
+        .from('data_transactions')
+        .insert(baseTransactionData)
+        .select()
+        .single();
+      
+      dataTxnError = fallbackResult.error;
+      insertedTransaction = fallbackResult.data;
+    }
+
+    if (dataTxnError || !insertedTransaction) {
+      console.error("CRITICAL: Failed to record data transaction after wallet debit:", dataTxnError);
+      // This is a critical error - wallet was debited but transaction not recorded
+      console.error("Data consistency issue: Wallet debited but transaction not recorded", {
+        userId: user.id,
+        userCharged: userChargedAmount,
+        apiCost: apiCostAmount,
+        adminRevenue: adminRevenue,
+        reference,
+        error: dataTxnError,
+      });
+      
+      // Return error so the frontend knows something went wrong
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Transaction completed but failed to record. Please contact support with reference: " + reference,
+          reference,
+          details: {
+            message: "Your wallet was debited and data was delivered, but the transaction record failed. Please contact support.",
+            error: dataTxnError?.message || "Unknown error",
+          },
+        }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    runAfterResponse(sendPushNotification(
+      supabase,
+      user.id,
+      isDelivered ? 'Data Purchase Successful' : 'Data Purchase Processing',
+      isDelivered
+        ? `${formattedAmount} data bundle (${dataPlan.plan_name}) purchased for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`
+        : `${formattedAmount} data bundle (${dataPlan.plan_name}) is being processed for ${sanitizedPhone} on ${resolvedNetworkName || dataPlan.network || 'the selected network'}. Your new balance is ₦${debitResult.balanceAfter.toFixed(2)}.`,
+      {
+        type: 'data_purchase',
+        reference,
+        amount: userChargedAmount,
+        plan_name: dataPlan.plan_name,
+        phone_number: sanitizedPhone,
+        network: resolvedNetworkName || dataPlan.network || String(network_id),
+        status: transactionStatus,
+      }
+    ));
+
+    return new Response(
+      JSON.stringify({ 
+        success: isDelivered, // Only return true if actually delivered
+        pending: isPending, // Indicate if pending
+        message: isDelivered ? 'Data purchased successfully' : 'Data purchase is being processed',
+        data: {
+          reference,
+          plan_name: dataPlan.plan_name,
+          amount: userChargedAmount, // Amount user paid
+          api_cost: apiCostAmount, // Amount sent to API
+          admin_revenue: adminRevenue, // Admin profit
+          phone_number: sanitizedPhone,
+          network: resolvedNetworkName || dataPlan.network || String(network_id),
+          validity: dataPlan.validity,
+          balance_before: debitResult.balanceBefore,
+          balance_after: debitResult.balanceAfter,
+          status: transactionStatus,
+        }
+      }),
+      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error in purchase-smeplug-data function:', error);
+    
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      }),
+      { 
+        status: 500, 
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } 
+      }
+    );
+  }
+}

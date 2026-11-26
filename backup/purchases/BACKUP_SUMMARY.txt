@@ -1,0 +1,82 @@
+PURCHASE FEATURES BACKUP SUMMARY
+================================
+
+Backup Date: Thu Dec 18 04:26:04 WAT 2025
+
+FEATURES BACKED UP:
+-------------------
+1. Airtime Purchase
+2. Data Purchase  
+3. Cable TV Purchase
+4. Electricity Purchase
+5. Education Purchase
+6. Add Money (Wallet Top-up)
+
+FILES INCLUDED:
+---------------
+Mobile App Screens (7 files):
+- airtime-purchase.tsx
+- data-purchase.tsx
+- cable-tv.tsx
+- electricity.tsx
+- education.tsx
+- add-money.tsx
+- payment-success.tsx
+
+Mobile Utilities (1 file):
+- transactionStorage.ts
+
+Web Pages - User (5 files):
+- PurchaseAirtime.tsx
+- PurchaseData.tsx
+- PurchaseCableTv.tsx
+- PurchaseElectricity.tsx
+- PurchaseEducation.tsx
+
+Web Pages - Admin (4 files):
+- AirtimeProviders.tsx
+- CableTvPlans.tsx
+- ElectricityPlans.tsx
+- EducationServices.tsx
+
+Supabase Functions (22 functions):
+Purchase Functions:
+- purchase-smeplug-airtime
+- purchase-smeplug-data
+- purchase-vtpass-data
+- purchase-cable-tv
+- purchase-vtpass-cable
+- purchase-mobilenig-electricity
+- purchase-education
+
+Fetch Functions:
+- fetch-cable-packages
+- fetch-education-prices
+- fetch-education-services
+- fetch-electricity-packages
+- fetch-smeplug-airtime-providers
+- fetch-smeplug-data-plans
+- fetch-vtpass-data-plans
+- fetch-vtpass-cable-packages
+
+Validation Functions:
+- validate-cable-customer
+- validate-meter-number
+- validate-mobilenig-meter
+- validate-jamb-profile
+
+Other Functions:
+- get-virtual-account
+- transfer-funds
+
+Shared Utilities (3 files):
+- wallet.ts
+- push-notifications.ts
+- vendor-calls.ts
+
+TOTAL: 41 files backed up
+SIZE: ~1.0MB
+
+RESTORATION INSTRUCTIONS:
+-------------------------
+See README.md for detailed restoration instructions.

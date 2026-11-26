@@ -1,0 +1,18 @@
+# Used only if you deploy from the repo root. Prefer: npm run deploy (uploads dist/).
+node_modules
+mobile
+backups
+backup
+data
+.git
+.github
+.vscode
+*.log
+.env
+.env.*
+!.env.example
+**/*.apk
+**/*.aab
+**/*.ipa
+**/*.jks
+**/*.keystore

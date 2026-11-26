@@ -1,0 +1,32 @@
+{
+  "name": "NetPay",
+  "short_name": "NetPay",
+  "description": "Pay airtime, data, bills and more with NetPay.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#FF7F00",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "400x400",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "400x400",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

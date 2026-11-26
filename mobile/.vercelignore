@@ -1,0 +1,20 @@
+# Keep Expo web deploys small — native/local build artifacts must not upload
+node_modules
+.expo
+dist
+web-build
+android
+ios
+.kotlin
+backup
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+fcm-service-account.json
+*-firebase-adminsdk-*.json
+google-services.json
+.env
+.env.*
+!.env.example

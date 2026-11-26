@@ -1,0 +1,263 @@
+project_id = "uicpugjnpldfxsfmmhxd"
+
+[auth]
+site_url = "https://netppay.com"
+additional_redirect_urls = [
+  "https://netppay.com/**",
+  "https://www.netppay.com/**",
+  "https://app.netppay.com/**",
+  "https://netppay.com/auth/callback",
+  "https://www.netppay.com/auth/callback",
+  "netpay://**",
+  "netpay://auth/callback",
+  "http://127.0.0.1:3000/**",
+  "http://localhost:3000/**",
+  "http://localhost:8081/**",
+  "http://localhost:8081/auth/callback",
+  "http://localhost:8082/auth/callback",
+]
+
+[auth.email]
+enable_confirmations = true
+otp_length = 6
+otp_expiry = 600
+
+[auth.email.template.confirmation]
+subject = "Your NetPay verification code"
+content_path = "./supabase/templates/confirm-signup.html"
+
+[auth.email.template.recovery]
+subject = "Reset your NetPay password"
+content_path = "./supabase/templates/reset-password.html"
+
+[functions.admin-get-user-details]
+verify_jwt = true
+
+[functions.admin-assign-admin-tasks]
+verify_jwt = true
+
+[functions.admin-verify-user]
+verify_jwt = true
+
+[functions.admin-delete-user]
+verify_jwt = true
+
+[functions.admin-reset-user-password]
+verify_jwt = true
+
+[functions.admin-send-password-reset-link]
+verify_jwt = true
+
+[functions.send-password-reset-code]
+verify_jwt = false
+
+[functions.admin-create-user]
+verify_jwt = true
+
+[functions.payvessel-webhook]
+verify_jwt = false
+
+[functions.flutterwave-webhook]
+verify_jwt = false
+
+[functions.get-flutterwave-virtual-account]
+verify_jwt = true
+
+[functions.initialize-flutterwave-checkout]
+verify_jwt = true
+
+[functions.verify-flutterwave-payment]
+verify_jwt = true
+
+[functions.fetch-payvessel-balance]
+verify_jwt = false
+
+[functions.fetch-payvessel-transactions]
+verify_jwt = false
+
+[functions.sync-flutterwave-funding]
+verify_jwt = true
+
+[functions.fetch-flutterwave-balance]
+verify_jwt = false
+
+[functions.get-ledger-summary]
+verify_jwt = false
+
+[functions.fetch-ebills-balance]
+verify_jwt = false
+
+[functions.credit-user]
+verify_jwt = false
+
+[functions.fetch-admin-transactions]
+verify_jwt = false
+
+[functions.fetch-admin-platform-revenue]
+verify_jwt = false
+
+[functions.get-treasury-summary]
+verify_jwt = false
+
+[functions.reconcile-ledger-balances]
+verify_jwt = true
+
+[functions.get-user-balance-reconcile]
+verify_jwt = true
+
+[functions.fetch-cable-packages]
+verify_jwt = true
+
+[functions.fetch-vtpass-cable-packages]
+verify_jwt = true
+
+[functions.verify-vtpass-cable-customer]
+verify_jwt = true
+
+[functions.purchase-vtpass-cable]
+verify_jwt = true
+
+[functions.fetch-electricity-packages]
+verify_jwt = true
+
+[functions.fetch-smeplug-networks]
+verify_jwt = true
+
+[functions.fetch-airtime-purchase-options]
+verify_jwt = true
+
+[functions.fetch-smeplug-data-plans]
+verify_jwt = true
+
+[functions.sync-data-plans]
+verify_jwt = true
+
+[functions.fetch-smeplug-balance]
+verify_jwt = false
+
+[functions.fetch-smeplug-wallet-history]
+verify_jwt = false
+
+[functions.fetch-ebills-transactions]
+verify_jwt = true
+
+[functions.process-pending-ebills-transactions]
+verify_jwt = true
+
+[functions.ebills-webhook]
+verify_jwt = false
+
+[functions.fetch-mobilenig-balance]
+verify_jwt = true
+
+[functions.fetch-mobilenig-wallet-history]
+verify_jwt = true
+
+[functions.fetch-mobilenig-data-plans]
+verify_jwt = true
+
+[functions.fetch-mobilenig-cable-packages]
+verify_jwt = false
+
+[functions.purchase-smeplug-airtime]
+verify_jwt = true
+
+[functions.purchase-smeplug-data]
+verify_jwt = true
+
+[functions.purchase-airtime]
+verify_jwt = true
+
+[functions.process-airtime-queue]
+verify_jwt = true
+
+[functions.process-purchase-queue]
+verify_jwt = true
+
+[functions.airtime-provider-webhook]
+verify_jwt = false
+
+[functions.purchase-mobilenig-airtime]
+verify_jwt = true
+
+[functions.purchase-mobilenig-data]
+verify_jwt = true
+
+[functions.purchase-flutterwave-airtime]
+verify_jwt = true
+
+[functions.purchase-flutterwave-data]
+verify_jwt = true
+
+[functions.purchase-flutterwave-cable]
+verify_jwt = true
+
+[functions.purchase-flutterwave-electricity]
+verify_jwt = true
+
+[functions.validate-cable-customer]
+verify_jwt = true
+
+[functions.withdraw-referral-earnings]
+verify_jwt = true
+
+[functions.check-signup-availability]
+verify_jwt = false
+
+[functions.send-support-email]
+verify_jwt = false
+
+[functions.send-admin-email]
+verify_jwt = true
+
+[functions.send-purchase-email]
+verify_jwt = false
+
+[functions.create-transaction-notification]
+verify_jwt = true
+
+[functions.sign-in-with-pin]
+verify_jwt = false
+
+[functions.sign-in-with-biometric]
+verify_jwt = false
+
+[functions.fetch-staff-overview]
+verify_jwt = true
+
+[functions.apply-referral-code]
+verify_jwt = false
+
+[functions.fetch-vtpass-data-plans]
+verify_jwt = true
+
+[functions.purchase-vtpass-data]
+verify_jwt = true
+
+[functions.purchase-data]
+verify_jwt = true
+
+[functions.smeplug-webhook]
+verify_jwt = false
+
+[functions.get-data-provider]
+verify_jwt = true
+
+[functions.create-demo-user]
+verify_jwt = false
+
+[functions.transfer-funds]
+verify_jwt = true
+
+[functions.verify-transfer-recipient]
+verify_jwt = true
+
+[functions.statement-of-account]
+verify_jwt = true
+
+[functions.ai-chat]
+verify_jwt = true
+
+[functions.fetch-ai-audit-logs]
+verify_jwt = true
+

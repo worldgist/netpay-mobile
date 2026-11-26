@@ -1,0 +1,533 @@
+import { useState, useEffect, useMemo } from "react";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Search, RefreshCw, TrendingUp, DollarSign } from "lucide-react";
+import { format } from "date-fns";
+import { formatNaira } from "@/lib/currency";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+interface PlatformRevenue {
+  id: string;
+  transaction_id: string;
+  transaction_type: string;
+  transaction_table: string;
+  revenue_amount: number;
+  purchase_amount: number;
+  charge_fee_rate: number;
+  user_id: string;
+  transaction_reference: string;
+  transaction_status: string;
+  metadata: any;
+  created_at: string;
+  profiles?: {
+    full_name?: string | null;
+    email?: string | null;
+  } | null;
+}
+
+interface RevenueStats {
+  totalRevenue: number;
+  fundingFeeRevenue: number;
+  educationRevenue: number;
+  electricityRevenue: number;
+  dataRevenue: number;
+  airtimeRevenue: number;
+  bettingRevenue: number;
+  cableTvRevenue: number;
+  totalTransactions: number;
+  fundingFeeTransactions: number;
+  educationTransactions: number;
+  electricityTransactions: number;
+  dataTransactions: number;
+  airtimeTransactions: number;
+  bettingTransactions: number;
+  cableTvTransactions: number;
+  averageRevenuePerTransaction: number;
+}
+
+const EMPTY_STATS: RevenueStats = {
+  totalRevenue: 0,
+  fundingFeeRevenue: 0,
+  educationRevenue: 0,
+  electricityRevenue: 0,
+  dataRevenue: 0,
+  airtimeRevenue: 0,
+  bettingRevenue: 0,
+  cableTvRevenue: 0,
+  totalTransactions: 0,
+  fundingFeeTransactions: 0,
+  educationTransactions: 0,
+  electricityTransactions: 0,
+  dataTransactions: 0,
+  airtimeTransactions: 0,
+  bettingTransactions: 0,
+  cableTvTransactions: 0,
+  averageRevenuePerTransaction: 0,
+};
+
+export default function PlatformRevenue() {
+  const [revenue, setRevenue] = useState<PlatformRevenue[]>([]);
+  const [stats, setStats] = useState<RevenueStats>(EMPTY_STATS);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all"); // all, today, week, month, year
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    void fetchRevenue();
+  }, [typeFilter, dateFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, typeFilter, dateFilter]);
+
+  const filteredRevenue = useMemo(() => {
+    const searchLower = searchQuery.toLowerCase();
+    return revenue.filter((r) =>
+      r.transaction_reference?.toLowerCase().includes(searchLower) ||
+      r.profiles?.full_name?.toLowerCase().includes(searchLower) ||
+      r.profiles?.email?.toLowerCase().includes(searchLower) ||
+      r.transaction_type?.toLowerCase().includes(searchLower)
+    );
+  }, [revenue, searchQuery]);
+
+  const totalFilteredCount = filteredRevenue.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedRevenue = filteredRevenue.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize,
+  );
+  const pageStart = totalFilteredCount === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(safeCurrentPage * pageSize, totalFilteredCount);
+
+  const fetchRevenue = async () => {
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase.functions.invoke("fetch-admin-platform-revenue", {
+        body: {
+          typeFilter,
+          dateFilter,
+          limit: 1000,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to fetch platform revenue");
+      }
+
+      setRevenue((data.data as PlatformRevenue[]) || []);
+      setStats({ ...EMPTY_STATS, ...(data.stats || {}) });
+    } catch (error: any) {
+      console.error("Error fetching platform revenue:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to fetch platform revenue",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTypeBadgeVariant = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'education':
+        return 'default';
+      case 'electricity':
+        return 'secondary';
+      case 'betting':
+        return 'destructive';
+      case 'cable_tv':
+        return 'default';
+      case 'data':
+        return 'outline';
+      case 'airtime':
+        return 'outline';
+      case 'funding_fee':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
+  return (
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-background">
+        <AppSidebar />
+        <main className="flex-1 overflow-auto">
+          <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="flex h-16 items-center gap-4 px-6">
+              <SidebarTrigger />
+              <h1 className="text-2xl font-bold">Platform Revenue</h1>
+            </div>
+          </header>
+
+          <div className="p-6 space-y-6">
+            {/* Revenue Statistics */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.totalRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    From {stats.totalTransactions} transactions
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Education Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.educationRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.educationTransactions} transactions (7% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Electricity Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.electricityRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.electricityTransactions} transactions (10% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Data Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.dataRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.dataTransactions} transactions (markup)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Airtime Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.airtimeRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.airtimeTransactions} transactions
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Funding Fee Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.fundingFeeRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.fundingFeeTransactions} transactions (5% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Betting Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.bettingRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.bettingTransactions} transactions (10% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Cable TV Revenue</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.cableTvRevenue)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    {stats.cableTvTransactions} transactions (10% fee)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Avg Revenue/Transaction</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatNaira(stats.averageRevenuePerTransaction)}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Average charge fee per transaction
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Revenue Records */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Revenue Records</CardTitle>
+                    <CardDescription>
+                      {loading
+                        ? "Loading revenue records..."
+                        : totalFilteredCount === 0
+                          ? "No revenue records match your filters"
+                          : `Showing ${pageStart}–${pageEnd} of ${totalFilteredCount} record${totalFilteredCount !== 1 ? "s" : ""}`}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void fetchRevenue();
+                    }}
+                    disabled={loading}
+                    className="gap-2"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search revenue records..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filter by type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="airtime">Airtime</SelectItem>
+                      <SelectItem value="education">Education</SelectItem>
+                      <SelectItem value="electricity">Electricity</SelectItem>
+                      <SelectItem value="data">Data</SelectItem>
+                      <SelectItem value="funding_fee">Funding Fee</SelectItem>
+                      <SelectItem value="betting">Betting</SelectItem>
+                      <SelectItem value="cable_tv">Cable TV</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={dateFilter} onValueChange={setDateFilter}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filter by date" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Time</SelectItem>
+                      <SelectItem value="today">Today</SelectItem>
+                      <SelectItem value="week">Last 7 Days</SelectItem>
+                      <SelectItem value="month">This Month</SelectItem>
+                      <SelectItem value="year">This Year</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>User</TableHead>
+                        <TableHead>Reference</TableHead>
+                        <TableHead>Purchase Amount</TableHead>
+                        <TableHead>Revenue (Fee)</TableHead>
+                        <TableHead>Fee Rate</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {loading ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-center text-muted-foreground">
+                            Loading revenue records...
+                          </TableCell>
+                        </TableRow>
+                      ) : filteredRevenue.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-center text-muted-foreground">
+                            No revenue records found
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        paginatedRevenue.map((r) => (
+                          <TableRow key={r.id}>
+                            <TableCell className="text-sm">
+                              {format(new Date(r.created_at), 'MMM dd, yyyy HH:mm')}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={getTypeBadgeVariant(r.transaction_type)}>
+                                {r.transaction_type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">
+                                  {r.profiles?.full_name || 'N/A'}
+                                </div>
+                                {r.profiles?.email && (
+                                  <div className="text-xs text-muted-foreground">{r.profiles.email}</div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{r.transaction_reference}</TableCell>
+                            <TableCell>{formatNaira(r.purchase_amount || 0)}</TableCell>
+                            <TableCell className="font-semibold text-green-600">
+                              {formatNaira(r.revenue_amount || 0)}
+                            </TableCell>
+                            <TableCell>
+                              {(Number(r.charge_fee_rate) * 100).toFixed(1)}%
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={r.transaction_status === 'completed' ? 'default' : 'secondary'}>
+                                {r.transaction_status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {!loading && totalFilteredCount > 0 && (
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-4 border-t mt-4">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span>
+                        Page {safeCurrentPage} of {totalPages}
+                      </span>
+                      <Select
+                        value={String(pageSize)}
+                        onValueChange={(value) => {
+                          setPageSize(Number(value));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <SelectTrigger className="w-[110px] h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10 / page</SelectItem>
+                          <SelectItem value="25">25 / page</SelectItem>
+                          <SelectItem value="50">50 / page</SelectItem>
+                          <SelectItem value="100">100 / page</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {totalPages > 1 && (
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.max(1, page - 1));
+                              }}
+                              className={safeCurrentPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                          {Array.from({ length: Math.min(totalPages, 7) }, (_, index) => {
+                            let pageNumber = index + 1;
+                            if (totalPages > 7) {
+                              if (safeCurrentPage <= 4) pageNumber = index + 1;
+                              else if (safeCurrentPage >= totalPages - 3) pageNumber = totalPages - 6 + index;
+                              else pageNumber = safeCurrentPage - 3 + index;
+                            }
+                            return (
+                              <PaginationItem key={pageNumber}>
+                                <PaginationLink
+                                  href="#"
+                                  isActive={pageNumber === safeCurrentPage}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage(pageNumber);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  {pageNumber}
+                                </PaginationLink>
+                              </PaginationItem>
+                            );
+                          })}
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage((page) => Math.min(totalPages, page + 1));
+                              }}
+                              className={safeCurrentPage >= totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+      </div>
+    </SidebarProvider>
+  );
+}
+

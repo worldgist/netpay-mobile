@@ -1,0 +1,923 @@
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { StyleSheet, View, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Keyboard } from 'react-native';
+import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
+import { ThemedView } from '@/components/themed-view';
+import { ThemedText } from '@/components/themed-text';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { buildRouteHref } from '@/utils/router-href';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { supabase } from '@/lib/supabase';
+import { useWalletBalance } from '@/hooks/use-wallet-balance';
+import { useServiceLogos } from '@/contexts/service-logos-context';
+import { Dropdown } from '@/components/dropdown';
+import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
+import { InvalidAccountModal } from '@/components/invalid-account-modal';
+import { NetworkUnavailableModal } from '@/components/network-unavailable-modal';
+import { PurchaseProgressOverlay } from '@/components/purchase-progress-overlay';
+import {
+  PurchaseOutcomeSheet,
+  type PurchaseOutcomeSheetVariant,
+} from '@/components/purchase-outcome-sheet';
+import {
+  isTransientPurchaseNetworkError,
+  parsePurchaseResponse,
+} from '@/utils/purchase-flow';
+import Constants from 'expo-constants';
+
+type BettingProvider = {
+  id: string;
+  name: string;
+  logo: any;
+  providerCode: string;
+};
+
+const LOCAL_BETTING_LOGOS: Record<string, any> = {
+  BET9JA: require('@/assets/images/bet9ja.png'),
+  NAIRABET: require('@/assets/images/nairabet.png'),
+  '1XBET': require('@/assets/images/1xbet.png'),
+  BETKING: require('@/assets/images/betking.png'),
+  BETWAY: require('@/assets/images/betway.png'),
+  MERRYBET: require('@/assets/images/merrybet.png'),
+  BANGBET: require('@/assets/images/bangbet.png.jpeg'),
+  BETLAND: require('@/assets/images/betland.png.jpeg'),
+  BETLION: require('@/assets/images/betlion.png.jpeg'),
+  CLOUDBET: require('@/assets/images/cloudbet.png.jpeg'),
+  LIVESCOREBET: require('@/assets/images/livescorebet.png.jpeg'),
+  NAIJABET: require('@/assets/images/naijabet.png.jpeg'),
+  SUPABET: require('@/assets/images/supabet.png.jpeg'),
+};
+
+const ALL_BETTING_PROVIDER_DEFS: Omit<BettingProvider, 'logo'>[] = [
+  { id: 'bet9ja', name: 'Bet9ja', providerCode: 'BET9JA' },
+  { id: 'nairabet', name: 'Nairabet', providerCode: 'NAIRABET' },
+  { id: '1xbet', name: '1xBet', providerCode: '1XBET' },
+  { id: 'betking', name: 'BetKing', providerCode: 'BETKING' },
+  { id: 'betway', name: 'Betway', providerCode: 'BETWAY' },
+  { id: 'merrybet', name: 'MerryBet', providerCode: 'MERRYBET' },
+  { id: 'bangbet', name: 'BangBet', providerCode: 'BANGBET' },
+  { id: 'betland', name: 'BetLand', providerCode: 'BETLAND' },
+  { id: 'betlion', name: 'BetLion', providerCode: 'BETLION' },
+  { id: 'cloudbet', name: 'CloudBet', providerCode: 'CLOUDBET' },
+  { id: 'livescorebet', name: 'LiveScoreBet', providerCode: 'LIVESCOREBET' },
+  { id: 'naijabet', name: 'NaijaBet', providerCode: 'NAIJABET' },
+  { id: 'supabet', name: 'SupaBet', providerCode: 'SUPABET' },
+];
+
+const ALL_BETTING_PROVIDERS: BettingProvider[] = ALL_BETTING_PROVIDER_DEFS.map((provider) => ({
+  ...provider,
+  logo: LOCAL_BETTING_LOGOS[provider.providerCode],
+}));
+
+// eBills supported betting providers (from eBills API documentation)
+const EBILLS_SUPPORTED_PROVIDERS = [
+  '1XBET',
+  'BANGBET',
+  'BET9JA',
+  'BETKING',
+  'BETLAND',
+  'BETLION',
+  'BETWAY',
+  'CLOUDBET',
+  'LIVESCOREBET',
+  'MERRYBET',
+  'NAIJABET',
+  'NAIRABET',
+  'SUPABET',
+];
+
+export default function BettingScreen() {
+  const { getLogoSource } = useServiceLogos();
+  const BETTING_PROVIDERS = useMemo(
+    () =>
+      ALL_BETTING_PROVIDER_DEFS
+        .filter((provider) => EBILLS_SUPPORTED_PROVIDERS.includes(provider.providerCode))
+        .map((provider) => ({
+          ...provider,
+          logo: getLogoSource(
+            'betting',
+            provider.providerCode,
+            LOCAL_BETTING_LOGOS[provider.providerCode],
+          ),
+        })),
+    [getLogoSource],
+  );
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState('');
+  const [amount, setAmount] = useState('');
+  const { balance, refreshBalance } = useWalletBalance();
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const [customerName, setCustomerName] = useState<string>('');
+  const [verifyingCustomer, setVerifyingCustomer] = useState(false);
+  const [showInvalidAccountModal, setShowInvalidAccountModal] = useState(false);
+  const [invalidAccountError, setInvalidAccountError] = useState<string>('');
+  const [showNetworkUnavailableModal, setShowNetworkUnavailableModal] = useState(false);
+  const [outcomeSheet, setOutcomeSheet] = useState<{
+    visible: boolean;
+    variant: PurchaseOutcomeSheetVariant;
+    message?: string;
+  }>({ visible: false, variant: 'pending' });
+  const isMounted = useRef(true);
+
+  const showPurchaseOutcome = (
+    variant: PurchaseOutcomeSheetVariant,
+    message?: string,
+  ) => {
+    setShowConfirmModal(false);
+    setPurchasing(false);
+    setOutcomeSheet({ visible: true, variant, message });
+  };
+  
+  // Check if we're in production (not Expo Go)
+  // In production builds, executionEnvironment will be 'standalone' or 'bare'
+  const isProduction = Constants.executionEnvironment !== 'storeClient';
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const handleContinue = async () => {
+    Keyboard.dismiss();
+
+    if (!selectedProvider) {
+      Alert.alert('Error', 'Please select a betting service provider');
+      return;
+    }
+    if (!accountId.trim()) {
+      Alert.alert('Error', 'Please enter your Account ID / User ID');
+      return;
+    }
+    const purchaseAmount = parseFloat(amount);
+    if (isNaN(purchaseAmount) || purchaseAmount <= 0) {
+      Alert.alert('Error', 'Please enter a valid amount');
+      return;
+    }
+
+    const CHARGE_FEE_RATE = 0.1;
+    const chargeFee = Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100;
+    const totalAmount = purchaseAmount + chargeFee;
+
+    if (totalAmount > balance) {
+      Alert.alert('Insufficient Balance', `Your wallet balance is ₦${balance.toFixed(2)}. Please fund your wallet to continue.`);
+      return;
+    }
+    
+    // Verify customer via eBills
+    try {
+        setVerifyingCustomer(true);
+        const provider = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
+        const providerCode = provider?.providerCode || selectedProvider.toUpperCase();
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          Alert.alert('Error', 'Please sign in to continue');
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('verify-ebills-betting-customer', {
+          body: {
+            customer_id: accountId.trim(),
+            betting_provider: providerCode,
+          },
+        });
+
+        if (error) {
+          console.error('Customer verification error:', error);
+          const errorMessage = error?.message || 'Unable to verify account. Please check your Account ID and try again.';
+          setInvalidAccountError(errorMessage);
+          setShowInvalidAccountModal(true);
+          return;
+        }
+
+        if (data?.success === false || data?.error) {
+          // Extract error message from various possible fields
+          let errorMessage = data?.error || data?.message || 'Invalid Account ID. Please check and try again.';
+          const errorType = data?.errorType || 'verification_error';
+          
+          // Try to parse JSON string if error message contains JSON
+          try {
+            if (typeof errorMessage === 'string' && errorMessage.includes('{') && errorMessage.includes('code')) {
+              const jsonMatch = errorMessage.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsedError = JSON.parse(jsonMatch[0]);
+                if (parsedError.message) {
+                  errorMessage = parsedError.message;
+                } else if (parsedError.code) {
+                  errorMessage = parsedError.code;
+                }
+              }
+            }
+          } catch (parseError) {
+            // If parsing fails, use original error message
+            console.warn('Failed to parse error JSON:', parseError);
+          }
+          
+          // If error is in a nested structure (e.g., data.error or data.data.error)
+          if (!errorMessage || errorMessage === 'Invalid Account ID. Please check and try again.') {
+            if (data?.data?.error) errorMessage = data.data.error;
+            if (data?.data?.message) errorMessage = data.data.message;
+            if (data?.details?.error) errorMessage = data.details.error;
+            if (data?.details?.message) errorMessage = data.details.message;
+          }
+          
+          // Handle different error types
+          const lowerMessage = errorMessage.toLowerCase();
+          const providerObj = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
+          const bettingProvider = data?.details?.betting_provider || providerObj?.name || selectedProvider || 'This provider';
+          
+          if (errorType === 'invalid_service_id' || 
+              lowerMessage.includes('invalid field') ||
+              lowerMessage.includes('invalid service_id') ||
+              lowerMessage.includes('valid service_id')) {
+            // SportyBet is not supported by eBills
+            if (bettingProvider.toUpperCase() === 'SPORTYBET') {
+              errorMessage = 'SportyBet is currently not available on eBills. Please try another betting provider or contact support for alternative options.';
+            } else {
+              errorMessage = `${bettingProvider} is not available on eBills at the moment. Please try another provider or contact support.`;
+            }
+            // Log as warning for invalid service ID
+            console.warn('Invalid service ID (provider not supported on eBills):', {
+              betting_provider: bettingProvider,
+              service_id: data?.details?.service_id,
+              errorType,
+            });
+          } else if (lowerMessage.includes('service currently not available') || 
+              lowerMessage.includes('service not available') ||
+              errorType === 'service_unavailable') {
+            errorMessage = 'Betting service is currently unavailable. Please try again later or contact support.';
+            // Log as warning instead of error for service unavailable
+            console.warn('Service unavailable:', {
+              betting_provider: bettingProvider,
+              service_id: data?.details?.service_id,
+              errorType,
+            });
+          } else {
+            // Only log as error for actual verification failures
+            console.error('Customer verification failed:', {
+              error: errorMessage,
+              errorType,
+              details: data?.details,
+            });
+          }
+          
+          // Handle status codes in error messages
+          if (data?.data?.status && typeof data.data.status === 'number') {
+            const status = data.data.status;
+            if (status === 400) {
+              // Don't override if we already have a specific message
+              if (!errorMessage || errorMessage.includes('Invalid Account ID')) {
+                errorMessage = 'Invalid request. Please check your Account ID and try again.';
+              }
+            } else if (status === 404) {
+              errorMessage = errorMessage || 'Account ID not found. Please verify your Account ID and try again.';
+            }
+          }
+          
+          setInvalidAccountError(errorMessage);
+          setShowInvalidAccountModal(true);
+          return;
+        }
+
+        // Extract customer name from response
+        const verifiedName = data?.data?.customer_name || data?.customer_name || '';
+        
+        // If no customer name found, treat as invalid
+        if (!verifiedName || verifiedName.trim() === '') {
+          setInvalidAccountError('Account ID not found. Please verify your Account ID and try again.');
+          setShowInvalidAccountModal(true);
+          return;
+        }
+
+        setCustomerName(verifiedName);
+        Keyboard.dismiss();
+        setShowConfirmModal(true);
+      } catch (error: any) {
+        console.error('Error verifying customer:', {
+          error,
+          message: error?.message,
+          errorObj: error?.error,
+          data: error?.data,
+          details: error?.details,
+        });
+        
+        // Extract error message from various possible sources
+        let errorMessage = error?.message || 
+                          error?.error || 
+                          error?.data?.error ||
+                          error?.data?.message ||
+                          error?.details?.error ||
+                          error?.details?.message ||
+                          'Unable to verify account. Please check your Account ID and try again.';
+        
+        // Handle status codes
+        if (error?.data?.status === 400) {
+          errorMessage = errorMessage || 'Invalid request. Please check your Account ID and try again.';
+        } else if (error?.data?.status === 404) {
+          errorMessage = errorMessage || 'Account ID not found. Please verify your Account ID and try again.';
+        }
+        
+        setInvalidAccountError(errorMessage);
+        setShowInvalidAccountModal(true);
+      } finally {
+        setVerifyingCustomer(false);
+      }
+  };
+
+  const handleConfirmPayment = useCallback(async () => {
+    if (!selectedProvider) return;
+
+    const purchaseAmount = parseFloat(amount);
+    if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
+      Alert.alert('Betting Purchase', 'Amount is required.');
+      return;
+    }
+
+    const sanitizedAccountId = accountId.trim();
+    const provider = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
+    const providerName = provider?.name || selectedProvider;
+    const providerCode = provider?.providerCode || selectedProvider.toUpperCase();
+
+    try {
+      // Set purchasing state first to show loading in modal
+      setPurchasing(true);
+      // Keep modal open during processing - don't close it yet
+
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Please sign in to continue');
+      }
+
+      let responseData: any = null;
+
+      try {
+        if (!idempotencyKeyRef.current) {
+          idempotencyKeyRef.current = `bet-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+        }
+        const requestId = idempotencyKeyRef.current;
+
+        console.log('Calling purchase-ebills-betting with:', {
+          customer_id: sanitizedAccountId,
+          betting_provider: providerCode,
+          amount: purchaseAmount,
+          request_id: requestId,
+        });
+
+        const { data, error } = await supabase.functions.invoke('purchase-ebills-betting', {
+          body: {
+            customer_id: sanitizedAccountId,
+            betting_provider: providerCode,
+            amount: Number(purchaseAmount),
+            request_id: requestId,
+          },
+        });
+
+        console.log('Supabase invoke response:', { data, error });
+
+        if (error) {
+          console.error('Supabase invoke error:', error);
+          const errorMsg = error?.message || String(error);
+          const errorStack = error?.stack || '';
+          const isNetworkErr = errorMsg.includes('Network request failed') ||
+                              errorMsg.includes('Failed to fetch') ||
+                              errorStack.includes('fetch.umd.js') ||
+                              errorStack.includes('Network request failed');
+          if (isNetworkErr) {
+            throw new Error('Network connection failed. Please check your internet connection and try again.');
+          }
+          if (error.message) {
+            throw new Error(error.message);
+          }
+          throw error;
+        }
+
+        if (data) {
+          const invokeOutcome = parsePurchaseResponse(data, true);
+          if (invokeOutcome.kind === 'pending') {
+            idempotencyKeyRef.current = null;
+            void refreshBalance();
+            showPurchaseOutcome('pending', invokeOutcome.message);
+            return;
+          }
+          if (invokeOutcome.kind === 'connection_uncertain') {
+            showPurchaseOutcome('connection_uncertain', invokeOutcome.message);
+            return;
+          }
+          if (data.success === false || data.error) {
+            const errorMsg = data.error || data.message || 'Betting purchase failed';
+            console.error('Error in response data:', { errorMsg, data });
+            throw new Error(errorMsg);
+          }
+          responseData = data;
+          console.log('Response data received:', responseData);
+        } else {
+          throw new Error('No response data from server');
+        }
+      } catch (invokeError: any) {
+        console.log('Supabase invoke failed, trying direct fetch:', invokeError);
+
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.getSession();
+
+        if (refreshError || !refreshedSession) {
+          throw new Error('Please sign in to continue');
+        }
+
+        const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ||
+                           (supabase as any).supabaseUrl ||
+                           'https://uicpugjnpldfxsfmmhxd.supabase.co';
+
+        const requestId = idempotencyKeyRef.current || `bet-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+
+        console.log('Direct fetch to:', `${supabaseUrl}/functions/v1/purchase-ebills-betting`);
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/purchase-ebills-betting`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${refreshedSession.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customer_id: sanitizedAccountId,
+            betting_provider: providerCode,
+            amount: Number(purchaseAmount),
+            request_id: requestId,
+          }),
+        });
+
+        const responseText = await response.text();
+
+        console.log('Direct fetch response:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: responseText.substring(0, 500),
+        });
+
+        if (!responseText || responseText.trim().length === 0) {
+          throw new Error('No response from server. Please try again.');
+        }
+
+        try {
+          responseData = JSON.parse(responseText);
+          console.log('Parsed response data:', responseData);
+        } catch (parseError) {
+          console.error('Failed to parse betting purchase response:', parseError, 'Response:', responseText);
+          if (response.status >= 500) {
+            throw new Error('Server error. Please try again later.');
+          }
+          throw new Error(`Invalid response from server: ${responseText.substring(0, 200)}`);
+        }
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error('Session expired. Please sign in again.');
+          }
+          const errorMsg = responseData?.error || responseData?.message || responseData?.details?.error || `HTTP ${response.status}: ${response.statusText}`;
+          console.error('HTTP error response:', { status: response.status, errorMsg, responseData });
+          throw new Error(errorMsg);
+        }
+
+        if (responseData?.success === false || responseData?.error) {
+          const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
+          console.error('Purchase failed in response:', { errorMsg, responseData });
+          throw new Error(errorMsg);
+        }
+      }
+
+      if (!responseData) {
+        console.error('No responseData after invoke/fetch');
+        throw new Error('No data received from server');
+      }
+
+      console.log('Final responseData check:', {
+        success: responseData?.success,
+        hasError: !!responseData?.error,
+        hasData: !!responseData?.data,
+        message: responseData?.message,
+      });
+
+      const finalOutcome = parsePurchaseResponse(responseData, true);
+      if (finalOutcome.kind === 'pending') {
+        idempotencyKeyRef.current = null;
+        void refreshBalance();
+        showPurchaseOutcome('pending', finalOutcome.message);
+        return;
+      }
+      if (finalOutcome.kind === 'connection_uncertain') {
+        showPurchaseOutcome('connection_uncertain', finalOutcome.message);
+        return;
+      }
+
+      if (responseData?.success === false || responseData?.error) {
+        const errorMsg = responseData?.error || responseData?.message || 'Betting purchase failed';
+        console.error('Purchase failed:', { errorMsg, responseData });
+        throw new Error(errorMsg);
+      }
+
+      const purchaseData = responseData.data || responseData;
+      const reference = purchaseData.reference || purchaseData.request_id || `BET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      const purchaseCustomerName = purchaseData.customer_name || customerName || '';
+      const amountCharged = parseFloat(purchaseData.amount_charged || purchaseData.amount || purchaseAmount.toString());
+
+      console.log('Purchase successful, navigating to success screen:', {
+        reference,
+        customerName: purchaseCustomerName,
+        amountCharged,
+      });
+
+      await refreshBalance();
+
+      setShowConfirmModal(false);
+      setPurchasing(false);
+
+      router.push(buildRouteHref('/payment-success', {
+        amount: amountCharged.toString(),
+        network: providerName,
+        recipient: sanitizedAccountId,
+        reference: reference,
+        serviceType: `Betting • ${providerName}`,
+        customerName: purchaseCustomerName,
+      }));
+    } catch (purchaseError: any) {
+      console.error('Betting purchase failed:', purchaseError);
+      console.error('Error details:', {
+        message: purchaseError?.message,
+        error: purchaseError?.error,
+        details: purchaseError?.details,
+        name: purchaseError?.name,
+        code: purchaseError?.code,
+        stack: purchaseError?.stack,
+        fullError: JSON.stringify(purchaseError, Object.getOwnPropertyNames(purchaseError), 2)
+      });
+      
+      // Close modal first
+      setShowConfirmModal(false);
+      setPurchasing(false);
+      
+      // Extract error message from various sources
+      const errorMessage = purchaseError?.message || purchaseError?.error || String(purchaseError || '');
+      const errorName = purchaseError?.name || purchaseError?.constructor?.name || '';
+      const errorStack = purchaseError?.stack || '';
+      const errorCode = purchaseError?.code || purchaseError?.details?.code || '';
+      const errorDetails = purchaseError?.details || purchaseError?.data || {};
+      
+      // Check for network/API/provider errors
+      const isNetworkError = errorMessage.toLowerCase().includes('network request failed') ||
+                            errorMessage.toLowerCase().includes('failed to send a request to the edge function') ||
+                            errorMessage.toLowerCase().includes('failed to fetch') ||
+                            errorMessage.toLowerCase().includes('err_internet_disconnected') ||
+                            errorMessage.toLowerCase().includes('err_network_changed') ||
+                            errorMessage.toLowerCase().includes('network error') ||
+                            errorStack.includes('fetch.umd.js') ||
+                            errorStack.includes('Network request failed') ||
+                            errorName === 'FunctionsFetchError' ||
+                            errorName === 'TypeError' ||
+                            errorCode === 'NETWORK_ERROR';
+      
+      // Check for API/provider errors
+      const isApiError = errorMessage.toLowerCase().includes('api error') ||
+                        errorMessage.toLowerCase().includes('provider error') ||
+                        errorMessage.toLowerCase().includes('ebills') ||
+                        errorMessage.toLowerCase().includes('insufficient funds') && errorMessage.toLowerCase().includes('provider') ||
+                        errorMessage.toLowerCase().includes('service unavailable') ||
+                        errorMessage.toLowerCase().includes('service error') ||
+                        errorMessage.toLowerCase().includes('network unavailable') ||
+                        errorMessage.toLowerCase().includes('networks error') ||
+                        errorCode === 'SERVICE_UNAVAILABLE' ||
+                        errorCode === 'PROVIDER_ERROR' ||
+                        errorCode === 'API_ERROR';
+      
+      // Check for insufficient funds from provider (not user wallet)
+      const isProviderInsufficientFunds = errorMessage.toLowerCase().includes('insufficient funds') &&
+                                         (errorMessage.toLowerCase().includes('provider') ||
+                                          errorMessage.toLowerCase().includes('api') ||
+                                          errorMessage.toLowerCase().includes('ebills') ||
+                                          errorDetails?.source === 'provider');
+      
+      // In production, show Network Unavailable modal for API/provider errors
+      if (isProduction && (isNetworkError || isApiError || isProviderInsufficientFunds)) {
+        setShowNetworkUnavailableModal(true);
+        return;
+      }
+      
+      if (isTransientPurchaseNetworkError(purchaseError) || isNetworkError) {
+        showPurchaseOutcome('connection_uncertain');
+        return;
+      }
+      
+      // In development, show detailed error messages
+      let message = 'Unable to complete betting purchase. Please try again.';
+      if (purchaseError instanceof Error) {
+        message = purchaseError.message || message;
+      } else if (purchaseError?.error) {
+        message = purchaseError.error;
+      } else if (purchaseError?.message) {
+        message = purchaseError.message;
+      } else if (purchaseError?.details?.error) {
+        message = purchaseError.details.error;
+      } else if (purchaseError?.details?.message) {
+        message = purchaseError.details.message;
+      } else if (purchaseError?.data?.error) {
+        message = purchaseError.data.error;
+      } else if (purchaseError?.data?.message) {
+        message = purchaseError.data.message;
+      }
+      
+      // Show error to user
+      Alert.alert(
+        'Betting Purchase Failed',
+        message,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      // Ensure purchasing state is reset even if there's an unexpected error
+      setPurchasing(false);
+    }
+  }, [amount, accountId, customerName, isProduction, selectedProvider, router, refreshBalance]);
+
+  return (
+    <ThemedView style={styles.container}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <MaterialIcons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <ThemedText style={styles.headerTitle}>Betting</ThemedText>
+          <View style={styles.placeholder} />
+        </View>
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
+          showsVerticalScrollIndicator
+          bounces>
+          {/* Available Balance Card */}
+          <View style={styles.balanceCard}>
+            <ThemedText style={styles.balanceLabel}>Available Balance</ThemedText>
+            <View style={styles.balanceAmountContainer}>
+              <ThemedText style={styles.balanceAmount}>₦{balance.toFixed(2)}</ThemedText>
+            </View>
+          </View>
+
+          {/* Select Service Provider */}
+          <View style={styles.section}>
+            <ThemedText style={styles.inputLabel}>Select Service Provider</ThemedText>
+            <Dropdown
+              options={BETTING_PROVIDERS.map(provider => ({ 
+                id: provider.id, 
+                name: provider.name, 
+                logo: provider.logo 
+              }))}
+              selectedId={selectedProvider}
+              onSelect={setSelectedProvider}
+              placeholder="Select a betting provider"
+            />
+          </View>
+
+          {/* Account ID / User ID Input */}
+          <View style={styles.section}>
+            <ThemedText style={styles.inputLabel}>Account ID / User ID</ThemedText>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your Account ID or User ID"
+                placeholderTextColor="#999"
+                value={accountId}
+                onChangeText={setAccountId}
+                keyboardType="default"
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+
+          {/* Amount Input */}
+          <View style={styles.section}>
+            <ThemedText style={styles.inputLabel}>Amount (N)</ThemedText>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter amount"
+                placeholderTextColor="#999"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="numeric"
+              />
+            </View>
+            <ThemedText style={styles.inputHint}>
+              A 10% service charge will be applied
+            </ThemedText>
+          </View>
+        </ScrollView>
+
+        {/* Continue Button */}
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity 
+            style={[styles.continueButton, verifyingCustomer && styles.continueButtonDisabled]} 
+            onPress={handleContinue}
+            disabled={verifyingCustomer}>
+            {verifyingCustomer ? (
+              <NetpayLoadingAnimation size={40} variant="onBrand" strokeWidth={2.5} />
+            ) : (
+              <ThemedText style={styles.continueButtonText}>Continue</ThemedText>
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* Confirm Payment Modal */}
+      {selectedProvider && (() => {
+        const purchaseAmount = parseFloat(amount || '0');
+        const CHARGE_FEE_RATE = 0.1;
+        const chargeFee = purchaseAmount > 0 ? Math.round(purchaseAmount * CHARGE_FEE_RATE * 100) / 100 : 0;
+        const selectedProviderObj = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
+        return (
+          <ConfirmPaymentModal
+            visible={showConfirmModal}
+            onClose={() => {
+              // Prevent closing during processing
+              if (purchasing) return;
+              setShowConfirmModal(false);
+              setCustomerName('');
+            }}
+            onConfirm={handleConfirmPayment}
+            amount={purchaseAmount}
+            charges={chargeFee}
+            network={selectedProviderObj?.name || selectedProvider}
+            networkLogo={selectedProviderObj?.logo}
+            recipient={accountId}
+            serviceType={`Betting • ${selectedProviderObj?.name || selectedProvider}`}
+            loading={purchasing}
+            customerName={customerName}
+          />
+        );
+      })()}
+
+      <PurchaseProgressOverlay
+        visible={purchasing}
+        title="Processing betting purchase..."
+        hint="Please keep this screen open until the purchase finishes."
+      />
+
+      <PurchaseOutcomeSheet
+        visible={outcomeSheet.visible}
+        variant={outcomeSheet.variant}
+        message={outcomeSheet.message}
+        onViewTransactions={() => {
+          setOutcomeSheet((current) => ({ ...current, visible: false }));
+          router.push('/(tabs)/transactions');
+        }}
+        onClose={() => setOutcomeSheet((current) => ({ ...current, visible: false }))}
+      />
+
+      {/* Invalid Account Modal */}
+      {selectedProvider && (() => {
+        const selectedProviderObj = BETTING_PROVIDERS.find((p) => p.id === selectedProvider);
+        return (
+          <InvalidAccountModal
+            visible={showInvalidAccountModal}
+            onClose={() => {
+              setShowInvalidAccountModal(false);
+              setInvalidAccountError('');
+            }}
+            accountId={accountId}
+            providerName={selectedProviderObj?.name || selectedProvider}
+            message={invalidAccountError}
+          />
+        );
+      })()}
+
+      {/* Network Unavailable Modal */}
+      <NetworkUnavailableModal
+        visible={showNetworkUnavailableModal}
+        onClose={() => {
+          setShowNetworkUnavailableModal(false);
+        }}
+      />
+    </ThemedView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 20,
+    backgroundColor: '#fff',
+    zIndex: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  placeholder: {
+    width: 40,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 20,
+  },
+  balanceCard: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 24,
+    alignItems: 'center',
+    minHeight: 100,
+    justifyContent: 'center',
+  },
+  balanceLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#fff',
+    marginBottom: 12,
+    opacity: 0.95,
+  },
+  balanceAmountContainer: {
+    minHeight: 50,
+    justifyContent: 'center',
+  },
+  balanceAmount: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+    lineHeight: 40,
+  },
+  section: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
+  },
+  inputContainer: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    minHeight: 50,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    paddingVertical: 12,
+  },
+  inputHint: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  buttonContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+    paddingTop: 10,
+  },
+  continueButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  continueButtonDisabled: {
+    opacity: 0.6,
+  },
+  continueButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+});

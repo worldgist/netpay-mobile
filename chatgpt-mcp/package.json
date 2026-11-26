@@ -1,0 +1,31 @@
+{
+  "name": "netpay-chatgpt-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NetPay ChatGPT Apps SDK / MCP server — reuses existing Supabase edge APIs",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@supabase/supabase-js": "^2.80.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "jose": "^5.9.6",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
