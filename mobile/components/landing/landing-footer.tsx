@@ -7,7 +7,7 @@ import { LANDING_BRAND as BRAND } from '@/constants/landing';
 
 const COMPANY_LINKS = [
   { label: 'About NetPay', href: '/about-us' },
-  { label: 'Contact & Support', href: '/contact-us' },
+  { label: 'Contact Us', href: '/contact-us' },
   { label: 'Features', href: '/features' },
   { label: 'Services', href: '/services' },
   { label: 'FAQ', href: '/faq' },
@@ -16,6 +16,7 @@ const COMPANY_LINKS = [
 const LEGAL_LINKS = [
   { label: 'Terms & Conditions', href: '/terms-and-conditions' },
   { label: 'Privacy Policy', href: '/privacy-policy' },
+  { label: 'Contact Us', href: '/contact-us' },
   { label: 'Support', href: '/support' },
 ] as const;
 

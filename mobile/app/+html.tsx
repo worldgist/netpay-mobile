@@ -6,8 +6,10 @@ import {
   SEO_DEFAULT_KEYWORDS,
   SEO_DEFAULT_TITLE,
   SEO_OG_IMAGE,
+  SEO_OG_IMAGE_ALT,
   SEO_SITE_NAME,
   SEO_TWITTER_HANDLE,
+  landingServicesJsonLd,
   organizationJsonLd,
   softwareApplicationJsonLd,
   websiteJsonLd,
@@ -57,6 +59,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta property="og:description" content={SEO_DEFAULT_DESCRIPTION} />
         <meta property="og:url" content={`${NETPAY_SITE_URL}/`} />
         <meta property="og:image" content={SEO_OG_IMAGE} />
+        <meta property="og:image:alt" content={SEO_OG_IMAGE_ALT} />
         <meta property="og:locale" content="en_NG" />
 
         <meta name="twitter:card" content="summary_large_image" />
@@ -64,10 +67,12 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="twitter:title" content={SEO_DEFAULT_TITLE} />
         <meta name="twitter:description" content={SEO_DEFAULT_DESCRIPTION} />
         <meta name="twitter:image" content={SEO_OG_IMAGE} />
+        <meta name="twitter:image:alt" content={SEO_OG_IMAGE_ALT} />
 
         <script type="application/ld+json">{JSON.stringify(organizationJsonLd())}</script>
         <script type="application/ld+json">{JSON.stringify(websiteJsonLd())}</script>
         <script type="application/ld+json">{JSON.stringify(softwareApplicationJsonLd())}</script>
+        <script type="application/ld+json">{JSON.stringify(landingServicesJsonLd())}</script>
 
         <ScrollViewStyleReset />
       </head>

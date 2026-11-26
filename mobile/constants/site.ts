@@ -1,6 +1,6 @@
-/** Canonical NetPay website URL (auth emails, share links, universal links). */
+/** Canonical Expo web URL (auth emails, share links, universal links). */
 export const NETPAY_SITE_URL = (
-  process.env.EXPO_PUBLIC_SITE_URL || "https://netppay.com"
+  process.env.EXPO_PUBLIC_SITE_URL || "https://app.netppay.com"
 ).replace(/\/$/, "");
 
 /** ChatGPT MCP / OAuth host — consent must only POST tokens here. */

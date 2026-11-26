@@ -1,11 +1,11 @@
-/** Admin / marketing Vite host (app.netppay.com). Customer Expo web is netppay.com. */
+/** Admin Vite host (netppay.com). Customer Expo web is app.netppay.com. */
 export const NETPAY_SITE_URL = (
-  import.meta.env.VITE_SITE_URL || "https://app.netppay.com"
+  import.meta.env.VITE_SITE_URL || "https://netppay.com"
 ).replace(/\/$/, "");
 
 /** Customer Expo web app URL. */
 export const NETPAY_EXPO_WEB_URL = (
-  import.meta.env.VITE_EXPO_WEB_URL || "https://netppay.com"
+  import.meta.env.VITE_EXPO_WEB_URL || "https://app.netppay.com"
 ).replace(/\/$/, "");
 
 export const NETPAY_APP_SCHEME = "netpay";

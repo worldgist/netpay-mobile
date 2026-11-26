@@ -7,19 +7,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Modal,
   Alert,
 } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as SecureStore from '@/utils/secure-store';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { clearPendingBiometricReenrollment } from '@/utils/pending-biometric-reenrollment';
-import { navigateAfterAuthenticatedSession } from '@/utils/post-auth-navigation';
+import { navigateAfterAuthenticatedSession, safeReturnToPath } from '@/utils/post-auth-navigation';
 import { buildRouteHref } from '@/utils/router-href';
 
 const PIN_LENGTH = 4;
@@ -28,10 +27,17 @@ const EMAIL_KEY = 'supabase_email';
 
 export default function SignInPinScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
+  const returnTo = safeReturnToPath(
+    typeof params.returnTo === 'string'
+      ? params.returnTo
+      : Array.isArray(params.returnTo)
+        ? params.returnTo[0]
+        : null,
+  );
   const [email, setEmail] = useState('');
   const [isReturningUser, setIsReturningUser] = useState(false);
   const [pin, setPin] = useState(Array(PIN_LENGTH).fill(''));
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
@@ -148,10 +154,9 @@ export default function SignInPinScreen() {
       await SecureStore.setItemAsync(PIN_STORAGE_KEY, enteredHash);
       await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
 
-      setLoading(false);
-      submittingRef.current = false;
       setPin(Array(PIN_LENGTH).fill(''));
-      setShowSuccessModal(true);
+      // Existing users go straight to the dashboard after a valid PIN.
+      await navigateAfterAuthenticatedSession(router, { returnTo });
     } catch (invokeError) {
       console.error('PIN login failed:', invokeError);
       setLoading(false);
@@ -165,7 +170,7 @@ export default function SignInPinScreen() {
         Alert.alert('PIN Login', 'Unable to verify your PIN. Please try again.');
       }
     }
-  }, [email, pin]);
+  }, [email, pin, returnTo, router]);
 
   const handlePinChange = (value: string, index: number) => {
     if (value && !/^\d$/.test(value)) return;
@@ -199,13 +204,13 @@ export default function SignInPinScreen() {
     }
   };
 
-  const handleCloseSuccess = async () => {
-    setShowSuccessModal(false);
-    await navigateAfterAuthenticatedSession(router);
-  };
-
   const handleUsePassword = () => {
-    router.replace('/auth/login');
+    router.replace(
+      buildRouteHref('/auth/login', {
+        password: '1',
+        ...(returnTo ? { returnTo } : {}),
+      }),
+    );
   };
 
   return (
@@ -227,14 +232,7 @@ export default function SignInPinScreen() {
             </ThemedText>
           </View>
 
-          {isReturningUser ? (
-            <View style={styles.returningEmailCard}>
-              <MaterialIcons name="email" size={18} color="#FF7F00" />
-              <ThemedText style={styles.returningEmailText} numberOfLines={1}>
-                {email}
-              </ThemedText>
-            </View>
-          ) : (
+          {!isReturningUser ? (
             <View style={styles.inputGroup}>
               <ThemedText style={styles.inputLabel}>Email Address</ThemedText>
               <TextInput
@@ -252,7 +250,7 @@ export default function SignInPinScreen() {
                 onSubmitEditing={() => inputRefs.current[0]?.focus()}
               />
             </View>
-          )}
+          ) : null}
 
           <View style={styles.pinRow}>
             {pin.map((digit, index) => (
@@ -298,37 +296,12 @@ export default function SignInPinScreen() {
 
           <TouchableOpacity
             style={styles.secondaryLink}
-            onPress={() =>
-              router.push(
-                buildRouteHref('/forgot-pin', email.trim() ? { email: email.trim().toLowerCase() } : undefined),
-              )
-            }
+            onPress={() => router.push('/forgot-pin')}
             disabled={loading}>
             <ThemedText style={styles.forgotPinText}>Forgot PIN?</ThemedText>
           </TouchableOpacity>
         </ThemedView>
       </ScrollView>
-
-      <Modal
-        visible={showSuccessModal}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCloseSuccess}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={[styles.modalIconCircle, { backgroundColor: '#4CAF50' }]}>
-              <ThemedText style={styles.modalIconTick}>✓</ThemedText>
-            </View>
-            <ThemedText style={styles.modalTitle}>Welcome Back</ThemedText>
-            <ThemedText style={styles.modalMessage}>
-              You have successfully signed in using your PIN.
-            </ThemedText>
-            <TouchableOpacity style={styles.modalPrimaryButton} onPress={handleCloseSuccess}>
-              <ThemedText style={styles.modalPrimaryButtonText}>Continue</ThemedText>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -385,25 +358,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 22,
-  },
-  returningEmailCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FFF8F1',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FFE0C2',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 24,
-    width: '100%',
-  },
-  returningEmailText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#333',
   },
   inputGroup: {
     width: '100%',
@@ -477,59 +431,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#FF7F00',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    paddingHorizontal: 28,
-    paddingVertical: 40,
-    width: '80%',
-    maxWidth: 340,
-    alignItems: 'center',
-  },
-  modalIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  modalIconTick: {
-    fontSize: 36,
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  modalMessage: {
-    fontSize: 15,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
-  },
-  modalPrimaryButton: {
-    backgroundColor: '#FF7F00',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 48,
-    alignItems: 'center',
-  },
-  modalPrimaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
   },
 });

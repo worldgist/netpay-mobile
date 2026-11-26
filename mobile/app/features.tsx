@@ -8,7 +8,11 @@ import {
   goLandingLogin,
   useLandingLayout,
 } from '@/components/landing/landing-shell';
-import { LANDING_BRAND as BRAND, LANDING_FEATURES } from '@/constants/landing';
+import {
+  LANDING_BRAND as BRAND,
+  LANDING_FEATURES,
+  LANDING_FEATURE_STEPS,
+} from '@/constants/landing';
 
 export default function FeaturesPage() {
   const router = useRouter();
@@ -21,8 +25,8 @@ export default function FeaturesPage() {
         <ThemedText style={styles.eyebrow}>FEATURES</ThemedText>
         <ThemedText style={styles.title}>Built for speed, security and everyday ease.</ThemedText>
         <ThemedText style={styles.subtitle}>
-          NetPay makes bill payments and everyday money tasks simple — with the tools you need to
-          move fast and stay protected.
+          NetPay gives you a secure wallet, instant bill payments, clear receipts and unlock options
+          that fit how you actually use money in Nigeria.
         </ThemedText>
         <Pressable style={styles.cta} onPress={() => void goLandingLogin(router)}>
           <ThemedText style={styles.ctaText}>Get started</ThemedText>
@@ -30,7 +34,9 @@ export default function FeaturesPage() {
         </Pressable>
       </View>
 
-      <View style={[styles.gridWrap, { width: contentWidth }]}>
+      <View style={[styles.section, { width: contentWidth }]}>
+        <ThemedText style={styles.sectionEyebrow}>WHAT YOU GET</ThemedText>
+        <ThemedText style={styles.sectionTitle}>Everything you need to pay with confidence.</ThemedText>
         <View style={styles.grid}>
           {LANDING_FEATURES.map((feature) => (
             <View key={feature.title} style={[styles.card, { width: cardWidth }]}>
@@ -45,6 +51,36 @@ export default function FeaturesPage() {
         </View>
       </View>
 
+      <View style={[styles.howSection, { width: contentWidth }]}>
+        <ThemedText style={styles.sectionEyebrow}>HOW IT WORKS</ThemedText>
+        <ThemedText style={styles.sectionTitle}>Three steps from signup to receipt.</ThemedText>
+        <View style={[styles.stepsRow, !isWide && styles.stepsStack]}>
+          {LANDING_FEATURE_STEPS.map((step, index) => (
+            <View key={step.title} style={[styles.stepCard, isWide && styles.stepCardWide]}>
+              <View style={styles.stepBadge}>
+                <ThemedText style={styles.stepNumber}>{index + 1}</ThemedText>
+              </View>
+              <View style={styles.iconWrap}>
+                <MaterialIcons name={step.icon} size={24} color={BRAND.orange} />
+              </View>
+              <ThemedText style={styles.cardTitle}>{step.title}</ThemedText>
+              <ThemedText style={styles.cardBody}>{step.description}</ThemedText>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <View style={[styles.securityBand, { width: contentWidth }]}>
+        <MaterialIcons name="lock" size={28} color={BRAND.orange} />
+        <View style={{ flex: 1 }}>
+          <ThemedText style={styles.securityTitle}>Security that stays out of the way</ThemedText>
+          <ThemedText style={styles.securityBody}>
+            Transaction PIN, optional biometrics on supported devices, encrypted sessions and clear
+            confirmations protect your wallet without slowing you down.
+          </ThemedText>
+        </View>
+      </View>
+
       <View style={[styles.bottomCta, { width: contentWidth }, !isWide && styles.bottomCtaStack]}>
         <View style={{ flex: 1 }}>
           <ThemedText style={styles.bottomTitle}>Ready to try NetPay?</ThemedText>
@@ -52,10 +88,15 @@ export default function FeaturesPage() {
             Login or create an account and start paying bills in one place.
           </ThemedText>
         </View>
-        <Pressable style={styles.cta} onPress={() => void goLandingLogin(router)}>
-          <ThemedText style={styles.ctaText}>Login</ThemedText>
-          <MaterialIcons name="arrow-forward" size={18} color="#fff" />
-        </Pressable>
+        <View style={styles.ctaRow}>
+          <Pressable style={styles.cta} onPress={() => void goLandingLogin(router)}>
+            <ThemedText style={styles.ctaText}>Login</ThemedText>
+            <MaterialIcons name="arrow-forward" size={18} color="#fff" />
+          </Pressable>
+          <Pressable style={styles.secondaryCta} onPress={() => router.push('/auth/signup')}>
+            <ThemedText style={styles.secondaryCtaText}>Sign up</ThemedText>
+          </Pressable>
+        </View>
       </View>
     </LandingShell>
   );
@@ -86,7 +127,7 @@ const styles = StyleSheet.create({
     color: BRAND.muted,
     fontSize: 17,
     lineHeight: 26,
-    maxWidth: 640,
+    maxWidth: 680,
   },
   cta: {
     alignSelf: 'flex-start',
@@ -104,10 +145,49 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
   },
-  gridWrap: {
+  secondaryCta: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderWidth: 1.5,
+    borderColor: BRAND.orange,
+    backgroundColor: '#fff',
+  },
+  secondaryCtaText: {
+    color: BRAND.orange,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  ctaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  section: {
     alignSelf: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 36,
+    gap: 12,
+  },
+  howSection: {
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    gap: 12,
+  },
+  sectionEyebrow: {
+    color: BRAND.orange,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    fontSize: 12,
+  },
+  sectionTitle: {
+    color: BRAND.navy,
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 32,
+    maxWidth: 640,
+    marginBottom: 8,
   },
   grid: {
     flexDirection: 'row',
@@ -145,6 +225,60 @@ const styles = StyleSheet.create({
     color: BRAND.text,
     fontSize: 14,
     lineHeight: 21,
+  },
+  stepsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  stepsStack: {
+    flexDirection: 'column',
+  },
+  stepCard: {
+    backgroundColor: BRAND.orangeWash,
+    borderRadius: 16,
+    padding: 20,
+    gap: 10,
+    flex: 1,
+  },
+  stepCardWide: {
+    minWidth: 0,
+  },
+  stepBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: BRAND.orange,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumber: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  securityBand: {
+    alignSelf: 'center',
+    marginHorizontal: 20,
+    marginBottom: 28,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BRAND.border,
+    padding: 22,
+    flexDirection: 'row',
+    gap: 16,
+    alignItems: 'flex-start',
+  },
+  securityTitle: {
+    color: BRAND.navy,
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  securityBody: {
+    color: BRAND.muted,
+    fontSize: 15,
+    lineHeight: 23,
   },
   bottomCta: {
     alignSelf: 'center',

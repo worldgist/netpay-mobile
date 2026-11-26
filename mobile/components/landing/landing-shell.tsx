@@ -12,8 +12,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { LandingFooter } from '@/components/landing/landing-footer';
-import { supabase } from '@/lib/supabase';
 import { LANDING_BRAND as BRAND, LANDING_NAV_LINKS } from '@/constants/landing';
+import { getPreferredLoginRoute } from '@/utils/preferred-login-route';
 
 type LandingShellProps = {
   children: ReactNode;
@@ -28,19 +28,9 @@ export function LandingShell({ children, activeHref }: LandingShellProps) {
   const contentWidth = Math.min(width, 1180);
   const current = activeHref || pathname;
 
-  const goLogin = async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.user) {
-        router.replace('/(tabs)');
-        return;
-      }
-    } catch {
-      // Fall through to login.
-    }
-    router.push('/auth/login');
+  // Prefer PIN unlock for returning devices; never jump straight into the dashboard.
+  const goLogin = () => {
+    void getPreferredLoginRoute().then((href) => router.push(href));
   };
 
   const goSignup = () => router.push('/auth/signup');
@@ -117,18 +107,8 @@ export function useLandingLayout() {
 export async function goLandingLogin(
   router: ReturnType<typeof useRouter>,
 ) {
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session?.user) {
-      router.replace('/(tabs)');
-      return;
-    }
-  } catch {
-    // Fall through.
-  }
-  router.push('/auth/login');
+  const href = await getPreferredLoginRoute();
+  router.push(href);
 }
 
 const styles = StyleSheet.create({

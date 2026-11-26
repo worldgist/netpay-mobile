@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://netppay.com').replace(/\/$/, '');
+const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://app.netppay.com').replace(/\/$/, '');
 const distDir = path.join(__dirname, '..', 'dist');
 const publicDir = path.join(__dirname, '..', 'public');
 fs.mkdirSync(publicDir, { recursive: true });

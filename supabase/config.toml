@@ -1,11 +1,12 @@
 project_id = "uicpugjnpldfxsfmmhxd"
 
 [auth]
-site_url = "https://netppay.com"
+site_url = "https://app.netppay.com"
 additional_redirect_urls = [
+  "https://app.netppay.com/**",
   "https://netppay.com/**",
   "https://www.netppay.com/**",
-  "https://app.netppay.com/**",
+  "https://app.netppay.com/auth/callback",
   "https://netppay.com/auth/callback",
   "https://www.netppay.com/auth/callback",
   "netpay://**",

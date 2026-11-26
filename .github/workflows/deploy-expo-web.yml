@@ -38,15 +38,16 @@ jobs:
         run: |
           node -e "require('fs').writeFileSync('dist/vercel.json', JSON.stringify({framework:null,headers:[{source:'/sw.js',headers:[{key:'Cache-Control',value:'no-cache, no-store, must-revalidate'},{key:'Service-Worker-Allowed',value:'/'}]},{source:'/manifest.webmanifest',headers:[{key:'Content-Type',value:'application/manifest+json'}]}],rewrites:[{source:'/chatgpt/(.*)',destination:'/index.html'},{source:'/open/(.*)',destination:'/index.html'},{source:'/((?!_expo/|assets/|robots\\\\.txt|sitemap\\\\.xml|og-image\\\\.png|logo\\\\.png|favicon\\\\.ico|manifest\\\\.webmanifest|sw\\\\.js|pwa-192\\\\.png|pwa-512\\\\.png|apple-touch-icon\\\\.png|buy/(?:airtime|data|electricity|cable-tv|education|betting|wallet|transfer)|search).*)',destination:'/index.html'}]},null,2)+'\n')"
 
-      - name: Deploy to Vercel (netpay-expo)
+      - name: Deploy to Vercel (netpay-app / app.netppay.com)
         working-directory: mobile
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_EXPO }}
+          EXPO_PUBLIC_SITE_URL: https://app.netppay.com
         run: |
           if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
             echo "Missing VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID_EXPO secrets; skipping deploy."
             exit 0
           fi
-          npx vercel deploy dist --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID"
+          npx vercel deploy dist --prod --yes --token "$VERCEL_TOKEN" --scope "$VERCEL_ORG_ID" --project netpay-app

@@ -15,7 +15,6 @@ import { ThemedText } from '@/components/themed-text';
 import { LandingFooter } from '@/components/landing/landing-footer';
 import { InstallPwaButton } from '@/components/landing/add-to-home-screen';
 import { LandingQrCode } from '@/components/landing/landing-qr-code';
-import { supabase } from '@/lib/supabase';
 import { FeatureSearch } from '@/components/landing/feature-search';
 import { siteUrl } from '@/constants/site';
 import { featurePath } from '@/constants/seo-features';
@@ -27,6 +26,7 @@ import {
   LANDING_SERVICES,
   LANDING_STORE_LINKS,
 } from '@/constants/landing';
+import { getPreferredLoginRoute } from '@/utils/preferred-login-route';
 
 const SERVICES = LANDING_SERVICES;
 const FEATURES = LANDING_FEATURES;
@@ -98,19 +98,9 @@ export function WebLandingPage() {
   const isWide = width >= 960;
   const contentWidth = Math.min(width, 1180);
 
-  const goLogin = async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.user) {
-        router.replace('/(tabs)');
-        return;
-      }
-    } catch {
-      // Fall through to login screen.
-    }
-    router.push('/auth/login');
+  // Prefer PIN for returning devices; never jump logged-in visitors into the dashboard from CTAs.
+  const goLogin = () => {
+    void getPreferredLoginRoute().then((href) => router.push(href));
   };
   const goSignup = () => router.push('/auth/signup');
 

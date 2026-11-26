@@ -1,7 +1,7 @@
 {
   "name": "NetPay",
   "short_name": "NetPay",
-  "description": "Pay airtime, data, electricity, cable TV, education and more from one secure NetPay wallet.",
+  "description": "Buy airtime, data, electricity tokens, DStv, GOtv, education PINs and more from one secure NetPay wallet built for Nigeria.",
   "start_url": "/auth/login",
   "scope": "/",
   "id": "/",

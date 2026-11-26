@@ -57,13 +57,29 @@ export default function ForgotPinScreen() {
   ];
 
   useEffect(() => {
-    const prefillEmail =
-      typeof emailParam === 'string' && emailParam.trim()
-        ? emailParam.trim().toLowerCase()
-        : '';
-    if (prefillEmail) {
-      setEmail(prefillEmail);
-    }
+    let active = true;
+    const prefillEmail = async () => {
+      const fromParam =
+        typeof emailParam === 'string' && emailParam.trim()
+          ? emailParam.trim().toLowerCase()
+          : '';
+      if (fromParam) {
+        if (active) setEmail(fromParam);
+        return;
+      }
+      try {
+        const stored = (await SecureStore.getItemAsync('supabase_email'))?.trim().toLowerCase() || '';
+        if (active && stored.includes('@')) {
+          setEmail(stored);
+        }
+      } catch {
+        // Ignore — user can type email manually.
+      }
+    };
+    void prefillEmail();
+    return () => {
+      active = false;
+    };
   }, [emailParam]);
 
   useEffect(() => {

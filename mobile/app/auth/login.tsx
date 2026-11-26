@@ -80,10 +80,14 @@ function isAccountNotFoundMessage(msg: string): boolean {
 
 export default function LoginScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ returnTo?: string }>();
+  const params = useLocalSearchParams<{ returnTo?: string; password?: string }>();
   const returnTo = safeReturnToPath(
     typeof params.returnTo === 'string' ? params.returnTo : Array.isArray(params.returnTo) ? params.returnTo[0] : null,
   );
+  const forcePasswordLogin =
+    params.password === '1' ||
+    params.password === 'true' ||
+    (Array.isArray(params.password) && (params.password[0] === '1' || params.password[0] === 'true'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -91,6 +95,7 @@ export default function LoginScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [showBiometricLogin, setShowBiometricLogin] = useState(false);
+  const [showPinLogin, setShowPinLogin] = useState(false);
   const [biometricNotEnabledModalVisible, setBiometricNotEnabledModalVisible] = useState(false);
   const [biometricNotEnabledModalMessage, setBiometricNotEnabledModalMessage] = useState('');
   const [invalidCredentialsModalVisible, setInvalidCredentialsModalVisible] = useState(false);
@@ -138,8 +143,22 @@ export default function LoginScreen() {
 
         if (!active) return;
 
+        // Existing device user: send them to PIN unlock (unless they chose password).
+        if (storedEmail.includes('@') && !forcePasswordLogin) {
+          router.replace(
+            buildRouteHref(
+              '/sign-in-pin',
+              returnTo ? { returnTo } : undefined,
+            ),
+          );
+          return;
+        }
+
         if (storedEmail) {
           setEmail(storedEmail);
+          setShowPinLogin(true);
+        } else {
+          setShowPinLogin(false);
         }
 
         // Biometrics are native-only; skip hardware checks on web (can hang).
@@ -171,7 +190,7 @@ export default function LoginScreen() {
       return () => {
         active = false;
       };
-    }, [router])
+    }, [forcePasswordLogin, returnTo, router])
   );
 
   const handleGoogleSignIn = async () => {
@@ -662,6 +681,16 @@ export default function LoginScreen() {
                 <MaterialIcons name="fingerprint" size={20} color="#FF7F00" style={styles.biometricIcon} />
               )}
               <ThemedText style={styles.biometricButtonText}>Sign in with Biometric</ThemedText>
+            </TouchableOpacity>
+          ) : null}
+
+          {showPinLogin ? (
+            <TouchableOpacity
+              style={[styles.biometricButton, (loading || googleLoading) && { opacity: 0.7 }]}
+              onPress={() => router.replace('/sign-in-pin')}
+              disabled={loading || googleLoading}>
+              <MaterialIcons name="pin" size={20} color="#FF7F00" style={styles.biometricIcon} />
+              <ThemedText style={styles.biometricButtonText}>Sign in with PIN</ThemedText>
             </TouchableOpacity>
           ) : null}
 
