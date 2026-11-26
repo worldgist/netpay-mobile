@@ -102,53 +102,106 @@ window.__netpayRender = (root, data) => {
       "Confirm Payment",
       `<div class="panel" id="root"></div>
 <style>
-  .pin-wrap { margin-top:14px; }
-  .pin-wrap label { display:block; color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }
-  .pin-wrap input {
-    width:100%; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,127,0,0.35);
-    background: rgba(0,0,0,0.25); color: var(--text); font-size:22px; letter-spacing:0.35em; text-align:center;
-  }
   .pin-error { color:#f87171; font-size:13px; margin-top:8px; min-height:18px; }
+  .pin-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.62); display:none; align-items:center; justify-content:center;
+    padding: 16px; z-index: 50;
+  }
+  .pin-modal-backdrop.open { display:flex; }
+  .pin-modal {
+    width: min(360px, 100%); background: #1a1d24; border: 1px solid rgba(255,127,0,0.35);
+    border-radius: 18px; padding: 18px 16px 16px; box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+  }
+  .pin-modal h3 { margin: 0 0 6px; font-size: 18px; }
+  .pin-modal p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+  .pin-modal label { display:block; color: var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }
+  .pin-modal input {
+    width:100%; padding:14px 12px; border-radius:12px; border:1px solid rgba(255,127,0,0.4);
+    background: rgba(0,0,0,0.28); color: var(--text); font-size:24px; letter-spacing:0.4em; text-align:center;
+  }
+  .pin-modal .actions { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:12px; }
+  .pin-modal .actions button { margin-top:0; }
+  .secure-note { margin-top:10px; color: var(--muted); font-size:12px; }
 </style>
 <script>
+async function sha256Hex(text) {
+  const data = new TextEncoder().encode(String(text));
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 window.__netpayRender = (root, data) => {
   const rows = data.summary_rows || [];
   const htmlRows = rows.map(r => '<div class="row"><span class="muted">' + (r.label||'') + '</span><span>' + (r.value||'') + '</span></div>').join('');
   root.innerHTML = '<div class="label">Confirm</div><div class="value">' + (data.title || 'Confirm transaction') + '</div>' +
     htmlRows +
-    '<div class="pin-wrap"><label for="pinInput">NetPay PIN</label>' +
-    '<input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="••••" /></div>' +
-    '<div class="pin-error" id="pinError"></div>' +
-    '<p class="muted" style="margin-top:10px">Enter your 4-digit PIN to authorize this payment.</p>' +
-    '<button id="confirmBtn">Confirm with PIN</button>';
-  const btn = document.getElementById('confirmBtn');
+    '<p class="secure-note">Your PIN is entered in a secure modal and hashed on-device. ChatGPT never receives the raw PIN.</p>' +
+    '<button id="openPinBtn" type="button">Enter PIN to confirm</button>' +
+    '<div class="pin-modal-backdrop" id="pinModal" role="dialog" aria-modal="true" aria-labelledby="pinModalTitle">' +
+      '<div class="pin-modal">' +
+        '<h3 id="pinModalTitle">Enter NetPay PIN</h3>' +
+        '<p>Authorize this payment. Your PIN is hashed locally (SHA-256) before confirmation.</p>' +
+        '<label for="pinInput">4-digit PIN</label>' +
+        '<input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="••••" />' +
+        '<div class="pin-error" id="pinError"></div>' +
+        '<div class="actions">' +
+          '<button type="button" class="secondary" id="cancelPinBtn">Cancel</button>' +
+          '<button type="button" id="confirmPinBtn">Confirm</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  const openBtn = document.getElementById('openPinBtn');
+  const modal = document.getElementById('pinModal');
   const pinInput = document.getElementById('pinInput');
   const pinError = document.getElementById('pinError');
+  const confirmBtn = document.getElementById('confirmPinBtn');
+  const cancelBtn = document.getElementById('cancelPinBtn');
+
+  const closeModal = () => {
+    if (modal) modal.classList.remove('open');
+    if (pinInput) pinInput.value = '';
+    if (pinError) pinError.textContent = '';
+  };
+  const openModal = () => {
+    if (modal) modal.classList.add('open');
+    setTimeout(() => { try { pinInput && pinInput.focus(); } catch (_) {} }, 40);
+  };
+
+  if (openBtn) openBtn.onclick = openModal;
+  if (cancelBtn) cancelBtn.onclick = closeModal;
+  if (modal) modal.addEventListener('click', (ev) => { if (ev.target === modal) closeModal(); });
+
   const submit = async () => {
-    const pin = String(pinInput && pinInput.value || '').trim();
+    let pin = String(pinInput && pinInput.value || '').trim();
     if (!/^[0-9]{4}$/.test(pin)) {
       if (pinError) pinError.textContent = 'Enter your 4-digit NetPay PIN.';
       return;
     }
     if (pinError) pinError.textContent = '';
-    if (btn) { btn.disabled = true; btn.textContent = 'Confirming…'; }
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Hashing…'; }
+    if (openBtn) openBtn.disabled = true;
     try {
+      const pinHash = await sha256Hex(pin);
+      // Scrub plaintext PIN from memory ASAP
+      pin = '';
+      if (pinInput) pinInput.value = '';
+      if (confirmBtn) confirmBtn.textContent = 'Confirming…';
       await window.openai?.callTool('confirm_transaction', {
         confirmation_id: data.confirmation_id,
-        pin: pin,
+        pin_hash: pinHash,
       });
-      if (pinInput) pinInput.value = '';
+      closeModal();
     } catch (e) {
       if (pinError) pinError.textContent = (e && e.message) ? String(e.message) : 'Confirmation failed. Check your PIN and try again.';
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm with PIN'; }
       if (pinInput) { pinInput.value = ''; pinInput.focus(); }
+    } finally {
+      if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm'; }
+      if (openBtn) openBtn.disabled = false;
     }
   };
-  if (btn) btn.onclick = submit;
-  if (pinInput) {
-    pinInput.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
-    setTimeout(() => { try { pinInput.focus(); } catch (_) {} }, 50);
-  }
+
+  if (confirmBtn) confirmBtn.onclick = submit;
+  if (pinInput) pinInput.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
 };
 </script>`,
     ),

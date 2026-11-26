@@ -5,7 +5,7 @@ import {
 import { callEdgeFunction, parsePurchaseOutcome } from "../lib/edge.js";
 import { writeAudit } from "../lib/audit.js";
 import { checkRateLimit } from "../lib/rate-limit.js";
-import { verifyTransactionPin } from "../lib/pin.js";
+import { verifyTransactionPinHash } from "../lib/pin.js";
 import {
   buildReceiptFromConfirm,
   receiptStructured,
@@ -27,7 +27,7 @@ const ALLOWED_EDGE_FUNCTIONS = new Set([
 
 export async function confirmTransaction(
   ctx: ToolContext,
-  args: { confirmation_id: string; pin: string },
+  args: { confirmation_id: string; pin_hash: string },
 ) {
   const limited = checkRateLimit(
     `confirm_transaction:${ctx.session.userId}:${ctx.ip || "na"}`,
@@ -40,6 +40,17 @@ export async function confirmTransaction(
 
   const confirmationId = String(args.confirmation_id || "").trim();
   if (!confirmationId) return toolError("confirmation_id is required");
+
+  // Never accept raw PIN digits through the ChatGPT tool path.
+  if (
+    typeof (args as { pin?: unknown }).pin === "string" ||
+    typeof (args as { transaction_pin?: unknown }).transaction_pin === "string"
+  ) {
+    return toolError(
+      "For your security, enter your PIN only in the NetPay confirmation modal. Raw PINs are not accepted.",
+      { requires_pin_modal: true, confirmation_id: confirmationId },
+    );
+  }
 
   // Validate confirmation is still pending BEFORE PIN check / consume,
   // so a wrong PIN does not burn the confirmation.
@@ -58,7 +69,7 @@ export async function confirmTransaction(
     return toolError(error instanceof Error ? error.message : "Invalid confirmation");
   }
 
-  const pinResult = await verifyTransactionPin(ctx.session.userId, args.pin);
+  const pinResult = await verifyTransactionPinHash(ctx.session.userId, args.pin_hash);
   if (!pinResult.ok) {
     await writeAudit({
       userId: ctx.session.userId,
@@ -74,6 +85,7 @@ export async function confirmTransaction(
     return toolError(pinResult.error, {
       code: pinResult.code,
       requires_pin: true,
+      requires_pin_modal: true,
       confirmation_id: confirmationId,
       attempts_remaining: pinResult.attemptsRemaining,
       attempts_used: pinResult.attemptsUsed,

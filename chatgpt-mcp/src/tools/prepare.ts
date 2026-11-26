@@ -35,15 +35,17 @@ function confirmationResponse(params: {
   extra?: Record<string, unknown>;
 }) {
   return toolOk({
-    text: `${params.text} Enter your 4-digit NetPay PIN with confirm_transaction to complete.`,
+    text: `${params.text} Ask the user to confirm in the NetPay PIN modal (PIN is hashed locally and never sent as plain text).`,
     structured: {
       requires_confirmation: true,
       requires_pin: true,
+      requires_pin_modal: true,
       pin_required: true,
       confirmation_id: params.confirmationId,
       title: params.title,
       summary_rows: params.summaryRows,
-      pin_hint: "Ask the user for their 4-digit NetPay PIN, then call confirm_transaction with confirmation_id and pin. Never store or repeat the PIN.",
+      pin_hint:
+        "Do NOT ask for the PIN in chat. Tell the user to enter it in the NetPay confirmation modal. The widget SHA-256-hashes the PIN and calls confirm_transaction with pin_hash only.",
       ...params.extra,
     },
     widgetUri: WIDGETS.confirmation.uri,

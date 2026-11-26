@@ -12,7 +12,7 @@ ChatGPT Apps SDK / MCP server for NetPay. Reuses existing Supabase Auth, wallet 
 2. User signs in on NetPay web and approves scopes on the consent page.
 3. MCP stores an **encrypted Supabase refresh token** and issues short-lived MCP JWTs.
 4. Tool calls refresh the user session and invoke existing edge functions with `Authorization: Bearer <user JWT>`.
-5. Money tools use **prepare → confirm_transaction(pin)** with single-use confirmations, required 4-digit NetPay PIN, and `idempotency_key`.
+5. Money tools use **prepare → confirm_transaction(pin_hash)** with single-use confirmations. The confirmation widget collects the 4-digit PIN in a modal, SHA-256-hashes it locally, and only the hash is sent — raw PIN never goes through ChatGPT.
 
 ## Tools
 
@@ -28,7 +28,7 @@ ChatGPT Apps SDK / MCP server for NetPay. Reuses existing Supabase Auth, wallet 
 | `prepare_cable_payment` | prepare |
 | `prepare_education_purchase` | prepare |
 | `prepare_transfer` | prepare |
-| `confirm_transaction` | write (idempotent; requires 4-digit PIN) |
+| `confirm_transaction` | write (idempotent; requires `pin_hash` from PIN modal) |
 | `disconnect_account` | revoke OAuth |
 
 Widgets: connect, balance, confirmation, receipt, transactions (`text/html+skybridge`).
@@ -114,7 +114,8 @@ PKCE: **S256 only**. Token auth method: **none** (public client).
 
 ## Security notes
 
-- Prepare never debits; only `confirm_transaction` calls purchase/transfer edges, and only after verifying the user's 4-digit NetPay PIN (wrong PIN keeps the confirmation pending; 5 failures suspend the account).
+- Prepare never debits; only `confirm_transaction` calls purchase/transfer edges after verifying a client-side SHA-256 `pin_hash` from the PIN modal (raw PIN rejected; wrong hash keeps confirmation pending; 5 failures suspend the account).
+- Never ask for or echo PIN digits in chat; the widget is the only PIN entry surface.
 - Confirmations expire in ~10 minutes and are single-use; edge allowlist enforced on confirm.
 - Client `vending_provider` is stripped before edge calls.
 - OAuth redirect URIs must match the **global ChatGPT allowlist** (or `CHATGPT_REDIRECT_URIS`); attacker-controlled redirects are rejected.

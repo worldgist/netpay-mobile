@@ -120,7 +120,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare airtime purchase",
       description:
-        "Validate and stage an airtime purchase. Does NOT debit. Call confirm_transaction with the user's 4-digit NetPay PIN after they confirm.",
+        "Validate and stage an airtime purchase. Does NOT debit. User confirms via the NetPay PIN modal (hashed PIN); never ask for the raw PIN in chat.",
       inputSchema: {
         phone_number: z.string().describe("Recipient phone number"),
         network: z.string().describe("MTN, AIRTEL, GLO, or 9MOBILE"),
@@ -136,7 +136,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare data purchase",
       description:
-        "Stage a data plan purchase. Does NOT debit. Confirm with confirm_transaction and the user's 4-digit NetPay PIN.",
+        "Stage a data plan purchase. Does NOT debit. User confirms via the NetPay PIN modal (hashed PIN); never ask for the raw PIN in chat.",
       inputSchema: {
         phone_number: z.string(),
         plan_id: z.string().describe("NetPay data plan UUID"),
@@ -154,7 +154,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare electricity payment",
       description:
-        "Validate meter and stage electricity payment. Does NOT debit until confirm_transaction with the user's 4-digit NetPay PIN.",
+        "Validate meter and stage electricity payment. Does NOT debit until the user confirms in the NetPay PIN modal (hashed PIN).",
       inputSchema: {
         meter_number: z.string(),
         provider: z.string().describe("Disco / provider code"),
@@ -172,7 +172,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare cable TV payment",
       description:
-        "Validate smartcard and stage cable renewal. Requires plan_id, package_name, and catalog amount. Confirm with confirm_transaction and the user's 4-digit NetPay PIN.",
+        "Validate smartcard and stage cable renewal. Requires plan_id, package_name, and catalog amount. User confirms via the NetPay PIN modal (hashed PIN).",
       inputSchema: {
         smartcard_number: z.string(),
         provider: z.string().describe("DSTV, GOTV, STARTIMES, …"),
@@ -193,7 +193,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare education PIN purchase",
       description:
-        "Stage WAEC/NECO/JAMB PIN purchase. Confirm with confirm_transaction and the user's 4-digit NetPay PIN.",
+        "Stage WAEC/NECO/JAMB PIN purchase. User confirms via the NetPay PIN modal (hashed PIN); never ask for the raw PIN in chat.",
       inputSchema: {
         exam_type: z.string(),
         amount: z.number(),
@@ -212,7 +212,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare NetPay transfer",
       description:
-        "Verify recipient and stage an in-app transfer. Does NOT send money until confirm_transaction with the user's 4-digit NetPay PIN.",
+        "Verify recipient and stage an in-app transfer. Does NOT send money until the user confirms in the NetPay PIN modal (hashed PIN).",
       inputSchema: {
         recipient_email: z.string().email(),
         amount: z.number(),
@@ -228,13 +228,15 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Confirm pending transaction",
       description:
-        "Execute a previously prepared money movement. Requires confirmation_id AND the user's 4-digit NetPay PIN. Wrong PIN does not consume the confirmation; 5 wrong attempts suspend the account. Never store or echo the PIN.",
+        "Execute a previously prepared money movement. Requires confirmation_id and pin_hash from the NetPay confirmation widget (SHA-256 of the 4-digit PIN). NEVER ask the user to type their PIN in chat and NEVER send raw PIN digits. Wrong hash does not consume the confirmation; 5 failures suspend the account.",
       inputSchema: {
         confirmation_id: z.string().uuid(),
-        pin: z
+        pin_hash: z
           .string()
-          .regex(/^[0-9]{4}$/, "PIN must be exactly 4 digits")
-          .describe("User's 4-digit NetPay transaction PIN"),
+          .regex(/^[a-f0-9]{64}$/i, "pin_hash must be a SHA-256 hex digest")
+          .describe(
+            "SHA-256 hex digest of the user's 4-digit PIN, produced only by the NetPay confirmation modal. Do not compute this from chat input.",
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },
