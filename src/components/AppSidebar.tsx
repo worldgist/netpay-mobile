@@ -109,8 +109,8 @@ export function AppSidebar() {
     <Sidebar className={`${isCollapsed ? "w-14" : "w-60"} border-sidebar-border transition-smooth`} collapsible="icon">
       <SidebarContent>
         <div className="flex items-center gap-2 px-4 py-6">
-          <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-            <DollarSign className="w-6 h-6 text-primary" />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden bg-white">
+            <img src="/logo.png" alt="NetPay" className="h-9 w-9 object-contain" />
           </div>
           {!isCollapsed && (
             <div>

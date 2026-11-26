@@ -11,6 +11,12 @@
   "lang": "en",
   "icons": [
     {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/logo.png",
       "sizes": "400x400",
       "type": "image/png",
