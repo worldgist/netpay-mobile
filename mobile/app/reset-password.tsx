@@ -333,7 +333,6 @@ export default function ResetPasswordScreen() {
       if (isAuthenticatedPasswordUpdate && !creatingFirstPassword) {
         const currentUserEmail = session.user.email?.trim().toLowerCase();
         if (!currentUserEmail) {
-          setResetting(false);
           Alert.alert(actionTitle, 'Unable to verify current password. Please sign in again.');
           return;
         }
@@ -344,7 +343,6 @@ export default function ResetPasswordScreen() {
         });
 
         if (verifyOldPasswordError) {
-          setResetting(false);
           Alert.alert(actionTitle, 'Current password is incorrect.');
           return;
         }
@@ -354,8 +352,6 @@ export default function ResetPasswordScreen() {
       const { error } = await supabase.auth.updateUser({
         password: password.trim(),
       });
-
-      setResetting(false);
 
       if (error) {
         console.error('Error resetting password:', error);
@@ -370,31 +366,35 @@ export default function ResetPasswordScreen() {
       }
 
       setIsCreatingFirstPassword(creatingFirstPassword);
-
-      const bio = await disableBiometricLoginForCurrentUser();
-      if (!bio.ok) {
-        console.warn('Could not disable biometric on profile after password reset:', bio.error);
-        Alert.alert(
-          'Biometric login',
-          'Your password was reset, but biometric could not be turned off automatically. Please sign in with your new password, then open Profile and turn biometric login off and on again.',
-        );
-      } else {
-        await markPendingBiometricReenrollment();
-      }
-
-      // Sign out after password reset for security
-      await supabase.auth.signOut();
+      // Show success immediately — biometric + signOut must not block this UI.
       setShowSuccessModal(true);
+
+      void (async () => {
+        try {
+          const bio = await disableBiometricLoginForCurrentUser();
+          if (bio.ok) {
+            await markPendingBiometricReenrollment();
+          } else {
+            console.warn('Could not disable biometric on profile after password reset:', bio.error);
+          }
+        } catch (bioErr) {
+          console.warn('Biometric cleanup after password reset failed:', bioErr);
+        }
+      })();
     } catch (err) {
-      setResetting(false);
       console.error('Error in handleResetPassword:', err);
       Alert.alert('Reset Password', err instanceof Error ? err.message : 'An unexpected error occurred.');
+    } finally {
+      setResetting(false);
     }
   };
 
   const handleCloseModal = () => {
     setShowSuccessModal(false);
     router.replace('/auth/login');
+    void supabase.auth.signOut({ scope: 'local' }).catch((err) => {
+      console.warn('Sign out after password reset failed:', err);
+    });
   };
 
   return (
@@ -566,7 +566,7 @@ export default function ResetPasswordScreen() {
               <MaterialIcons name="check-circle" size={36} color="#fff" />
             </View>
             <ThemedText style={styles.modalTitle}>
-              {isCreatingFirstPassword ? 'Password Created' : 'Password Reset'}
+              {isCreatingFirstPassword ? 'Password Created Successfully' : 'Password Reset Successful'}
             </ThemedText>
             <ThemedText style={styles.modalMessage}>
               {isCreatingFirstPassword

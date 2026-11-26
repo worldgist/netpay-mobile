@@ -1,4 +1,4 @@
-import { StyleSheet, View, TouchableOpacity, Modal, Platform, ScrollView } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Modal, Platform, ScrollView, Text } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
@@ -13,6 +13,12 @@ interface ConfirmTransferModalProps {
   transferFee?: number;
   loading?: boolean;
 }
+
+const formatNaira = (value: number) =>
+  `₦${Number(value || 0).toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 export function ConfirmTransferModal({
   visible,
@@ -53,7 +59,7 @@ export function ConfirmTransferModal({
             </TouchableOpacity>
           </View>
 
-          <ScrollView 
+          <ScrollView
             style={styles.scrollView}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={true}
@@ -61,7 +67,20 @@ export function ConfirmTransferModal({
             nestedScrollEnabled={true}>
             {/* Amount Display */}
             <View style={styles.amountContainer}>
-              <ThemedText style={styles.amountText}>₦{amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+              <ThemedText style={styles.amountLabel}>You're sending</ThemedText>
+              <Text
+                style={styles.amountText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.55}>
+                {formatNaira(amount)}
+              </Text>
+              {transferFee > 0 ? (
+                <View style={styles.totalPill}>
+                  <ThemedText style={styles.totalPillLabel}>Total with fee</ThemedText>
+                  <Text style={styles.totalPillValue}>{formatNaira(totalAmount)}</Text>
+                </View>
+              ) : null}
             </View>
 
             {/* Transfer Icon */}
@@ -76,37 +95,41 @@ export function ConfirmTransferModal({
             <View style={styles.summaryContainer}>
               <View style={styles.summaryRow}>
                 <ThemedText style={styles.summaryLabel}>Transfer Amount</ThemedText>
-                <ThemedText style={styles.summaryValue}>₦{amount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+                <Text style={styles.summaryValue}>{formatNaira(amount)}</Text>
               </View>
               {transferFee > 0 && (
                 <View style={styles.summaryRow}>
                   <ThemedText style={styles.summaryLabel}>Transfer Fee</ThemedText>
-                  <ThemedText style={styles.summaryValue}>₦{transferFee.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+                  <Text style={styles.summaryValue}>{formatNaira(transferFee)}</Text>
                 </View>
               )}
               {transferFee > 0 && (
                 <View style={[styles.summaryRow, styles.summaryRowTotal]}>
                   <ThemedText style={styles.summaryLabelTotal}>Total Amount</ThemedText>
-                  <ThemedText style={styles.summaryValueTotal}>₦{totalAmount.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</ThemedText>
+                  <Text style={styles.summaryValueTotal}>{formatNaira(totalAmount)}</Text>
                 </View>
               )}
               <View style={styles.summaryRow}>
                 <ThemedText style={styles.summaryLabel}>Recipient</ThemedText>
-                <ThemedText style={styles.summaryValue} numberOfLines={1}>{recipientEmail}</ThemedText>
+                <ThemedText style={styles.summaryValueText} numberOfLines={2}>
+                  {recipientEmail}
+                </ThemedText>
               </View>
-              {description && (
+              {description ? (
                 <View style={styles.summaryRow}>
                   <ThemedText style={styles.summaryLabel}>Description</ThemedText>
-                  <ThemedText style={styles.summaryValue} numberOfLines={2}>{description}</ThemedText>
+                  <ThemedText style={styles.summaryValueText} numberOfLines={2}>
+                    {description}
+                  </ThemedText>
                 </View>
-              )}
+              ) : null}
               <View style={styles.summaryRow}>
                 <ThemedText style={styles.summaryLabel}>Date</ThemedText>
-                <ThemedText style={styles.summaryValue}>{formattedDate}</ThemedText>
+                <ThemedText style={styles.summaryValueText}>{formattedDate}</ThemedText>
               </View>
               <View style={styles.summaryRow}>
                 <ThemedText style={styles.summaryLabel}>Time</ThemedText>
-                <ThemedText style={styles.summaryValue}>{formattedTime}</ThemedText>
+                <ThemedText style={styles.summaryValueText}>{formattedTime}</ThemedText>
               </View>
               <View style={[styles.summaryRow, styles.summaryRowLast]}>
                 <ThemedText style={styles.summaryLabel}>Status</ThemedText>
@@ -128,9 +151,10 @@ export function ConfirmTransferModal({
             style={[styles.confirmButton, loading && styles.confirmButtonDisabled]}
             onPress={loading ? undefined : onConfirm}
             activeOpacity={loading ? 1 : 0.8}
-            disabled={loading}
-          >
-            <ThemedText style={styles.confirmButtonText}>Confirm Transfer</ThemedText>
+            disabled={loading}>
+            <ThemedText style={styles.confirmButtonText}>
+              Confirm {formatNaira(transferFee > 0 ? totalAmount : amount)}
+            </ThemedText>
           </TouchableOpacity>
         </View>
         {loading ? (
@@ -162,8 +186,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   scrollView: {
-    flex: 1,
-    maxHeight: 400,
+    flexGrow: 0,
+    maxHeight: 420,
   },
   scrollContent: {
     flexGrow: 1,
@@ -173,7 +197,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   headerTitle: {
     fontSize: 22,
@@ -185,25 +209,64 @@ const styles = StyleSheet.create({
   },
   amountContainer: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 16,
+    backgroundColor: '#FFF8F1',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  amountLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8D6E63',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   amountText: {
-    fontSize: 48,
-    fontWeight: 'bold',
+    fontSize: 40,
+    lineHeight: 48,
+    fontWeight: '800',
     color: '#FF7F00',
+    textAlign: 'center',
+    width: '100%',
+  },
+  totalPill: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  totalPillLabel: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
+  },
+  totalPillValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#E65100',
   },
   iconContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   iconCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#FFF3E0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   transferLabel: {
     fontSize: 16,
@@ -219,10 +282,11 @@ const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    gap: 12,
   },
   summaryRowLast: {
     borderBottomWidth: 0,
@@ -238,11 +302,12 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#333',
-    flex: 1,
+    flexShrink: 0,
   },
   summaryValueTotal: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
     color: '#FF7F00',
     flex: 1,
     textAlign: 'right',
@@ -250,9 +315,18 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 16,
     color: '#666',
-    flex: 1,
+    flexShrink: 0,
+    maxWidth: '42%',
   },
   summaryValue: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: '#222',
+    flex: 1,
+    textAlign: 'right',
+  },
+  summaryValueText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
@@ -269,7 +343,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF3E0',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 24,
+    marginBottom: 8,
     alignItems: 'flex-start',
   },
   warningText: {
@@ -313,4 +387,3 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
 });
-

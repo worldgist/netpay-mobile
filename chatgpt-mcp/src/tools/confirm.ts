@@ -1,7 +1,16 @@
-import { consumeConfirmation } from "../lib/confirmations.js";
+import {
+  consumeConfirmation,
+  requirePendingConfirmation,
+} from "../lib/confirmations.js";
 import { callEdgeFunction, parsePurchaseOutcome } from "../lib/edge.js";
 import { writeAudit } from "../lib/audit.js";
 import { checkRateLimit } from "../lib/rate-limit.js";
+import { verifyTransactionPin } from "../lib/pin.js";
+import {
+  buildReceiptFromConfirm,
+  receiptStructured,
+  type ReceiptRow,
+} from "../lib/receipt.js";
 import { revokeAllForUser } from "../oauth/tokens.js";
 import { WIDGETS } from "../widgets/html.js";
 import { naira, toolError, toolOk, type ToolContext } from "./context.js";
@@ -18,7 +27,7 @@ const ALLOWED_EDGE_FUNCTIONS = new Set([
 
 export async function confirmTransaction(
   ctx: ToolContext,
-  args: { confirmation_id: string },
+  args: { confirmation_id: string; pin: string },
 ) {
   const limited = checkRateLimit(
     `confirm_transaction:${ctx.session.userId}:${ctx.ip || "na"}`,
@@ -31,6 +40,45 @@ export async function confirmTransaction(
 
   const confirmationId = String(args.confirmation_id || "").trim();
   if (!confirmationId) return toolError("confirmation_id is required");
+
+  // Validate confirmation is still pending BEFORE PIN check / consume,
+  // so a wrong PIN does not burn the confirmation.
+  let pending;
+  try {
+    pending = await requirePendingConfirmation(confirmationId, ctx.session.userId);
+  } catch (error) {
+    await writeAudit({
+      userId: ctx.session.userId,
+      tool: "confirm_transaction",
+      ip: ctx.ip,
+      outcome: "error",
+      reference: confirmationId,
+      meta: { error: error instanceof Error ? error.message : String(error) },
+    });
+    return toolError(error instanceof Error ? error.message : "Invalid confirmation");
+  }
+
+  const pinResult = await verifyTransactionPin(ctx.session.userId, args.pin);
+  if (!pinResult.ok) {
+    await writeAudit({
+      userId: ctx.session.userId,
+      tool: "confirm_transaction",
+      ip: ctx.ip,
+      outcome: "pin_failed",
+      reference: confirmationId,
+      meta: {
+        code: pinResult.code,
+        attemptsRemaining: pinResult.attemptsRemaining,
+      },
+    });
+    return toolError(pinResult.error, {
+      code: pinResult.code,
+      requires_pin: true,
+      confirmation_id: confirmationId,
+      attempts_remaining: pinResult.attemptsRemaining,
+      attempts_used: pinResult.attemptsUsed,
+    });
+  }
 
   let confirmation;
   try {
@@ -47,7 +95,8 @@ export async function confirmTransaction(
     return toolError(error instanceof Error ? error.message : "Invalid confirmation");
   }
 
-  const payload = confirmation.payload || {};
+  // Prefer freshly consumed row; fall back to pending snapshot if needed
+  const payload = confirmation.payload || pending.payload || {};
   const edge = String(payload.edge || "");
   const body = (payload.body && typeof payload.body === "object"
     ? { ...(payload.body as Record<string, unknown>) }
@@ -59,8 +108,10 @@ export async function confirmTransaction(
 
   // Idempotency: confirmation UUID
   body.idempotency_key = confirmation.id;
-  // Never trust client vending overrides
+  // Never trust client vending overrides / never forward PIN to edge
   delete body.vending_provider;
+  delete body.pin;
+  delete body.transaction_pin;
 
   const result = await callEdgeFunction(edge, ctx.session.accessToken, {
     method: "POST",
@@ -72,12 +123,38 @@ export async function confirmTransaction(
   const amount = Number(display.amount ?? body.amount ?? 0);
   const title = String(display.title || confirmation.tool || "Transaction");
 
+  const summaryRows: ReceiptRow[] = Array.isArray(display.summary_rows)
+    ? (display.summary_rows as ReceiptRow[])
+    : Object.entries(display)
+        .filter(([key, value]) => {
+          if (["title", "amount", "summary_rows", "fee", "total"].includes(key)) return false;
+          return value != null && String(value).trim().length > 0;
+        })
+        .map(([key, value]) => ({
+          label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+          value: String(value),
+        }));
+  if (amount > 0 && !summaryRows.some((row) => /amount/i.test(row.label))) {
+    summaryRows.push({ label: "Amount", value: naira(amount) });
+  }
+
   if (!result.ok && outcome.status !== "SUCCESS" && outcome.status !== "PENDING") {
     const err =
       (result.data as { error?: string; message?: string })?.error ||
       (result.data as { message?: string })?.message ||
       outcome.message ||
       "Transaction failed";
+    const failedReceipt = buildReceiptFromConfirm({
+      title,
+      amount,
+      status: "FAILED",
+      reference: outcome.reference || confirmation.id,
+      provider_reference: outcome.provider_reference,
+      message: err,
+      datetime: new Date().toISOString(),
+      summary_rows: summaryRows,
+    });
+    const receiptPayload = receiptStructured(failedReceipt);
     await writeAudit({
       userId: ctx.session.userId,
       tool: "confirm_transaction",
@@ -89,6 +166,7 @@ export async function confirmTransaction(
     return toolOk({
       text: `${title} failed: ${err}`,
       structured: {
+        ...receiptPayload,
         success: false,
         status: "FAILED",
         title,
@@ -98,6 +176,13 @@ export async function confirmTransaction(
         message: err,
         confirmation_id: confirmation.id,
         datetime: new Date().toISOString(),
+        amount_display: naira(amount),
+        receipt: {
+          ...receiptPayload,
+          title,
+          status: "FAILED",
+          amount_display: failedReceipt.amountText,
+        },
       },
       widgetUri: WIDGETS.receipt.uri,
     });
@@ -112,18 +197,31 @@ export async function confirmTransaction(
           ? "SUCCESS"
           : outcome.status;
 
+  const receipt = buildReceiptFromConfirm({
+    title,
+    amount,
+    status,
+    reference: outcome.reference || confirmation.id,
+    provider_reference: outcome.provider_reference,
+    message: outcome.message,
+    datetime: new Date().toISOString(),
+    summary_rows: summaryRows,
+  });
+  const receiptPayload = receiptStructured(receipt);
+
   await writeAudit({
     userId: ctx.session.userId,
     tool: "confirm_transaction",
     ip: ctx.ip,
     outcome: status.toLowerCase(),
     reference: outcome.reference || confirmation.id,
-    meta: { edge },
+    meta: { edge, pin_verified: true },
   });
 
   return toolOk({
     text: `${title}: ${status}${outcome.reference ? ` (ref ${outcome.reference})` : ""}`,
     structured: {
+      ...receiptPayload,
       success: status !== "FAILED",
       status,
       title,
@@ -134,6 +232,12 @@ export async function confirmTransaction(
       confirmation_id: confirmation.id,
       datetime: new Date().toISOString(),
       amount_display: naira(amount),
+      receipt: {
+        ...receiptPayload,
+        title,
+        status,
+        amount_display: receipt.amountText,
+      },
       // Do not echo full edge payload (may contain PII / internal fields)
     },
     widgetUri: WIDGETS.receipt.uri,

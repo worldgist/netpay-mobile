@@ -32,7 +32,7 @@ export function renderConsentPageHtml(query: ConsentQuery): string {
     resource: first(query.resource) || `${env.mcpPublicUrl}/mcp`,
   };
 
-  const siteBase = (env.siteUrl || "https://app.netppay.com").replace(/\/$/, "");
+  const siteBase = (env.siteUrl || "https://netppay.com").replace(/\/$/, "");
   const logoUrl = `${siteBase}/logo.png`;
 
   const boot = {

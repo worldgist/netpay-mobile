@@ -1,3 +1,5 @@
+import { NETPAY_LOGO_DATA_URI } from '@/utils/netpay-logo-data-uri';
+
 export type ReceiptPdfRow = {
   label: string;
   value: string;
@@ -58,6 +60,24 @@ export function generateTransactionReceiptHtml(input: TransactionReceiptPdf) {
         background: #FF7F00;
         color: #fff;
         padding: 28px 24px;
+        text-align: center;
+      }
+      .logo-wrap {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+        background: #fff;
+        margin-bottom: 12px;
+        overflow: hidden;
+      }
+      .logo-wrap img {
+        width: 60px;
+        height: 60px;
+        object-fit: contain;
+        display: block;
       }
       .brand {
         font-size: 22px;
@@ -117,6 +137,14 @@ export function generateTransactionReceiptHtml(input: TransactionReceiptPdf) {
         color: #6b7280;
         font-size: 12px;
         line-height: 1.5;
+        text-align: center;
+      }
+      .footer-logo {
+        width: 36px;
+        height: 36px;
+        object-fit: contain;
+        margin: 0 auto 8px;
+        display: block;
       }
       @media print {
         body { padding: 0; }
@@ -127,6 +155,9 @@ export function generateTransactionReceiptHtml(input: TransactionReceiptPdf) {
   <body>
     <div class="receipt">
       <div class="header">
+        <div class="logo-wrap">
+          <img src="${NETPAY_LOGO_DATA_URI}" alt="NetPay" />
+        </div>
         <div class="brand">NETPAY</div>
         <div class="subtitle">Transaction Receipt</div>
         <div class="title">${escapeHtml(input.title)}</div>
@@ -136,6 +167,7 @@ export function generateTransactionReceiptHtml(input: TransactionReceiptPdf) {
         <div class="status">${escapeHtml(input.status || 'Completed')}</div>
         <div style="margin-top: 20px;">${rowsHtml}</div>
         <div class="footer">
+          <img class="footer-logo" src="${NETPAY_LOGO_DATA_URI}" alt="NetPay" />
           <div>NetPay</div>
           <div>support@netppay.com</div>
           <div>www.netppay.com</div>

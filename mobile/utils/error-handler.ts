@@ -61,6 +61,15 @@ if (typeof ErrorUtils !== 'undefined') {
   });
 }
 
+const isFontFaceObserverTimeout = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const stack = error instanceof Error ? error.stack || '' : '';
+  return (
+    message.includes('12000ms timeout exceeded') ||
+    (message.includes('timeout exceeded') && stack.includes('fontfaceobserver'))
+  );
+};
+
 // Also intercept console.error for network errors
 const originalConsoleError = console.error;
 console.error = (...args: any[]) => {
@@ -69,6 +78,12 @@ console.error = (...args: any[]) => {
   // Check if it's a network error that's already handled
   if (shouldSuppressError(firstArg)) {
     // Suppress the error log
+    return;
+  }
+
+  // Expo web icon fonts can take longer than FontFaceObserver's 12s check during slow Metro reloads.
+  // The stylesheet still applies; the rejection is noisy but not fatal.
+  if (isFontFaceObserverTimeout(firstArg)) {
     return;
   }
   
@@ -84,10 +99,23 @@ console.error = (...args: any[]) => {
       return; // Suppress
     }
   }
+
+  if (errorString.includes('12000ms timeout exceeded') || errorString.includes('fontfaceobserver')) {
+    return;
+  }
   
   // Use original console.error for other errors
   originalConsoleError.apply(console, args);
 };
+
+// Swallow unhandled FontFaceObserver rejections on web.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('unhandledrejection', (event) => {
+    if (isFontFaceObserverTimeout(event.reason)) {
+      event.preventDefault();
+    }
+  });
+}
 
 
 

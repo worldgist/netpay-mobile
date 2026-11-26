@@ -16,7 +16,7 @@ import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
-import { Image } from 'expo-image';
+import { ServiceLogoImage } from '@/components/service-logo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
@@ -571,9 +571,10 @@ export default function EducationScreen() {
         ? "NECO Result Checker PIN"
         : selectedService.name || selectedService.examType || 'Education Service')
     : 'Education Service';
-  const selectedServiceLogo = selectedService?.logoUrl
-    ? { uri: selectedService.logoUrl }
-    : selectedService?.logo;
+  const selectedServiceLogo =
+    selectedService?.logo ||
+    LOCAL_SERVICE_LOGOS[selectedService?.examType || ''] ||
+    LOCAL_SERVICE_LOGOS.WAEC;
 
   // Function to verify JAMB profile code
   const verifyJambProfile = useCallback(async () => {
@@ -1054,15 +1055,10 @@ export default function EducationScreen() {
                         styles.networkLogoContainer,
                         selectedServiceId === service.id && styles.networkLogoContainerActive
                       ]}>
-                        {service.logoUrl ? (
-                          <Image
-                            source={{ uri: service.logoUrl }}
-                            style={styles.networkLogoImage}
-                            contentFit="contain"
-                          />
-                        ) : service.logo ? (
-                          <Image
+                        {service.logo || LOCAL_SERVICE_LOGOS[service.examType] ? (
+                          <ServiceLogoImage
                             source={service.logo}
+                            fallback={LOCAL_SERVICE_LOGOS[service.examType] || LOCAL_SERVICE_LOGOS.WAEC}
                             style={styles.networkLogoImage}
                             contentFit="contain"
                           />

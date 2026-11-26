@@ -15,20 +15,24 @@ import { ThemedText } from '@/components/themed-text';
 import { LandingFooter } from '@/components/landing/landing-footer';
 import { InstallPwaButton } from '@/components/landing/add-to-home-screen';
 import { LandingQrCode } from '@/components/landing/landing-qr-code';
-import { FeatureSearch } from '@/components/landing/feature-search';
 import { siteUrl } from '@/constants/site';
 import { featurePath } from '@/constants/seo-features';
 import {
   LANDING_BRAND as BRAND,
   LANDING_FEATURES,
+  LANDING_HERO_OFFERS,
+  LANDING_HERO_VALUE,
   LANDING_NAV_LINKS,
+  LANDING_PRODUCTS,
   LANDING_PROVIDERS,
   LANDING_SERVICES,
   LANDING_STORE_LINKS,
+  landingFeaturePath,
 } from '@/constants/landing';
 import { getPreferredLoginRoute } from '@/utils/preferred-login-route';
 
 const SERVICES = LANDING_SERVICES;
+const PRODUCTS = LANDING_PRODUCTS;
 const FEATURES = LANDING_FEATURES;
 const PROVIDERS = LANDING_PROVIDERS;
 const STORE_LINKS = LANDING_STORE_LINKS;
@@ -180,12 +184,19 @@ export function WebLandingPage() {
               <ThemedText style={styles.heroTitle}>
                 Bills made simple{'\n'}for a smarter you.
               </ThemedText>
-              <ThemedText style={styles.heroSubtitle}>
-                Pay for airtime, data, electricity, cable TV, education, betting and more — all in
-                one secure and reliable platform.
-              </ThemedText>
+              <ThemedText style={styles.heroSubtitle}>{LANDING_HERO_VALUE}</ThemedText>
 
-              <FeatureSearch />
+              <View style={styles.heroValueBlock}>
+                <ThemedText style={styles.heroOfferLabel}>What NetPay offers</ThemedText>
+                <View style={styles.heroOfferList}>
+                  {LANDING_HERO_OFFERS.map((offer) => (
+                    <View key={offer} style={styles.heroOfferItem}>
+                      <MaterialIcons name="check-circle" size={16} color={BRAND.orange} />
+                      <ThemedText style={styles.heroOfferText}>{offer}</ThemedText>
+                    </View>
+                  ))}
+                </View>
+              </View>
 
               <View style={styles.heroCtas}>
                 <Pressable style={styles.primaryBtn} onPress={goLogin}>
@@ -253,6 +264,43 @@ export function WebLandingPage() {
             </View>
           </View>
 
+          <View style={[styles.section, styles.productsSection]} onLayout={markSection('products')}>
+            <View style={{ width: contentWidth, alignSelf: 'center' }}>
+              <ThemedText style={styles.sectionEyebrow}>PRODUCTS & SERVICES</ThemedText>
+              <ThemedText style={styles.sectionTitle}>What NetPay is built to do.</ThemedText>
+              <ThemedText style={styles.productsIntro}>
+                A clear look at every NetPay product — from mobile top-ups and utility bills to wallet
+                funding and transfers — so you know exactly what you can pay for.
+              </ThemedText>
+
+              <View style={styles.productsList}>
+                {PRODUCTS.map((product) => (
+                  <Pressable
+                    key={product.title}
+                    style={styles.productRow}
+                    onPress={() => {
+                      if (product.slug) {
+                        router.push(featurePath(product.slug) as never);
+                        return;
+                      }
+                      goLogin();
+                    }}>
+                    <View style={styles.productIconWrap}>
+                      <MaterialIcons name={product.icon} size={24} color={BRAND.orange} />
+                    </View>
+                    <View style={styles.productCopy}>
+                      <ThemedText style={styles.productCategory}>{product.category}</ThemedText>
+                      <ThemedText style={styles.productTitle}>{product.title}</ThemedText>
+                      <ThemedText style={styles.productSummary}>{product.summary}</ThemedText>
+                      <ThemedText style={styles.productOffers}>{product.offers.join(' · ')}</ThemedText>
+                    </View>
+                    <MaterialIcons name="chevron-right" size={22} color={BRAND.muted} />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          </View>
+
           <View style={[styles.section, styles.featuresSection]} onLayout={markSection('features')}>
             <View style={{ width: contentWidth, alignSelf: 'center' }}>
               <ThemedText style={styles.sectionEyebrow}>WHY NETPAY</ThemedText>
@@ -264,15 +312,17 @@ export function WebLandingPage() {
 
               <View style={styles.featuresGrid}>
                 {FEATURES.map((feature) => (
-                  <View
-                    key={feature.title}
-                    style={[styles.featureCard, { width: featureCardWidth }]}>
+                  <Pressable
+                    key={feature.slug}
+                    style={[styles.featureCard, { width: featureCardWidth }]}
+                    onPress={() => router.push(landingFeaturePath(feature.slug) as never)}>
                     <View style={styles.featureIcon}>
                       <MaterialIcons name={feature.icon} size={22} color={BRAND.orange} />
                     </View>
                     <ThemedText style={styles.featureTitle}>{feature.title}</ThemedText>
                     <ThemedText style={styles.featureDesc}>{feature.description}</ThemedText>
-                  </View>
+                    <ThemedText style={styles.featureLink}>How it works →</ThemedText>
+                  </Pressable>
                 ))}
               </View>
 
@@ -508,8 +558,39 @@ const styles = StyleSheet.create({
     color: BRAND.muted,
     fontSize: 16,
     lineHeight: 26,
+    marginBottom: 20,
+    maxWidth: 520,
+  },
+  heroValueBlock: {
     marginBottom: 28,
-    maxWidth: 480,
+    maxWidth: 520,
+  },
+  heroOfferLabel: {
+    color: BRAND.navy,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  },
+  heroOfferList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: 28,
+    rowGap: 10,
+  },
+  heroOfferItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 180,
+    flexGrow: 1,
+    flexBasis: '40%',
+  },
+  heroOfferText: {
+    color: BRAND.text,
+    fontSize: 15,
+    fontWeight: '600',
   },
   installCta: {
     marginTop: 14,
@@ -821,6 +902,71 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
+  productsSection: {
+    backgroundColor: '#FFFCF9',
+  },
+  productsIntro: {
+    color: BRAND.muted,
+    fontSize: 16,
+    lineHeight: 26,
+    textAlign: 'center',
+    maxWidth: 640,
+    alignSelf: 'center',
+    marginTop: -18,
+    marginBottom: 36,
+  },
+  productsList: {
+    gap: 12,
+  },
+  productRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BRAND.border,
+    backgroundColor: BRAND.white,
+  },
+  productIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: BRAND.orangeSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  productCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  productCategory: {
+    color: BRAND.orange,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  productTitle: {
+    color: BRAND.navy,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  productSummary: {
+    color: BRAND.text,
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  productOffers: {
+    color: BRAND.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
   featuresSection: {
     backgroundColor: BRAND.footerBg,
   },
@@ -891,6 +1037,12 @@ const styles = StyleSheet.create({
     color: BRAND.muted,
     fontSize: 13,
     lineHeight: 19,
+  },
+  featureLink: {
+    color: BRAND.orange,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
   },
   featuresMore: {
     alignSelf: 'flex-start',
@@ -1035,8 +1187,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   providerLogo: {
-    width: '100%',
-    height: '100%',
+    width: 64,
+    height: 40,
   },
   ctaBannerWrap: {
     alignSelf: 'center',

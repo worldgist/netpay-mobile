@@ -1,6 +1,10 @@
 import { getUserClient } from "../lib/supabase.js";
 import { callEdgeFunction } from "../lib/edge.js";
 import { writeAudit } from "../lib/audit.js";
+import {
+  buildReceiptFromTransaction,
+  receiptStructured,
+} from "../lib/receipt.js";
 import { WIDGETS } from "../widgets/html.js";
 import { naira, toolError, toolOk, type ToolContext } from "./context.js";
 
@@ -292,6 +296,10 @@ export async function getTransaction(
     }
     const { data } = await query.maybeSingle();
     if (data) {
+      const receipt = buildReceiptFromTransaction(table.category, data as Record<string, unknown>, {
+        userId,
+      });
+      const receiptPayload = receiptStructured(receipt);
       await writeAudit({
         userId,
         tool: "get_transaction",
@@ -300,8 +308,25 @@ export async function getTransaction(
         reference: data.reference || args.id,
       });
       return toolOk({
-        text: `Transaction ${args.id}`,
-        structured: { category: table.category, transaction: data },
+        text: `${receipt.title}: ${receipt.amountText} (${receipt.status})`,
+        structured: {
+          ...receiptPayload,
+          category: receipt.category || table.category,
+          transaction: data,
+          title: receipt.title,
+          status: receipt.status,
+          reference: receipt.reference,
+          datetime: receipt.datetime,
+          amount_display: receipt.amountText,
+          receipt: {
+            ...receiptPayload,
+            title: receipt.title,
+            status: receipt.status,
+            amount_display: receipt.amountText,
+            reference: receipt.reference,
+            datetime: receipt.datetime,
+          },
+        },
         widgetUri: WIDGETS.receipt.uri,
       });
     }
@@ -309,4 +334,35 @@ export async function getTransaction(
 
   await writeAudit({ userId, tool: "get_transaction", ip: ctx.ip, outcome: "not_found" });
   return toolError("Transaction not found");
+}
+
+/** Return a printable HTML/PDF-style NetPay receipt for a transaction. */
+export async function getTransactionReceipt(
+  ctx: ToolContext,
+  args: { id: string; category?: string },
+) {
+  if (!args.id) return toolError("Transaction id is required");
+  const detail = await getTransaction(ctx, args);
+  if ("isError" in detail && detail.isError) return detail;
+
+  const structured = (detail.structuredContent || {}) as Record<string, unknown>;
+  const receipt = (structured.receipt || structured) as Record<string, unknown>;
+  await writeAudit({
+    userId: ctx.session.userId,
+    tool: "get_transaction_receipt",
+    ip: ctx.ip,
+    outcome: "ok",
+    reference: String(receipt.reference || args.id),
+  });
+
+  return toolOk({
+    text: `NetPay receipt ready: ${receipt.title || "Transaction"} (${receipt.status || "COMPLETED"}). Use Save / print PDF in the receipt card.`,
+    structured: {
+      ...structured,
+      receipt,
+      receipt_html: receipt.receipt_html || structured.receipt_html,
+      file_name: receipt.file_name || structured.file_name,
+    },
+    widgetUri: WIDGETS.receipt.uri,
+  });
 }

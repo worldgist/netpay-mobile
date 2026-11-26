@@ -28,4 +28,4 @@ Disallow: /add-money
 User-agent: Googlebot
 Allow: /
 
-Sitemap: https://app.netppay.com/sitemap.xml
+Sitemap: https://netppay.com/sitemap.xml

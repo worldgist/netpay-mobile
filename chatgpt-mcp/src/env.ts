@@ -9,8 +9,8 @@ function required(name: string, fallback?: string): string {
 export const env = {
   port: Number(process.env.PORT || 3100),
   mcpPublicUrl: (process.env.MCP_PUBLIC_URL || "https://mcp.netppay.com").replace(/\/$/, ""),
-  // Production Expo web is served on www (apex 308s there)
-  siteUrl: (process.env.NETPAY_SITE_URL || "https://app.netppay.com").replace(/\/$/, ""),
+  // Production Expo web is served on netppay.com (admin is app.netppay.com)
+  siteUrl: (process.env.NETPAY_SITE_URL || "https://netppay.com").replace(/\/$/, ""),
   supabaseUrl: () => required("SUPABASE_URL"),
   supabaseAnonKey: () => required("SUPABASE_ANON_KEY"),
   supabaseServiceRoleKey: () => required("SUPABASE_SERVICE_ROLE_KEY"),

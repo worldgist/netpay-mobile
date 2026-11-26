@@ -35,7 +35,6 @@ import { showAlert } from '@/utils/show-alert';
 import { hasCompletedOnboarding } from '@/utils/onboarding';
 import { SeoHead } from '@/components/seo-head';
 import { AuthDivider, GoogleAuthButton } from '@/components/google-auth-button';
-import { InstallPwaButton } from '@/components/landing/add-to-home-screen';
 import { signInWithGoogle } from '@/utils/google-auth';
 
 const BIOMETRIC_PROMPT = 'Sign in with Biometrics';
@@ -706,11 +705,6 @@ export default function LoginScreen() {
             <ThemedText style={styles.signUpButtonText}>Sign Up</ThemedText>
           </TouchableOpacity>
 
-          {Platform.OS === 'web' ? (
-            <View style={styles.installWrap}>
-              <InstallPwaButton label="Install NetPay on this device" />
-            </View>
-          ) : null}
         </ThemedView>
       </ScrollView>
 
@@ -964,10 +958,6 @@ const styles = StyleSheet.create({
     color: '#FF7F00',
     fontSize: Platform.OS === 'web' ? 18 : 16,
     fontWeight: '700',
-  },
-  installWrap: {
-    marginTop: 12,
-    width: '100%',
   },
   linkText: {
     color: '#FF7F00',

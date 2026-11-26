@@ -10,9 +10,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PIN_EMAIL_WINDOW_SECONDS = 15 * 60;
-const PIN_EMAIL_MAX_ATTEMPTS = 5;
-const PIN_EMAIL_LOCKOUT_SECONDS = 30 * 60;
+const MAX_WRONG_PIN_ATTEMPTS = 5;
 const PIN_IP_WINDOW_SECONDS = 60 * 60;
 const PIN_IP_MAX_ATTEMPTS = 30;
 
@@ -28,16 +26,19 @@ const normalizePin = (value?: unknown) => {
   return /^[0-9]{4}$/.test(trimmed) ? trimmed : null;
 };
 
+const jsonResponse = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  });
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
   }
 
   if (req.method !== "POST") {
-    return new Response(
-      JSON.stringify({ success: false, error: "Method not allowed" }),
-      { status: 405, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ success: false, error: "Method not allowed" }, 405);
   }
 
   try {
@@ -56,10 +57,11 @@ serve(async (req) => {
     const ip = clientIpFromRequest(req);
 
     if (!email || !pin) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Valid email and 4-digit PIN are required." }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      return jsonResponse({
+        success: false,
+        code: "INVALID_INPUT",
+        error: "Valid email and 4-digit PIN are required.",
+      }, 400);
     }
 
     const ipLimit = await enforceAuthAbuseRateLimit(supabase, {
@@ -69,65 +71,66 @@ serve(async (req) => {
       maxRequests: PIN_IP_MAX_ATTEMPTS,
     });
     if (!ipLimit.allowed) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Too many PIN login attempts from this network. Please try again later.",
-          retry_after_seconds: ipLimit.retryAfterSeconds,
-        }),
-        {
-          status: 429,
-          headers: {
-            ...CORS_HEADERS,
-            "Content-Type": "application/json",
-            "Retry-After": String(ipLimit.retryAfterSeconds || 60),
-          },
-        },
-      );
+      return jsonResponse({
+        success: false,
+        code: "RATE_LIMITED",
+        error: "Too many PIN login attempts from this network. Please try again later.",
+        retry_after_seconds: ipLimit.retryAfterSeconds,
+      }, 429);
     }
 
-    const emailLimit = await enforceAuthAbuseRateLimit(supabase, {
-      bucket: "pin_login_email",
-      rateKey: email,
-      windowSeconds: PIN_EMAIL_WINDOW_SECONDS,
-      maxRequests: PIN_EMAIL_MAX_ATTEMPTS,
-      lockoutSeconds: PIN_EMAIL_LOCKOUT_SECONDS,
-    });
-    if (!emailLimit.allowed) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: emailLimit.lockedOut
-            ? "Too many incorrect PIN attempts. This account is temporarily locked."
-            : "Too many PIN login attempts. Please try again later.",
-          retry_after_seconds: emailLimit.retryAfterSeconds,
-        }),
-        {
-          status: 429,
-          headers: {
-            ...CORS_HEADERS,
-            "Content-Type": "application/json",
-            "Retry-After": String(emailLimit.retryAfterSeconds || 60),
-          },
-        },
-      );
-    }
+    let profile: {
+      id: string;
+      pin_hash: string | null;
+      pin_enabled: boolean | null;
+      status?: string | null;
+      pin_failed_attempts?: number | null;
+    } | null = null;
+    let tracksFailedAttempts = true;
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, pin_hash, pin_enabled")
-      .ilike("email", email)
-      .maybeSingle();
+    {
+      const firstTry = await supabase
+        .from("profiles")
+        .select("id, pin_hash, pin_enabled, status, pin_failed_attempts")
+        .ilike("email", email)
+        .maybeSingle();
 
-    if (profileError) {
-      throw profileError;
+      if (
+        firstTry.error &&
+        /pin_failed_attempts/i.test(firstTry.error.message || "")
+      ) {
+        tracksFailedAttempts = false;
+        const fallback = await supabase
+          .from("profiles")
+          .select("id, pin_hash, pin_enabled, status")
+          .ilike("email", email)
+          .maybeSingle();
+        if (fallback.error) throw fallback.error;
+        profile = fallback.data;
+      } else if (firstTry.error) {
+        throw firstTry.error;
+      } else {
+        profile = firstTry.data;
+      }
     }
 
     if (!profile || !profile.pin_enabled || !profile.pin_hash) {
-      return new Response(
-        JSON.stringify({ success: false, error: "PIN login is not enabled for this account." }),
-        { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+      return jsonResponse({
+        success: false,
+        code: "PIN_NOT_ENABLED",
+        error: "PIN login is not enabled for this account.",
+      });
+    }
+
+    if (String(profile.status || "").toLowerCase() === "suspended") {
+      return jsonResponse({
+        success: false,
+        code: "ACCOUNT_SUSPENDED",
+        error:
+          "Your account has been suspended after too many incorrect PIN attempts. Please contact support to reactivate it.",
+        attemptsUsed: MAX_WRONG_PIN_ATTEMPTS,
+        attemptsRemaining: 0,
+      });
     }
 
     const encoder = new TextEncoder();
@@ -137,12 +140,73 @@ serve(async (req) => {
     const hashedPin = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
     if (hashedPin !== profile.pin_hash) {
-      // Constant-ish delay to slow offline guessing a bit.
       await new Promise((resolve) => setTimeout(resolve, 400 + Math.floor(Math.random() * 400)));
-      return new Response(
-        JSON.stringify({ success: false, error: "Invalid PIN. Please try again." }),
-        { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-      );
+
+      const previousAttempts = tracksFailedAttempts
+        ? Math.max(0, Number(profile.pin_failed_attempts) || 0)
+        : 0;
+      const attemptsUsed = previousAttempts + 1;
+      const attemptsRemaining = Math.max(0, MAX_WRONG_PIN_ATTEMPTS - attemptsUsed);
+
+      if (tracksFailedAttempts && attemptsUsed >= MAX_WRONG_PIN_ATTEMPTS) {
+        const { error: suspendError } = await supabase
+          .from("profiles")
+          .update({
+            status: "suspended",
+            pin_failed_attempts: attemptsUsed,
+          })
+          .eq("id", profile.id);
+
+        if (suspendError) {
+          console.error("Failed to suspend account after wrong PIN attempts:", suspendError);
+        }
+
+        return jsonResponse({
+          success: false,
+          code: "ACCOUNT_SUSPENDED",
+          error:
+            "Your account has been suspended after 5 incorrect PIN attempts. Please contact support to reactivate it.",
+          attemptsUsed,
+          attemptsRemaining: 0,
+        });
+      }
+
+      if (tracksFailedAttempts) {
+        const { error: attemptError } = await supabase
+          .from("profiles")
+          .update({ pin_failed_attempts: attemptsUsed })
+          .eq("id", profile.id);
+
+        if (attemptError) {
+          console.error("Failed to update pin_failed_attempts:", attemptError);
+        }
+
+        return jsonResponse({
+          success: false,
+          code: "INVALID_PIN",
+          error: `Incorrect PIN. You have ${attemptsRemaining} attempt${attemptsRemaining === 1 ? "" : "s"} remaining before your account is suspended.`,
+          attemptsUsed,
+          attemptsRemaining,
+        });
+      }
+
+      return jsonResponse({
+        success: false,
+        code: "INVALID_PIN",
+        error: "Incorrect PIN. Please try again.",
+      });
+    }
+
+    // Successful PIN — clear failed attempts.
+    if (tracksFailedAttempts && (Number(profile.pin_failed_attempts) || 0) > 0) {
+      const { error: resetError } = await supabase
+        .from("profiles")
+        .update({ pin_failed_attempts: 0 })
+        .eq("id", profile.id);
+
+      if (resetError) {
+        console.error("Failed to reset pin_failed_attempts:", resetError);
+      }
     }
 
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
@@ -189,23 +253,18 @@ serve(async (req) => {
       throw new Error("Unable to generate login token.");
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        token,
-        otpType,
-        actionLink,
-      }),
-      { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      success: true,
+      token,
+      otpType,
+      actionLink,
+    });
   } catch (error) {
     console.error("sign-in-with-pin error:", error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : "Unexpected error",
-      }),
-      { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({
+      success: false,
+      code: "UNEXPECTED_ERROR",
+      error: error instanceof Error ? error.message : "Unexpected error",
+    }, 500);
   }
 });

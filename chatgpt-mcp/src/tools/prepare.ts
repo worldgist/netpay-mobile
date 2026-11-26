@@ -35,12 +35,15 @@ function confirmationResponse(params: {
   extra?: Record<string, unknown>;
 }) {
   return toolOk({
-    text: params.text,
+    text: `${params.text} Enter your 4-digit NetPay PIN with confirm_transaction to complete.`,
     structured: {
       requires_confirmation: true,
+      requires_pin: true,
+      pin_required: true,
       confirmation_id: params.confirmationId,
       title: params.title,
       summary_rows: params.summaryRows,
+      pin_hint: "Ask the user for their 4-digit NetPay PIN, then call confirm_transaction with confirmation_id and pin. Never store or repeat the PIN.",
       ...params.extra,
     },
     widgetUri: WIDGETS.confirmation.uri,
@@ -81,7 +84,18 @@ export async function prepareAirtimePurchase(
         network_name: network,
         amount,
       },
-      display: { title: "Buy airtime", phone, network, amount },
+      display: {
+        title: "Buy airtime",
+        phone,
+        network,
+        amount,
+        summary_rows: [
+          { label: "Network", value: network },
+          { label: "Phone", value: phone },
+          { label: "Amount", value: naira(amount) },
+          { label: "Balance", value: naira(balance) },
+        ],
+      },
     },
   });
 
@@ -155,7 +169,20 @@ export async function prepareDataPurchase(
     payload: {
       edge: "purchase-data",
       body: { phone_number: phone, plan_id: planId },
-      display: { title: "Buy data", phone, planName, network, amount },
+      display: {
+        title: "Buy data",
+        phone,
+        planName,
+        network,
+        amount,
+        summary_rows: [
+          { label: "Plan", value: planName },
+          { label: "Network", value: network || "—" },
+          { label: "Phone", value: phone },
+          { label: "Amount", value: naira(amount) },
+          { label: "Balance", value: naira(balance) },
+        ],
+      },
     },
   });
 
@@ -254,7 +281,22 @@ export async function prepareElectricityPayment(
         amount,
         customer_name: customerName || undefined,
       },
-      display: { title: "Pay electricity", meter, provider, meterType, amount, customerName },
+      display: {
+        title: "Pay electricity",
+        meter,
+        provider,
+        meterType,
+        amount,
+        customerName,
+        summary_rows: [
+          { label: "Provider", value: provider },
+          { label: "Meter", value: meter },
+          { label: "Type", value: meterType },
+          { label: "Customer", value: customerName || "—" },
+          { label: "Amount", value: naira(amount) },
+          { label: "Balance", value: naira(balance) },
+        ],
+      },
     },
   });
 
@@ -376,6 +418,14 @@ export async function prepareCablePayment(
         customerName,
         packageName,
         plan_id: planId,
+        summary_rows: [
+          { label: "Provider", value: provider },
+          { label: "Package", value: packageName },
+          { label: "Smartcard", value: smartcard },
+          { label: "Customer", value: customerName },
+          { label: "Amount", value: naira(amount) },
+          { label: "Balance", value: naira(balance) },
+        ],
       },
     },
   });
@@ -443,7 +493,18 @@ export async function prepareEducationPurchase(
         billers_code: args.billers_code,
         education_service_id: args.education_service_id,
       },
-      display: { title: "Buy education PIN", examType, amount, quantity },
+      display: {
+        title: "Buy education PIN",
+        examType,
+        amount,
+        quantity,
+        summary_rows: [
+          { label: "Exam", value: examType },
+          { label: "Quantity", value: String(quantity) },
+          { label: "Amount", value: naira(total) },
+          { label: "Balance", value: naira(balance) },
+        ],
+      },
     },
   });
 
@@ -521,6 +582,14 @@ export async function prepareTransfer(
         amount,
         fee,
         total,
+        summary_rows: [
+          { label: "To", value: recipient.full_name || recipient.email },
+          { label: "Email", value: recipient.email },
+          { label: "Amount", value: naira(amount) },
+          { label: "Fee", value: naira(fee) },
+          { label: "Total debit", value: naira(total) },
+          { label: "Balance", value: naira(balance) },
+        ],
       },
     },
   });

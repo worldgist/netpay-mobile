@@ -3,7 +3,7 @@ import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useState } from 'react';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { ServiceLogoImage } from '@/components/service-logo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ConfirmPaymentModalProps {
@@ -147,7 +147,7 @@ export function ConfirmPaymentModal({
                 <View style={styles.detailRow}>
                   <ThemedText style={styles.detailLabel}>Provider</ThemedText>
                   <View style={styles.providerInfo}>
-                    <Image source={networkLogo} style={styles.providerLogo} contentFit="contain" />
+                    <ServiceLogoImage source={networkLogo} style={styles.providerLogo} contentFit="contain" />
                     <ThemedText style={styles.providerName} numberOfLines={1} ellipsizeMode="tail">{network}</ThemedText>
                   </View>
                 </View>

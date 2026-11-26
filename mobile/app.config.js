@@ -1,7 +1,7 @@
 // Single Expo config source (no app.json) — satisfies expo-doctor and keeps EAS google-services override.
 
 const googleServicesFromEnv = process.env.GOOGLE_SERVICES_JSON;
-const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://app.netppay.com').replace(/\/$/, '');
+const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL || 'https://netppay.com').replace(/\/$/, '');
 const siteHost = siteUrl.replace(/^https?:\/\//, '');
 
 module.exports = {
@@ -40,7 +40,6 @@ module.exports = {
     bundleIdentifier: 'com.netpay.mobile',
     associatedDomains: [
       `applinks:${siteHost}`,
-      'applinks:app.netppay.com',
       'applinks:netppay.com',
       'applinks:www.netppay.com',
     ],
@@ -79,19 +78,15 @@ module.exports = {
         category: ['BROWSABLE', 'DEFAULT'],
         data: [
           { scheme: 'https', host: siteHost, pathPrefix: '/reset-password' },
-          { scheme: 'https', host: 'app.netppay.com', pathPrefix: '/reset-password' },
           { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/reset-password' },
           { scheme: 'https', host: 'netppay.com', pathPrefix: '/reset-password' },
           { scheme: 'https', host: siteHost, pathPrefix: '/pay' },
-          { scheme: 'https', host: 'app.netppay.com', pathPrefix: '/pay' },
           { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/pay' },
           { scheme: 'https', host: 'netppay.com', pathPrefix: '/pay' },
           { scheme: 'https', host: siteHost, pathPrefix: '/open' },
-          { scheme: 'https', host: 'app.netppay.com', pathPrefix: '/open' },
           { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/open' },
           { scheme: 'https', host: 'netppay.com', pathPrefix: '/open' },
           { scheme: 'https', host: siteHost, pathPrefix: '/auth' },
-          { scheme: 'https', host: 'app.netppay.com', pathPrefix: '/auth' },
           { scheme: 'https', host: 'www.netppay.com', pathPrefix: '/auth' },
           { scheme: 'https', host: 'netppay.com', pathPrefix: '/auth' },
         ],

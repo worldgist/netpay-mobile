@@ -196,6 +196,9 @@ export default function ElectricityScreen() {
   const [showInvalidMeterModal, setShowInvalidMeterModal] = useState(false);
   const [insufficientFundsMessage, setInsufficientFundsMessage] = useState<string | null>(null);
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
+  const [showAmountLimitModal, setShowAmountLimitModal] = useState(false);
+  const [amountLimitTitle, setAmountLimitTitle] = useState('Invalid Amount');
+  const [amountLimitMessage, setAmountLimitMessage] = useState('');
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -627,7 +630,9 @@ export default function ElectricityScreen() {
     }
     const purchaseAmount = parseFloat(amount);
     if (isNaN(purchaseAmount) || purchaseAmount <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
+      setAmountLimitTitle('Invalid Amount');
+      setAmountLimitMessage('Please enter a valid electricity amount to continue.');
+      setShowAmountLimitModal(true);
       return;
     }
     if (balanceLoading) {
@@ -636,11 +641,19 @@ export default function ElectricityScreen() {
     }
     if (planLimits) {
       if (purchaseAmount < planLimits.minAmount) {
-        Alert.alert('Error', `Minimum amount for ${meterType.toUpperCase()} is ₦${planLimits.minAmount.toLocaleString()}`);
+        setAmountLimitTitle('Amount Too Low');
+        setAmountLimitMessage(
+          `The minimum electricity amount for ${meterType.toUpperCase()} is ₦${planLimits.minAmount.toLocaleString()}. Please enter a higher amount.`,
+        );
+        setShowAmountLimitModal(true);
         return;
       }
       if (planLimits.maxAmount && purchaseAmount > planLimits.maxAmount) {
-        Alert.alert('Error', `Maximum amount for ${meterType.toUpperCase()} is ₦${planLimits.maxAmount.toLocaleString()}`);
+        setAmountLimitTitle('Amount Too High');
+        setAmountLimitMessage(
+          `The maximum electricity amount for ${meterType.toUpperCase()} is ₦${planLimits.maxAmount.toLocaleString()}. Please enter a lower amount.`,
+        );
+        setShowAmountLimitModal(true);
         return;
       }
     }
@@ -1807,6 +1820,29 @@ export default function ElectricityScreen() {
                 style={styles.errorSecondaryButton}
                 onPress={() => setShowInsufficientFundsModal(false)}>
                 <ThemedText style={styles.errorSecondaryButtonText}>Close</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={showAmountLimitModal}
+        onRequestClose={() => setShowAmountLimitModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.errorModal}>
+            <View style={styles.errorIconContainer}>
+              <MaterialIcons name="error-outline" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.errorTitle}>{amountLimitTitle}</ThemedText>
+            <ThemedText style={styles.errorMessage}>{amountLimitMessage}</ThemedText>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.errorButton}
+                onPress={() => setShowAmountLimitModal(false)}>
+                <ThemedText style={styles.errorButtonText}>Okay</ThemedText>
               </TouchableOpacity>
             </View>
           </View>

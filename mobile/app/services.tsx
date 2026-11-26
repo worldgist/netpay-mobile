@@ -311,8 +311,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   providerLogo: {
-    width: '100%',
-    height: '100%',
+    width: 56,
+    height: 36,
   },
   bottomCta: {
     alignSelf: 'center',

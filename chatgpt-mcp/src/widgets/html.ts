@@ -101,23 +101,54 @@ window.__netpayRender = (root, data) => {
     html: shell(
       "Confirm Payment",
       `<div class="panel" id="root"></div>
+<style>
+  .pin-wrap { margin-top:14px; }
+  .pin-wrap label { display:block; color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }
+  .pin-wrap input {
+    width:100%; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,127,0,0.35);
+    background: rgba(0,0,0,0.25); color: var(--text); font-size:22px; letter-spacing:0.35em; text-align:center;
+  }
+  .pin-error { color:#f87171; font-size:13px; margin-top:8px; min-height:18px; }
+</style>
 <script>
 window.__netpayRender = (root, data) => {
   const rows = data.summary_rows || [];
   const htmlRows = rows.map(r => '<div class="row"><span class="muted">' + (r.label||'') + '</span><span>' + (r.value||'') + '</span></div>').join('');
   root.innerHTML = '<div class="label">Confirm</div><div class="value">' + (data.title || 'Confirm transaction') + '</div>' +
     htmlRows +
-    '<p class="muted" style="margin-top:10px">Confirmation ID: ' + (data.confirmation_id || '') + '</p>' +
-    '<button id="confirmBtn">Confirm payment</button>';
+    '<div class="pin-wrap"><label for="pinInput">NetPay PIN</label>' +
+    '<input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="••••" /></div>' +
+    '<div class="pin-error" id="pinError"></div>' +
+    '<p class="muted" style="margin-top:10px">Enter your 4-digit PIN to authorize this payment.</p>' +
+    '<button id="confirmBtn">Confirm with PIN</button>';
   const btn = document.getElementById('confirmBtn');
-  if (btn) btn.onclick = async () => {
-    btn.disabled = true; btn.textContent = 'Confirming…';
+  const pinInput = document.getElementById('pinInput');
+  const pinError = document.getElementById('pinError');
+  const submit = async () => {
+    const pin = String(pinInput && pinInput.value || '').trim();
+    if (!/^[0-9]{4}$/.test(pin)) {
+      if (pinError) pinError.textContent = 'Enter your 4-digit NetPay PIN.';
+      return;
+    }
+    if (pinError) pinError.textContent = '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Confirming…'; }
     try {
-      await window.openai?.callTool('confirm_transaction', { confirmation_id: data.confirmation_id });
+      await window.openai?.callTool('confirm_transaction', {
+        confirmation_id: data.confirmation_id,
+        pin: pin,
+      });
+      if (pinInput) pinInput.value = '';
     } catch (e) {
-      btn.disabled = false; btn.textContent = 'Confirm payment';
+      if (pinError) pinError.textContent = (e && e.message) ? String(e.message) : 'Confirmation failed. Check your PIN and try again.';
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm with PIN'; }
+      if (pinInput) { pinInput.value = ''; pinInput.focus(); }
     }
   };
+  if (btn) btn.onclick = submit;
+  if (pinInput) {
+    pinInput.onkeydown = (ev) => { if (ev.key === 'Enter') submit(); };
+    setTimeout(() => { try { pinInput.focus(); } catch (_) {} }, 50);
+  }
 };
 </script>`,
     ),
@@ -127,18 +158,112 @@ window.__netpayRender = (root, data) => {
     name: "Receipt",
     html: shell(
       "NetPay Receipt",
-      `<div class="panel" id="root"></div>
+      `<div id="root"></div>
+<style>
+  .pdf-receipt { background:#fff; color:#1a2b4a; border-radius:12px; overflow:hidden; border:1px solid rgba(255,127,0,0.25); }
+  .pdf-header { background:#FF7F00; color:#fff; padding:20px 16px; text-align:center; }
+  .pdf-header .brand { font-size:18px; font-weight:800; letter-spacing:0.04em; }
+  .pdf-header .sub { margin-top:4px; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; opacity:0.95; }
+  .pdf-header .ttl { margin-top:10px; font-size:17px; font-weight:700; }
+  .pdf-body { padding:16px; }
+  .pdf-amount { font-size:24px; font-weight:800; color:#1a2b4a; }
+  .pdf-status { margin-top:6px; color:#FF7F00; font-size:12px; font-weight:700; text-transform:uppercase; }
+  .pdf-row { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #eee8e2; }
+  .pdf-row .k { color:#FF7F00; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; min-width:100px; }
+  .pdf-row .v { text-align:right; font-size:13px; font-weight:600; word-break:break-word; color:#1a2b4a; white-space:pre-wrap; }
+  .pdf-actions { display:grid; gap:8px; margin-top:12px; }
+  .pdf-actions button { margin-top:0; }
+  @media print {
+    body { background:#fff !important; padding:0 !important; }
+    .brand, .pdf-actions { display:none !important; }
+    .pdf-receipt { border:none !important; border-radius:0 !important; }
+  }
+</style>
 <script>
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function openReceiptHtml(html, fileName) {
+  if (!html) return;
+  try {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (win) {
+      const trigger = () => { try { win.focus(); win.print(); } catch (_) {} };
+      setTimeout(trigger, 500);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+  } catch (_) {}
+  // Fallback: download HTML (user can Print → Save as PDF)
+  try {
+    const a = document.createElement('a');
+    a.href = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    a.download = String(fileName || 'NetPay-Receipt.html').replace(/\\.pdf$/i, '.html');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (_) {}
+}
 window.__netpayRender = (root, data) => {
-  const st = String(data.status || 'PENDING').toUpperCase();
-  const cls = st === 'SUCCESS' ? 'ok' : st === 'FAILED' ? 'fail' : 'pending';
-  root.innerHTML = '<div class="label">Receipt</div><div class="value">' + (data.title || 'Transaction') + '</div>' +
-    '<p><span class="status ' + cls + '">' + st + '</span></p>' +
-    '<div class="row"><span class="muted">Amount</span><span>₦' + Number(data.amount||0).toLocaleString('en-NG') + '</span></div>' +
-    '<div class="row"><span class="muted">Reference</span><span>' + (data.reference || '—') + '</span></div>' +
-    '<div class="row"><span class="muted">Provider ref</span><span>' + (data.provider_reference || '—') + '</span></div>' +
-    '<div class="row"><span class="muted">When</span><span>' + (data.datetime || new Date().toLocaleString()) + '</span></div>' +
-    (data.message ? '<p class="muted" style="margin-top:10px">' + data.message + '</p>' : '');
+  const receipt = data.receipt || data;
+  const st = String(receipt.status || data.status || 'PENDING').toUpperCase();
+  const title = receipt.title || data.title || 'Transaction';
+  const amountText = receipt.amount_display || receipt.amount_text || receipt.amountText || data.amount_display || data.amount_text ||
+    (typeof data.amount === 'number' ? ('₦' + Number(data.amount || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })) : (data.amount || '₦0.00'));
+  const rows = Array.isArray(receipt.rows) ? receipt.rows
+    : Array.isArray(receipt.summary_rows) ? receipt.summary_rows
+    : Array.isArray(data.rows) ? data.rows
+    : Array.isArray(data.summary_rows) ? data.summary_rows
+    : [];
+  const fallbackRows = rows.length ? rows : [
+    { label: 'Reference', value: receipt.reference || data.reference || '—' },
+    { label: 'Provider ref', value: receipt.provider_reference || data.provider_reference || '—' },
+    { label: 'When', value: receipt.datetime || data.datetime || new Date().toLocaleString() },
+  ];
+  const rowsHtml = fallbackRows
+    .filter((r) => String(r && r.value || '').trim())
+    .map((r) => '<div class="pdf-row"><span class="k">' + esc(r.label) + '</span><span class="v">' + esc(r.value) + '</span></div>')
+    .join('');
+  root.innerHTML =
+    '<div class="pdf-receipt">' +
+      '<div class="pdf-header">' +
+        '<div class="brand">NETPAY</div>' +
+        '<div class="sub">Transaction Receipt</div>' +
+        '<div class="ttl">' + esc(title) + '</div>' +
+      '</div>' +
+      '<div class="pdf-body">' +
+        '<div class="pdf-amount">' + esc(amountText) + '</div>' +
+        '<div class="pdf-status">' + esc(st) + '</div>' +
+        '<div style="margin-top:12px">' + rowsHtml + '</div>' +
+        (data.message || receipt.message ? '<p class="muted" style="margin-top:12px;color:#6b7280">' + esc(data.message || receipt.message) + '</p>' : '') +
+      '</div>' +
+    '</div>' +
+    '<div class="pdf-actions">' +
+      '<button type="button" id="printPdfBtn">Save / print PDF receipt</button>' +
+      '<button type="button" class="secondary" id="downloadHtmlBtn">Download HTML receipt</button>' +
+    '</div>';
+  const html = data.receipt_html || receipt.receipt_html || '';
+  const fileName = data.file_name || receipt.file_name || 'NetPay-Receipt.pdf';
+  const printBtn = document.getElementById('printPdfBtn');
+  if (printBtn) printBtn.onclick = () => {
+    if (html) openReceiptHtml(html, fileName);
+    else window.print();
+  };
+  const dlBtn = document.getElementById('downloadHtmlBtn');
+  if (dlBtn) dlBtn.onclick = () => {
+    if (!html) { window.print(); return; }
+    try {
+      const a = document.createElement('a');
+      a.href = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+      a.download = String(fileName).replace(/\\.pdf$/i, '.html');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (_) { openReceiptHtml(html, fileName); }
+  };
 };
 </script>`,
     ),
@@ -156,9 +281,23 @@ window.__netpayRender = (root, data) => {
     root.innerHTML = '<div class="label">Activity</div><div class="value">No recent transactions</div>';
     return;
   }
-  root.innerHTML = '<div class="label">Recent activity</div>' + items.slice(0, 8).map(tx =>
-    '<div class="list-item"><div style="display:flex;justify-content:space-between"><strong>' + (tx.description || tx.category || 'Transaction') + '</strong><span>₦' + Number(tx.amount||0).toLocaleString('en-NG') + '</span></div><div class="muted">' + (tx.status || '') + ' · ' + (tx.created_at || tx.formattedDateTime || '') + '</div></div>'
+  root.innerHTML = '<div class="label">Recent activity</div>' + items.slice(0, 8).map((tx, i) =>
+    '<div class="list-item" data-idx="' + i + '" style="cursor:pointer">' +
+      '<div style="display:flex;justify-content:space-between"><strong>' + (tx.description || tx.category || 'Transaction') + '</strong><span>₦' + Number(tx.amount||0).toLocaleString('en-NG') + '</span></div>' +
+      '<div class="muted">' + (tx.status || '') + ' · ' + (tx.created_at || tx.formattedDateTime || '') + '</div>' +
+      '<div class="muted" style="margin-top:4px;color:var(--brand)">View receipt</div>' +
+    '</div>'
   ).join('');
+  root.querySelectorAll('.list-item').forEach((el) => {
+    el.onclick = async () => {
+      const idx = Number(el.getAttribute('data-idx'));
+      const tx = items[idx];
+      if (!tx || !tx.id) return;
+      try {
+        await window.openai?.callTool('get_transaction_receipt', { id: tx.id, category: tx.category });
+      } catch (_) {}
+    };
+  });
 };
 </script>`,
     ),

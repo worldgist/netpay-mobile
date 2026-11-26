@@ -51,7 +51,8 @@ export async function getConfirmation(
   return (data as ConfirmationRow) || null;
 }
 
-export async function consumeConfirmation(
+/** Load a still-valid pending confirmation without consuming it (e.g. PIN check first). */
+export async function requirePendingConfirmation(
   id: string,
   userId: string,
 ): Promise<ConfirmationRow> {
@@ -68,6 +69,14 @@ export async function consumeConfirmation(
       .eq("id", id);
     throw new Error("Confirmation expired");
   }
+  return row;
+}
+
+export async function consumeConfirmation(
+  id: string,
+  userId: string,
+): Promise<ConfirmationRow> {
+  const row = await requirePendingConfirmation(id, userId);
 
   const db = getServiceClient();
   const { data, error } = await db

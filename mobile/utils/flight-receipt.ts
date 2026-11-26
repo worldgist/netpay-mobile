@@ -3,6 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Alert, Share } from 'react-native';
 import { formatDuration, formatFlightCurrency } from '@/utils/flight-data';
+import { NETPAY_LOGO_DATA_URI } from '@/utils/netpay-logo-data-uri';
 
 export type FlightReceiptData = {
   bookingReference: string;
@@ -143,6 +144,23 @@ export function generateFlightReceiptHTML(data: FlightReceiptData) {
             padding-bottom: 20px;
             margin-bottom: 24px;
           }
+          .logo-wrap {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 72px;
+            height: 72px;
+            border-radius: 16px;
+            background: #FFF8F1;
+            margin-bottom: 12px;
+            overflow: hidden;
+          }
+          .logo-wrap img {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            display: block;
+          }
           .logo {
             font-size: 28px;
             font-weight: bold;
@@ -242,6 +260,9 @@ export function generateFlightReceiptHTML(data: FlightReceiptData) {
       <body>
         <div class="receipt-container">
           <div class="header">
+            <div class="logo-wrap">
+              <img src="${NETPAY_LOGO_DATA_URI}" alt="NetPay" />
+            </div>
             <div class="logo">NetPay</div>
             <div class="receipt-title">Flight E-Ticket</div>
             <div class="receipt-subtitle">${escapeHtml(data.bookingDateLabel)} at ${escapeHtml(data.bookingTimeLabel)}</div>

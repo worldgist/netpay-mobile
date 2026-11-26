@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, View, TouchableOpacity, Modal, FlatList, ImageSourcePropType } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { ServiceLogoImage } from '@/components/service-logo-image';
 
 interface DropdownOption {
   id: string;
@@ -56,7 +56,7 @@ export function Dropdown({
         <View style={styles.dropdownContent}>
           {selectedOption?.logo && (
             <View style={styles.dropdownLogoContainer}>
-              <Image
+              <ServiceLogoImage
                 source={selectedOption.logo}
                 style={styles.dropdownLogo}
                 contentFit="contain"
@@ -114,7 +114,7 @@ export function Dropdown({
                   <View style={styles.optionContent}>
                     {item.logo && (
                       <View style={styles.optionLogoContainer}>
-                        <Image
+                        <ServiceLogoImage
                           source={item.logo}
                           style={styles.optionLogo}
                           contentFit="contain"

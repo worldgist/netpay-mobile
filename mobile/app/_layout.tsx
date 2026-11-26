@@ -20,6 +20,8 @@ import { Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import '@/utils/error-handler'; // Initialize error handler
 import { Alert, LogBox } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import * as Font from 'expo-font';
 import { MarketingAuthGate, OnboardingGate } from '@/components/onboarding-gate';
 import { WebAnalytics } from '@/components/web-analytics';
 import { registerNetpayServiceWorker } from '@/components/landing/add-to-home-screen';
@@ -31,6 +33,7 @@ if (__DEV__) {
     'Network request failed',
     'TypeError: Network request failed',
     'fetch.umd.js',
+    '12000ms timeout exceeded',
   ]);
 }
 
@@ -89,6 +92,14 @@ export default function RootLayout() {
     void SplashScreen.hideAsync();
     initPwaInstallCapture();
     registerNetpayServiceWorker();
+
+    // Warm MaterialIcons early on web so FontFaceObserver is less likely to time out
+    // during slow Expo web/Metro reloads (default observer timeout is 12s).
+    if (Platform.OS === 'web') {
+      void Font.loadAsync(MaterialIcons.font).catch(() => {
+        // Font stylesheet still injects; timeout verification can fail harmlessly.
+      });
+    }
 
     if (Platform.OS !== 'web') {
       void preparePushNotificationEnvironment();

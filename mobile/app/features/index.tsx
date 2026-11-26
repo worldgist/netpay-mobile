@@ -12,6 +12,7 @@ import {
   LANDING_BRAND as BRAND,
   LANDING_FEATURES,
   LANDING_FEATURE_STEPS,
+  landingFeaturePath,
 } from '@/constants/landing';
 
 export default function FeaturesPage() {
@@ -25,8 +26,8 @@ export default function FeaturesPage() {
         <ThemedText style={styles.eyebrow}>FEATURES</ThemedText>
         <ThemedText style={styles.title}>Built for speed, security and everyday ease.</ThemedText>
         <ThemedText style={styles.subtitle}>
-          NetPay gives you a secure wallet, instant bill payments, clear receipts and unlock options
-          that fit how you actually use money in Nigeria.
+          Tap any feature below to see exactly how it works in NetPay — from wallet funding to bill
+          payments and receipts.
         </ThemedText>
         <Pressable style={styles.cta} onPress={() => void goLandingLogin(router)}>
           <ThemedText style={styles.ctaText}>Get started</ThemedText>
@@ -39,14 +40,21 @@ export default function FeaturesPage() {
         <ThemedText style={styles.sectionTitle}>Everything you need to pay with confidence.</ThemedText>
         <View style={styles.grid}>
           {LANDING_FEATURES.map((feature) => (
-            <View key={feature.title} style={[styles.card, { width: cardWidth }]}>
+            <Pressable
+              key={feature.slug}
+              style={[styles.card, { width: cardWidth }]}
+              onPress={() => router.push(landingFeaturePath(feature.slug) as never)}>
               <View style={styles.iconWrap}>
                 <MaterialIcons name={feature.icon} size={26} color={BRAND.orange} />
               </View>
               <ThemedText style={styles.cardTitle}>{feature.title}</ThemedText>
               <ThemedText style={styles.cardLead}>{feature.description}</ThemedText>
               <ThemedText style={styles.cardBody}>{feature.detail}</ThemedText>
-            </View>
+              <View style={styles.cardCta}>
+                <ThemedText style={styles.cardCtaText}>How it works</ThemedText>
+                <MaterialIcons name="arrow-forward" size={16} color={BRAND.orange} />
+              </View>
+            </Pressable>
           ))}
         </View>
       </View>
@@ -225,6 +233,17 @@ const styles = StyleSheet.create({
     color: BRAND.text,
     fontSize: 14,
     lineHeight: 21,
+  },
+  cardCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  cardCtaText: {
+    color: BRAND.orange,
+    fontSize: 13,
+    fontWeight: '700',
   },
   stepsRow: {
     flexDirection: 'row',

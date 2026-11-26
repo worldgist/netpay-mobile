@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   Alert,
+  Modal,
 } from 'react-native';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { ThemedView } from '@/components/themed-view';
@@ -22,8 +23,39 @@ import { navigateAfterAuthenticatedSession, safeReturnToPath } from '@/utils/pos
 import { buildRouteHref } from '@/utils/router-href';
 
 const PIN_LENGTH = 4;
+const MAX_WRONG_PIN_ATTEMPTS = 5;
 const PIN_STORAGE_KEY = 'supabase_pin_hash';
 const EMAIL_KEY = 'supabase_email';
+
+type PinLoginPayload = {
+  success?: boolean;
+  token?: string;
+  otpType?: string;
+  error?: string;
+  code?: string;
+  attemptsUsed?: number;
+  attemptsRemaining?: number;
+};
+
+async function readFunctionPayload(
+  data: unknown,
+  error: unknown,
+): Promise<PinLoginPayload | null> {
+  if (data && typeof data === 'object') {
+    return data as PinLoginPayload;
+  }
+
+  const context = (error as { context?: Response } | null)?.context;
+  if (context && typeof context.json === 'function') {
+    try {
+      return (await context.json()) as PinLoginPayload;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
 
 export default function SignInPinScreen() {
   const router = useRouter();
@@ -40,6 +72,12 @@ export default function SignInPinScreen() {
   const [pin, setPin] = useState(Array(PIN_LENGTH).fill(''));
   const [loading, setLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [showWrongPinModal, setShowWrongPinModal] = useState(false);
+  const [showSuspendedModal, setShowSuspendedModal] = useState(false);
+  const [wrongPinMessage, setWrongPinMessage] = useState(
+    'The PIN you entered is incorrect. Please try again.',
+  );
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const emailInputRef = useRef<TextInput | null>(null);
   const submittingRef = useRef(false);
@@ -83,6 +121,49 @@ export default function SignInPinScreen() {
     return () => clearTimeout(focusTimeout);
   }, [hydrated, isReturningUser]);
 
+  const resetPinInputs = useCallback(() => {
+    setPin(Array(PIN_LENGTH).fill(''));
+    requestAnimationFrame(() => inputRefs.current[0]?.focus());
+  }, []);
+
+  const handlePinFailure = useCallback(
+    (payload: PinLoginPayload | null, fallbackMessage?: string) => {
+      setLoading(false);
+      submittingRef.current = false;
+      resetPinInputs();
+
+      const code = payload?.code;
+      const remaining =
+        typeof payload?.attemptsRemaining === 'number'
+          ? payload.attemptsRemaining
+          : null;
+
+      if (code === 'ACCOUNT_SUSPENDED') {
+        setAttemptsRemaining(0);
+        setShowSuspendedModal(true);
+        return;
+      }
+
+      if (code === 'INVALID_PIN') {
+        setAttemptsRemaining(remaining);
+        setWrongPinMessage(
+          payload?.error ||
+            (remaining != null
+              ? `Incorrect PIN. You have ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before your account is suspended.`
+              : 'The PIN you entered is incorrect. Please try again.'),
+        );
+        setShowWrongPinModal(true);
+        return;
+      }
+
+      Alert.alert(
+        'PIN Login',
+        payload?.error || fallbackMessage || 'Unable to verify your PIN. Please try again.',
+      );
+    },
+    [resetPinInputs],
+  );
+
   const handleSignIn = useCallback(async (pinDigits?: string[]) => {
     if (submittingRef.current) return;
 
@@ -114,21 +195,20 @@ export default function SignInPinScreen() {
         },
       });
 
-      if (error) {
-        throw error;
-      }
+      const payload = await readFunctionPayload(data, error);
 
-      if (!data?.success) {
-        setLoading(false);
-        submittingRef.current = false;
-        setPin(Array(PIN_LENGTH).fill(''));
-        Alert.alert('PIN Login', data?.error || 'Unable to verify your PIN. Please try again.');
-        requestAnimationFrame(() => inputRefs.current[0]?.focus());
+      if (error && !payload?.success) {
+        handlePinFailure(payload, error instanceof Error ? error.message : undefined);
         return;
       }
 
-      const token: string | undefined = data?.token;
-      const otpType: 'email' | 'magiclink' = data?.otpType === 'magiclink' ? 'magiclink' : 'email';
+      if (!payload?.success) {
+        handlePinFailure(payload);
+        return;
+      }
+
+      const token: string | undefined = payload?.token;
+      const otpType: 'email' | 'magiclink' = payload?.otpType === 'magiclink' ? 'magiclink' : 'email';
 
       if (!token) {
         setLoading(false);
@@ -155,14 +235,14 @@ export default function SignInPinScreen() {
       await SecureStore.setItemAsync(EMAIL_KEY, trimmedEmail);
 
       setPin(Array(PIN_LENGTH).fill(''));
+      setAttemptsRemaining(null);
       // Existing users go straight to the dashboard after a valid PIN.
       await navigateAfterAuthenticatedSession(router, { returnTo });
     } catch (invokeError) {
       console.error('PIN login failed:', invokeError);
       setLoading(false);
       submittingRef.current = false;
-      setPin(Array(PIN_LENGTH).fill(''));
-      requestAnimationFrame(() => inputRefs.current[0]?.focus());
+      resetPinInputs();
 
       if (invokeError instanceof Error) {
         Alert.alert('PIN Login', invokeError.message || 'Unable to verify your PIN. Please try again.');
@@ -170,7 +250,7 @@ export default function SignInPinScreen() {
         Alert.alert('PIN Login', 'Unable to verify your PIN. Please try again.');
       }
     }
-  }, [email, pin, returnTo, router]);
+  }, [email, pin, returnTo, router, handlePinFailure, resetPinInputs]);
 
   const handlePinChange = (value: string, index: number) => {
     if (value && !/^\d$/.test(value)) return;
@@ -211,6 +291,11 @@ export default function SignInPinScreen() {
         ...(returnTo ? { returnTo } : {}),
       }),
     );
+  };
+
+  const handleCloseWrongPinModal = () => {
+    setShowWrongPinModal(false);
+    requestAnimationFrame(() => inputRefs.current[0]?.focus());
   };
 
   return (
@@ -302,6 +387,70 @@ export default function SignInPinScreen() {
           </TouchableOpacity>
         </ThemedView>
       </ScrollView>
+
+      <Modal
+        visible={showWrongPinModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseWrongPinModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.errorIconCircle}>
+              <MaterialIcons name="close" size={40} color="#fff" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Wrong PIN</ThemedText>
+            <ThemedText style={styles.modalMessage}>{wrongPinMessage}</ThemedText>
+            {attemptsRemaining != null ? (
+              <ThemedText style={styles.attemptsText}>
+                {attemptsRemaining} of {MAX_WRONG_PIN_ATTEMPTS} attempts left
+              </ThemedText>
+            ) : null}
+            <TouchableOpacity style={styles.modalButton} onPress={handleCloseWrongPinModal}>
+              <ThemedText style={styles.modalButtonText}>Try Again</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalSecondaryButton}
+              onPress={() => {
+                setShowWrongPinModal(false);
+                router.push('/forgot-pin');
+              }}>
+              <ThemedText style={styles.modalSecondaryButtonText}>Forgot PIN?</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showSuspendedModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuspendedModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={[styles.errorIconCircle, styles.suspendedIconCircle]}>
+              <MaterialIcons name="block" size={40} color="#fff" />
+            </View>
+            <ThemedText style={styles.modalTitle}>Account Suspended</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              Your account has been suspended after {MAX_WRONG_PIN_ATTEMPTS} incorrect PIN attempts.
+              Please contact support to reactivate your account.
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => {
+                setShowSuspendedModal(false);
+                router.push('/support');
+              }}>
+              <ThemedText style={styles.modalButtonText}>Contact Support</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalSecondaryButton}
+              onPress={() => setShowSuspendedModal(false)}>
+              <ThemedText style={styles.modalSecondaryButtonText}>Close</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -428,6 +577,76 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   forgotPinText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FF7F00',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 32,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+  },
+  errorIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F44336',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  suspendedIconCircle: {
+    backgroundColor: '#B71C1C',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  attemptsText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#F44336',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  modalButton: {
+    backgroundColor: '#FF7F00',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    minWidth: 160,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modalSecondaryButton: {
+    marginTop: 14,
+    paddingVertical: 8,
+  },
+  modalSecondaryButtonText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#FF7F00',

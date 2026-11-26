@@ -56,10 +56,15 @@ serve(async (req) => {
 
     console.log(`Admin ${user.id} changing user ${userId} status to ${status}`);
 
-    // Update user status
+    // Update user status. Reactivation clears failed PIN attempts so the user can sign in again.
+    const profileUpdate =
+      status === 'active'
+        ? { status, pin_failed_attempts: 0 }
+        : { status };
+
     const { error: updateError } = await supabase
       .from('profiles')
-      .update({ status: status })
+      .update(profileUpdate)
       .eq('id', userId);
 
     if (updateError) {

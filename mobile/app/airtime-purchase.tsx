@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { Image } from 'expo-image';
+import { ServiceLogoImage } from '@/components/service-logo-image';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
 import { supabase } from '@/lib/supabase';
@@ -193,6 +194,9 @@ export default function AirtimePurchaseScreen() {
   const [showInsufficientFundsModal, setShowInsufficientFundsModal] = useState(false);
   const [showInvalidPhoneModal, setShowInvalidPhoneModal] = useState(false);
   const [invalidPhoneMessage, setInvalidPhoneMessage] = useState('Please enter a valid 11-digit phone number (e.g. 08012345678).');
+  const [showAmountLimitModal, setShowAmountLimitModal] = useState(false);
+  const [amountLimitTitle, setAmountLimitTitle] = useState('Invalid Amount');
+  const [amountLimitMessage, setAmountLimitMessage] = useState('');
   const [isDemoUser, setIsDemoUser] = useState(false);
   const { providers: vendingSettings } = useVendingSettings();
   const { getLogoSource } = useServiceLogos();
@@ -386,7 +390,9 @@ export default function AirtimePurchaseScreen() {
     }
 
     if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
+      setAmountLimitTitle('Invalid Amount');
+      setAmountLimitMessage('Please enter a valid airtime amount to continue.');
+      setShowAmountLimitModal(true);
       return;
     }
 
@@ -406,12 +412,20 @@ export default function AirtimePurchaseScreen() {
     const effectiveAmount = parsedAmount;
 
     if (effectiveAmount < minAmount) {
-      Alert.alert('Error', `Minimum amount for ${selectedProviderName} is ${formatCurrency(minAmount)}`);
+      setAmountLimitTitle('Amount Too Low');
+      setAmountLimitMessage(
+        `The minimum airtime amount for ${selectedProviderName} is ${formatCurrency(minAmount)}. Please enter a higher amount.`,
+      );
+      setShowAmountLimitModal(true);
       return;
     }
 
     if (effectiveAmount > maxAmount) {
-      Alert.alert('Error', `Maximum amount for ${selectedProviderName} is ${formatCurrency(maxAmount)}`);
+      setAmountLimitTitle('Amount Too High');
+      setAmountLimitMessage(
+        `The maximum airtime amount for ${selectedProviderName} is ${formatCurrency(maxAmount)}. Please enter a lower amount.`,
+      );
+      setShowAmountLimitModal(true);
       return;
     }
 
@@ -738,8 +752,13 @@ export default function AirtimePurchaseScreen() {
                         },
                       ]}>
                       {provider.logo ? (
-                        <Image
+                        <ServiceLogoImage
                           source={provider.logo}
+                          fallback={
+                            LOCAL_NETWORK_LOGOS[provider.network] ||
+                            LOCAL_NETWORK_LOGOS[provider.displayName?.toUpperCase?.() || ''] ||
+                            DEFAULT_NETWORK_LOGO
+                          }
                           style={styles.networkLogoImage}
                           contentFit="contain"
                         />
@@ -889,6 +908,29 @@ export default function AirtimePurchaseScreen() {
               <TouchableOpacity
                 style={styles.modalPrimaryButton}
                 onPress={() => setShowInvalidPhoneModal(false)}>
+                <ThemedText style={styles.modalPrimaryButtonText}>Okay</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={showAmountLimitModal}
+        onRequestClose={() => setShowAmountLimitModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconContainer}>
+              <MaterialIcons name="error-outline" size={36} color="#FF7F00" />
+            </View>
+            <ThemedText style={styles.modalTitle}>{amountLimitTitle}</ThemedText>
+            <ThemedText style={styles.modalMessage}>{amountLimitMessage}</ThemedText>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={() => setShowAmountLimitModal(false)}>
                 <ThemedText style={styles.modalPrimaryButtonText}>Okay</ThemedText>
               </TouchableOpacity>
             </View>

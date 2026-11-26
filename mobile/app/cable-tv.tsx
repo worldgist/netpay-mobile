@@ -15,7 +15,7 @@ import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { buildRouteHref } from '@/utils/router-href';
-import { Image } from 'expo-image';
+import { ServiceLogoImage } from '@/components/service-logo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { InsufficientBalanceModal } from '@/components/insufficient-balance-modal';
@@ -1163,8 +1163,9 @@ export default function CableTVScreen() {
                           borderColor: selectedProvider === provider.name ? '#FF7F00' : '#E0E0E0',
                         },
                       ]}>
-                      <Image
+                      <ServiceLogoImage
                         source={provider.logo}
+                        fallback={LOCAL_CABLE_LOGOS[provider.name] || fallbackLogo}
                         style={styles.networkLogoImage}
                         contentFit="contain"
                       />

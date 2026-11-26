@@ -9,11 +9,11 @@ export function naira(amount: number): string {
   return `₦${Number(amount || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function toolError(message: string) {
+export function toolError(message: string, extra?: Record<string, unknown>) {
   return {
     content: [{ type: "text" as const, text: message }],
     isError: true as const,
-    structuredContent: { success: false, error: message },
+    structuredContent: { success: false, error: message, ...extra },
   };
 }
 

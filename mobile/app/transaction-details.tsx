@@ -1,5 +1,6 @@
 import { StyleSheet, View, ScrollView, TouchableOpacity, Platform, ImageSourcePropType, Alert, Modal, TextInput, KeyboardAvoidingView, Share } from 'react-native';
 import { shareTransactionReceiptPdf } from '@/utils/transaction-receipt-pdf';
+import { NETPAY_LOGO_DATA_URI } from '@/utils/netpay-logo-data-uri';
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -1316,6 +1317,23 @@ function TransactionDetailsScreen() {
               padding-bottom: 20px;
               margin-bottom: 30px;
             }
+            .logo-wrap {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              width: 72px;
+              height: 72px;
+              border-radius: 16px;
+              background: #FFF8F1;
+              margin: 0 auto 12px;
+              overflow: hidden;
+            }
+            .logo-wrap img {
+              width: 60px;
+              height: 60px;
+              object-fit: contain;
+              display: block;
+            }
             .logo {
               font-size: 28px;
               font-weight: bold;
@@ -1424,6 +1442,9 @@ function TransactionDetailsScreen() {
         <body>
           <div class="receipt-container">
             <div class="header">
+              <div class="logo-wrap">
+                <img src="${NETPAY_LOGO_DATA_URI}" alt="NetPay" />
+              </div>
               <div class="logo">NetPay</div>
               <div class="receipt-title">Transaction Receipt</div>
               <div class="receipt-subtitle">${receiptDateTime}</div>

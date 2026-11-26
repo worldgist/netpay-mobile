@@ -83,7 +83,8 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     "get_transaction",
     {
       title: "Get transaction details",
-      description: "Fetch a single NetPay transaction by id (optionally with category).",
+      description:
+        "Fetch a single NetPay transaction by id (optionally with category). Includes a printable HTML/PDF-style receipt.",
       inputSchema: {
         id: z.string().describe("Transaction UUID"),
         category: z
@@ -97,11 +98,29 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
   );
 
   server.registerTool(
+    "get_transaction_receipt",
+    {
+      title: "Get transaction receipt (HTML/PDF)",
+      description:
+        "Return a NetPay-branded printable HTML receipt for a transaction (Save as PDF from the receipt card). Use after list_transactions or when the user asks for a receipt.",
+      inputSchema: {
+        id: z.string().describe("Transaction UUID"),
+        category: z
+          .string()
+          .optional()
+          .describe("Optional category hint: airtime, data, electricity, cable, education, wallet, transfer, funding"),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args) => readTools.getTransactionReceipt(ctx, args),
+  );
+
+  server.registerTool(
     "prepare_airtime_purchase",
     {
       title: "Prepare airtime purchase",
       description:
-        "Validate and stage an airtime purchase. Does NOT debit. Call confirm_transaction after the user confirms.",
+        "Validate and stage an airtime purchase. Does NOT debit. Call confirm_transaction with the user's 4-digit NetPay PIN after they confirm.",
       inputSchema: {
         phone_number: z.string().describe("Recipient phone number"),
         network: z.string().describe("MTN, AIRTEL, GLO, or 9MOBILE"),
@@ -117,7 +136,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare data purchase",
       description:
-        "Stage a data plan purchase. Does NOT debit. Confirm with confirm_transaction.",
+        "Stage a data plan purchase. Does NOT debit. Confirm with confirm_transaction and the user's 4-digit NetPay PIN.",
       inputSchema: {
         phone_number: z.string(),
         plan_id: z.string().describe("NetPay data plan UUID"),
@@ -135,7 +154,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare electricity payment",
       description:
-        "Validate meter and stage electricity payment. Does NOT debit until confirm_transaction.",
+        "Validate meter and stage electricity payment. Does NOT debit until confirm_transaction with the user's 4-digit NetPay PIN.",
       inputSchema: {
         meter_number: z.string(),
         provider: z.string().describe("Disco / provider code"),
@@ -153,7 +172,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare cable TV payment",
       description:
-        "Validate smartcard and stage cable renewal. Requires plan_id, package_name, and catalog amount. Confirm with confirm_transaction.",
+        "Validate smartcard and stage cable renewal. Requires plan_id, package_name, and catalog amount. Confirm with confirm_transaction and the user's 4-digit NetPay PIN.",
       inputSchema: {
         smartcard_number: z.string(),
         provider: z.string().describe("DSTV, GOTV, STARTIMES, …"),
@@ -173,7 +192,8 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     "prepare_education_purchase",
     {
       title: "Prepare education PIN purchase",
-      description: "Stage WAEC/NECO/JAMB PIN purchase. Confirm with confirm_transaction.",
+      description:
+        "Stage WAEC/NECO/JAMB PIN purchase. Confirm with confirm_transaction and the user's 4-digit NetPay PIN.",
       inputSchema: {
         exam_type: z.string(),
         amount: z.number(),
@@ -192,7 +212,7 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Prepare NetPay transfer",
       description:
-        "Verify recipient and stage an in-app transfer. Does NOT send money until confirm_transaction.",
+        "Verify recipient and stage an in-app transfer. Does NOT send money until confirm_transaction with the user's 4-digit NetPay PIN.",
       inputSchema: {
         recipient_email: z.string().email(),
         amount: z.number(),
@@ -208,9 +228,13 @@ export function createMcpServer(session: AuthedSession, ip?: string | null): Mcp
     {
       title: "Confirm pending transaction",
       description:
-        "Execute a previously prepared money movement using confirmation_id. Single-use; sends idempotency_key to NetPay edge APIs.",
+        "Execute a previously prepared money movement. Requires confirmation_id AND the user's 4-digit NetPay PIN. Wrong PIN does not consume the confirmation; 5 wrong attempts suspend the account. Never store or echo the PIN.",
       inputSchema: {
         confirmation_id: z.string().uuid(),
+        pin: z
+          .string()
+          .regex(/^[0-9]{4}$/, "PIN must be exactly 4 digits")
+          .describe("User's 4-digit NetPay transaction PIN"),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },

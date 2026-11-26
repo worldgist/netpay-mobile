@@ -153,8 +153,16 @@ export function ServiceLogosProvider({ children }: { children: ReactNode }) {
       code?: string | null,
       fallback?: ImageSourcePropType,
     ): ImageSourcePropType | undefined => {
-      const url = getLogoUrl(category, code);
-      if (url) return { uri: url };
+      const url = getLogoUrl(category, code)?.trim();
+      // Bundled assets are reliable; remote admin CDN URLs often 404/CORS-fail and blank the UI.
+      const isHttpUrl = /^https?:\/\//i.test(url || '');
+      if (isHttpUrl && url) {
+        // Prefer local logos whenever a bundled fallback exists (airtime, data, electricity, cable, etc.).
+        if (fallback) {
+          return fallback;
+        }
+        return { uri: url };
+      }
       return fallback;
     },
     [getLogoUrl],

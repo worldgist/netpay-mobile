@@ -19,6 +19,7 @@ import { Image } from 'expo-image';
 import { Dropdown } from '@/components/dropdown';
 import { ConfirmPaymentModal } from '@/components/confirm-payment-modal';
 import { DemoNumbersBanner } from '@/components/demo-numbers-banner';
+import { ServiceLogoImage } from '@/components/service-logo-image';
 import { supabase } from '@/lib/supabase';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
 import { useServiceLogos } from '@/contexts/service-logos-context';
@@ -1004,7 +1005,16 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
                       ]}
                     >
                       {network.logo ? (
-                        <Image source={network.logo} style={styles.networkLogoImage} contentFit="contain" />
+                        <ServiceLogoImage
+                          source={network.logo}
+                          fallback={
+                            LOCAL_NETWORK_LOGOS[network.id] ||
+                            LOCAL_NETWORK_LOGOS[network.name?.toUpperCase?.() || ''] ||
+                            DEFAULT_NETWORK_LOGO
+                          }
+                          style={styles.networkLogoImage}
+                          contentFit="contain"
+                        />
                       ) : (
                         <MaterialIcons name="signal-cellular-alt" size={28} color="#FF7F00" />
                       )}
