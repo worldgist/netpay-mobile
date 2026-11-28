@@ -11,6 +11,7 @@ import { runAfterResponse } from "../_shared/run-after-response.ts";
 import { handlePurchase as purchaseFlutterwaveCable } from "../purchase-flutterwave-cable/handler.ts";
 import { handlePurchase as purchaseEbillsCable } from "../purchase-ebills-cable/handler.ts";
 import { handlePurchase as purchaseVtpassCable } from "../purchase-vtpass-cable/handler.ts";
+import { handlePurchase as purchasePlustiveCable } from "../purchase-plustive-cable/handler.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -183,6 +184,40 @@ serve(async (req) => {
     const { fetchVendingProvider } = await import("../_shared/vending-settings.ts");
     const vendingProvider = await fetchVendingProvider(supabase, "cable_provider");
     console.log('Cable vending provider:', vendingProvider, 'for plan:', plan_id);
+
+    // If using Plustive, route to Plustive handler
+    if (vendingProvider === 'plustive') {
+      try {
+        const plustiveResponse = await purchasePlustiveCable(localPurchaseRequest(req, authHeader, {
+            card_number,
+            provider,
+            customer_number,
+            customer_name,
+            package_name,
+            price: plan.custom_price || plan.original_price || plan.price,
+            api_code: plan.api_code || api_code,
+            plan_id,
+          }, body));
+
+        const plustiveResult = await plustiveResponse.json();
+        return new Response(
+          JSON.stringify(plustiveResult),
+          {
+            status: plustiveResponse.status,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          },
+        );
+      } catch (plustiveError) {
+        console.error('Error forwarding to Plustive cable function:', plustiveError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Failed to process Plustive cable purchase. Please try again.',
+          }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
 
     // If using Flutterwave, route to Flutterwave handler
     if (vendingProvider === 'flutterwave') {

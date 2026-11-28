@@ -22,6 +22,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { isPushNotificationsEnabled, registerForPushNotifications } from '@/utils/push-notifications';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { Image } from 'expo-image';
+import { prefetchPurchaseLogos } from '@/lib/prefetch-purchase-logos';
 import { NetpayLoadingAnimation } from '@/components/netpay-loading-animation';
 import { useProfile } from '@/contexts/profile-context';
 import { useTransactions, type MobileTransaction } from '@/contexts/transactions-context';
@@ -183,6 +184,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     isMounted.current = true;
+    prefetchPurchaseLogos();
     
     // Register for push notifications when home screen loads
     const registerPush = async () => {

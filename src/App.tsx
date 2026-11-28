@@ -11,10 +11,9 @@ import Notifications from "./pages/Notifications";
 import EmailNotifications from "./pages/EmailNotifications";
 import Settings from "./pages/Settings";
 import Smeplug from "./pages/Smeplug";
-import EBills from "./pages/EBills";
-import PayVessel from "./pages/PayVessel";
 import MobileNig from "./pages/MobileNig";
 import Flutterwave from "./pages/Flutterwave";
+import Plustive from "./pages/Plustive";
 import ElectricityPlans from "./pages/ElectricityPlans";
 import CableTvPlans from "./pages/CableTvPlans";
 import EducationServices from "./pages/EducationServices";
@@ -92,10 +91,9 @@ const App = () => (
         <Route path="/auth" element={<Auth />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/smeplug" element={<Smeplug />} />
-        <Route path="/ebills" element={<EBills />} />
-        <Route path="/payvessel" element={<PayVessel />} />
         <Route path="/mobilenig" element={<MobileNig />} />
         <Route path="/flutterwave" element={<Flutterwave />} />
+        <Route path="/plustive" element={<Plustive />} />
         <Route path="/users" element={<Users />} />
         <Route path="/deleted-accounts" element={<DeletedAccounts />} />
         <Route path="/transactions" element={<Transactions />} />

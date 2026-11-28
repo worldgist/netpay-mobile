@@ -336,7 +336,7 @@ serve(async (req) => {
       result.outcome === "failed" &&
       isProviderTemporarilyUnavailable(result.error, result.response)
     ) {
-      const fallbackProviders = ["ebills", "smeplug", "flutterwave"].filter((name) => name !== provider);
+      const fallbackProviders = ["ebills", "smeplug", "flutterwave", "plustive"].filter((name) => name !== provider);
       for (const fallback of fallbackProviders) {
         const fallbackRequestId =
           `req_${Date.now()}_${user.id.slice(0, 6)}_${crypto.randomUUID().replace(/-/g, "").slice(0, 6)}`.slice(0, 50);

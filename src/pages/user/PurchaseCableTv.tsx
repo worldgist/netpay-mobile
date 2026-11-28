@@ -156,6 +156,8 @@ const PurchaseCableTv = () => {
           apiFunctionName = 'fetch-ebills-cable-packages';
         } else if (vendingProvider === 'flutterwave') {
           apiFunctionName = 'fetch-ebills-cable-packages';
+        } else if (vendingProvider === 'plustive') {
+          apiFunctionName = 'fetch-plustive-cable-packages';
         }
 
         // If using a supported API provider, try fetching packages directly from API first

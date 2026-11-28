@@ -16,7 +16,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/currency";
-import { fetchEbillsApiTransactions } from "@/lib/ebills-transactions";
 import {
   DEFAULT_VENDING_PROVIDERS,
   VENDING_SETTING_KEYS,
@@ -53,7 +52,7 @@ import {
 const TREASURY_THRESHOLD_KEY = "treasury_low_balance_threshold";
 const TREASURY_LIQUIDITY_KEY = "treasury_liquidity_thresholds";
 
-type VendorTxnKey = "smeplug" | "ebills" | "payvessel" | "mobilenig" | "flutterwave";
+type VendorTxnKey = "smeplug" | "plustive" | "mobilenig" | "flutterwave";
 
 interface TreasuryTransaction {
   id: string;
@@ -84,9 +83,8 @@ interface VendorTransaction {
 
 const VENDOR_LABELS: Record<VendorTxnKey, string> = {
   smeplug: "SMEPLUG",
-  ebills: "eBills Africa",
+  plustive: "Plustive Impact",
   mobilenig: "MobileNig",
-  payvessel: "PayVessel",
   flutterwave: "Flutterwave",
 };
 
@@ -118,7 +116,8 @@ function parseProviderSetting(value: unknown): string {
 
 function formatVendorLabel(provider: string): string {
   const normalized = provider.toLowerCase();
-  if (normalized === "ebills" || normalized === "ebills.africa") return "eBills Africa";
+  if (normalized === "ebills" || normalized === "ebills.africa" || normalized === "payvessel") return "—";
+  if (normalized === "plustive" || normalized === "plustiveimpact") return "Plustive Impact";
   if (normalized === "smeplug") return "SMEPLUG";
   if (normalized === "mobilenig") return "MobileNig";
   if (normalized === "vtpass") return "VTPass";
@@ -172,7 +171,7 @@ function mapWalletHistoryTx(
   };
 }
 
-function mapEbillsDbTx(tx: Record<string, unknown>, serviceType: string): VendorTransaction {
+function mapPlustiveDbTx(tx: Record<string, unknown>, serviceType: string): VendorTransaction {
   const profiles = tx.profiles as { full_name?: string | null; email?: string | null } | null | undefined;
   const detail =
     tx.meter_number ||
@@ -186,7 +185,7 @@ function mapEbillsDbTx(tx: Record<string, unknown>, serviceType: string): Vendor
 
   return {
     id: String(tx.id),
-    vendor: "ebills",
+    vendor: "plustive",
     reference: String(tx.reference || tx.id),
     type: "debit",
     service: serviceType,
@@ -200,10 +199,40 @@ function mapEbillsDbTx(tx: Record<string, unknown>, serviceType: string): Vendor
   };
 }
 
-async function fetchEbillsVendorTransactions(): Promise<VendorTransaction[]> {
-  const rows = await fetchEbillsApiTransactions();
-  return rows
-    .map((tx) => mapEbillsDbTx(tx as unknown as Record<string, unknown>, tx.service_type))
+const PLUSTIVE_SERVICE_TABLES = [
+  { table: "airtime_transactions", service: "airtime" },
+  { table: "data_transactions", service: "data" },
+  { table: "electricity_transactions", service: "electricity" },
+  { table: "cable_tv_transactions", service: "cable_tv" },
+  { table: "education_transactions", service: "education" },
+  { table: "betting_transactions", service: "betting" },
+] as const;
+
+async function fetchPlustiveVendorTransactions(): Promise<VendorTransaction[]> {
+  const results = await Promise.all(
+    PLUSTIVE_SERVICE_TABLES.map(async ({ table, service }) => {
+      const { data, error } = await supabase
+        .from(table)
+        .select(`
+          *,
+          profiles:user_id (
+            full_name,
+            email
+          )
+        `)
+        .eq("vending_provider", "plustive")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) {
+        console.warn(`Plustive ${table} lookup failed:`, error.message);
+        return [] as VendorTransaction[];
+      }
+      return (data || []).map((row) => mapPlustiveDbTx(row as Record<string, unknown>, service));
+    }),
+  );
+
+  return results
+    .flat()
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
@@ -405,9 +434,63 @@ export default function Treasury() {
     if (!data?.success) throw new Error(data?.error || "Failed to load treasury summary");
 
     const payload = data as TreasurySummaryResponse;
+    const incomingVendors = (payload.vendors || []) as Array<TreasuryVendorBalance & { key: string }>;
+    const removedVendors = incomingVendors.filter((vendor) => vendor.key === "ebills" || vendor.key === "payvessel");
+    let nextVendors = incomingVendors.filter(
+      (vendor): vendor is TreasuryVendorBalance =>
+        vendor.key === "smeplug" || vendor.key === "plustive" || vendor.key === "mobilenig",
+    );
+
+    if (!nextVendors.some((vendor) => vendor.key === "plustive")) {
+      const plustiveResult = await invokeAuthedFunction("fetch-plustive-balance");
+      const plustiveError = plustiveResult.error
+        ? plustiveResult.error.message
+        : plustiveResult.data?.success === false
+          ? String(plustiveResult.data.error || "Plustive balance unavailable")
+          : "";
+      const amount = Number(plustiveResult.data?.data?.balance);
+      const hasAmount = !plustiveError && Number.isFinite(amount);
+      const lowThreshold = Number(payload.settings?.low_balance_threshold ?? 5000);
+      const criticalThreshold = Number(payload.settings?.critical_balance_threshold ?? 2000);
+      const plustiveStatus: TreasuryBalanceStatus = !hasAmount
+        ? /not configured|missing/i.test(plustiveError) ? "unconfigured" : "error"
+        : amount <= criticalThreshold
+          ? "critical"
+          : amount <= lowThreshold
+            ? "low"
+            : "ok";
+      nextVendors = [
+        ...nextVendors,
+        {
+          key: "plustive",
+          label: "Plustive Impact",
+          balance: hasAmount ? amount : null,
+          status: plustiveStatus,
+          role: "Airtime, data, and bill vending",
+          detailPath: "/plustive",
+          estimatedDaysRemaining: null,
+        },
+      ];
+    }
+
+    const counted = (vendor: { balance: number | null; status: TreasuryBalanceStatus }) =>
+      vendor.balance != null && (vendor.status === "ok" || vendor.status === "low" || vendor.status === "critical");
+    const removedTotal = removedVendors.filter(counted).reduce((sum, vendor) => sum + Number(vendor.balance), 0);
+    const plustiveVendor = nextVendors.find((vendor) => vendor.key === "plustive");
+    const plustiveAlreadyCounted = incomingVendors.some((vendor) => vendor.key === "plustive" && counted(vendor));
+    const plustiveAdjustment = plustiveVendor && counted(plustiveVendor) && !plustiveAlreadyCounted
+      ? Number(plustiveVendor.balance)
+      : 0;
+    if (payload.metrics && (removedTotal > 0 || plustiveAdjustment > 0)) {
+      const vendorWalletTotal = Math.max(0, payload.metrics.vendor_wallet_total - removedTotal + plustiveAdjustment);
+      const bank = payload.metrics.bank_gateway_balance ?? 0;
+      payload.metrics.vendor_wallet_total = vendorWalletTotal;
+      payload.metrics.total_treasury_assets = (Number.isFinite(bank) ? bank : 0) + vendorWalletTotal;
+    }
+
     setSummary(payload);
-    setVendors(payload.vendors || []);
-    setAlerts(payload.alerts || []);
+    setVendors(nextVendors);
+    setAlerts((payload.alerts || []).filter((alert) => alert.vendor !== "ebills" && alert.vendor !== "payvessel"));
     setLedgerMismatches((payload.mismatches as LedgerBalanceMismatch[]) || []);
 
     if (payload.settings) {
@@ -424,8 +507,8 @@ export default function Treasury() {
   const fetchVendorTransactions = useCallback(async () => {
     setLoadingVendorTransactions(true);
     try {
-      if (selectedVendor === "ebills") {
-        const rows = await fetchEbillsVendorTransactions();
+      if (selectedVendor === "plustive") {
+        const rows = await fetchPlustiveVendorTransactions();
         setVendorTransactions(rows);
         return;
       }
@@ -436,9 +519,8 @@ export default function Treasury() {
         return;
       }
 
-      const functionByVendor: Record<Exclude<VendorTxnKey, "ebills" | "flutterwave">, string> = {
+      const functionByVendor: Record<Exclude<VendorTxnKey, "plustive" | "flutterwave">, string> = {
         smeplug: "fetch-smeplug-wallet-history",
-        payvessel: "fetch-payvessel-transactions",
         mobilenig: MOBILENIG_GATEWAY_FUNCTION,
       };
 
@@ -649,7 +731,7 @@ export default function Treasury() {
     return Array.from(types).sort();
   }, [transactions]);
 
-  const showVendorUserColumn = selectedVendor === "ebills" || selectedVendor === "flutterwave";
+  const showVendorUserColumn = selectedVendor === "plustive" || selectedVendor === "flutterwave";
   const vendorTableColSpan = showVendorUserColumn ? 9 : 8;
 
   const vendorServiceTypes = useMemo(() => {
@@ -1185,7 +1267,7 @@ export default function Treasury() {
               className="pl-10"
             />
           </div>
-          {selectedVendor !== "ebills" && selectedVendor !== "flutterwave" && (
+          {selectedVendor !== "plustive" && selectedVendor !== "flutterwave" && (
             <div className="flex gap-2 max-w-md">
               <Input
                 placeholder="Search by transaction ID..."
@@ -1211,7 +1293,7 @@ export default function Treasury() {
               <SelectItem value="failed">Failed</SelectItem>
             </SelectContent>
           </Select>
-          {selectedVendor === "ebills" && (
+          {selectedVendor === "plustive" && (
             <Select value={vendorServiceFilter} onValueChange={setVendorServiceFilter}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Service" />
@@ -1314,7 +1396,7 @@ export default function Treasury() {
           </Table>
         </div>
 
-        {selectedVendor !== "ebills" && selectedVendor !== "flutterwave" && !vendorTransIdSearch && (
+        {selectedVendor !== "plustive" && selectedVendor !== "flutterwave" && !vendorTransIdSearch && (
           <div className="flex items-center justify-between mt-4">
             <Button
               variant="outline"
@@ -1445,7 +1527,11 @@ export default function Treasury() {
                             className="rounded-lg border p-3 hover:bg-muted/50 transition-colors"
                           >
                             <p className="text-xs text-muted-foreground">{SERVICE_LABELS[service]}</p>
-                            <p className="font-semibold text-sm mt-1">{formatVendorLabel(vendingProviders[service])}</p>
+                            <p className="font-semibold text-sm mt-1">
+                              {service === "betting" && formatVendorLabel(vendingProviders[service]) === "—"
+                                ? "Betting"
+                                : formatVendorLabel(vendingProviders[service])}
+                            </p>
                             <p className="text-[11px] text-primary mt-1 inline-flex items-center gap-1">
                               Manage <ArrowUpRight className="h-3 w-3" />
                             </p>
@@ -1471,7 +1557,7 @@ export default function Treasury() {
                   <CardHeader>
                     <CardTitle>Balances</CardTitle>
                     <CardDescription>
-                      Flutterwave is bank/gateway. SMEPLUG, eBills, MobileNig, and PayVessel are vendor float.
+                      Flutterwave is bank/gateway. SMEPLUG, Plustive Impact, and MobileNig are vendor float.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>{vendorWalletGrid}</CardContent>

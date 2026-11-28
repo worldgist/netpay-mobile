@@ -23,22 +23,22 @@ export function PurchaseProgressOverlay({ visible, title: titleOverride, subtitl
   }, [visible]);
 
   const title = titleOverride || (phase === 'submitting' ? 'Payment submitted' : 'Verifying transaction');
-  const subtitle = subtitleOverride
-    || (titleOverride
+  const subtitle = subtitleOverride !== undefined
+    ? subtitleOverride
+    : titleOverride
       ? 'Sending this purchase now.'
       : phase === 'submitting'
         ? 'Sending your payment securely…'
-        : '⏳ Confirming status with the provider…');
+        : '⏳ Confirming status with the provider…';
+  const hintText = hint !== undefined ? hint : 'Please keep the app open until we finish.';
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <NetpayLoadingAnimation message={title} />
-          <ThemedText style={styles.subtitle}>{subtitle}</ThemedText>
-          <ThemedText style={styles.hint}>
-            {hint || 'Please keep the app open until we finish.'}
-          </ThemedText>
+          {subtitle ? <ThemedText style={styles.subtitle}>{subtitle}</ThemedText> : null}
+          {hintText ? <ThemedText style={styles.hint}>{hintText}</ThemedText> : null}
         </View>
       </View>
     </Modal>

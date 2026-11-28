@@ -71,10 +71,11 @@ const normalizeNetworkTab = (network: string) => {
 const formatVendorLabel = (provider?: string | null) => {
   if (!provider) return 'N/A';
   const normalized = provider.toLowerCase();
-  if (normalized === 'ebills' || normalized === 'ebills.africa') return 'eBills Africa';
+  if (normalized === 'ebills' || normalized === 'ebills.africa') return 'Other';
   if (normalized === 'smeplug') return 'SMEPlug';
   if (normalized === 'mobilenig') return 'MobileNig';
   if (normalized === 'flutterwave') return 'Flutterwave';
+  if (normalized === 'plustive' || normalized === 'plustiveimpact') return 'Plustive';
   if (normalized === 'vtpass') return 'VTPass';
   if (normalized === 'anyone') return 'ANYONE';
   return provider;
@@ -107,7 +108,7 @@ const inferPlanType = (planName: string, explicitType?: string | null) => {
   return 'SME';
 };
 
-type DataVendingProvider = 'smeplug' | 'mobilenig' | 'ebills' | 'flutterwave';
+type DataVendingProvider = 'smeplug' | 'mobilenig' | 'ebills' | 'flutterwave' | 'plustive';
 
 const DataPlans = () => {
   const navigate = useNavigate();
@@ -275,7 +276,7 @@ const DataPlans = () => {
       }
 
       const { data, error } = await supabase.functions.invoke('sync-data-plans', {
-        body: { providers: ['smeplug', 'ebills', 'mobilenig'] },
+        body: { providers: ['smeplug', 'mobilenig', 'plustive'] },
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
@@ -355,7 +356,7 @@ const DataPlans = () => {
         }
         
         const normalizedProvider = provider === 'ebills.africa' ? 'ebills' : provider;
-        const validProviders: DataVendingProvider[] = ['smeplug', 'mobilenig', 'ebills', 'flutterwave'];
+        const validProviders: DataVendingProvider[] = ['smeplug', 'mobilenig', 'ebills', 'flutterwave', 'plustive'];
         const selectedProvider = validProviders.includes(normalizedProvider as DataVendingProvider)
           ? normalizedProvider as DataVendingProvider
           : 'smeplug';
@@ -490,7 +491,7 @@ const DataPlans = () => {
           setting_key: 'data_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Data vending provider: smeplug, mobilenig, ebills, or flutterwave'
+          description: 'Data vending provider: smeplug, mobilenig, ebills, flutterwave, or plustive'
         }, {
           onConflict: 'setting_key'
         });
@@ -505,7 +506,7 @@ const DataPlans = () => {
       
       toast({
         title: "Success",
-        description: `Data provider switched to ${newProvider === 'ebills' ? 'eBills Africa' : newProvider.toUpperCase()}.`,
+        description: `Data provider switched to ${newProvider.toUpperCase()}.`,
       });
     } catch (error: any) {
       console.error('Error updating data provider:', error);
@@ -658,6 +659,9 @@ const DataPlans = () => {
               planObj.plan_type = inferPlanType(planName, requestType);
             } else if (vendor === 'ebills') {
               planObj.api_code = String(apiCode);
+            } else if (vendor === 'plustive') {
+              planObj.plustive_code = apiCode;
+              planObj.api_code = String(apiCode);
             }
 
             // Extract size
@@ -707,6 +711,11 @@ const DataPlans = () => {
               } else if (vendor === 'mobilenig' && newPlan.mobilenig_code && !matchingPlan.mobilenig_code) {
                 updates.mobilenig_code = newPlan.mobilenig_code;
                 // Also update api_code if it's missing
+                if (!matchingPlan.api_code) {
+                  updates.api_code = newPlan.api_code;
+                }
+              } else if (vendor === 'plustive' && newPlan.plustive_code && !matchingPlan.plustive_code) {
+                updates.plustive_code = newPlan.plustive_code;
                 if (!matchingPlan.api_code) {
                   updates.api_code = newPlan.api_code;
                 }
@@ -820,7 +829,7 @@ const DataPlans = () => {
         case 'ebills':
           functionName = 'fetch-ebills-data-plans';
           if (!network.name || !network.name.trim()) {
-            throw new Error('Network name is required for eBills Africa.');
+            throw new Error('Network name is required.');
           }
           requestBody = { network: network.name.trim().toUpperCase() };
           break;
@@ -828,6 +837,13 @@ const DataPlans = () => {
           functionName = 'fetch-ebills-data-plans';
           if (!network.name || !network.name.trim()) {
             throw new Error('Network name is required for Flutterwave data import.');
+          }
+          requestBody = { network: network.name.trim().toUpperCase() };
+          break;
+        case 'plustive':
+          functionName = 'fetch-plustive-data-plans';
+          if (!network.name || !network.name.trim()) {
+            throw new Error('Network name is required for Plustive data import.');
           }
           requestBody = { network: network.name.trim().toUpperCase() };
           break;
@@ -1222,6 +1238,9 @@ const DataPlans = () => {
               planObj.smeplug_code = bareApiCode;
             } else if (dataProvider === 'mobilenig') {
               planObj.mobilenig_code = bareApiCode;
+            } else if (dataProvider === 'plustive') {
+              planObj.plustive_code = bareApiCode;
+              planObj.api_code = bareApiCode;
             } else if (dataProvider === 'ebills' || dataProvider === 'flutterwave') {
               planObj.api_code = bareApiCode;
             }
@@ -1329,6 +1348,14 @@ const DataPlans = () => {
             } else if (dataProvider === 'mobilenig' && newPlan.mobilenig_code) {
               if (!matchingPlan.mobilenig_code || matchingPlan.mobilenig_code !== newPlan.mobilenig_code) {
                 updates.mobilenig_code = newPlan.mobilenig_code;
+              }
+            } else if (dataProvider === 'plustive' && (newPlan.plustive_code || newPlan.api_code)) {
+              const code = newPlan.plustive_code || newPlan.api_code;
+              if (!matchingPlan.plustive_code || matchingPlan.plustive_code !== code) {
+                updates.plustive_code = code;
+              }
+              if (!matchingPlan.api_code || matchingPlan.api_code !== newPlan.api_code) {
+                updates.api_code = newPlan.api_code;
               }
             } else if ((dataProvider === 'ebills' || dataProvider === 'flutterwave') && newPlan.api_code) {
               if (!matchingPlan.api_code || matchingPlan.api_code !== newPlan.api_code) {
@@ -1483,7 +1510,7 @@ const DataPlans = () => {
 
         const newCount = plansToUpsert.length;
         const updatedCount = plansToUpdate.length;
-        let successMessage = `Imported ${totalProcessed} data plans from ${normalizedNetwork} via ${dataProvider === 'ebills' ? 'eBills Africa' : dataProvider.toUpperCase()}`;
+        let successMessage = `Imported ${totalProcessed} data plans from ${normalizedNetwork} via ${dataProvider.toUpperCase()}`;
         if (newCount > 0 && updatedCount > 0) {
           successMessage += ` (${newCount} new, ${updatedCount} updated with ${dataProvider} codes)`;
         } else if (updatedCount > 0) {
@@ -1887,6 +1914,7 @@ const DataPlans = () => {
     if (normalized === 'smeplug') return 'bg-green-50 text-green-700 border-green-200';
     if (normalized === 'vtpass') return 'bg-blue-50 text-blue-700 border-blue-200';
     if (normalized === 'mobilenig') return 'bg-purple-50 text-purple-700 border-purple-200';
+    if (normalized === 'plustive' || normalized === 'plustiveimpact') return 'bg-teal-50 text-teal-700 border-teal-200';
     if (normalized === 'ebills' || normalized === 'ebills.africa') return 'bg-orange-50 text-orange-700 border-orange-200';
     if (normalized === 'flutterwave') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     return 'bg-gray-50 text-gray-700 border-gray-200';
@@ -1934,7 +1962,7 @@ const DataPlans = () => {
                     onClick={syncAllProviderPlans}
                     disabled={isSyncingAll}
                     className="flex items-center gap-2"
-                    title="Fetch and store plans for SMEPLUG, eBills, and MobileNig so the app loads instantly"
+                    title="Fetch and store plans for SMEPLUG, MobileNig, and Plustive so the app loads instantly"
                   >
                     <RefreshCw className={`h-4 w-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
                     {isSyncingAll ? 'Syncing…' : 'Sync All Providers'}
@@ -1965,8 +1993,8 @@ const DataPlans = () => {
                       <SelectContent>
                         <SelectItem value="smeplug">SMEPLUG</SelectItem>
                         <SelectItem value="mobilenig">MobileNig</SelectItem>
-                        <SelectItem value="ebills">eBills Africa</SelectItem>
                         <SelectItem value="flutterwave">Flutterwave</SelectItem>
+                        <SelectItem value="plustive">Plustive</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1979,9 +2007,9 @@ const DataPlans = () => {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Import Data Plans from {dataProvider === 'ebills' ? 'eBills Africa' : dataProvider.toUpperCase()}</DialogTitle>
+                      <DialogTitle>Import Data Plans from {dataProvider.toUpperCase()}</DialogTitle>
                       <DialogDescription>
-                        Select a network to fetch and import their data plans from {dataProvider === 'ebills' ? 'eBills Africa' : dataProvider.toUpperCase()}
+                        Select a network to fetch and import their data plans from {dataProvider.toUpperCase()}
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">

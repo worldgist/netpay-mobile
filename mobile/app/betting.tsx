@@ -238,9 +238,9 @@ export default function BettingScreen() {
               lowerMessage.includes('valid service_id')) {
             // SportyBet is not supported by eBills
             if (bettingProvider.toUpperCase() === 'SPORTYBET') {
-              errorMessage = 'SportyBet is currently not available on eBills. Please try another betting provider or contact support for alternative options.';
+              errorMessage = 'SportyBet is currently not available. Please try another betting provider or contact support for alternative options.';
             } else {
-              errorMessage = `${bettingProvider} is not available on eBills at the moment. Please try another provider or contact support.`;
+              errorMessage = `${bettingProvider} is not available at the moment. Please try another provider or contact support.`;
             }
             // Log as warning for invalid service ID
             console.warn('Invalid service ID (provider not supported on eBills):', {
@@ -402,8 +402,17 @@ export default function BettingScreen() {
           const invokeOutcome = parsePurchaseResponse(data, true);
           if (invokeOutcome.kind === 'pending') {
             idempotencyKeyRef.current = null;
+            setShowConfirmModal(false);
+            setPurchasing(false);
             void refreshBalance();
-            showPurchaseOutcome('pending', invokeOutcome.message);
+            router.push(buildRouteHref('/payment-success', {
+              amount: purchaseAmount.toString(),
+              network: providerName,
+              recipient: sanitizedAccountId,
+              reference: invokeOutcome.reference || data?.reference || data?.data?.reference || '',
+              serviceType: `Betting • ${providerName}`,
+              customerName: customerName || '',
+            }));
             return;
           }
           if (invokeOutcome.kind === 'connection_uncertain') {
@@ -505,8 +514,17 @@ export default function BettingScreen() {
       const finalOutcome = parsePurchaseResponse(responseData, true);
       if (finalOutcome.kind === 'pending') {
         idempotencyKeyRef.current = null;
+        setShowConfirmModal(false);
+        setPurchasing(false);
         void refreshBalance();
-        showPurchaseOutcome('pending', finalOutcome.message);
+        router.push(buildRouteHref('/payment-success', {
+          amount: purchaseAmount.toString(),
+          network: providerName,
+          recipient: sanitizedAccountId,
+          reference: finalOutcome.reference || responseData?.reference || responseData?.data?.reference || '',
+          serviceType: `Betting • ${providerName}`,
+          customerName: customerName || '',
+        }));
         return;
       }
       if (finalOutcome.kind === 'connection_uncertain') {
@@ -762,8 +780,9 @@ export default function BettingScreen() {
 
       <PurchaseProgressOverlay
         visible={purchasing}
-        title="Processing betting purchase..."
-        hint="Please keep this screen open until the purchase finishes."
+        title="Betting processing"
+        subtitle=""
+        hint=""
       />
 
       <PurchaseOutcomeSheet

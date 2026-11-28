@@ -196,6 +196,39 @@ verify_jwt = true
 [functions.purchase-flutterwave-electricity]
 verify_jwt = true
 
+[functions.purchase-plustive-data]
+verify_jwt = true
+
+[functions.purchase-plustive-electricity]
+verify_jwt = true
+
+[functions.purchase-plustive-cable]
+verify_jwt = true
+
+[functions.plustive-webhook]
+verify_jwt = false
+
+[functions.fetch-plustive-balance]
+verify_jwt = false
+
+[functions.check-plustive-transaction]
+verify_jwt = false
+
+[functions.fetch-plustive-data-plans]
+verify_jwt = false
+
+[functions.fetch-plustive-airtime-networks]
+verify_jwt = false
+
+[functions.fetch-plustive-cable-packages]
+verify_jwt = true
+
+[functions.fetch-plustive-electricity-products]
+verify_jwt = false
+
+[functions.fetch-plustive-education-products]
+verify_jwt = false
+
 [functions.validate-cable-customer]
 verify_jwt = true
 

@@ -236,6 +236,49 @@ serve(async (req) => {
         }));
         source = "fallback";
       }
+    } else if (activeProvider === "plustive") {
+      try {
+        const { listPlustiveNetworks } = await import("../_shared/plustive-api.ts");
+        const networks = await listPlustiveNetworks();
+        const mapped = networks
+          .map((network) => {
+            const rawName = String(network.name || network.code || "").trim();
+            const key = rawName.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const name = key.includes("9mobile") || key.includes("etisalat") || key === "t2"
+              ? "9Mobile"
+              : key.includes("mtn")
+              ? "MTN"
+              : key.includes("airtel")
+              ? "Airtel"
+              : key.includes("glo")
+              ? "Glo"
+              : rawName;
+            const networkId = String(network.id || "").trim();
+            if (!name || !networkId) return null;
+            return {
+              id: networkId,
+              name,
+              display_name: name,
+              network_id: networkId,
+              min_amount: 50,
+              max_amount: 50000,
+              identifier_label: "Phone Number",
+              placeholder: "Phone Number",
+              item_code: networkId,
+              vending_provider: "plustive",
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => Boolean(item));
+        options = mapped.length > 0
+          ? mapped
+          : FALLBACK_OPTIONS.map((item) => toSmeplugPurchaseOption(item.network_id, item.name));
+        source = mapped.length > 0 ? "plustive" : "fallback";
+      } catch (networkError) {
+        const message = networkError instanceof Error ? networkError.message : String(networkError);
+        warnings.push(`Could not load Plustive airtime networks: ${message}`);
+        options = FALLBACK_OPTIONS.map((item) => toSmeplugPurchaseOption(item.network_id, item.name));
+        source = "fallback";
+      }
     } else if (activeProvider === "flutterwave" || activeProvider === "flutter-wave" || activeProvider === "flw") {
       try {
         const providers = await fetchAirtimeProvidersFromDb(supabase);

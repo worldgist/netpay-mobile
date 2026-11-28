@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, type ImageSourcePropType, type StyleProp, type ImageStyle } from 'react-native';
+import {
+  Image as NativeImage,
+  StyleSheet,
+  type ImageSourcePropType,
+  type ImageStyle,
+  type StyleProp,
+} from 'react-native';
 import { Image } from 'expo-image';
 
 type ServiceLogoImageProps = {
@@ -34,11 +40,27 @@ export function ServiceLogoImage({
 
   if (!active) return null;
 
+  if (!isRemoteSource(active)) {
+    const resizeMode =
+      contentFit === 'cover' ? 'cover' : contentFit === 'fill' ? 'stretch' : contentFit === 'none' ? 'center' : 'contain';
+    return (
+      <NativeImage
+        source={active}
+        style={[styles.image, style]}
+        resizeMode={resizeMode}
+        fadeDuration={0}
+      />
+    );
+  }
+
   return (
     <Image
       source={active}
       style={[styles.image, style]}
       contentFit={contentFit}
+      transition={0}
+      cachePolicy="memory-disk"
+      priority="high"
       onError={() => {
         if (remote && fallback) setFailed(true);
       }}

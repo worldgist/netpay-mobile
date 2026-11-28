@@ -14,7 +14,9 @@ import { handlePurchase as purchaseSmeplugData } from "../purchase-smeplug-data/
 import { handlePurchase as purchaseEbillsData } from "../purchase-ebills-data/handler.ts";
 import { handlePurchase as purchaseMobilenigData } from "../purchase-mobilenig-data/handler.ts";
 import { handlePurchase as purchaseFlutterwaveData } from "../purchase-flutterwave-data/handler.ts";
+import { handlePurchase as purchasePlustiveData } from "../purchase-plustive-data/handler.ts";
 import { getFlutterwaveSecretKeyFromEnv } from "../_shared/flutterwave-secrets.ts";
+import { getPlustiveApiKeyFromEnv } from "../_shared/vendor-secrets.ts";
 
 function normalizeDataNetworkKey(value: string): string {
   let key = value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -28,6 +30,7 @@ function dataPlanSupportsProvider(provider: string, plan: Record<string, unknown
   const api = String(plan.api_code || "").trim();
   const mn = String(plan.mobilenig_code || "").trim();
   const sme = String(plan.smeplug_code || "").trim();
+  const pls = String(plan.plustive_code || "").trim();
 
   switch (provider) {
     case "mobilenig":
@@ -36,6 +39,8 @@ function dataPlanSupportsProvider(provider: string, plan: Record<string, unknown
       return Boolean(sme || planProvider.includes("smeplug") || /^\d+$/.test(api));
     case "ebills":
       return Boolean(planProvider.includes("ebill") && api);
+    case "plustive":
+      return Boolean(getPlustiveApiKeyFromEnv() && (pls || api || planProvider.includes("plustive")));
     case "flutterwave": {
       if (!getFlutterwaveSecretKeyFromEnv()) return false;
       const network = normalizeDataNetworkKey(String(plan.network || "MTN"));
@@ -221,7 +226,7 @@ serve(async (req) => {
 
     // Use the configured vendor first. Only fall back when that vendor is offline
     // (or misconfigured) and another vendor already has usable codes/secrets for this plan.
-    const fallbackOrder = ["mobilenig", "ebills", "smeplug", "flutterwave"];
+    const fallbackOrder = ["mobilenig", "ebills", "smeplug", "flutterwave", "plustive"];
     const providers = [
       preferredProvider,
       ...fallbackOrder.filter(
@@ -234,6 +239,7 @@ serve(async (req) => {
       ebills: purchaseEbillsData,
       mobilenig: purchaseMobilenigData,
       flutterwave: purchaseFlutterwaveData,
+      plustive: purchasePlustiveData,
     };
 
     let lastError: string | null = null;

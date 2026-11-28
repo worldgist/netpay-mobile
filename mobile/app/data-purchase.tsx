@@ -758,8 +758,16 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
 
       if (outcome.kind === 'pending') {
         idempotencyKeyRef.current = null;
+        setShowConfirmModal(false);
         void refreshBalance();
-        showPurchaseOutcome('pending', outcome.message);
+        const reference = outcome.reference || responseData?.data?.reference || responseData?.reference || '';
+        router.push(buildRouteHref('/payment-success', {
+          amount: getEffectivePrice(selectedPlan).toString(),
+          network: selectedNetworkName,
+          recipient: sanitizedPhoneNumber,
+          serviceType: `Data Bundle - ${selectedPlanLabel || selectedPlan.planName}`,
+          reference,
+        }));
         return;
       }
 
@@ -1096,8 +1104,9 @@ const [networkIdMap, setNetworkIdMap] = useState<Record<string, string>>({});
 
       <PurchaseProgressOverlay
         visible={isProcessing}
-        title="Processing data purchase..."
-        hint="Please keep this screen open until the purchase finishes."
+        title="Data processing"
+        subtitle=""
+        hint=""
       />
 
       <PurchaseOutcomeSheet

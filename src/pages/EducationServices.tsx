@@ -41,10 +41,10 @@ interface EducationTransaction {
   } | null;
 }
 
-const VENDOR_PROVIDERS = ["mobilenig", "vtpass", "smeplug", "ebills"] as const;
+const VENDOR_PROVIDERS = ["mobilenig", "vtpass", "smeplug", "plustive"] as const;
 
 export default function EducationServices() {
-  const [vendingProvider, setVendingProvider] = useState<'mobilenig' | 'vtpass' | 'smeplug' | 'ebills'>('mobilenig');
+  const [vendingProvider, setVendingProvider] = useState<(typeof VENDOR_PROVIDERS)[number]>("mobilenig");
   const [transactions, setTransactions] = useState<EducationTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [transactionSearchQuery, setTransactionSearchQuery] = useState("");
@@ -59,7 +59,39 @@ export default function EducationServices() {
     JAMB: true,
   });
   const prevAvailabilityRef = useRef(serviceAvailability);
+  const [isImporting, setIsImporting] = useState(false);
   const { toast } = useToast();
+
+  const importExamProducts = async () => {
+    const providerLabel = vendingProvider === "mobilenig" ? "MobileNig" : "Plustive";
+    setIsImporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expired. Please sign in again.");
+      const { data, error } = await supabase.functions.invoke(
+        vendingProvider === "mobilenig" ? "fetch-education-services" : "fetch-plustive-education-products",
+        {
+          body: vendingProvider === "mobilenig" ? { provider: "mobilenig", store: true } : {},
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        },
+      );
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || `Failed to import ${providerLabel} education products`);
+      const stored = data?.metadata?.stored ?? data?.data?.length ?? 0;
+      toast({
+        title: `${providerLabel} exams imported`,
+        description: `${stored} exam product${stored === 1 ? "" : "s"} updated.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error?.message || `Unable to import ${providerLabel} exams`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   useEffect(() => {
     fetchEducationProvider();
@@ -177,8 +209,7 @@ export default function EducationServices() {
             : (data.setting_value as { provider?: string; value?: string } | null)?.provider
               || (data.setting_value as { value?: string } | null)?.value;
         const provider = (raw || "mobilenig").toLowerCase().trim();
-        const validProviders = ["mobilenig", "vtpass", "smeplug", "ebills"];
-        const selectedProvider = validProviders.includes(provider) ? provider : "mobilenig";
+        const selectedProvider = (VENDOR_PROVIDERS as readonly string[]).includes(provider) ? provider : "mobilenig";
         setVendingProvider(selectedProvider as typeof vendingProvider);
       }
     } catch (error) {
@@ -194,7 +225,7 @@ export default function EducationServices() {
           setting_key: 'education_provider',
           setting_value: { provider },
           setting_category: 'system',
-          description: 'Education vending provider: smeplug, vtpass, mobilenig, ebills.africa, or anyone'
+          description: 'Education vending provider: mobilenig, vtpass, smeplug, or plustive'
         }, {
           onConflict: 'setting_key'
         });
@@ -316,9 +347,24 @@ export default function EducationServices() {
                       <SelectItem value="mobilenig">MobileNig</SelectItem>
                       <SelectItem value="vtpass">VTPass</SelectItem>
                       <SelectItem value="smeplug">SMEPLUG</SelectItem>
-                      <SelectItem value="ebills">eBills Africa</SelectItem>
+                      <SelectItem value="plustive">Plustive</SelectItem>
                     </SelectContent>
                   </Select>
+                  {(vendingProvider === "mobilenig" || vendingProvider === "plustive") && (
+                    <Button
+                      variant="outline"
+                      onClick={importExamProducts}
+                      disabled={isImporting}
+                      className="flex items-center gap-2"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isImporting ? "animate-spin" : ""}`} />
+                      {isImporting
+                        ? "Importing…"
+                        : vendingProvider === "mobilenig"
+                          ? "Import MobileNig exams"
+                          : "Import Plustive exams"}
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

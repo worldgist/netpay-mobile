@@ -429,6 +429,216 @@ serve(async (req) => {
       );
     }
 
+    // Route to Plustive when admin selected it as education provider
+    // education_provider is not in shared keys — read app_settings directly
+    const { data: educationProviderSetting } = await supabaseClient
+      .from("app_settings")
+      .select("setting_value")
+      .eq("setting_key", "education_provider")
+      .maybeSingle();
+    const { normalizeVendingProvider, extractProviderValue } = await import("../_shared/vending-settings.ts");
+    const educationVendor = normalizeVendingProvider(
+      extractProviderValue(educationProviderSetting?.setting_value) || educationService?.vending_provider || "mobilenig",
+    );
+
+    if (educationVendor === "plustive") {
+      const meta = educationService?.metadata;
+      const metaId =
+        meta && typeof meta === "object" && !Array.isArray(meta)
+          ? String((meta as Record<string, unknown>).plustive_product_id || "").trim()
+          : "";
+      let productId = String(metaId || "").trim();
+      if (!productId) {
+        const { listPlustiveEducationProducts } = await import("../_shared/plustive-api.ts");
+        const products = await listPlustiveEducationProducts();
+        const exam = String(exam_type || "").toUpperCase();
+        const hint = `${educationService?.service_name || ""} ${api_code || ""}`.toUpperCase();
+        const matches = products.filter((product) =>
+          `${product.name || ""} ${product.label || ""}`.toUpperCase().includes(exam)
+        );
+        const best =
+          matches.find((product) => {
+            const name = `${product.name || ""} ${product.label || ""}`.toUpperCase();
+            return hint && name && (name.includes(hint) || hint.includes(name));
+          }) || matches[0];
+        productId = String(best?.productId || best?.id || best?.planId || "").trim();
+      }
+      if (!productId) {
+        productId = String(
+          educationService?.api_code ||
+            api_code ||
+            educationService?.vtpass_code ||
+            educationService?.service_id ||
+            "",
+        ).trim();
+      }
+      if (!productId) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Plustive education product ID (api_code) is required on the education service",
+          }),
+          { status: 400, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+
+      const { plustiveClientReference } = await import("../_shared/plustive-api.ts");
+      const clientReference = await plustiveClientReference(
+        req,
+        body as { __queued_reference?: unknown; idempotency_key?: unknown; request_id?: unknown },
+        user.id,
+        "education",
+      );
+
+      const { data: existingEducation } = await supabaseClient
+        .from("education_transactions")
+        .select("reference, status, amount, pin, serial_number, balance_before, balance_after")
+        .eq("reference", clientReference)
+        .maybeSingle();
+      if (existingEducation) {
+        const existingStatus = String(existingEducation.status || "").toLowerCase();
+        if (existingStatus === "failed" || existingStatus === "refunded") {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "This education purchase already failed. Start a new purchase to try again.",
+              data: { reference: clientReference, status: existingStatus },
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            pending: existingStatus === "pending" || existingStatus === "processing",
+            data: {
+              reference: existingEducation.reference,
+              pin: existingEducation.pin,
+              serial: existingEducation.serial_number,
+              exam_type: exam_type.toUpperCase(),
+              amount: purchaseAmount,
+              charge_fee: chargeFee,
+              total_amount: existingEducation.amount,
+              vendor: "plustive",
+              balance_before: existingEducation.balance_before,
+              balance_after: existingEducation.balance_after,
+            },
+          }),
+          { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+
+      let debitResult;
+      try {
+        debitResult = await debitUserWallet({
+          supabase: supabaseClient,
+          userId: user.id,
+          amount: totalAmount,
+          transactionType: "education_purchase",
+          description: `Education purchase (Plustive): ${exam_type.toUpperCase()} - ${clientReference}`,
+          reference: clientReference,
+          performedBy: user.id,
+        });
+      } catch (debitError: any) {
+        return new Response(
+          JSON.stringify({ success: false, error: debitError.message || "Failed to debit wallet" }),
+          { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+
+      try {
+        const { buyPlustiveEducation, completePlustiveBuy, mapPlustiveStatus, PlustiveUnconfirmedError } = await import("../_shared/plustive-api.ts");
+        let purchaseResult;
+        try {
+          purchaseResult = await completePlustiveBuy(clientReference, () => buyPlustiveEducation({
+            productId,
+            clientReference,
+            quantity: Number(quantity) || 1,
+          }));
+        } catch (plustiveError) {
+          if (!(plustiveError instanceof PlustiveUnconfirmedError)) throw plustiveError;
+          purchaseResult = { status: "Processing", reference: clientReference };
+        }
+        const mapped = mapPlustiveStatus(purchaseResult.status);
+        if (mapped === "failed") {
+          await creditUserWallet({
+            supabase: supabaseClient,
+            userId: user.id,
+            amount: totalAmount,
+            transactionType: "refund",
+            description: `Education refund — ${purchaseResult.failureReason || "Plustive failed"}`,
+            reference: `${clientReference}-REF`,
+            performedBy: user.id,
+          });
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: purchaseResult.failureReason || "Plustive education purchase failed",
+            }),
+            { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+          );
+        }
+
+        const pinData = parsePinsFromResponse(purchaseResult, exam_type);
+        const providerReference = String(purchaseResult.reference || clientReference);
+
+        await supabaseClient.from("education_transactions").insert({
+          user_id: user.id,
+          exam_type: exam_type.toUpperCase(),
+          amount: totalAmount,
+          purchase_amount: purchaseAmount,
+          charge_fee: chargeFee,
+          phone_number: phone_number || null,
+          pin: pinData.pin || null,
+          serial_number: pinData.serial || null,
+          pins: pinData.pins?.length ? pinData.pins : undefined,
+          balance_before: debitResult.balanceBefore,
+          balance_after: debitResult.balanceAfter,
+          status: mapped === "pending" ? "pending" : "completed",
+          reference: clientReference,
+          api_response: { ...purchaseResult, clientReference },
+          performed_by: user.id,
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              reference: providerReference,
+              pin: pinData.pin,
+              serial: pinData.serial,
+              pins: pinData.pins,
+              exam_type: exam_type.toUpperCase(),
+              amount: purchaseAmount,
+              charge_fee: chargeFee,
+              total_amount: totalAmount,
+              vendor: "plustive",
+              balance_before: debitResult.balanceBefore,
+              balance_after: debitResult.balanceAfter,
+            },
+          }),
+          { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      } catch (plustiveError: any) {
+        await creditUserWallet({
+          supabase: supabaseClient,
+          userId: user.id,
+          amount: totalAmount,
+          transactionType: "refund",
+          description: `Education refund — ${plustiveError?.message || "Plustive failed"}`,
+          reference: `${clientReference}-REF`,
+          performedBy: user.id,
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: plustiveError?.message || "Plustive education purchase failed",
+          }),
+          { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     // Get MobileNig secret key (required for purchase)
     const { resolveMobilenigSecretKey } = await import("../_shared/vendor-secrets.ts");
     // Use service-role path inside helper (vendors RLS is admin-only).

@@ -725,6 +725,82 @@ async function fetchFromMobilenig(examType: string) {
   }
 }
 
+async function storeMobilenigEducationCatalog(supabase: ReturnType<typeof createClient>) {
+  const examTypes = ['WAEC', 'NECO', 'JAMB'];
+  let stored = 0;
+  const errors: string[] = [];
+
+  for (const examType of examTypes) {
+    const apiResponse = await fetchFromMobilenig(examType);
+    const apiData = await apiResponse.json();
+    if (!apiData?.success || !Array.isArray(apiData.data) || apiData.data.length === 0) {
+      errors.push(`${examType}: ${apiData?.error || 'No exam products returned'}`);
+      continue;
+    }
+
+    for (const service of apiData.data) {
+      const exam = String(service.exam_type || examType).toUpperCase();
+      const apiCode = String(service.api_code || '').trim();
+      const serviceName = String(service.service_name || exam).trim();
+      const price = Number(service.price || 0);
+      if (!apiCode || !serviceName) continue;
+
+      const { data: existing, error: existingError } = await supabase
+        .from('education_services')
+        .select('id, custom_price')
+        .eq('exam_type', exam)
+        .eq('api_code', apiCode)
+        .maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+
+      if (existing?.id) {
+        const updates: Record<string, unknown> = {
+          service_name: serviceName,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        };
+        const customPrice = Number(existing.custom_price || 0);
+        if (!(customPrice > 0) && price > 0) {
+          updates.price = price;
+          updates.original_price = price;
+        }
+        const { error } = await supabase.from('education_services').update(updates).eq('id', existing.id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('education_services').insert({
+          exam_type: exam,
+          service_name: serviceName,
+          api_code: apiCode,
+          price: price > 0 ? price : 0,
+          original_price: price > 0 ? price : 0,
+          is_active: true,
+        });
+        if (error) throw new Error(error.message);
+      }
+      stored += 1;
+    }
+  }
+
+  if (stored === 0) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: errors[0] || 'MobileNig returned no education products',
+        details: errors,
+      }),
+      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      metadata: { stored, provider: 'mobilenig', warnings: errors },
+    }),
+    { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+  );
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
@@ -785,6 +861,7 @@ serve(async (req) => {
     let examTypeFilter: string | null = null;
     let provider: string | null = null;
     let fetchFromAPI: boolean = false;
+    let storeCatalog = false;
     
     try {
       const contentType = req.headers.get('content-type') || '';
@@ -799,6 +876,9 @@ serve(async (req) => {
           }
           if (payload?.fetch_from_api !== undefined) {
             fetchFromAPI = Boolean(payload.fetch_from_api);
+          }
+          if (payload?.store !== undefined) {
+            storeCatalog = Boolean(payload.store);
           }
         } catch (jsonError: any) {
           console.error('Error parsing request body as JSON:', jsonError);
@@ -830,6 +910,10 @@ serve(async (req) => {
       }
     }
 
+    if (provider === 'mobilenig' && storeCatalog) {
+      return await storeMobilenigEducationCatalog(supabase);
+    }
+
     // If provider is specified and it's Mobilenig, fetch from API directly (no database fallback)
     if (provider === 'mobilenig' && examTypeFilter) {
       // For NECO, always fetch directly from API, never from database
@@ -849,7 +933,10 @@ serve(async (req) => {
             
             if (apiData.success && apiData.data && Array.isArray(apiData.data) && apiData.data.length > 0) {
               console.log('Successfully fetched from Mobilenig API:', apiData.data.length, 'services');
-              return apiResponse; // Return the API response directly
+              return new Response(
+                JSON.stringify(apiData),
+                { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+              );
             }
             
             // Check if there's an error message in the response

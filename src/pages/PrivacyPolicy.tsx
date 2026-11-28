@@ -45,7 +45,7 @@ const PrivacyPolicy = () => {
       title: "4. Data Sharing and Third-Party Services",
       content: "We may share your information with:",
       list: [
-        "Payment Processors: Licensed partners (e.g., Flutterwave, PayVessel and similar) for wallet funding and settlement — bound by contractual privacy/security obligations",
+        "Payment Processors: Licensed partners (e.g., Flutterwave) for wallet funding and settlement — bound by contractual privacy/security obligations",
         "Service Providers: Cloud hosting (Supabase), analytics and support tooling — bound by confidentiality agreements",
         "Fulfilment Vendors: Telecom networks, electricity discos, cable TV operators, education and betting aggregators — only as needed to complete your request",
         "Legal and Regulatory: Government agencies, law enforcement, regulatory bodies when required by law or to protect rights",

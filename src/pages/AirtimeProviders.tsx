@@ -29,13 +29,14 @@ interface AirtimeProvider {
   created_at: string;
 }
 
-type AirtimeVendingProvider = 'smeplug' | 'ebills' | 'mobilenig' | 'flutterwave';
+type AirtimeVendingProvider = 'smeplug' | 'ebills' | 'mobilenig' | 'flutterwave' | 'plustive';
 
 const AIRTIME_PROVIDER_LABELS: Record<AirtimeVendingProvider, string> = {
   smeplug: 'SMEPLUG',
-  ebills: 'eBills Africa',
+  ebills: 'Other',
   mobilenig: 'MobileNig',
   flutterwave: 'Flutterwave',
+  plustive: 'Plustive',
 };
 
 const VALID_AIRTIME_PROVIDERS: AirtimeVendingProvider[] = [
@@ -43,6 +44,7 @@ const VALID_AIRTIME_PROVIDERS: AirtimeVendingProvider[] = [
   'ebills',
   'mobilenig',
   'flutterwave',
+  'plustive',
 ];
 
 const AirtimeProviders = () => {
@@ -115,7 +117,7 @@ const AirtimeProviders = () => {
           setting_key: 'airtime_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Airtime vending provider: smeplug, ebills, mobilenig, or flutterwave',
+          description: 'Airtime vending provider: smeplug, ebills, mobilenig, flutterwave, or plustive',
         }, { onConflict: 'setting_key' });
 
       if (error) throw error;
@@ -451,13 +453,56 @@ const AirtimeProviders = () => {
 
       toast({
         title: 'Success',
-        description: `Imported ${providersToInsert.length} airtime providers for eBills Africa`,
+        description: `Imported ${providersToInsert.length} airtime providers`,
       });
     } catch (error: any) {
       console.error('Error importing eBills airtime providers:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to import eBills airtime providers',
+        description: error.message || 'Failed to import airtime providers',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const fetchPlustiveProvidersFromAPI = async () => {
+    setIsFetching(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        throw new Error('Session expired. Please sign in again.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('fetch-plustive-airtime-networks', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (error) {
+        throw new Error(data?.error || error.message || 'Failed to fetch Plustive airtime networks');
+      }
+      if (!data?.success || !Array.isArray(data?.data) || !data.data.length) {
+        toast({
+          title: 'No Providers Found',
+          description: data?.error || 'Plustive returned no airtime networks.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      await fetchProviders();
+      setIsImportDialogOpen(false);
+      const storedCount = data.metadata?.stored ?? data.data.length;
+      toast({
+        title: 'Success',
+        description: `Saved ${storedCount} airtime network${storedCount === 1 ? '' : 's'} from Plustive`,
+      });
+    } catch (error: any) {
+      console.error('Error importing Plustive airtime networks:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to import Plustive airtime networks',
         variant: 'destructive',
       });
     } finally {
@@ -532,9 +577,11 @@ const AirtimeProviders = () => {
 
   const apiCodePlaceholder = airtimeProvider === 'flutterwave'
     ? 'e.g., BIL099|AT099|MTN'
-    : airtimeProvider === 'mobilenig'
-      ? 'e.g., MTN'
-      : 'e.g., mtn-ng';
+    : airtimeProvider === 'plustive'
+      ? 'Plustive network id'
+      : airtimeProvider === 'mobilenig'
+        ? 'e.g., MTN'
+        : 'e.g., mtn-ng';
 
   if (loading) {
     return (
@@ -570,9 +617,9 @@ const AirtimeProviders = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="smeplug">SMEPLUG</SelectItem>
-                        <SelectItem value="ebills">eBills Africa</SelectItem>
                         <SelectItem value="mobilenig">MobileNig</SelectItem>
                         <SelectItem value="flutterwave">Flutterwave</SelectItem>
+                        <SelectItem value="plustive">Plustive</SelectItem>
                       </SelectContent>
                     </Select>
                     {isUpdatingProvider && (
@@ -596,31 +643,15 @@ const AirtimeProviders = () => {
                       </DialogHeader>
                       <div className="space-y-4 py-4">
                         <p className="text-sm text-muted-foreground">
-                          {airtimeProvider === 'ebills'
-                            ? 'Import network providers for eBills Africa (MTN, Airtel, Glo, 9Mobile).'
-                            : airtimeProvider === 'flutterwave'
+                          {airtimeProvider === 'flutterwave'
                               ? 'Import airtime billers from Flutterwave (MTN, Airtel, Glo, 9Mobile) with biller and item codes.'
-                              : airtimeProvider === 'mobilenig'
-                                ? `Network providers for ${AIRTIME_PROVIDER_LABELS[airtimeProvider]} must be added manually.`
-                                : 'Import network providers from SMEPLUG using SMEPLUG_SECRET_KEY.'}
+                              : airtimeProvider === 'plustive'
+                                ? 'Import airtime networks from Plustive (MTN, Airtel, Glo, 9Mobile) with their network IDs.'
+                                : airtimeProvider === 'mobilenig'
+                                  ? `Network providers for ${AIRTIME_PROVIDER_LABELS[airtimeProvider]} must be added manually.`
+                                  : 'Import network providers from SMEPLUG using SMEPLUG_SECRET_KEY.'}
                         </p>
-                        {airtimeProvider === 'ebills' ? (
-                          <Button
-                            onClick={() => fetchEbillsProvidersFromAPI()}
-                            disabled={isFetching}
-                            className="w-full"
-                            variant="outline"
-                          >
-                            {isFetching ? (
-                              <>
-                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                                Fetching...
-                              </>
-                            ) : (
-                              'Import from eBills Africa'
-                            )}
-                          </Button>
-                        ) : airtimeProvider === 'flutterwave' ? (
+                        {airtimeProvider === 'flutterwave' ? (
                           <Button
                             onClick={() => fetchFlutterwaveProvidersFromAPI()}
                             disabled={isFetching}
@@ -634,6 +665,22 @@ const AirtimeProviders = () => {
                               </>
                             ) : (
                               'Import from Flutterwave'
+                            )}
+                          </Button>
+                        ) : airtimeProvider === 'plustive' ? (
+                          <Button
+                            onClick={() => fetchPlustiveProvidersFromAPI()}
+                            disabled={isFetching}
+                            className="w-full"
+                            variant="outline"
+                          >
+                            {isFetching ? (
+                              <>
+                                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                                Fetching...
+                              </>
+                            ) : (
+                              'Import from Plustive'
                             )}
                           </Button>
                         ) : airtimeProvider === 'mobilenig' ? (
@@ -765,7 +812,9 @@ const AirtimeProviders = () => {
                 <CardDescription>
                   {airtimeProvider === 'flutterwave'
                     ? 'Configure Flutterwave airtime networks. Import billers from Flutterwave or enter biller|item codes manually. Set FLUTTERWAVE_SECRET_KEY in Supabase secrets.'
-                    : 'Configure airtime providers and their commission rates'}
+                    : airtimeProvider === 'plustive'
+                      ? 'Configure Plustive airtime networks. Import networks from Plustive or enter a network ID manually.'
+                      : 'Configure airtime providers and their commission rates'}
                 </CardDescription>
               </CardHeader>
               <CardContent>

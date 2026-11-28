@@ -23,6 +23,7 @@ import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
 import { useServiceLogos } from '@/contexts/service-logos-context';
+import { prefetchPurchaseLogos } from '@/lib/prefetch-purchase-logos';
 import { validateNigerianPhoneNumber } from '@/utils/phone';
 import * as Clipboard from 'expo-clipboard';
 
@@ -112,6 +113,8 @@ const FALLBACK_PROVIDER_DEFS: Omit<ElectricityProvider, 'logo'>[] = [
     serviceIds: { prepaid: 'ALA', postpaid: 'ALB' },
   },
 ];
+
+prefetchPurchaseLogos();
 
 const FALLBACK_PROVIDERS: ElectricityProvider[] = FALLBACK_PROVIDER_DEFS.map((provider) => ({
   ...provider,
@@ -963,8 +966,21 @@ export default function ElectricityScreen() {
       const purchaseOutcome = parsePurchaseResponse(responseData, true);
       if (purchaseOutcome.kind === 'pending') {
         idempotencyKeyRef.current = null;
+        setShowConfirmModal(false);
         void fetchBalance();
-        showPurchaseOutcome('pending', purchaseOutcome.message);
+        const purchaseData = responseData?.data || {};
+        const reference = purchaseOutcome.reference || purchaseData.reference || responseData?.reference || '';
+        const purchaseToken = purchaseData.token || purchaseData.energyToken || purchaseData.token_value || responseData?.token || '';
+        router.push(buildRouteHref('/payment-success', {
+          amount: purchaseAmount.toString(),
+          network: providerName,
+          recipient: sanitizedMeter,
+          token: purchaseToken,
+          meterType,
+          customerName: verifiedName || '',
+          reference,
+          serviceType: `Electricity • ${meterType.toUpperCase()}`,
+        }));
         return;
       }
       if (purchaseOutcome.kind === 'connection_uncertain') {
@@ -1703,8 +1719,9 @@ export default function ElectricityScreen() {
 
       <PurchaseProgressOverlay
         visible={purchaseInFlight}
-        title="Processing electricity purchase..."
-        hint="Please keep this screen open until the token is ready."
+        title="Electricity processing"
+        subtitle=""
+        hint=""
       />
 
       <PurchaseOutcomeSheet

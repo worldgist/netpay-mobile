@@ -12,7 +12,7 @@ export type TreasuryDatePreset =
 export type TreasuryBalanceStatus = "ok" | "low" | "critical" | "error" | "unconfigured";
 export type TreasuryLiquidityStatus = "healthy" | "moderate" | "low" | "critical" | "unknown";
 
-export type TreasuryVendorKey = "smeplug" | "ebills" | "mobilenig" | "payvessel";
+export type TreasuryVendorKey = "smeplug" | "plustive" | "mobilenig";
 
 export type TreasuryVendorBalance = {
   key: TreasuryVendorKey;

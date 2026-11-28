@@ -36,7 +36,7 @@ interface CableTvTransaction {
   } | null;
 }
 
-type CableVendingProvider = 'mobilenig' | 'ebills' | 'vtpass' | 'flutterwave';
+type CableVendingProvider = 'mobilenig' | 'ebills' | 'vtpass' | 'flutterwave' | 'plustive';
 
 export default function CableTvPlans() {
   const [vendingProvider, setVendingProvider] = useState<CableVendingProvider>('mobilenig');
@@ -45,7 +45,35 @@ export default function CableTvPlans() {
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [transactionSearchQuery, setTransactionSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isImportingPlustive, setIsImportingPlustive] = useState(false);
   const { toast } = useToast();
+
+  const importPlustivePackages = async () => {
+    setIsImportingPlustive(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expired. Please sign in again.");
+      const { data, error } = await supabase.functions.invoke("fetch-plustive-cable-packages", {
+        body: {},
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Failed to import Plustive cable packages");
+      const stored = data?.metadata?.stored ?? data?.data?.length ?? 0;
+      toast({
+        title: "Plustive cable packages imported",
+        description: `${stored} package${stored === 1 ? "" : "s"} stored for DSTV, GOtv, and StarTimes.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error?.message || "Unable to import Plustive cable packages",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImportingPlustive(false);
+    }
+  };
 
   useEffect(() => {
     fetchCableProvider();
@@ -73,7 +101,7 @@ export default function CableTvPlans() {
             : (data.setting_value as { provider?: string; value?: string } | null)?.provider
               || (data.setting_value as { value?: string } | null)?.value;
         const normalizedProvider = normalizeVendingProvider(raw);
-        const validProviders: CableVendingProvider[] = ['ebills', 'mobilenig', 'vtpass', 'flutterwave'];
+        const validProviders: CableVendingProvider[] = ['ebills', 'mobilenig', 'vtpass', 'flutterwave', 'plustive'];
         const selectedProvider = validProviders.includes(normalizedProvider as CableVendingProvider)
           ? (normalizedProvider as CableVendingProvider)
           : 'mobilenig';
@@ -139,7 +167,7 @@ export default function CableTvPlans() {
             setting_key: 'cable_provider',
             setting_value: { provider: newProvider },
             setting_category: 'system',
-            description: 'Cable TV vending provider: mobilenig, ebills, or flutterwave'
+            description: 'Cable TV vending provider: mobilenig, ebills, flutterwave, or plustive'
           })
           .select();
       }
@@ -221,11 +249,13 @@ export default function CableTvPlans() {
       case 'mobilenig':
         return 'MobileNig';
       case 'ebills':
-        return 'eBills Africa';
+        return 'Other';
       case 'vtpass':
         return 'VTPass';
       case 'flutterwave':
         return 'Flutterwave';
+      case 'plustive':
+        return 'Plustive';
       default:
         return provider.toUpperCase();
     }
@@ -236,11 +266,13 @@ export default function CableTvPlans() {
       case 'mobilenig':
         return 'MobileNig API - Enterprise cable TV service provider';
       case 'ebills':
-        return 'eBills Africa API — cable packages, verification, and purchases via JWT auth';
+        return 'Cable packages, verification, and purchases';
       case 'vtpass':
         return 'VTPass API — cable packages, verification, and purchases';
       case 'flutterwave':
         return 'Flutterwave API — bill payment vending for cable TV subscriptions';
+      case 'plustive':
+        return 'Plustive Impact API — DSTV, GOtv, StarTimes via prepaid wallet';
       default:
         return '';
     }
@@ -325,16 +357,16 @@ export default function CableTvPlans() {
                           <span className="text-xs text-muted-foreground">VTPass cable API</span>
                         </div>
                       </SelectItem>
-                      <SelectItem value="ebills">
-                        <div className="flex flex-col">
-                          <span>eBills Africa</span>
-                          <span className="text-xs text-muted-foreground">DSTV, GOTV, Startimes via eBills API</span>
-                        </div>
-                      </SelectItem>
                       <SelectItem value="flutterwave">
                         <div className="flex flex-col">
                           <span>Flutterwave</span>
                           <span className="text-xs text-muted-foreground">Bill payment vending</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="plustive">
+                        <div className="flex flex-col">
+                          <span>Plustive</span>
+                          <span className="text-xs text-muted-foreground">Plustive Impact prepaid wallet</span>
                         </div>
                       </SelectItem>
                     </SelectContent>
@@ -362,6 +394,15 @@ export default function CableTvPlans() {
                   This setting determines which vendor API will be used for all cable TV purchases (DSTV, GOTV, STARTIMES). 
                   The selected provider will be used system-wide for package fetching and transaction processing.
                 </p>
+                <Button
+                  variant="outline"
+                  onClick={importPlustivePackages}
+                  disabled={isImportingPlustive}
+                  className="flex items-center gap-2 w-fit"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isImportingPlustive ? "animate-spin" : ""}`} />
+                  {isImportingPlustive ? "Importing…" : "Import Plustive packages"}
+                </Button>
               </CardContent>
             </Card>
 

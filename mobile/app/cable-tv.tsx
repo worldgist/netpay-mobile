@@ -29,6 +29,7 @@ import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { useVendingSettings } from '@/contexts/vending-settings-context';
 import { useServiceLogos } from '@/contexts/service-logos-context';
+import { prefetchPurchaseLogos } from '@/lib/prefetch-purchase-logos';
 import { useWalletBalance } from '@/hooks/use-wallet-balance';
 import {
   readCachedCablePackages,
@@ -43,6 +44,8 @@ const LOCAL_CABLE_LOGOS: Record<string, any> = {
 };
 
 const fallbackLogo = require('@/assets/images/logo.png');
+
+prefetchPurchaseLogos();
 
 type CableProvider = {
   name: string;
@@ -70,6 +73,9 @@ function getCableFetchConfig(vendingProvider: string, providerName: string) {
   }
   if (vendingProvider === 'flutterwave') {
     return { functionName: 'fetch-ebills-cable-packages', requestBody: { provider: providerName } };
+  }
+  if (vendingProvider === 'plustive') {
+    return { functionName: 'fetch-plustive-cable-packages', requestBody: { provider: providerName } };
   }
   return { functionName: 'fetch-vtpass-cable-packages', requestBody: { provider: providerName } };
 }
@@ -271,6 +277,9 @@ export default function CableTVScreen() {
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
             functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'plustive') {
+            functionName = 'fetch-plustive-cable-packages';
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'anyone') {
             // ANYONE provider - use VTpass as fallback
@@ -488,6 +497,9 @@ export default function CableTVScreen() {
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'ebills' || vendingProvider === 'ebills.africa') {
             functionName = 'fetch-ebills-cable-packages';
+            requestBody = { provider: provider.name };
+          } else if (vendingProvider === 'plustive') {
+            functionName = 'fetch-plustive-cable-packages';
             requestBody = { provider: provider.name };
           } else if (vendingProvider === 'anyone') {
             // ANYONE provider - use VTpass as fallback
@@ -834,8 +846,17 @@ export default function CableTVScreen() {
 
       if (outcome.kind === 'pending') {
         idempotencyKeyRef.current = null;
+        setShowConfirmModal(false);
         void refreshBalance();
-        showPurchaseOutcome('pending', outcome.message);
+        const reference = outcome.reference || responseData?.data?.reference || responseData?.reference || '';
+        router.push(buildRouteHref('/payment-success', {
+          amount: totalAmount.toString(),
+          network: selectedProvider,
+          recipient: smartCardNumber,
+          serviceType: `Cable TV • ${selectedPlan.packageName}`,
+          reference,
+          chargeFee: chargeFee.toString(),
+        }));
         return;
       }
 
@@ -1248,8 +1269,9 @@ export default function CableTVScreen() {
 
       <PurchaseProgressOverlay
         visible={isProcessing}
-        title="Processing cable TV purchase..."
-        hint="Please keep this screen open until the purchase finishes."
+        title="Cable TV processing"
+        subtitle=""
+        hint=""
       />
 
       <PurchaseOutcomeSheet

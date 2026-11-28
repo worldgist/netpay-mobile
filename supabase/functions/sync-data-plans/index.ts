@@ -13,13 +13,14 @@ import {
   normalizeMobilenigDataPackage,
   resolveMobilenigDataServiceId,
 } from "../_shared/mobilenig-api.ts";
+import { listPlustiveDataPlans, plustiveProductId, plustiveProductPrice } from "../_shared/plustive-api.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-type ProviderId = "smeplug" | "ebills" | "mobilenig";
+type ProviderId = "smeplug" | "ebills" | "mobilenig" | "plustive";
 
 type SyncNetwork = {
   label: string; // stored network name in data_plans
@@ -47,6 +48,7 @@ type NormalizedPlan = {
   plan_type: string;
   smeplug_code?: string | null;
   mobilenig_code?: string | null;
+  plustive_code?: string | null;
   is_active: boolean;
 };
 
@@ -250,6 +252,44 @@ async function fetchMobilenigPlans(network: SyncNetwork): Promise<NormalizedPlan
   return [...merged.values()];
 }
 
+function plustiveNetworkLabel(raw: string): string {
+  const key = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (key.includes("AIRTEL")) return "Airtel";
+  if (key.includes("GLO")) return "Glo";
+  if (key.includes("9MOBILE") || key.includes("T2") || key.includes("ETISALAT")) return "T2";
+  if (key.includes("MTN")) return "MTN";
+  return raw.trim();
+}
+
+async function fetchPlustivePlans(allowed: Set<string>): Promise<NormalizedPlan[]> {
+  const products = await listPlustiveDataPlans();
+  const plans: NormalizedPlan[] = [];
+  for (const plan of products) {
+    const apiCode = plustiveProductId(plan);
+    const network = plustiveNetworkLabel(String(plan.network || plan.networkName || plan.provider || ""));
+    if (!apiCode || !allowed.has(network)) continue;
+    const name = String(plan.name || plan.label || apiCode).trim();
+    const priceKobo = plustiveProductPrice(plan);
+    const price = priceKobo > 0 ? Number((priceKobo / 100).toFixed(2)) : 0;
+    if (price <= 0) continue;
+    plans.push({
+      network,
+      plan_name: name,
+      price,
+      validity: "N/A",
+      api_code: apiCode,
+      provider: "plustive",
+      original_price: price,
+      vendor_price: price,
+      size: extractSize(name),
+      plan_type: inferPlanType(name),
+      plustive_code: apiCode,
+      is_active: true,
+    });
+  }
+  return plans;
+}
+
 async function upsertPlans(
   supabase: ReturnType<typeof createClient>,
   plans: NormalizedPlan[],
@@ -299,6 +339,7 @@ async function upsertPlans(
 
       if (plan.smeplug_code) row.smeplug_code = plan.smeplug_code;
       if (plan.mobilenig_code) row.mobilenig_code = plan.mobilenig_code;
+      if (plan.plustive_code) row.plustive_code = plan.plustive_code;
 
       if (hasCustom) {
         row.price = existing!.price;
@@ -356,7 +397,9 @@ serve(async (req) => {
 
     const requestedProviders = (body.providers || ["smeplug", "ebills", "mobilenig"])
       .map((p) => String(p).toLowerCase().trim())
-      .filter((p): p is ProviderId => p === "smeplug" || p === "ebills" || p === "mobilenig");
+      .filter((p): p is ProviderId =>
+        p === "smeplug" || p === "ebills" || p === "mobilenig" || p === "plustive"
+      );
 
     const requestedNetworks = (body.networks || [])
       .map((n) => String(n).toUpperCase().trim())
@@ -377,6 +420,23 @@ serve(async (req) => {
       const errors: string[] = [];
       let planCount = 0;
 
+      if (provider === "plustive") {
+        try {
+          const plans = await fetchPlustivePlans(new Set(networks.map((network) => network.label)));
+          planCount = plans.length;
+          const result = await upsertPlans(supabase, plans);
+          inserted = result.inserted;
+          updated = result.updated;
+          console.log(`sync-data-plans plustive: ${plans.length} plans`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("sync-data-plans plustive failed:", message);
+          errors.push(message);
+        }
+        summary[provider] = { planCount, inserted, updated, errors };
+        continue;
+      }
+
       for (const network of networks) {
         try {
           let plans: NormalizedPlan[] = [];
@@ -384,7 +444,7 @@ serve(async (req) => {
             plans = await fetchSmeplugPlans(network);
           } else if (provider === "ebills") {
             plans = await fetchEbillsPlans(network);
-          } else {
+          } else if (provider === "mobilenig") {
             plans = await fetchMobilenigPlans(network);
           }
 

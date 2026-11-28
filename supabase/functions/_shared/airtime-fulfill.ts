@@ -6,7 +6,16 @@ import {
   toMobilenigTransId,
 } from "./mobilenig-api.ts";
 import { classifyHttpFailure, smeplugNetworkId, type ProviderOutcome } from "./airtime-flow.ts";
-import { resolveMobilenigSecretKey, resolveSmeplugSecretKey } from "./vendor-secrets.ts";
+import {
+  buyPlustiveAirtime,
+  completePlustiveBuy,
+  getPlustiveTransaction,
+  mapPlustiveStatus,
+  PlustiveUnconfirmedError,
+  purchaseFromTransaction,
+  resolvePlustiveNetworkId,
+} from "./plustive-api.ts";
+import { resolveMobilenigSecretKey, resolvePlustiveApiKey, resolveSmeplugSecretKey } from "./vendor-secrets.ts";
 
 export type AirtimeJob = {
   id: string;
@@ -82,6 +91,7 @@ async function dispatchProvider(job: AirtimeJob): Promise<FulfillmentResult> {
   if (provider === "ebills") return fulfillEbills(job);
   if (provider === "mobilenig") return fulfillMobilenig(job);
   if (provider === "flutterwave") return fulfillFlutterwave(job);
+  if (provider === "plustive") return fulfillPlustive(job);
   return fulfillSmeplug(job);
 }
 
@@ -264,6 +274,63 @@ async function fulfillMobilenig(job: AirtimeJob): Promise<FulfillmentResult> {
   };
 }
 
+function plustiveNetworkId(value: string): string {
+  const trimmed = value.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)
+    ? trimmed
+    : "";
+}
+
+async function fulfillPlustive(job: AirtimeJob): Promise<FulfillmentResult> {
+  try {
+    const apiKey = (await resolvePlustiveApiKey()) || "";
+    if (!apiKey) return { outcome: "failed", error: "Airtime provider is not configured" };
+
+    // SMEPLUG ids such as "1" are not Plustive network ids. Resolve MTN/Airtel/Glo/T2 instead.
+    const networkId =
+      plustiveNetworkId(payloadString(job.payload, "plustive_network_id")) ||
+      plustiveNetworkId(payloadString(job.payload, "item_code")) ||
+      plustiveNetworkId(job.service_id) ||
+      (await resolvePlustiveNetworkId(job.network, apiKey));
+
+    const result = await completePlustiveBuy(
+      job.reference,
+      () => buyPlustiveAirtime({
+        networkId,
+        phone: job.phone_number,
+        amountNaira: Math.round(job.amount),
+        clientReference: job.reference,
+        apiKey,
+      }),
+      apiKey,
+    );
+
+    const recorded = { ...result, clientReference: job.reference };
+    const mapped = mapPlustiveStatus(result.status);
+    if (mapped === "failed") {
+      return {
+        outcome: "failed",
+        providerReference: String(result.reference || job.reference),
+        response: recorded,
+        error: String(result.failureReason || "Plustive airtime rejected this purchase"),
+      };
+    }
+    // Plustive accepts airtime immediately and reports Processing until a later
+    // check or webhook confirms. That accepted purchase is a success for the customer.
+    return {
+      outcome: "success",
+      providerReference: String(result.reference || result.providerReference || job.reference),
+      response: recorded,
+    };
+  } catch (error) {
+    if (error instanceof PlustiveUnconfirmedError) {
+      return { outcome: "uncertain", error: error.message, providerReference: job.reference };
+    }
+    const message = error instanceof Error ? error.message : "Plustive airtime request failed";
+    return { outcome: "failed", error: message, response: { error: message } };
+  }
+}
+
 async function fulfillFlutterwave(job: AirtimeJob): Promise<FulfillmentResult> {
   const itemCode = payloadString(job.payload, "item_code");
   const [billerCode, parsedItem] = itemCode.includes("|") ? itemCode.split("|") : ["", itemCode];
@@ -293,6 +360,36 @@ async function verifyAfterTimeout(job: AirtimeJob): Promise<FulfillmentResult> {
       return verifyEbills(job, token, requestId);
     } catch (error) {
       return { outcome: "uncertain", error: error instanceof Error ? error.message : "provider_timeout" };
+    }
+  }
+  if (job.provider === "plustive") {
+    try {
+      const found = await getPlustiveTransaction(job.provider_reference || job.reference);
+      if (!found) {
+        // The timed-out purchase may still be in flight. A 404 is not proof it failed.
+        return { outcome: "uncertain", providerReference: job.reference, error: "provider_timeout" };
+      }
+      const mapped = mapPlustiveStatus(found.status);
+      const response = purchaseFromTransaction(found);
+      if (mapped === "failed") {
+        return {
+          outcome: "failed",
+          providerReference: String(found.reference || job.reference),
+          response,
+          error: String(found.failureReason || "Plustive airtime failed"),
+        };
+      }
+      return {
+        outcome: "success",
+        providerReference: String(found.reference || job.reference),
+        response,
+      };
+    } catch (error) {
+      return {
+        outcome: "uncertain",
+        providerReference: job.reference,
+        error: error instanceof Error ? error.message : "provider_timeout",
+      };
     }
   }
   if (job.provider === "mobilenig") {

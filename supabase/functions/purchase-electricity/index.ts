@@ -12,6 +12,7 @@ import {
 import { runAfterResponse } from "../_shared/run-after-response.ts";
 import { handlePurchase as purchaseMobilenigElectricity } from "../purchase-mobilenig-electricity/handler.ts";
 import { handlePurchase as purchaseFlutterwaveElectricity } from "../purchase-flutterwave-electricity/handler.ts";
+import { handlePurchase as purchasePlustiveElectricity } from "../purchase-plustive-electricity/handler.ts";
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -119,6 +120,16 @@ serve(async (req) => {
       // Handle Flutterwave variations
       if (normalized === 'flutterwave' || normalized === 'flutter-wave' || normalized === 'flw') {
         return 'flutterwave';
+      }
+
+      // Handle Plustive variations
+      if (
+        normalized === 'plustive' ||
+        normalized === 'plustiveimpact' ||
+        normalized === 'plustive-impact' ||
+        normalized === 'plustive_impact'
+      ) {
+        return 'plustive';
       }
       
       // Return as-is if no normalization needed
@@ -735,19 +746,52 @@ serve(async (req) => {
       }
     }
 
+    // If using Plustive, route to Plustive handler
+    if (vendingProvider === 'plustive') {
+      try {
+        const plustiveResponse = await purchasePlustiveElectricity(localPurchaseRequest(req, authHeader, {
+            meter_number,
+            provider,
+            meter_type,
+            amount,
+            customer_name,
+            customer_address,
+            minimum_vend,
+          }, body));
+
+        const plustiveResult = await plustiveResponse.json();
+        return new Response(
+          JSON.stringify(plustiveResult),
+          {
+            status: plustiveResponse.status,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          },
+        );
+      } catch (plustiveError) {
+        console.error('Error forwarding to Plustive electricity function:', plustiveError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Failed to process Plustive electricity purchase. Please try again.',
+          }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
     // If no matching provider, return error with all supported providers
     console.error(`Unsupported electricity vending provider: ${vendingProvider} (normalized from: ${rawVendingProvider}). Admin must set a valid provider.`, {
       rawProvider: rawVendingProvider,
       normalizedProvider: vendingProvider,
-      supportedProviders: ['mobilenig', 'ebills', 'flutterwave'],
+      supportedProviders: ['mobilenig', 'ebills', 'flutterwave', 'plustive'],
     });
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: `Unsupported electricity vending provider: ${vendingProvider}. Supported providers: mobilenig, ebills, flutterwave. Please contact administrator to configure a valid provider.`,
+        error: `Unsupported electricity vending provider: ${vendingProvider}. Supported providers: mobilenig, ebills, flutterwave, plustive. Please contact administrator to configure a valid provider.`,
         vending_provider: vendingProvider,
         raw_vending_provider: rawVendingProvider,
-        supported_providers: ['mobilenig', 'ebills', 'flutterwave']
+        supported_providers: ['mobilenig', 'ebills', 'flutterwave', 'plustive']
       }),
       { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
     );

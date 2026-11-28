@@ -138,3 +138,34 @@ export async function requireMobilenigPublicKey(
   }
   return key;
 }
+
+/** Plustive Impact Bearer key (pk_live_… / pk_test_…). */
+export function getPlustiveApiKeyFromEnv(): string | null {
+  const raw = envFirst(
+    "PLUSTIVE_API_KEY",
+    "PLUSTIVE_SECRET_KEY",
+    "PLUSTIVE_KEY",
+  );
+  if (!raw) return null;
+  const key = raw.replace(/^Bearer\s+/i, "").replace(/^["']|["']$/g, "").trim();
+  return key || null;
+}
+
+export async function resolvePlustiveApiKey(
+  supabase?: SupabaseClient | null,
+): Promise<string | null> {
+  const fromEnv = getPlustiveApiKeyFromEnv();
+  if (fromEnv) return fromEnv;
+  const row = await vendorRow("plustive", supabase);
+  return firstNonEmpty(row?.api_key, row?.secret);
+}
+
+export async function requirePlustiveApiKey(
+  supabase?: SupabaseClient | null,
+): Promise<string> {
+  const key = await resolvePlustiveApiKey(supabase);
+  if (!key) {
+    throw new Error("PLUSTIVE_API_KEY is not configured in Supabase Edge Function secrets");
+  }
+  return key;
+}

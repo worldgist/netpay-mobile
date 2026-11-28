@@ -50,7 +50,7 @@ export async function getRequestUser(req: Request): Promise<User> {
   const { data: { user }, error: authError } = await createAuthClient().auth.getUser(jwt);
 
   if (authError || !user) {
-    throw new Error("Unauthorized");
+    throw new Error(authError?.message || "Unauthorized");
   }
 
   return user;

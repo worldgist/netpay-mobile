@@ -41,14 +41,44 @@ export const shouldSuppressError = (error: any): boolean => {
   return handledNetworkErrors.has(errorKey);
 };
 
+const isFontFaceObserverTimeout = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const stack = error instanceof Error ? error.stack || '' : '';
+  return (
+    message.includes('12000ms timeout exceeded') ||
+    (message.includes('timeout exceeded') && (stack.includes('fontfaceobserver') || message.includes('fontfaceobserver')))
+  );
+};
+
+// Expo web verifies icon fonts with FontFaceObserver (12s). On a slow Metro reload the
+// check rejects even though the @font-face stylesheet already applied. Swallow that
+// rejection here so it never becomes the full-screen "Uncaught Error" overlay.
+try {
+  const fontModule = require('fontfaceobserver') as {
+    prototype: { load: (text?: string | null, timeout?: number) => Promise<unknown> };
+  };
+  const originalLoad = fontModule.prototype.load;
+  fontModule.prototype.load = function loadWithoutTimeoutOverlay(
+    this: unknown,
+    text?: string | null,
+    timeout?: number,
+  ) {
+    return Promise.resolve(originalLoad.call(this, text, timeout)).catch((error: unknown) => {
+      if (isFontFaceObserverTimeout(error)) return undefined;
+      throw error;
+    });
+  };
+} catch {
+  // fontfaceobserver is only present on web bundles.
+}
+
 // Set up global error handler for React Native
 if (typeof ErrorUtils !== 'undefined') {
   const originalHandler = ErrorUtils.getGlobalHandler();
   
   ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
-    // Suppress network errors that are already being handled
-    if (shouldSuppressError(error)) {
-      // Silently ignore - error is already handled by the app
+    // Suppress network errors that are already being handled, and harmless font checks.
+    if (shouldSuppressError(error) || isFontFaceObserverTimeout(error)) {
       return;
     }
     
@@ -60,15 +90,6 @@ if (typeof ErrorUtils !== 'undefined') {
     }
   });
 }
-
-const isFontFaceObserverTimeout = (error: unknown): boolean => {
-  const message = error instanceof Error ? error.message : String(error || '');
-  const stack = error instanceof Error ? error.stack || '' : '';
-  return (
-    message.includes('12000ms timeout exceeded') ||
-    (message.includes('timeout exceeded') && stack.includes('fontfaceobserver'))
-  );
-};
 
 // Also intercept console.error for network errors
 const originalConsoleError = console.error;
@@ -108,13 +129,28 @@ console.error = (...args: any[]) => {
   originalConsoleError.apply(console, args);
 };
 
-// Swallow unhandled FontFaceObserver rejections on web.
+// Swallow unhandled FontFaceObserver rejections on web before the Expo error overlay.
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-  window.addEventListener('unhandledrejection', (event) => {
-    if (isFontFaceObserverTimeout(event.reason)) {
-      event.preventDefault();
-    }
-  });
+  window.addEventListener(
+    'unhandledrejection',
+    (event) => {
+      if (isFontFaceObserverTimeout(event.reason)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
+  window.addEventListener(
+    'error',
+    (event) => {
+      if (isFontFaceObserverTimeout(event.error || event.message)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
 }
 
 

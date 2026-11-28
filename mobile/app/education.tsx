@@ -877,8 +877,18 @@ export default function EducationScreen() {
       const purchaseOutcome = parsePurchaseResponse(finalData, true);
       if (purchaseOutcome.kind === 'pending') {
         idempotencyKeyRef.current = null;
+        setShowConfirmModal(false);
         void refreshBalance();
-        showPurchaseOutcome('pending', purchaseOutcome.message);
+        const pins = finalData?.data?.pins || [];
+        const reference = purchaseOutcome.reference || finalData?.data?.reference || finalData?.reference || '';
+        router.push(buildRouteHref('/payment-success', {
+          amount: totalAmount.toString(),
+          network: selectedServiceName,
+          recipient: selectedService.examType === 'JAMB' ? referenceNumber : '',
+          serviceType: `Education • ${selectedService.examType ?? ''}`,
+          reference,
+          pins: JSON.stringify(pins),
+        }));
         return;
       }
       if (purchaseOutcome.kind === 'connection_uncertain') {
@@ -1325,8 +1335,9 @@ export default function EducationScreen() {
 
       <PurchaseProgressOverlay
         visible={isProcessing}
-        title="Processing education purchase..."
-        hint="Please keep this screen open until the PIN is ready."
+        title="Education processing"
+        subtitle=""
+        hint=""
       />
 
       <PurchaseOutcomeSheet

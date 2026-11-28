@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Search, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -13,9 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { formatNaira } from "@/lib/currency";
-import { normalizeVendingProvider } from "@/lib/vending-settings";
-
-type BettingVendingProvider = "ebills";
 
 interface BettingTransaction {
   id: string;
@@ -47,70 +43,11 @@ export default function BettingManagement() {
   const [transactionSearchQuery, setTransactionSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [providerFilter, setProviderFilter] = useState("all");
-  const [vendingProvider, setVendingProvider] = useState<BettingVendingProvider>("ebills");
-  const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    void fetchBettingProvider();
     fetchTransactions();
   }, [statusFilter, providerFilter]);
-
-  const fetchBettingProvider = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("app_settings")
-        .select("setting_value")
-        .eq("setting_key", "betting_provider")
-        .maybeSingle();
-
-      if (error) {
-        console.error("Error fetching betting provider setting:", error);
-        return;
-      }
-
-      const raw =
-        typeof data?.setting_value === "string"
-          ? data.setting_value
-          : (data?.setting_value as { provider?: string; value?: string } | null)?.provider
-            || (data?.setting_value as { value?: string } | null)?.value;
-      const normalized = normalizeVendingProvider(raw) || "ebills";
-      setVendingProvider(normalized === "ebills" ? "ebills" : "ebills");
-    } catch (error) {
-      console.error("Error fetching betting provider:", error);
-    }
-  };
-
-  const updateBettingProvider = async (newProvider: BettingVendingProvider) => {
-    setIsUpdatingProvider(true);
-    try {
-      const { error } = await supabase.from("app_settings").upsert(
-        {
-          setting_key: "betting_provider",
-          setting_value: { provider: newProvider },
-          setting_category: "system",
-          description: "Betting vending provider",
-        },
-        { onConflict: "setting_key" },
-      );
-      if (error) throw error;
-
-      setVendingProvider(newProvider);
-      toast({
-        title: "Provider updated",
-        description: `Betting now routes through ${newProvider === "ebills" ? "eBills Africa" : newProvider.toUpperCase()}.`,
-      });
-    } catch (error) {
-      console.error("Error updating betting provider:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update betting provider",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingProvider(false);
-    }
-  };
 
   const fetchTransactions = async () => {
     try {
@@ -222,46 +159,6 @@ export default function BettingManagement() {
           </header>
 
           <div className="p-6 space-y-6">
-            {/* Vending Provider Selector */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Vending Provider Settings</CardTitle>
-                <CardDescription>
-                  Choose the default vending provider for betting purchases. Managed here — not in Treasury.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-4">
-                  <Label htmlFor="betting-vending-provider" className="min-w-[150px] font-semibold">
-                    Active Provider:
-                  </Label>
-                  <Select
-                    value={vendingProvider}
-                    onValueChange={(value) => updateBettingProvider(value as BettingVendingProvider)}
-                    disabled={isUpdatingProvider}
-                  >
-                    <SelectTrigger id="betting-vending-provider" className="w-[250px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ebills">
-                        <div className="flex flex-col">
-                          <span>eBills Africa</span>
-                          <span className="text-xs text-muted-foreground">Betting verify + purchase API</span>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {isUpdatingProvider && (
-                    <span className="text-sm text-muted-foreground">Updating...</span>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Current provider: <span className="font-medium text-foreground">eBills Africa</span>. Customer verification and wallet debits use this provider.
-                </p>
-              </CardContent>
-            </Card>
-
             {/* Betting Transactions */}
             <Card>
               <CardHeader>
@@ -345,7 +242,6 @@ export default function BettingManagement() {
                         <TableHead>Account Number</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Charge Fee</TableHead>
-                        <TableHead>Vending Provider</TableHead>
                         <TableHead>Balance</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
@@ -354,13 +250,13 @@ export default function BettingManagement() {
                     <TableBody>
                       {loadingTransactions ? (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center text-muted-foreground">
+                          <TableCell colSpan={9} className="text-center text-muted-foreground">
                             Loading transactions...
                           </TableCell>
                         </TableRow>
                       ) : filteredTransactions.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center text-muted-foreground">
+                          <TableCell colSpan={9} className="text-center text-muted-foreground">
                             No betting transactions found
                           </TableCell>
                         </TableRow>
@@ -414,11 +310,6 @@ export default function BettingManagement() {
                             </TableCell>
                             <TableCell>
                               {txn.charge_fee ? formatNaira(txn.charge_fee) : '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {txn.vending_provider?.toUpperCase() || 'N/A'}
-                              </Badge>
                             </TableCell>
                             <TableCell className="text-xs">
                               <div>{formatNaira(txn.balance_before || 0)} → {formatNaira(txn.balance_after || 0)}</div>

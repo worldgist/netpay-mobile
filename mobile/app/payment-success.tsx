@@ -34,6 +34,49 @@ export default function PaymentSuccessScreen() {
   }, [pinsParam]);
   
   const isEducationPurchase = serviceType.toLowerCase().includes('education');
+  const successCopy = useMemo(() => {
+    const value = serviceType.toLowerCase();
+    if (value.includes('electricity')) {
+      return {
+        title: 'Electricity Successful!',
+        message: 'Your electricity token is ready',
+      };
+    }
+    if (value.includes('airtime')) {
+      return {
+        title: 'Airtime Successful!',
+        message: 'Your airtime has been sent successfully',
+      };
+    }
+    if (value.includes('data')) {
+      return {
+        title: 'Data Successful!',
+        message: 'Your data has been sent successfully',
+      };
+    }
+    if (value.includes('cable')) {
+      return {
+        title: 'Cable TV Successful!',
+        message: 'Your cable TV subscription was successful',
+      };
+    }
+    if (value.includes('education')) {
+      return {
+        title: 'Education Successful!',
+        message: 'Your education purchase was successful',
+      };
+    }
+    if (value.includes('betting')) {
+      return {
+        title: 'Betting Successful!',
+        message: 'Your betting purchase was successful',
+      };
+    }
+    return {
+      title: 'Payment Successful!',
+      message: 'Your payment has been processed successfully',
+    };
+  }, [serviceType]);
 
   const transactionReference = referenceParam || generateReference(serviceType || 'PAYMENT');
   const currentDate = new Date();
@@ -136,13 +179,11 @@ export default function PaymentSuccessScreen() {
           {/* Success Message */}
           <View style={styles.titleContainer}>
             <ThemedText style={styles.successTitle} numberOfLines={2} adjustsFontSizeToFit>
-              {serviceType.toLowerCase().includes('electricity') ? 'Electricity Purchase Successful!' : 'Payment Successful!'}
+              {successCopy.title}
             </ThemedText>
           </View>
           <ThemedText style={styles.successMessage}>
-            {serviceType.toLowerCase().includes('electricity') 
-              ? 'Your electricity recharge has been processed successfully'
-              : 'Your payment has been processed successfully'}
+            {successCopy.message}
           </ThemedText>
 
 

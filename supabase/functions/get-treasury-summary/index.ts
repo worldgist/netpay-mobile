@@ -6,11 +6,10 @@ import {
   jsonResponse,
   requireAdmin,
 } from "../_shared/admin-auth.ts";
-import { getEBillsToken, getEBillsBalance } from "../_shared/ebills-api.ts";
 import { fetchSmeplugWalletBalance } from "../_shared/smeplug-balance.ts";
 import { flutterwaveJson } from "../_shared/flutterwave-http.ts";
 
-type VendorKey = "smeplug" | "ebills" | "mobilenig" | "payvessel";
+type VendorKey = "smeplug" | "plustive" | "mobilenig";
 
 type BalanceStatus = "ok" | "low" | "critical" | "error" | "unconfigured";
 
@@ -347,45 +346,16 @@ serve(async (req) => {
       })(),
       (async () => {
         try {
-          const token = await getEBillsToken();
-          const balanceData = await getEBillsBalance(token);
-          return { key: "ebills" as const, configured: true, amount: num(balanceData?.data?.balance) };
+          const { getPlustiveBalance } = await import("../_shared/plustive-api.ts");
+          const balance = await getPlustiveBalance();
+          return { key: "plustive" as const, configured: true, amount: num(balance.balance) };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (/not configured|missing/i.test(message)) {
-            return { key: "ebills" as const, configured: false, amount: null as number | null };
+            return { key: "plustive" as const, configured: false, amount: null as number | null };
           }
           throw error;
         }
-      })(),
-      (async () => {
-        const payvesselApiKey = Deno.env.get("PAYVESSEL_API_KEY");
-        const payvesselSecretKey = Deno.env.get("PAYVESSEL_SECRET_KEY");
-        if (!payvesselApiKey || !payvesselSecretKey) {
-          return { key: "payvessel" as const, configured: false, amount: null as number | null };
-        }
-        // Reuse lightweight balance endpoint
-        const apiSecret = payvesselSecretKey.trim().replace(/^['"]|['"]$/g, "").replace(/^Bearer\s+/i, "").trim();
-        const response = await fetch("https://api.payvessel.com/pms/api/external/request/wallet/balance/", {
-          method: "GET",
-          headers: {
-            "api-key": payvesselApiKey.trim().replace(/^['"]|['"]$/g, ""),
-            "api-secret": apiSecret,
-            Authorization: `Bearer ${apiSecret}`,
-            "Content-Type": "application/json",
-          },
-        });
-        const body = await response.json().catch(() => ({}));
-        const amount = num(
-          body?.data?.available_balance ??
-            body?.data?.availableBalance ??
-            body?.data?.balance ??
-            body?.available_balance ??
-            body?.balance,
-          NaN,
-        );
-        if (!Number.isFinite(amount)) throw new Error(body?.message || "PayVessel balance unavailable");
-        return { key: "payvessel" as const, configured: true, amount };
       })(),
       (async () => {
         try {
@@ -418,9 +388,8 @@ serve(async (req) => {
 
     const vendorMeta: Record<VendorKey, { label: string; role: string; detailPath: string }> = {
       smeplug: { label: "SMEPLUG", role: "Airtime & data vending", detailPath: "/smeplug" },
-      ebills: { label: "eBills Africa", role: "Multi-service vending", detailPath: "/ebills" },
+      plustive: { label: "Plustive Impact", role: "Airtime, data, and bill vending", detailPath: "/plustive" },
       mobilenig: { label: "MobileNig", role: "Cable & electricity vending", detailPath: "/mobilenig" },
-      payvessel: { label: "PayVessel", role: "User wallet funding", detailPath: "/payvessel" },
     };
 
     for (const settled of balanceFetches) {

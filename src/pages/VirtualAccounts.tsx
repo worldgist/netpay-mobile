@@ -52,13 +52,11 @@ interface UserNinRow {
 function providerLabel(provider: string | null): string {
   if (!provider) return "Unknown";
   if (provider === "flutterwave") return "Flutterwave";
-  if (provider === "payvessel") return "PayVessel";
   return provider;
 }
 
 function providerVariant(provider: string | null): "default" | "secondary" | "outline" {
   if (provider === "flutterwave") return "default";
-  if (provider === "payvessel") return "secondary";
   return "outline";
 }
 
@@ -99,7 +97,12 @@ export default function VirtualAccounts() {
       throw error;
     }
 
-    const accountRows = (data as VirtualAccountRow[]) || [];
+    const accountRows = ((data as VirtualAccountRow[]) || []).filter((row) => {
+      const provider = (row.provider || "").toLowerCase();
+      const accountName = (row.account_name || "").toLowerCase();
+      const bankName = (row.bank_name || "").toLowerCase();
+      return provider !== "payvessel" && !accountName.includes("payvessel") && !bankName.includes("payvessel");
+    });
     const userIds = [...new Set(accountRows.map((row) => row.user_id))];
 
     const [{ data: profileRows, error: profileError }, { data: ninRows, error: ninError }] = await Promise.all([
@@ -249,7 +252,6 @@ export default function VirtualAccounts() {
 
   const stats = useMemo(() => {
     const flutterwaveCount = rowsWithNin.filter((row) => row.provider === "flutterwave").length;
-    const payvesselCount = rowsWithNin.filter((row) => row.provider === "payvessel").length;
     const withNinCount = rowsWithNin.filter((row) => row.resolvedNin).length;
     const uniqueUsers = new Set(rowsWithNin.map((row) => row.user_id)).size;
 
@@ -257,7 +259,6 @@ export default function VirtualAccounts() {
       total: rowsWithNin.length,
       uniqueUsers,
       flutterwaveCount,
-      payvesselCount,
       withNinCount,
     };
   }, [rowsWithNin]);
@@ -339,9 +340,9 @@ export default function VirtualAccounts() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardDescription>Flutterwave / PayVessel</CardDescription>
+                  <CardDescription>Flutterwave</CardDescription>
                   <CardTitle className="text-3xl">
-                    {stats.flutterwaveCount} / {stats.payvesselCount}
+                    {stats.flutterwaveCount}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -375,7 +376,6 @@ export default function VirtualAccounts() {
                     <SelectContent>
                       <SelectItem value="all">All providers</SelectItem>
                       <SelectItem value="flutterwave">Flutterwave</SelectItem>
-                      <SelectItem value="payvessel">PayVessel</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>

@@ -193,7 +193,7 @@ Essential cookies/session storage for login and security; optional analytics to 
 
 We share data only as needed with:
 
-- **Payment partners** (for example Flutterwave, PayVessel and similar) for funding and settlement
+- **Payment partners** (for example Flutterwave) for funding and settlement
 - **Vending / bill partners** (telecom, electricity, cable, education, betting aggregators) to fulfil orders
 - **Infrastructure providers** (for example cloud/database hosting such as Supabase) under contractual safeguards
 - **Regulators or law enforcement** when required by law

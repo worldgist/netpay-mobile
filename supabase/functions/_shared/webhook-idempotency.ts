@@ -62,6 +62,13 @@ export function buildSmeplugEventId(
   return normalizeWebhookEventId(`smeplug:${stableId}:${reference}:${status}`);
 }
 
+export function buildPlustiveEventId(payload: Record<string, unknown>): string {
+  const event = String(payload.event || "transaction");
+  const reference = String(payload.reference || payload.clientReference || "na");
+  const status = String(payload.status || "na");
+  return normalizeWebhookEventId(`plustive:${event}:${reference}:${status}`);
+}
+
 export function buildPayvesselEventId(
   payload: Record<string, unknown>,
   reference: string | null | undefined,

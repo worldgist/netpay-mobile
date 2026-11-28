@@ -205,7 +205,7 @@ export default function AddMoney() {
 
       toast({
         title: "Success!",
-        description: "PayVessel virtual account created successfully",
+        description: "Virtual account created successfully",
       });
     } catch (err) {
       console.error("Error creating virtual account:", err);
@@ -320,7 +320,7 @@ export default function AddMoney() {
           <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
           <div className="text-sm text-foreground">
             <p className="font-semibold mb-1">Fund your wallet</p>
-            <p>Create a dedicated PayVessel virtual account and transfer into it to fund your wallet.</p>
+            <p>Create a dedicated virtual account and transfer into it to fund your wallet.</p>
           </div>
         </div>
 
@@ -354,7 +354,7 @@ export default function AddMoney() {
                   className="w-full px-4 py-3 rounded-lg border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   maxLength={11}
                 />
-                <p className="text-xs text-muted-foreground">Required for PayVessel account verification</p>
+                <p className="text-xs text-muted-foreground">Required to verify your virtual account</p>
               </div>
 
               <Button
@@ -368,7 +368,7 @@ export default function AddMoney() {
                     Creating Account...
                   </>
                 ) : (
-                  "Create PayVessel Account"
+                  "Create virtual account"
                 )}
               </Button>
             </div>

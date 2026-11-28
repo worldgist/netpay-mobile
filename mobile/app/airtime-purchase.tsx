@@ -122,6 +122,14 @@ const resolveAirtimeNetworkId = (
     return provider.networkName || provider.displayName || provider.network || null;
   }
 
+  if (normalizedProvider === 'plustive') {
+    const code = provider.apiCode?.trim() || '';
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code)) {
+      return code;
+    }
+    return provider.network || provider.networkName || provider.displayName || null;
+  }
+
   const smeplugId = provider.network ? SMEPLUG_NETWORK_IDS[provider.network] : null;
   return (smeplugId || provider.apiCode)?.trim() || null;
 };
@@ -523,14 +531,17 @@ export default function AirtimePurchaseScreen() {
 
       if (outcome.kind === 'pending') {
         const reference = String(data?.reference || data?.data?.reference || outcome.reference || '');
-        showPurchaseOutcome(
-          'pending',
-          reference
-            ? `Processing airtime purchase...\nReference: ${reference}`
-            : 'Processing airtime purchase...',
-        );
+        setShowConfirmModal(false);
         idempotencyKeyRef.current = null;
         await refreshBalance();
+        const currentAmountValue = Number.isNaN(Number.parseFloat(amount.replace(/,/g, ''))) ? 0 : Number.parseFloat(amount.replace(/,/g, ''));
+        router.push(buildRouteHref('/payment-success', {
+          amount: currentAmountValue.toString(),
+          network: currentSelectedProviderDetails?.displayName || '',
+          recipient: phoneNumber,
+          serviceType: 'Airtime VTU',
+          reference,
+        }));
         return;
       }
 
@@ -842,9 +853,9 @@ export default function AirtimePurchaseScreen() {
 
       <PurchaseProgressOverlay
         visible={isProcessing}
-        title="Processing airtime purchase..."
-        subtitle="Sending airtime to this number now."
-        hint="Please keep this screen open until the purchase finishes."
+        title="Airtime processing"
+        subtitle=""
+        hint=""
       />
 
       <PurchaseOutcomeSheet

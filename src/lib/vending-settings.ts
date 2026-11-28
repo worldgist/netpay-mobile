@@ -43,6 +43,14 @@ export function normalizeVendingProvider(raw: unknown): string {
   if (normalized === 'flutter-wave' || normalized === 'flutter_wave' || normalized === 'flw') {
     normalized = 'flutterwave';
   }
+  if (
+    normalized === 'plustive' ||
+    normalized === 'plustiveimpact' ||
+    normalized === 'plustive-impact' ||
+    normalized === 'plustive_impact'
+  ) {
+    normalized = 'plustive';
+  }
 
   return normalized;
 }

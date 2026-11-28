@@ -45,9 +45,9 @@ supabase db push
 # or run supabase/migrations/20261126010000_chatgpt_oauth_integration.sql
 ```
 
-### 2. Env secrets (Vercel project `chatgpt-mcp`)
+### 2. Env secrets (Vercel project `chatgpt-mcp` under worldgist / `netpayuser-2571s-projects`)
 
-Copy `.env.example` → set in Vercel:
+Copy `.env.example` → set in Vercel (team **netpayuser-2571s-projects**, GitHub **worldgist/netpay-mobile**, Root Directory `chatgpt-mcp`):
 
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - `MCP_TOKEN_SIGNING_SECRET`, `MCP_ENCRYPTION_KEY`
@@ -58,12 +58,13 @@ Copy `.env.example` → set in Vercel:
 ### 3. Deploy MCP to Vercel
 
 ```bash
-cd chatgpt-mcp
-npm install
-npx vercel --prod
+# from repo root (Root Directory is chatgpt-mcp)
+npx vercel login   # use the worldgist-linked Vercel user (worlgist)
+npx vercel link --yes --project chatgpt-mcp --scope netpayuser-2571s-projects
+npx vercel deploy --prod --yes --scope netpayuser-2571s-projects
 ```
 
-Attach custom domain **`mcp.netppay.com`** to the project.
+Attach custom domain **`mcp.netppay.com`** to this project (remove it from any old mustynetpay14 project first).
 
 Verify:
 

@@ -658,6 +658,15 @@ serve(async (req) => {
       );
     }
 
+    if (vendingProvider === 'plustive') {
+      return await verifyWithPlustive(
+        String(meter_number),
+        String(provider),
+        String(meter_type),
+        corsHeaders,
+      );
+    }
+
     // Default to MobileNig/SMEPLUG verification
     return await verifyWithMobileNig(
       String(meter_number),
@@ -1015,6 +1024,73 @@ async function verifyWithMobileNig(
         error: err?.message || 'Service temporarily unavailable. Please try again later.',
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
+async function verifyWithPlustive(
+  meterNumber: string,
+  provider: string,
+  meterType: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const sanitizedMeter = normalizeMeter(meterNumber);
+  if (!sanitizedMeter) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Meter number is required" }),
+      { status: 200, headers: corsHeaders },
+    );
+  }
+
+  try {
+    const {
+      resolvePlustiveElectricityProductId,
+      verifyPlustiveElectricity,
+    } = await import("../_shared/plustive-api.ts");
+
+    const productId = await resolvePlustiveElectricityProductId(provider, meterType);
+    const verified = await verifyPlustiveElectricity({
+      productId,
+      meterNumber: sanitizedMeter,
+      meterType,
+    });
+
+    const status = String(verified.status || "").toLowerCase();
+    if (status && status !== "valid" && status !== "success" && status !== "ok") {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Invalid meter number",
+          errorType: "invalid_meter",
+          details: verified.raw,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          customer_name: verified.customerName || "",
+          customer_address: verified.customerAddress || "",
+          meter_number: sanitizedMeter,
+          provider,
+          meter_type: meterType,
+          minimum_vend: verified.minimumPurchase || null,
+          vending_provider: "plustive",
+        },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (err: unknown) {
+    console.error("Error in Plustive meter verification:", err);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : "Service temporarily unavailable. Please try again later.",
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 }

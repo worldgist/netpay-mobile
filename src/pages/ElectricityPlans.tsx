@@ -39,13 +39,41 @@ interface ElectricityTransaction {
 }
 
 export default function ElectricityPlans() {
-  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave'>('vtpass');
+  const [vendingProvider, setVendingProvider] = useState<'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave' | 'plustive'>('vtpass');
   const [isUpdatingProvider, setIsUpdatingProvider] = useState(false);
   const [transactions, setTransactions] = useState<ElectricityTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [transactionSearchQuery, setTransactionSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isImportingPlustive, setIsImportingPlustive] = useState(false);
   const { toast } = useToast();
+
+  const importPlustiveProducts = async () => {
+    setIsImportingPlustive(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expired. Please sign in again.");
+      const { data, error } = await supabase.functions.invoke("fetch-plustive-electricity-products", {
+        body: {},
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Failed to import Plustive electricity products");
+      const stored = data?.metadata?.stored ?? data?.data?.length ?? 0;
+      toast({
+        title: "Plustive electricity products imported",
+        description: `${stored} disco product${stored === 1 ? "" : "s"} stored.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error?.message || "Unable to import Plustive electricity products",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImportingPlustive(false);
+    }
+  };
 
   useEffect(() => {
     fetchElectricityProvider();
@@ -73,9 +101,9 @@ export default function ElectricityPlans() {
             : (data.setting_value as { provider?: string; value?: string } | null)?.provider
               || (data.setting_value as { value?: string } | null)?.value;
         const provider = normalizeVendingProvider(raw) || "vtpass";
-        const validProviders = ['vtpass', 'mobilenig', 'ebills', 'flutterwave', 'smeplug'];
+        const validProviders = ['vtpass', 'mobilenig', 'ebills', 'flutterwave', 'smeplug', 'plustive'];
         const selectedProvider = validProviders.includes(provider)
-          ? provider as 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave'
+          ? provider as 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave' | 'plustive'
           : 'vtpass';
         console.log('Setting electricity vending provider to:', selectedProvider);
         setVendingProvider(selectedProvider);
@@ -89,7 +117,7 @@ export default function ElectricityPlans() {
     }
   };
 
-  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave') => {
+  const updateElectricityProvider = async (newProvider: 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave' | 'plustive') => {
     setIsUpdatingProvider(true);
     try {
       const { error } = await supabase
@@ -98,7 +126,7 @@ export default function ElectricityPlans() {
           setting_key: 'electricity_provider',
           setting_value: { provider: newProvider },
           setting_category: 'system',
-          description: 'Electricity vending provider: vtpass, mobilenig, ebills, or flutterwave'
+          description: 'Electricity vending provider: vtpass, mobilenig, ebills, flutterwave, or plustive'
         }, {
           onConflict: 'setting_key'
         });
@@ -223,7 +251,7 @@ export default function ElectricityPlans() {
                   </Label>
                   <Select
                     value={vendingProvider}
-                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave')}
+                    onValueChange={(value) => updateElectricityProvider(value as 'vtpass' | 'mobilenig' | 'ebills' | 'flutterwave' | 'plustive')}
                     disabled={isUpdatingProvider}
                   >
                     <SelectTrigger id="vending-provider" className="w-[200px]">
@@ -232,8 +260,8 @@ export default function ElectricityPlans() {
                     <SelectContent>
                       <SelectItem value="vtpass">VTpass</SelectItem>
                       <SelectItem value="mobilenig">MobileNig</SelectItem>
-                      <SelectItem value="ebills">eBills Africa</SelectItem>
                       <SelectItem value="flutterwave">Flutterwave</SelectItem>
+                      <SelectItem value="plustive">Plustive</SelectItem>
                     </SelectContent>
                   </Select>
                   {isUpdatingProvider && (
@@ -243,6 +271,15 @@ export default function ElectricityPlans() {
                 <p className="text-sm text-muted-foreground mt-2">
                   This setting determines which vendor API will be used for electricity purchases when no specific provider is selected by the user.
                 </p>
+                <Button
+                  variant="outline"
+                  onClick={importPlustiveProducts}
+                  disabled={isImportingPlustive}
+                  className="mt-4 flex items-center gap-2 w-fit"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isImportingPlustive ? "animate-spin" : ""}`} />
+                  {isImportingPlustive ? "Importing…" : "Import Plustive discos"}
+                </Button>
               </CardContent>
             </Card>
 
